@@ -110,6 +110,11 @@ pub struct Config {
     /// and typing a printable character starts a quick search instead of
     /// entering text. (Missing from an old config → the struct default, `true`.)
     pub command_prompt: bool,
+    /// Draw a Nerd Font glyph per file type in the listing instead of the plain
+    /// `ls -F` classify characters (`/`, `*`, `@`, `!`). Needs a Nerd Font
+    /// installed in the terminal, so it is off unless asked for. (Missing from an
+    /// old config → the struct default, `false`.)
+    pub nerd_font: bool,
     /// Number of columns in the Brief (multi-column names) view.
     /// (Missing from an old config → the struct default, `2`.)
     pub brief_columns: usize,
@@ -174,6 +179,7 @@ impl Default for Config {
             animation: false,
             system_status: true,
             command_prompt: true,
+            nerd_font: false,
             brief_columns: 2,
             command_history_max: 100,
             panels: [PanelView::default(); 2],

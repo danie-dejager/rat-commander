@@ -264,6 +264,19 @@ impl AppState {
         p.cwd.clone()
     }
 
+    /// Whether the panels draw Nerd Font type glyphs instead of the `ls -F`
+    /// classify characters. While the Settings dialog is open this follows its
+    /// live checkbox, so the listings behind it update as the box is ticked and
+    /// snap back when the dialog is cancelled (nothing is stored until submit).
+    pub(crate) fn nerd_font_active(&self) -> bool {
+        match &self.dialog {
+            Some(Dialog::Form(fd)) => {
+                fd.check_value("Nerd Font symbols").unwrap_or(self.config.nerd_font)
+            }
+            _ => self.config.nerd_font,
+        }
+    }
+
     /// Whether the active UI theme has a dark background (picks a fitting syntax
     /// highlighting theme).
     pub(in crate::app::state) fn dark_ui(&self) -> bool {

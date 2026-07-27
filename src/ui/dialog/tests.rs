@@ -990,7 +990,7 @@ fn settings_dialog_renders_three_group_boxes() {
         "settings should show the program version"
     );
     // A representative field from each group is present.
-    for field in ["Reshape RTL text", "External editor", "Theme", "Graphics"] {
+    for field in ["Reshape RTL text", "External editor", "Theme", "Nerd Font symbols", "Graphics"] {
         assert!(s.contains(field), "settings should show the '{field}' field");
     }
 }
@@ -1002,13 +1002,11 @@ fn form_ok_button_click_submits_over_a_focused_choice_field() {
     let area = Rect::new(0, 0, 80, 24);
     // Settings' first field (the default focus) is the Language *Choice*: a bare
     // Enter there opens its dropdown. A mouse click on OK must still submit the
-    // form rather than acting on that field. Geometry mirrors `outer_rect` for
-    // the grouped settings box (three group boxes + spacer + hint + border).
-    let w = 72u16.min(area.width - 4);
-    let h = 22u16;
-    let x = area.x + (area.width - w) / 2;
-    let y = area.y + (area.height - h) / 2;
-    let button_row = y + h - 2;
+    // form rather than acting on that field. The box geometry comes from the
+    // dialog itself, so adding a settings field doesn't invalidate the test.
+    let rect = FormDialog::settings(&cfg, true).outer_rect(area);
+    let (x, y, w) = (rect.x, rect.y, rect.width);
+    let button_row = y + rect.height - 2;
 
     let mut dlg = Dialog::Form(FormDialog::settings(&cfg, true));
     match dlg.handle_click(area, x + 5, button_row) {
@@ -1270,18 +1268,21 @@ fn chown_form_mouse_focuses_the_clicked_text_field() {
 #[test]
 fn settings_form_mouse_toggles_grouped_checkbox() {
     // Settings uses three group boxes; "Truecolor (gradients)" is the second
-    // field of the Visual group and "Command prompt" its fifth. Box 72x23 at
-    // {4,0}: the Visual box starts at y=11, so its rows run y=12..18.
+    // field of the Visual group, "Command prompt" its fifth and "Nerd Font
+    // symbols" its sixth. Box 72x24 at {4,0}: the Visual box starts at y=11, so
+    // its rows run y=12..19.
     let area = Rect::new(0, 0, 80, 24);
     let cfg = crate::config::Config::default();
     let mut dlg = Dialog::Form(FormDialog::settings(&cfg, true)); // truecolor starts on
     assert!(matches!(dlg.handle_click(area, 10, 13), DialogResult::None));
     assert!(matches!(dlg.handle_click(area, 10, 16), DialogResult::None));
-    // Click OK (button row y = 0 + 23 - 2 = 21, left half).
-    match dlg.handle_click(area, 10, 21) {
+    assert!(matches!(dlg.handle_click(area, 10, 17), DialogResult::None));
+    // Click OK (button row y = 0 + 24 - 2 = 22, left half).
+    match dlg.handle_click(area, 10, 22) {
         DialogResult::Submit(Submit::Settings(v)) => {
             assert!(!v.truecolor, "clicking the checkbox turned truecolor off");
             assert!(!v.command_prompt, "clicking the checkbox hid the command prompt");
+            assert!(v.nerd_font, "clicking the checkbox turned Nerd Font symbols on");
         }
         _ => panic!("clicking OK should submit the settings form"),
     }

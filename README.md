@@ -108,8 +108,9 @@ The installed executable is named **`rc`** for quick typing.
   diagram** (Tab) groups connections into colour-coded cards showing each peer IP
   and its direction, with clickable/navigable addresses and reverse-DNS lookups.
 - **Look & feel** — many color themes (fully customizable via `themes.toml`),
-  truecolor animated gradients, an optional CPU/memory status widget, and a
-  configurable **F2 user menu**.
+  truecolor animated gradients, an optional CPU/memory status widget, optional
+  **Nerd Font file-type icons** in the listings, and a configurable
+  **F2 user menu**.
 - **Terminal graphics** — on terminals with a **Kitty**, **Sixel** or **iTerm2**
   graphics protocol, the progress bars, process-explorer graphs, transfer speed
   graph and the disk-explorer **treemap** (a nested "pillow" map of each folder's

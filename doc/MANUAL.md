@@ -408,6 +408,18 @@ just color: `/` directory, `*` executable, `@` symlink, `!` broken symlink, and
 a leading space for plain files (keeps names aligned). File **names are colored**
 by type as well: archives, documents, images and audio/video each get a hue.
 
+**Nerd Font symbols.** Turning on *Options → Settings → Nerd Font symbols*
+replaces those markers with a per-type icon — a folder, a chain link (broken for
+a dangling one), and a glyph picked from the file itself: its language for source
+files (Rust, Python, Go, …), the category for documents, images, audio, video,
+archives, fonts, keys, databases and binaries, and a few whole names that carry
+no extension (`Makefile`, `Dockerfile`, `LICENSE`, `.gitignore`, `Cargo.toml`, …).
+Anything unrecognized gets a blank page, or a gear if it is executable. The glyph
+is followed by a space, so names line up exactly as they do without it. This
+needs a [Nerd Font](https://www.nerdfonts.com/) selected in your terminal —
+preferably a **Mono** variant, whose icons are one cell wide — which is why it is
+off by default; without one the listing shows replacement boxes.
+
 
 ## File operations
 
@@ -1411,7 +1423,7 @@ Configuration files live in your platform config directory
 (`~/.config/rat-commander/` on Linux):
 
 - **`config.toml`** — written by the Settings dialog. Holds the active theme and
-  language, the truecolor / animation / status-widget toggles, the external
+  language, the truecolor / animation / status-widget / `nerd_font` toggles, the external
   editor and viewer commands, the confirmation flags, the remembered remote
   servers (without passwords), and your directory **`bookmarks`** (used by the
   command palette, Ctrl-P). It also holds `command_history_max` (default
@@ -1437,7 +1449,9 @@ Configuration files live in your platform config directory
 
 Choose the **theme** and **language**, toggle **truecolor**, **animations**, the
 **system-status widget**, the **command prompt** (the shell line below the
-panels — also `Ctrl-F5`; see *Working without the command prompt*) and **Reshape
+panels — also `Ctrl-F5`; see *Working without the command prompt*), **Nerd Font
+symbols** (per-file-type icons in the listing — see *Panels*; needs a Nerd Font
+in your terminal) and **Reshape
 RTL text** (see *Language*), pick the
 **Graphics** mode (see *Terminal graphics* below), set an **external editor /
 viewer** command (used instead of the built-in ones), and choose whether to use
@@ -1451,7 +1465,9 @@ The **Theme**, **Language** and **Graphics** fields are dropdowns: press
 through it, **Enter** to pick, **Esc** to close. They **preview live** as you
 move the highlight — the UI re-colors / re-translates / re-draws immediately — so
 **Enter** keeps the highlighted one and **Esc** (closing the dialog) reverts to
-what you started with. In every dialog the **OK** and **Cancel** buttons are part
+what you started with. The **Nerd Font symbols** box previews live in the same
+way: the listings behind the dialog switch markers as you tick it, and go back on
+**Esc**. In every dialog the **OK** and **Cancel** buttons are part
 of the keyboard focus ring: **Tab** / **↑↓** move onto them and **Enter** or
 **Space** activates the highlighted one (**Enter** still submits from a field and
 **Esc** always cancels).

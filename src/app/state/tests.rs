@@ -1840,6 +1840,37 @@ async fn theme_preview_applies_and_reverts_on_cancel() {
 }
 
 #[tokio::test]
+async fn nerd_font_symbols_preview_live_and_persist_on_ok() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.config.nerd_font = false;
+    st.open_settings();
+    let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
+    // "Nerd Font symbols" is the sixth field of the Visual group (index 11);
+    // Tab down to it and toggle it with Space.
+    for _ in 0..11 {
+        st.handle_key(key(KeyCode::Tab)).await;
+    }
+    st.handle_key(key(KeyCode::Char(' '))).await;
+    assert!(st.nerd_font_active(), "the listing previews the glyphs while the box is ticked");
+    assert!(!st.config.nerd_font, "nothing is stored until the form is submitted");
+
+    // Esc closes the dialog without applying it…
+    st.handle_key(key(KeyCode::Esc)).await;
+    assert!(!st.nerd_font_active(), "cancel reverts to the plain `ls -F` markers");
+
+    // …and submitting saves it.
+    st.open_settings();
+    for _ in 0..11 {
+        st.handle_key(key(KeyCode::Tab)).await;
+    }
+    st.handle_key(key(KeyCode::Char(' '))).await;
+    st.handle_key(key(KeyCode::Enter)).await;
+    assert!(st.config.nerd_font, "OK stores the setting");
+    assert!(st.nerd_font_active(), "and the listing keeps drawing the glyphs");
+}
+
+#[tokio::test]
 async fn f1_opens_help_in_viewer() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);

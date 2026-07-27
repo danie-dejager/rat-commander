@@ -1,5 +1,6 @@
 //! A single file panel: current directory, listing, cursor, selection, view.
 
+pub mod icons;
 pub mod render;
 pub mod selection;
 pub mod sort;

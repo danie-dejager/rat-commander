@@ -48,6 +48,7 @@ pub fn render_panel(
     brief_columns: usize,
     quick_search: Option<&str>,
     graphics: bool,
+    nerd: bool,
 ) {
     let border_color = if active {
         theme.panel_border_active
@@ -149,8 +150,8 @@ pub fn render_panel(
     };
 
     match panel.format {
-        ViewFormat::Full => render_full(f, list_area, panel, active, theme),
-        ViewFormat::Brief => render_brief(f, list_area, panel, active, theme, brief_columns),
+        ViewFormat::Full => render_full(f, list_area, panel, active, theme, nerd),
+        ViewFormat::Brief => render_brief(f, list_area, panel, active, theme, brief_columns, nerd),
         ViewFormat::Tree => render_tree(f, list_area, panel, active, theme),
         ViewFormat::Details => unreachable!("Details is rendered earlier and returns"),
     }
@@ -209,7 +210,7 @@ pub fn render_panel(
     if let Some(query) = quick_search {
         render_quick_search(f, status_area, query, panel, theme);
     } else {
-        render_mini_status(f, status_area, panel, theme);
+        render_mini_status(f, status_area, panel, theme, nerd);
     }
 }
 
@@ -358,6 +359,8 @@ fn category_color(ext: &str, theme: &Theme) -> Option<Color> {
 /// The `ls -F`-style classify character placed before each name so types are
 /// distinguished by symbol (and alignment is preserved) rather than only color:
 /// `/` directory, `*` executable, `@`/`!` valid/broken symlink, ` ` otherwise.
+/// With Nerd Font symbols enabled, [`entry_marker`] uses a per-type glyph
+/// instead.
 fn classify_prefix(e: &VfsEntry) -> char {
     match e.kind {
         VfsKind::Dir => '/',
@@ -417,7 +420,14 @@ fn size_field(e: &VfsEntry) -> String {
     }
 }
 
-fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme: &Theme) {
+fn render_full(
+    f: &mut Frame,
+    area: Rect,
+    panel: &mut Panel,
+    active: bool,
+    theme: &Theme,
+    nerd: bool,
+) {
     let width = area.width as usize;
     let (name_w, size_w, time_w) = full_columns(width);
 
@@ -474,7 +484,7 @@ fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
             // active panel shows a cursor.
             let text = format!(
                 "{}{COL_SEP}{}{COL_SEP}{}",
-                pad_right(&display_name_git(e, gstate), name_w),
+                pad_right(&display_name_git(e, gstate, nerd), name_w),
                 pad_left(&size_str, size_w),
                 pad_left(&time_str, time_w)
             );
@@ -499,7 +509,7 @@ fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
             };
             let spans = vec![
                 Span::styled(
-                    pad_right(&display_name_git(e, gstate), name_w),
+                    pad_right(&display_name_git(e, gstate, nerd), name_w),
                     entry_name_style(e, marked, gstate, theme),
                 ),
                 Span::styled(COL_SEP, sep_style),
@@ -520,6 +530,7 @@ fn render_brief(
     active: bool,
     theme: &Theme,
     brief_columns: usize,
+    nerd: bool,
 ) {
     let width = area.width as usize;
     let rows = area.height as usize;
@@ -558,7 +569,7 @@ fn render_brief(
                     let is_cursor = idx == panel.cursor;
                     let marked = panel.selection.is_marked(&e.name);
                     let gstate = panel.git.as_ref().and_then(|g| g.state_of(&e.name));
-                    let text = pad_right(&display_name_git(e, gstate), name_w);
+                    let text = pad_right(&display_name_git(e, gstate, nerd), name_w);
                     // Only the active panel shows a cursor highlight.
                     let style = if is_cursor && active {
                         cursor_style(true, marked, theme)
@@ -624,17 +635,32 @@ fn render_tree(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
     f.render_widget(Paragraph::new(lines), area);
 }
 
-/// Name as shown in the list: a one-character classify prefix (see
-/// [`classify_prefix`]) followed by the entry name.
-fn display_name(e: &VfsEntry) -> String {
-    format!("{}{}", classify_prefix(e), e.name)
+/// The marker drawn before an entry's name: the one-character `ls -F` classify
+/// prefix (see [`classify_prefix`]), or — with Nerd Font symbols on — the
+/// entry's type glyph followed by a space, so names stay aligned either way.
+fn entry_marker(e: &VfsEntry, nerd: bool) -> String {
+    if nerd {
+        format!("{} ", crate::panel::icons::icon(e))
+    } else {
+        classify_prefix(e).to_string()
+    }
 }
 
-/// Like [`display_name`], but the leading `ls -F` marker is replaced by the git
+/// Name as shown in the list: the type marker (see [`entry_marker`]) followed by
+/// the entry name.
+fn display_name(e: &VfsEntry, nerd: bool) -> String {
+    format!("{}{}", entry_marker(e, nerd), e.name)
+}
+
+/// Like [`display_name`], but the leading type marker is replaced by the git
 /// status glyph (`M` / `+` / `?` / `!`) when the entry has a VCS state.
-fn display_name_git(e: &VfsEntry, gstate: Option<crate::git::GitState>) -> String {
-    let marker = gstate.map(|s| s.glyph()).unwrap_or_else(|| classify_prefix(e));
-    format!("{marker}{}", e.name)
+fn display_name_git(e: &VfsEntry, gstate: Option<crate::git::GitState>, nerd: bool) -> String {
+    match gstate {
+        // Keep the same width as the type marker so the names still line up.
+        Some(s) if nerd => format!("{} {}", s.glyph(), e.name),
+        Some(s) => format!("{}{}", s.glyph(), e.name),
+        None => display_name(e, nerd),
+    }
 }
 
 /// The foreground colour for a git state, reusing semantic theme colours so it
@@ -667,7 +693,7 @@ fn entry_name_style(
     }
 }
 
-fn render_mini_status(f: &mut Frame, area: Rect, panel: &Panel, theme: &Theme) {
+fn render_mini_status(f: &mut Frame, area: Rect, panel: &Panel, theme: &Theme, nerd: bool) {
     let width = area.width as usize;
     let style = Style::default().fg(theme.panel_border_active).bg(theme.panel_bg);
     let sep_style = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
@@ -710,7 +736,7 @@ fn render_mini_status(f: &mut Frame, area: Rect, panel: &Panel, theme: &Theme) {
     let line = match panel.current_entry() {
         Some(e) => {
             let (name_w, size_w, time_w) = full_columns(width);
-            let mut name = display_name(e);
+            let mut name = display_name(e, nerd);
             if let Some(t) = &e.symlink_target {
                 name.push_str(&format!(" -> {t}"));
             }
@@ -802,7 +828,7 @@ mod tests {
             panel.format = fmt;
             panel.cursor = 1; // the archive is the current entry
             let mut term = Terminal::new(TestBackend::new(44, 8)).unwrap();
-            term.draw(|t| render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2, None, false))
+            term.draw(|t| render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false))
                 .unwrap();
             let b = term.backend().buffer();
             let seps = |row: u16| -> Vec<u16> {
@@ -846,7 +872,7 @@ mod tests {
         });
 
         let mut t = Terminal::new(TestBackend::new(44, 8)).unwrap();
-        t.draw(|f| render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false))
+        t.draw(|f| render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false))
             .unwrap();
         let b = t.backend().buffer();
         let all: String = (0..b.area.height)
@@ -875,7 +901,7 @@ mod tests {
         panel.filter = Some("*.rs".to_string());
 
         let mut t = Terminal::new(TestBackend::new(40, 8)).unwrap();
-        t.draw(|f| render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false))
+        t.draw(|f| render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false))
             .unwrap();
         let b = t.backend().buffer();
         let top: String = (0..b.area.width).map(|x| b[(x, 0)].symbol()).collect();
@@ -906,7 +932,7 @@ mod tests {
         let mut t = Terminal::new(TestBackend::new(60, 8)).unwrap();
         // Configured for 3 columns → the renderer must record 3 for grid-aware
         // arrow navigation, and a page of rows × columns.
-        t.draw(|f| render_brief(f, f.area(), &mut panel, true, &theme, 3)).unwrap();
+        t.draw(|f| render_brief(f, f.area(), &mut panel, true, &theme, 3, false)).unwrap();
         assert_eq!(panel.cols, 3, "renderer records the configured column count");
         assert_eq!(panel.page, 8 * 3, "page = rows × columns");
     }
@@ -932,7 +958,7 @@ mod tests {
 
         // Wide enough that the mini-status path isn't ellipsized.
         let mut term = Terminal::new(TestBackend::new(90, 12)).unwrap();
-        term.draw(|t| render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2, None, false))
+        term.draw(|t| render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false))
             .unwrap();
         let buf = term.backend().buffer();
         let text: String = (0..buf.area.height)
@@ -964,8 +990,58 @@ mod tests {
 
     #[test]
     fn display_name_includes_prefix() {
-        assert_eq!(display_name(&entry("dir", VfsKind::Dir, 0o755, false)), "/dir");
-        assert_eq!(display_name(&entry("file", VfsKind::File, 0o644, false)), " file");
+        assert_eq!(display_name(&entry("dir", VfsKind::Dir, 0o755, false), false), "/dir");
+        assert_eq!(display_name(&entry("file", VfsKind::File, 0o644, false), false), " file");
+    }
+
+    #[test]
+    fn nerd_markers_replace_the_classify_characters() {
+        use crate::panel::icons;
+        let dir = entry("src", VfsKind::Dir, 0o755, false);
+        let rs = entry("main.rs", VfsKind::File, 0o644, false);
+        // Off: the `ls -F` prefix. On: the type glyph plus a space, so both
+        // spellings occupy the same leading columns and the names stay aligned.
+        assert_eq!(display_name(&dir, false), "/src");
+        assert_eq!(display_name(&dir, true), format!("{} src", icons::icon(&dir)));
+        assert_eq!(display_name(&rs, false), " main.rs");
+        assert_eq!(display_name(&rs, true), format!("{} main.rs", icons::icon(&rs)));
+        assert_eq!(
+            display_name(&dir, true).chars().count(),
+            display_name(&dir, false).chars().count() + 1
+        );
+        // A git state still wins over the type marker, in both spellings.
+        let modified = Some(crate::git::GitState::Modified);
+        assert_eq!(display_name_git(&rs, modified, false), ">main.rs");
+        assert_eq!(display_name_git(&rs, modified, true), "> main.rs");
+    }
+
+    #[test]
+    fn listing_renders_nerd_glyphs_when_enabled() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let theme = Theme::mc();
+        let backend = crate::vfs::registry::Registry::default().local();
+        let mut panel = Panel::new(backend, crate::vfs::VfsPath::local("/tmp"));
+        panel.entries = vec![
+            entry("src", VfsKind::Dir, 0o755, false),
+            entry("main.rs", VfsKind::File, 0o644, false),
+        ];
+
+        let mut t = Terminal::new(TestBackend::new(44, 8)).unwrap();
+        t.draw(|f| {
+            render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, true)
+        })
+        .unwrap();
+        let b = t.backend().buffer();
+        let all: String = (0..b.area.height)
+            .flat_map(|y| (0..b.area.width).map(move |x| (x, y)))
+            .map(|(x, y)| b[(x, y)].symbol().to_string())
+            .collect();
+        let folder = crate::panel::icons::icon(&entry("src", VfsKind::Dir, 0o755, false));
+        let rust = crate::panel::icons::icon(&entry("main.rs", VfsKind::File, 0o644, false));
+        assert!(all.contains(&format!("{folder} src")), "the directory shows its glyph");
+        assert!(all.contains(&format!("{rust} main.rs")), "the file shows its type glyph");
+        assert!(!all.contains("/src"), "the `ls -F` prefix is replaced, not doubled");
     }
 
     #[test]
@@ -1022,7 +1098,7 @@ mod tests {
 
         let mut term = Terminal::new(TestBackend::new(40, 8)).unwrap();
         term.draw(|t| {
-            render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2, Some("hi"), false)
+            render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2, Some("hi"), false, false)
         })
         .unwrap();
         let b = term.backend().buffer();

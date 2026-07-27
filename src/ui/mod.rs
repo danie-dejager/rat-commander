@@ -165,6 +165,9 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
 
     let active = state.active;
     let brief_cols = state.config.brief_columns;
+    // Nerd Font markers follow the settings form's checkbox while it is open, so
+    // ticking it redraws the listings behind the dialog (as the theme does).
+    let nerd = state.nerd_font_active();
     // The quick search renders as an inline input on the active panel's
     // mini-status row (FAR/NC style); only the active panel shows it.
     let left_qs = if active == 0 {
@@ -183,7 +186,7 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         if let Some(pa) = area_opt {
             render_panel(
                 f, pa, &mut state.panels[i], active == i, &state.details[i], &theme, brief_cols, qs,
-                gfx_on,
+                gfx_on, nerd,
             );
         } else {
             // A hidden panel keeps no live geometry, so stray clicks in the

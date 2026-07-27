@@ -349,6 +349,8 @@ pub struct SettingsValues {
     pub system_status: bool,
     /// Show the shell command line below the panels.
     pub command_prompt: bool,
+    /// Draw per-file-type Nerd Font glyphs in the listing.
+    pub nerd_font: bool,
     /// Reshape + bidi-reorder RTL text for display.
     pub reshape_rtl: bool,
     /// Terminal pixel-graphics preference (`auto|off|kitty|sixel|iterm`).
