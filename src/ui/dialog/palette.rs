@@ -49,6 +49,7 @@ pub enum BoolSetting {
     Truecolor,
     Animation,
     SystemStatus,
+    CommandPrompt,
     ReshapeRtl,
     InternalViewer,
     InternalEditor,

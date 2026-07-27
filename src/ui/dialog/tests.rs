@@ -1270,15 +1270,18 @@ fn chown_form_mouse_focuses_the_clicked_text_field() {
 #[test]
 fn settings_form_mouse_toggles_grouped_checkbox() {
     // Settings uses three group boxes; "Truecolor (gradients)" is the second
-    // field of the Visual group. Box 72x22 at {4,1}; that row lands at y=14.
+    // field of the Visual group and "Command prompt" its fifth. Box 72x23 at
+    // {4,0}: the Visual box starts at y=11, so its rows run y=12..18.
     let area = Rect::new(0, 0, 80, 24);
     let cfg = crate::config::Config::default();
     let mut dlg = Dialog::Form(FormDialog::settings(&cfg, true)); // truecolor starts on
-    assert!(matches!(dlg.handle_click(area, 10, 14), DialogResult::None));
-    // Click OK (button row y = 1 + 22 - 2 = 21, left half).
+    assert!(matches!(dlg.handle_click(area, 10, 13), DialogResult::None));
+    assert!(matches!(dlg.handle_click(area, 10, 16), DialogResult::None));
+    // Click OK (button row y = 0 + 23 - 2 = 21, left half).
     match dlg.handle_click(area, 10, 21) {
         DialogResult::Submit(Submit::Settings(v)) => {
             assert!(!v.truecolor, "clicking the checkbox turned truecolor off");
+            assert!(!v.command_prompt, "clicking the checkbox hid the command prompt");
         }
         _ => panic!("clicking OK should submit the settings form"),
     }

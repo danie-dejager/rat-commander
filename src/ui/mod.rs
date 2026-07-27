@@ -99,13 +99,17 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         return;
     }
 
+    // The command line can be switched off (Ctrl-F5 / Settings → "Command
+    // prompt"), in which case its row collapses to nothing and the panels take
+    // it over. The four rows are kept so the `rows[N]` indices don't shift.
+    let cmd_h = u16::from(state.config.command_prompt);
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // menu bar
-            Constraint::Min(1),    // panels
-            Constraint::Length(1), // command line
-            Constraint::Length(1), // function keys
+            Constraint::Length(1),     // menu bar
+            Constraint::Min(1),        // panels
+            Constraint::Length(cmd_h), // command line (0 when hidden)
+            Constraint::Length(1),     // function keys
         ])
         .split(area);
 
@@ -208,8 +212,10 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         }
     }
 
-    let cwd = state.console_cwd().display();
-    let caret = cmdline::render(f, rows[2], &state.cmd, &cwd, &theme);
+    let caret = state.config.command_prompt.then(|| {
+        let cwd = state.console_cwd().display();
+        cmdline::render(f, rows[2], &state.cmd, &cwd, &theme)
+    });
 
     fkeys::render(f, rows[3], &fkeys::panel_labels(), &theme);
 
@@ -229,10 +235,12 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         d.render(f, darea, &theme, state.gfx.as_mut());
     } else if state.menu.is_none() {
         // A live quick search shows its caret on the active panel; otherwise
-        // the command line is the editable focus.
+        // the command line is the editable focus. With the command line hidden
+        // and no search running, nothing is editable, so the cursor is left
+        // unset and the terminal hides it.
         if let Some(qp) = state.panels[active].quick_caret {
             f.set_cursor_position(qp);
-        } else {
+        } else if let Some(caret) = caret {
             f.set_cursor_position(caret);
         }
     }
@@ -454,6 +462,20 @@ mod feature_tests {
         text_of(t).matches('┌').count()
     }
 
+    /// The text of a single rendered row.
+    fn row_text(b: &ratatui::buffer::Buffer, y: u16) -> String {
+        (0..b.area.width).map(|x| b[(x, y)].symbol()).collect()
+    }
+
+    /// How many rows the (side-by-side) panels span: the distance from their top
+    /// border corner to their bottom one, inclusive.
+    fn panel_height(b: &ratatui::buffer::Buffer) -> u16 {
+        let row_has = |y: u16, ch: &str| (0..b.area.width).any(|x| b[(x, y)].symbol() == ch);
+        let top = (0..b.area.height).find(|&y| row_has(y, "┌")).expect("a panel top border");
+        let bottom = (0..b.area.height).rfind(|&y| row_has(y, "└")).expect("a panel bottom border");
+        bottom - top + 1
+    }
+
     #[tokio::test]
     async fn ctrl_f1_f2_hide_panels_but_keep_chrome() {
         let (tx, _rx) = async_bridge::channel();
@@ -529,6 +551,29 @@ mod feature_tests {
             !text_of(&drawn(&mut st).await).contains(&wide),
             "a wide backdrop line must not bleed through visible panels"
         );
+    }
+
+    #[tokio::test]
+    async fn hiding_the_command_prompt_gives_its_row_to_the_panels() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+        st.cmd.set("echo marker".to_string());
+
+        // With the prompt on, the line renders on the row above the F-key bar.
+        let t = drawn(&mut st).await;
+        let h = t.backend().buffer().area.height;
+        assert!(row_text(t.backend().buffer(), h - 2).contains("echo marker"));
+        let tall = panel_height(t.backend().buffer());
+
+        // Hidden: the row is panel border/listing instead, and each panel is one
+        // row taller. (Ctrl-F5's dispatch is covered in `app::state::tests`.)
+        st.config.command_prompt = false;
+        let t = drawn(&mut st).await;
+        assert!(!row_text(t.backend().buffer(), h - 2).contains("echo marker"));
+        assert_eq!(panel_height(t.backend().buffer()), tall + 1);
+        // The F-key bar still owns the bottom row.
+        assert!(row_text(t.backend().buffer(), h - 1).contains("Help"));
     }
 
     #[tokio::test]

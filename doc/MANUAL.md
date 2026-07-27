@@ -23,7 +23,9 @@ The window is divided into four areas, top to bottom:
   Enter to run it in the active panel's directory. Recently run commands are
   remembered across sessions: cycle them with `Alt-P` / `Alt-N`, or press `Alt-Shift-H`
   to pick one from the **Shell History** window. `Alt-Enter` drops the name under
-  the cursor onto the command line.
+  the cursor onto the command line. `Ctrl-F5` hides it and gives the row to the
+  panels, which also makes plain typing start a quick search — see *Working
+  without the command prompt*.
 - **Function-key bar** (bottom row) — shows what F1–F10 do in the current
   context. The labels also work as buttons: click one to run it.
 
@@ -152,7 +154,8 @@ A quick **Alt** + digit does the same.
   box; each letter you type filters, jumping the cursor to the first file whose
   name starts with it (case-insensitive; `Shift` for uppercase works). The box
   stays open even when empty — `Backspace` trims it, and only `Esc` or an arrow
-  key dismisses it. `Enter` opens the match
+  key dismisses it. `Enter` opens the match. With the command prompt hidden
+  (`Ctrl-F5`), simply typing a character starts it
 - `Ctrl-O` — Step into the persistent shell full-screen and back (press again to
   return). It is the **same session** the command line runs in — see *The
   console* above
@@ -196,6 +199,9 @@ A quick **Alt** + digit does the same.
   bar and F-key bar always stay on screen
 - `Ctrl-F4` — Toggle **half-height** panels: both panels shrink to the top half
   of the screen, exposing the console beneath them
+- `Ctrl-F5` — Show / hide the **command prompt** below the panels. With it hidden
+  the panels take over its row, and typing any printable character starts a quick
+  search instead of entering text — see *Working without the command prompt* below
 - `Alt-F1` / `Alt-F2` — Drive / connection picker for the left / right panel
 - `Alt` + a menu letter (`F`/`O`/`C`/`L`/`R`) — Open that top menu (Midnight-
   Commander style); `F9` opens the menu bar too
@@ -963,6 +969,24 @@ console* above): `Ctrl-O` opens a fresh interactive `cmd.exe` that you leave by
 typing `exit`, and command-line commands run one at a time with the panels
 suspended — there is no persistent behind-the-panels session.
 
+### Working without the command prompt
+
+**Ctrl-F5** hides the command line altogether (the same switch as **Command
+prompt** in *Options → Settings…*, and a toggle in the command palette). The
+panels take over its row, and the choice is remembered across sessions.
+
+With it hidden, typing a printable character no longer enters text — it starts a
+**quick search** on the active panel, seeded with that character, exactly as if
+you had pressed `Alt-S` first. `Backspace` trims the query, `Esc` cancels, `Enter`
+opens the match, and any other key leaves the search and does its usual job. The
+selection keys keep their meaning: `+` and `-` still open the select / unselect
+dialogs and `*` still inverts the selection.
+
+The command-line-only keys (`Alt-Enter`, `Alt-P` / `Alt-N`, `Alt-Shift-H`) do
+nothing while it is hidden. Everything that doesn't need the prompt still works:
+**Ctrl-O** drops to the subshell, **F2** user-menu entries run their commands, and
+`Enter` on a directory descends into it.
+
 
 ## The user menu (F2)
 
@@ -1412,7 +1436,9 @@ Configuration files live in your platform config directory
 ### Settings (Options → Settings…)
 
 Choose the **theme** and **language**, toggle **truecolor**, **animations**, the
-**system-status widget** and **Reshape RTL text** (see *Language*), pick the
+**system-status widget**, the **command prompt** (the shell line below the
+panels — also `Ctrl-F5`; see *Working without the command prompt*) and **Reshape
+RTL text** (see *Language*), pick the
 **Graphics** mode (see *Terminal graphics* below), set an **external editor /
 viewer** command (used instead of the built-in ones), and choose whether to use
 the internal viewer/editor. When the external editor field is left blank, `rc`

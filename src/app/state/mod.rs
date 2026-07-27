@@ -154,11 +154,12 @@ pub(in crate::app::state) struct SearchMemory {
     pub viewer_query: String,
 }
 
-/// A live FAR/NC-style quick search in the active panel. Started by Alt+letter
-/// (replacing the old Alt+letter menu shortcuts); each typed char extends the
-/// prefix and jumps the panel cursor to the first entry whose name starts with
-/// it (case-insensitive). Cancelled by Esc, committed by Enter, or left by any
-/// other key which is then re-dispatched normally.
+/// A live FAR/NC-style quick search in the active panel. Started by Alt-S /
+/// Ctrl-S, or — when the command line is hidden — by typing any printable
+/// character. Each typed char extends the prefix and jumps the panel cursor to
+/// the first entry whose name starts with it (case-insensitive). Cancelled by
+/// Esc, committed by Enter, or left by any other key which is then
+/// re-dispatched normally.
 pub(crate) struct QuickSearch {
     /// The accumulated (case-preserving) query string.
     pub query: String,

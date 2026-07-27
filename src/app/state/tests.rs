@@ -2188,6 +2188,109 @@ async fn alt_menu_letter_opens_menu_but_alt_s_does_not() {
     assert!(st.quick_search.is_some(), "Alt-S starts a quick search");
 }
 
+/// A panel state with the four sortable names used by the quick-search tests,
+/// on the *active* side (which `init` may have restored to either panel).
+fn seed_quick_search_panel(st: &mut AppState) {
+    let side = st.active;
+    st.panels[side].entries =
+        vec![mk_entry("yo"), mk_entry("hello"), mk_entry("hi"), mk_entry("high")];
+    st.panels[side].resort(); // stable: hello, hi, high, yo
+    st.panels[side].cursor = 3; // start off the 'h' entries (on "yo")
+}
+
+#[tokio::test]
+async fn ctrl_f5_toggles_the_command_prompt_and_clears_the_line() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.init().await;
+    seed_quick_search_panel(&mut st); // a real entry under the cursor, for F5
+    st.config.command_prompt = true;
+    st.cmd.set("half typed".to_string());
+
+    st.handle_key(KeyEvent::new(KeyCode::F(5), KeyModifiers::CONTROL)).await;
+    assert!(!st.config.command_prompt, "Ctrl-F5 hides the command prompt");
+    assert!(st.cmd.is_empty(), "hiding it drops any half-typed line");
+
+    st.handle_key(KeyEvent::new(KeyCode::F(5), KeyModifiers::CONTROL)).await;
+    assert!(st.config.command_prompt, "Ctrl-F5 brings it back");
+
+    // Plain F5 is still Copy, not the toggle.
+    st.handle_key(KeyEvent::new(KeyCode::F(5), KeyModifiers::NONE)).await;
+    assert!(st.config.command_prompt, "plain F5 doesn't touch the prompt");
+    assert!(st.dialog.is_some(), "plain F5 still opens the copy dialog");
+}
+
+#[tokio::test]
+async fn typing_starts_a_quick_search_when_the_command_prompt_is_hidden() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.init().await;
+    seed_quick_search_panel(&mut st);
+    let side = st.active;
+
+    // With the prompt on, a letter is text — no search starts.
+    st.config.command_prompt = true;
+    st.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)).await;
+    assert!(st.quick_search.is_none(), "the command line takes the character");
+    assert_eq!(st.cmd.buffer, "h");
+    st.cmd.clear();
+
+    // With it hidden, the same letter seeds a search and jumps the cursor.
+    st.config.command_prompt = false;
+    st.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)).await;
+    assert_eq!(st.quick_search.as_ref().unwrap().query, "h");
+    assert_eq!(st.panels[side].entries[st.panels[side].cursor].name, "hello");
+    assert!(st.cmd.is_empty(), "nothing reaches the hidden command line");
+
+    // Further characters extend it through the normal quick-search handler.
+    st.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)).await;
+    assert_eq!(st.quick_search.as_ref().unwrap().query, "hi");
+    assert_eq!(st.panels[side].entries[st.panels[side].cursor].name, "hi");
+
+    // Non-alphanumeric characters search too (Midnight Commander's rule), so
+    // dotfiles and names starting with "_" are reachable.
+    st.handle_key(esc_key()).await;
+    st.panels[side].entries.push(mk_entry(".config"));
+    st.panels[side].resort();
+    st.handle_key(KeyEvent::new(KeyCode::Char('.'), KeyModifiers::NONE)).await;
+    assert_eq!(st.quick_search.as_ref().unwrap().query, ".");
+    assert_eq!(st.panels[side].entries[st.panels[side].cursor].name, ".config");
+}
+
+#[tokio::test]
+async fn hidden_command_prompt_keeps_the_selection_and_enter_keys() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.init().await;
+    seed_quick_search_panel(&mut st);
+    st.config.command_prompt = false;
+
+    // '+' / '-' / '*' stay selection keys rather than seeding a search.
+    for c in ['+', '-'] {
+        st.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)).await;
+        assert!(st.quick_search.is_none(), "'{c}' is not a search character");
+        assert!(st.dialog.is_some(), "'{c}' opens the select-group dialog");
+        st.dialog = None;
+    }
+    st.handle_key(KeyEvent::new(KeyCode::Char('*'), KeyModifiers::NONE)).await;
+    assert!(st.quick_search.is_none(), "'*' inverts the selection instead");
+
+    // The command-line-only keys are inert, and must not fall through to
+    // something else (Alt-Enter especially must not descend).
+    let before = st.panels[st.active].cwd.clone();
+    for key in [
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT),
+        KeyEvent::new(KeyCode::Char('p'), KeyModifiers::ALT),
+        KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT),
+        KeyEvent::new(KeyCode::Char('H'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+    ] {
+        st.handle_key(key).await;
+        assert!(st.cmd.is_empty(), "{key:?} leaves the hidden command line alone");
+        assert!(st.dialog.is_none(), "{key:?} opens nothing");
+        assert_eq!(st.panels[st.active].cwd, before, "{key:?} doesn't navigate");
+    }
+}
+
 #[tokio::test]
 async fn quick_search_extends_while_alt_is_held() {
     // Once the box is open, holding Alt across letters (Alt-H, Alt-I, Alt-G)

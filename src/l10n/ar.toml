@@ -96,6 +96,7 @@ rtl = true
 "Truecolor (gradients)" = "Truecolor (تدرجات)"
 "Animations" = "الرسوم المتحركة"
 "System status widget" = "أداة حالة النظام"
+"Command prompt" = "سطر الأوامر"
 "External editor" = "محرر خارجي"
 "External viewer" = "عارض خارجي"
 "Use internal viewer" = "استخدام العارض الداخلي"

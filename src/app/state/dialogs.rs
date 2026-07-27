@@ -248,6 +248,7 @@ impl AppState {
                 self.config.truecolor = Some(v.truecolor);
                 self.config.animation = v.animation;
                 self.config.system_status = v.system_status;
+                self.set_command_prompt(v.command_prompt);
                 self.config.brief_columns = v.brief_columns;
                 self.truecolor = v.truecolor;
                 // Apply the chosen language (store English as the default => None).

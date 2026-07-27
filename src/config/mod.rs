@@ -105,6 +105,11 @@ pub struct Config {
     pub animation: bool,
     /// Show the CPU/memory status widget in the menu bar.
     pub system_status: bool,
+    /// Show the shell command line below the panels (Midnight Commander's
+    /// Layout → "Command prompt"). When off, the row is reclaimed by the panels
+    /// and typing a printable character starts a quick search instead of
+    /// entering text. (Missing from an old config → the struct default, `true`.)
+    pub command_prompt: bool,
     /// Number of columns in the Brief (multi-column names) view.
     /// (Missing from an old config → the struct default, `2`.)
     pub brief_columns: usize,
@@ -168,6 +173,7 @@ impl Default for Config {
             truecolor: None,
             animation: false,
             system_status: true,
+            command_prompt: true,
             brief_columns: 2,
             command_history_max: 100,
             panels: [PanelView::default(); 2],
@@ -208,6 +214,13 @@ impl Config {
 
     /// Persist the config to disk. Returns an error string on failure.
     pub fn save(&self) -> Result<(), String> {
+        // The config path is the real user directory even under `cargo test`
+        // (nothing overrides XDG for the test binary), so a test that exercises
+        // a settings toggle would rewrite the developer's own config.toml.
+        // Serialization is still checked by the round-trip tests below.
+        if cfg!(test) {
+            return Ok(());
+        }
         let path = paths::config_file().ok_or("no config directory available")?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;

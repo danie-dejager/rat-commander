@@ -34,7 +34,7 @@ fn graphics_pref(label: &str) -> String {
 const SETTINGS_GROUPS: &[(&str, usize)] = &[
     ("Language", 2),
     ("Edit/View", 4),
-    ("Visual", 6),
+    ("Visual", 7),
 ];
 
 // ---------------------------------------------------------------------------
@@ -312,6 +312,7 @@ impl FormDialog {
             Field::check("Truecolor (gradients)", truecolor),
             Field::check("Animations", cfg.animation),
             Field::check("System status widget", cfg.system_status),
+            Field::check("Command prompt", cfg.command_prompt),
             Field::choice(
                 "Graphics",
                 vec![
@@ -880,8 +881,9 @@ impl FormDialog {
                 truecolor: fields[7].as_bool(),
                 animation: fields[8].as_bool(),
                 system_status: fields[9].as_bool(),
-                graphics: graphics_pref(fields[10].as_text()),
-                brief_columns: fields[11].as_text().parse().unwrap_or(2).clamp(1, 6),
+                command_prompt: fields[10].as_bool(),
+                graphics: graphics_pref(fields[11].as_text()),
+                brief_columns: fields[12].as_text().parse().unwrap_or(2).clamp(1, 6),
             }),
             FormPurpose::Confirmations => Submit::Confirmations(ConfirmValues {
                 delete: fields[0].as_bool(),

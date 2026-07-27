@@ -176,11 +176,13 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Alt-G` | Open the **Git menu** (status, log, commit, push/pull, checkout, …) |
 | `Ctrl-G` / `Alt-D` | Git: stage/unstage the selection · diff the file against HEAD |
 | `Ctrl-R` | Re-read the active panel |
-| `Ctrl-S` / `Ctrl-E` | Cycle sort key / toggle reverse |
+| `Alt-S` / `Ctrl-S` | Quick search the active panel (jump to the first matching name) |
+| `Ctrl-E` | Toggle reverse sort order |
 | `Ctrl-X` | Toggle vertical / horizontal split |
 | `Ctrl-U` | Swap the two panels |
 | `Ctrl-F1` / `Ctrl-F2` | Hide / show the left / right panel (reveals the console) |
 | `Ctrl-F4` | Toggle half-height panels (reveals the console below) |
+| `Ctrl-F5` | Show / hide the command prompt (hidden: typing starts a quick search) |
 | `Alt-F1` / `Alt-F2` | Drive / connection picker (left / right panel) |
 
 ### Viewer (F3)

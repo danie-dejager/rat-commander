@@ -347,6 +347,8 @@ pub struct SettingsValues {
     pub truecolor: bool,
     pub animation: bool,
     pub system_status: bool,
+    /// Show the shell command line below the panels.
+    pub command_prompt: bool,
     /// Reshape + bidi-reorder RTL text for display.
     pub reshape_rtl: bool,
     /// Terminal pixel-graphics preference (`auto|off|kitty|sixel|iterm`).

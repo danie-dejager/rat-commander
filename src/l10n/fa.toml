@@ -96,6 +96,7 @@ rtl = true
 "Truecolor (gradients)" = "Truecolor (گرادیان‌ها)"
 "Animations" = "انیمیشن‌ها"
 "System status widget" = "ابزارک وضعیت سیستم"
+"Command prompt" = "خط فرمان"
 "External editor" = "ویرایشگر خارجی"
 "External viewer" = "نمایشگر خارجی"
 "Use internal viewer" = "استفاده از نمایشگر داخلی"

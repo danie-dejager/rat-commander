@@ -320,11 +320,16 @@ impl AppState {
             }
         }
 
+        // Whether the command line exists at all; when it's hidden (Ctrl-F5)
+        // none of the keys below may touch it, and plain characters start a
+        // quick search instead (Midnight-Commander style).
+        let cmdline = self.config.command_prompt;
+
         // Emacs/readline editing of the command line (the same set every dialog
         // input honours). C-E, C-W and Alt-F only edit when the line has text;
         // when empty they keep their panel meaning (reverse sort / cycle view /
         // File menu), handled below and in `handle_key`.
-        if cmdline_edit_wanted(key, self.cmd.is_empty()) {
+        if cmdline && cmdline_edit_wanted(key, self.cmd.is_empty()) {
             self.cmd.apply_readline(key);
             return Flow::Continue;
         }
@@ -338,6 +343,10 @@ impl AppState {
             KeyCode::F(1) if ctrl => self.toggle_panel_hidden(0),
             KeyCode::F(2) if ctrl => self.toggle_panel_hidden(1),
             KeyCode::F(4) if ctrl => self.half_height = !self.half_height,
+            // Ctrl-F5 shows/hides the command line itself (Midnight Commander
+            // has this only as its Layout → "Command prompt" checkbox, with no
+            // key of its own, so it joins the Ctrl-F visibility family here).
+            KeyCode::F(5) if ctrl => self.toggle_command_prompt(),
 
             // -- Quit / function keys --
             KeyCode::F(10) => return self.request_quit(),
@@ -388,12 +397,18 @@ impl AppState {
             KeyCode::Left if alt && !ctrl => self.go_back(self.active).await,
             KeyCode::Right if alt && !ctrl => self.go_forward(self.active).await,
 
-            // Alt-Enter copies the name under the cursor onto the command line.
-            KeyCode::Enter if alt => self.insert_name_under_cursor(),
+            // Alt-Enter copies the name under the cursor onto the command line
+            // (nothing to paste into once the line is hidden, so a no-op then —
+            // it must still not fall through to "descend").
+            KeyCode::Enter if alt => {
+                if cmdline {
+                    self.insert_name_under_cursor();
+                }
+            }
 
             // -- Enter: run command or descend --
             KeyCode::Enter => {
-                if !self.cmd.is_empty() {
+                if cmdline && !self.cmd.is_empty() {
                     let cmd = self.cmd.take();
                     // A built-in `cd` changes the active panel instead of being
                     // run in a (throwaway) subshell where it would have no effect.
@@ -421,7 +436,7 @@ impl AppState {
                 if empty && p.brief_grid() {
                     let step = p.brief_rows.max(1) as isize;
                     p.move_cursor(-step);
-                } else {
+                } else if cmdline {
                     self.cmd.move_left();
                 }
             }
@@ -431,13 +446,13 @@ impl AppState {
                 if empty && p.brief_grid() {
                     let step = p.brief_rows.max(1) as isize;
                     p.move_cursor(step);
-                } else {
+                } else if cmdline {
                     self.cmd.move_right();
                 }
             }
-            KeyCode::Backspace => self.cmd.backspace(),
-            KeyCode::Delete => self.cmd.delete(),
-            KeyCode::Esc => self.cmd.clear(),
+            KeyCode::Backspace if cmdline => self.cmd.backspace(),
+            KeyCode::Delete if cmdline => self.cmd.delete(),
+            KeyCode::Esc if cmdline => self.cmd.clear(),
 
             // -- View / sort / layout toggles (Ctrl chords) --
             KeyCode::Char('u') if ctrl => self.panels.swap(0, 1),
@@ -464,12 +479,12 @@ impl AppState {
             // Command-line history: Alt-P/Alt-N cycle previous/next in place;
             // Alt-Shift-H opens the scrollable Shell History window above it.
             // (`!ctrl` so AltGr = Ctrl+Alt still composes characters instead.)
-            KeyCode::Char('p') if alt && !ctrl => self.cmd.history_prev(),
-            KeyCode::Char('n') if alt && !ctrl => self.cmd.history_next(),
+            KeyCode::Char('p') if alt && !ctrl && cmdline => self.cmd.history_prev(),
+            KeyCode::Char('n') if alt && !ctrl && cmdline => self.cmd.history_next(),
             // The two history windows share the letter: Alt-H lists the panel's
             // directories, Alt-Shift-H the shell's commands.
             KeyCode::Char('h') if alt && !ctrl => self.open_dir_history(),
-            KeyCode::Char('H') if alt && !ctrl => self.open_shell_history(),
+            KeyCode::Char('H') if alt && !ctrl && cmdline => self.open_shell_history(),
             // Directory history (Midnight Commander keys): Alt-y back, Alt-u fwd.
             KeyCode::Char('y') if alt && !ctrl => self.go_back(self.active).await,
             KeyCode::Char('u') if alt && !ctrl => self.go_forward(self.active).await,
@@ -505,11 +520,19 @@ impl AppState {
             KeyCode::Char('-') if self.cmd.is_empty() => self.open_select_group(false),
             KeyCode::Char('*') if self.cmd.is_empty() => self.invert_selection(),
 
-            // -- Otherwise, type into the command line. A lone Ctrl or Alt with a
-            //    letter is an (unbound) shortcut, not text, so it isn't inserted;
-            //    plain keys and AltGr combos (Ctrl+Alt, for composed characters)
-            //    still type normally. --
-            KeyCode::Char(c) if ctrl == alt => self.cmd.insert(c),
+            // -- Otherwise, type into the command line -- or, when it's hidden,
+            //    start a quick search on the character (Midnight Commander does
+            //    the same once its Layout → "Command prompt" is off). A lone
+            //    Ctrl or Alt with a letter is an (unbound) shortcut, not text,
+            //    so it isn't consumed; plain keys and AltGr combos (Ctrl+Alt,
+            //    for composed characters) still type normally. --
+            KeyCode::Char(c) if ctrl == alt => {
+                if cmdline {
+                    self.cmd.insert(c);
+                } else if !c.is_control() {
+                    self.start_quick_search_with(c);
+                }
+            }
 
             _ => {}
         }
@@ -552,10 +575,35 @@ impl AppState {
         }
     }
 
+    /// Show or hide the command line (the Settings form's "Command prompt" box,
+    /// the command palette and Ctrl-F5 all land here). Hiding it clears any
+    /// half-typed line, so the "is the line empty?" branches above can't behave
+    /// differently from what's on screen, and gives the row back to the panels.
+    /// Saving the config is left to the caller.
+    pub(in crate::app::state) fn set_command_prompt(&mut self, on: bool) {
+        self.config.command_prompt = on;
+        if !on {
+            self.cmd.clear();
+        }
+    }
+
+    /// Ctrl-F5: flip the command line's visibility and remember the choice.
+    fn toggle_command_prompt(&mut self) {
+        self.set_command_prompt(!self.config.command_prompt);
+        self.save_config_reporting();
+    }
+
     /// Begin a quick search with an empty query (Alt-S / Ctrl-S). The cursor
     /// doesn't move until the first letter is typed (see `jump_quick_search`).
     fn start_quick_search_empty(&mut self) {
         self.quick_search = Some(QuickSearch { query: String::new() });
+    }
+
+    /// Begin a quick search already seeded with `c` — typing a printable
+    /// character in the panel when the command line is hidden.
+    fn start_quick_search_with(&mut self, c: char) {
+        self.quick_search = Some(QuickSearch { query: c.to_string() });
+        self.jump_quick_search();
     }
 
     /// Move the active panel's cursor to the first entry (in display order)
