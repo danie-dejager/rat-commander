@@ -166,9 +166,12 @@ impl russh::client::Handler for HostKeyHandler {
 
     async fn check_server_key(
         &mut self,
-        server_public_key: &russh::keys::PublicKey,
+        server_public_key: &russh::keys::PublicKeyOrCertificate,
     ) -> std::result::Result<bool, Self::Error> {
-        match russh::keys::check_known_hosts(&self.host, self.port, server_public_key) {
+        // russh 0.63 hands the handler either a bare host key or a host
+        // certificate; `public_key()` yields the underlying key either way.
+        let server_public_key = server_public_key.public_key();
+        match russh::keys::check_known_hosts(&self.host, self.port, &server_public_key) {
             Ok(true) => Ok(true),  // known host, key matches
             Ok(false) => Ok(true), // unknown host: trust on first use
             Err(russh::keys::Error::KeyChanged { .. }) => Ok(false), // reject possible MITM
