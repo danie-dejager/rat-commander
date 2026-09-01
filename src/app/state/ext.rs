@@ -222,21 +222,10 @@ async fn run_capture(
     Ok(true)
 }
 
-/// A shell command builder matching the app's foreground runner (`sh -c` /
-/// `cmd /C`).
+/// A shell command builder matching the app's foreground runner
+/// (see [`crate::shell::script_argv`]).
 fn build_shell(cmd: &str) -> tokio::process::Command {
-    #[cfg(windows)]
-    {
-        let mut c = tokio::process::Command::new("cmd");
-        c.arg("/C").arg(cmd);
-        c
-    }
-    #[cfg(not(windows))]
-    {
-        let mut c = tokio::process::Command::new("sh");
-        c.arg("-c").arg(cmd);
-        c
-    }
+    crate::shell::command_from(crate::shell::script_argv(cmd))
 }
 
 #[cfg(test)]

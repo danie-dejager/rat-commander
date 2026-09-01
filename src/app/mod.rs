@@ -40,6 +40,8 @@ pub async fn run(startup: crate::Startup) -> Result<()> {
     // before anything renders.
     crate::l10n::load_languages(state.config.language.as_deref());
     crate::l10n::set_reshape_rtl(state.config.reshape_rtl);
+    // The shell the command line and Ctrl-O run (empty = detect it).
+    crate::shell::set_preferred(&state.config.shell);
     // Now that the language is active, raise the (localized) nested-subshell
     // warning if this instance was started inside another's Ctrl-O subshell.
     state.warn_nested_subshell();
@@ -240,38 +242,19 @@ async fn resume_tui(term: &mut Term, state: &mut AppState) -> Result<()> {
     Ok(())
 }
 
-/// Build a `Command` that runs `cmd` through the platform shell
-/// (`sh -c` on Unix, `cmd /C` on Windows).
+/// Build a `Command` that runs a command *we* composed (an external
+/// editor/viewer invocation) through the platform shell — see
+/// [`crate::shell::script_argv`].
 fn shell_command(cmd: &str) -> tokio::process::Command {
-    if cfg!(windows) {
-        let mut c = tokio::process::Command::new("cmd");
-        c.arg("/C").arg(cmd);
-        c
-    } else {
-        let mut c = tokio::process::Command::new("sh");
-        c.arg("-c").arg(cmd);
-        c
-    }
+    crate::shell::command_from(crate::shell::script_argv(cmd))
 }
 
-/// Build a `Command` for a line typed at Rat Commander's own command line.
-///
-/// Unlike [`shell_command`], this runs the user's login shell **interactively**
-/// (`$SHELL -i -c …`), so the command sees the same aliases, shell functions and
-/// rc-file environment as the user's normal prompt. A non-interactive `sh -c`
-/// never sources `~/.bashrc`/`~/.zshrc`, and bash disables alias expansion
-/// outright when non-interactive — so an alias typed here would silently expand
-/// to nothing ("command not found"). This mirrors the Ctrl-O subshell, which is
-/// already the interactive `$SHELL`. Windows has no rc-file aliases, so it keeps
-/// the plain `cmd /C` form.
+/// Build a `Command` for a line typed at Rat Commander's own command line (or
+/// an F2 user-menu entry), running the user's shell — see
+/// [`crate::shell::command_argv`], which also explains why a POSIX shell is run
+/// interactively here while [`shell_command`]'s is not.
 fn command_line_shell(cmd: &str) -> tokio::process::Command {
-    if cfg!(windows) {
-        return shell_command(cmd);
-    }
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-    let mut c = tokio::process::Command::new(shell);
-    c.arg("-i").arg("-c").arg(cmd);
-    c
+    crate::shell::command_from(crate::shell::command_argv(cmd))
 }
 
 /// Run a foreground child to completion with `system(3)`-style signal handling
@@ -315,13 +298,7 @@ async fn run_foreground(
 
 /// The interactive shell to drop into for Ctrl-O.
 fn interactive_shell() -> tokio::process::Command {
-    if cfg!(windows) {
-        let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
-        tokio::process::Command::new(comspec)
-    } else {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-        tokio::process::Command::new(shell)
-    }
+    crate::shell::command_from(crate::shell::interactive_argv())
 }
 
 /// Run a command from the command line in the **persistent console shell** — the
@@ -733,20 +710,27 @@ mod tests {
         unsafe { nix::libc::signal(nix::libc::SIGINT, prev) };
     }
 
-    /// The command line must invoke the shell interactively (`-i -c <cmd>`): the
-    /// `-i` is what sources the rc files and enables alias expansion, so aliases
-    /// typed at the command line actually run. Program is `$SHELL`, so it is not
-    /// asserted here (it varies by environment).
+    /// The command line must run the user's shell, and run a POSIX one
+    /// interactively (`-i -c <cmd>`): the `-i` is what sources the rc files and
+    /// enables alias expansion, so aliases typed at the command line actually
+    /// run. The shell is pinned here rather than read from the environment so
+    /// the assertion holds wherever the tests run.
     #[test]
     fn command_line_runs_shell_interactively() {
+        let _guard =
+            crate::shell::PREFERRED_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let restore = crate::shell::preferred();
+        crate::shell::set_preferred("/bin/bash");
         let c = command_line_shell("ll");
-        let args: Vec<std::ffi::OsString> =
-            c.as_std().get_args().map(|a| a.to_owned()).collect();
-        let expected: Vec<std::ffi::OsString> = ["-i", "-c", "ll"]
+        let argv: Vec<std::ffi::OsString> = std::iter::once(c.as_std().get_program().to_owned())
+            .chain(c.as_std().get_args().map(|a| a.to_owned()))
+            .collect();
+        let expected: Vec<std::ffi::OsString> = ["/bin/bash", "-i", "-c", "ll"]
             .iter()
             .map(std::ffi::OsString::from)
             .collect();
-        assert_eq!(args, expected);
+        crate::shell::set_preferred(&restore);
+        assert_eq!(argv, expected);
     }
 
     #[test]

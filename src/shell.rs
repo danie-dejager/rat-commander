@@ -13,7 +13,7 @@ use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system}
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 /// Environment variable set in the Ctrl-O subshell so a Rat Commander launched
 /// from within it can tell it is nested (and disable its own subshell). Mirrors
@@ -178,7 +178,12 @@ impl Subshell {
             })
             .map_err(|e| Error::other(format!("openpty failed: {e}")))?;
 
-        let mut cmd = CommandBuilder::new(default_shell());
+        // The user's shell (config `shell`, else `$SHELL` / the shell we were
+        // launched from), plus whatever flags that shell needs.
+        let mut argv = interactive_argv().into_iter();
+        let program = argv.next().expect("interactive_argv always yields a program");
+        let mut cmd = CommandBuilder::new(program);
+        cmd.args(argv);
         cmd.cwd(cwd);
         // Mark the shell's environment so a nested Rat Commander started from it
         // detects the nesting and disables its own (unsupported) subshell.
@@ -533,12 +538,240 @@ fn feed_output(
     }
 }
 
-fn default_shell() -> String {
-    if cfg!(windows) {
-        std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string())
-    } else {
-        std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+// ---------------------------------------------------------------------------
+// Which shell to run
+// ---------------------------------------------------------------------------
+
+/// The `shell` setting from `config.toml`, applied at startup and whenever the
+/// setting changes. Empty means "detect it" — see [`preferred`].
+static PREFERRED: RwLock<String> = RwLock::new(String::new());
+
+/// Serializes the tests that swap the process-global [`PREFERRED`] shell, so a
+/// test running in parallel never observes a value another test set. Shared
+/// with `crate::app`'s command-line test.
+#[cfg(test)]
+pub(crate) static PREFERRED_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+/// Set the configured shell program (the `shell` setting); empty = auto-detect.
+pub fn set_preferred(program: &str) {
+    if let Ok(mut p) = PREFERRED.write() {
+        p.clear();
+        p.push_str(program.trim());
     }
+}
+
+/// The command-line dialect a shell speaks: which flag runs a single command,
+/// and whether an interactive one-shot (`-i`) makes sense.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShellKind {
+    /// `sh`, `bash`, `zsh`, `fish`, `nu`, Git-Bash … — `-c <command>`.
+    Posix,
+    /// `cmd.exe` — `/C <command>`.
+    Cmd,
+    /// `powershell.exe` / `pwsh.exe` — `-Command <command>`.
+    PowerShell,
+}
+
+/// A program path reduced to its lower-cased base name without an extension —
+/// `file_stem`, except that both `/` and `\` separate, so a Windows shell path
+/// is still recognized by a Unix build (and vice versa).
+fn program_stem(program: &str) -> String {
+    let name = program.rsplit(['/', '\\']).next().unwrap_or(program);
+    let stem = match name.rsplit_once('.') {
+        Some((base, _)) if !base.is_empty() => base,
+        _ => name,
+    };
+    stem.to_ascii_lowercase()
+}
+
+/// The dialect `program` speaks, from its file name. Unknown shells are assumed
+/// POSIX on Unix and `cmd`-like on Windows, so a shell we've never heard of
+/// still gets the flag its platform's shells conventionally use.
+pub fn kind_of(program: &str) -> ShellKind {
+    match program_stem(program).as_str() {
+        "cmd" => ShellKind::Cmd,
+        "powershell" | "pwsh" => ShellKind::PowerShell,
+        // Git-Bash, MSYS2, WSL's `bash.exe`, Nushell and friends all take `-c`.
+        "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh" | "mksh" | "tcsh" | "csh" | "ash"
+        | "busybox" | "nu" | "elvish" | "xonsh" | "yash" => ShellKind::Posix,
+        _ if cfg!(windows) => ShellKind::Cmd,
+        _ => ShellKind::Posix,
+    }
+}
+
+/// The shell program to run: the `shell` setting when set, else the platform's
+/// idea of the user's shell.
+///
+/// On Unix that is `$SHELL`. On Windows there is no such variable — `%COMSPEC%`
+/// names `cmd.exe` no matter which shell the user actually lives in — so the
+/// process tree is walked first to find the shell that launched us (see
+/// [`parent_shell`]), and `%COMSPEC%` is only the fallback.
+pub fn preferred() -> String {
+    if let Some(p) = PREFERRED.read().ok().map(|p| p.clone())
+        && !p.is_empty()
+    {
+        return p;
+    }
+    detected().to_string()
+}
+
+/// The auto-detected shell, resolved once for the life of the process: our
+/// ancestry can't change under us, and on Windows walking it costs a system
+/// call per ancestor — too much to repeat for every command run.
+fn detected() -> &'static str {
+    static DETECTED: OnceLock<String> = OnceLock::new();
+    DETECTED.get_or_init(|| {
+        if cfg!(windows) {
+            parent_shell()
+                .unwrap_or_else(|| std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into()))
+        } else {
+            std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into())
+        }
+    })
+}
+
+/// Walk up the process tree looking for the shell Rat Commander was started
+/// from, so `Ctrl-O` and the command line land in the same shell the user typed
+/// `rc` into (PowerShell, `pwsh`, Git-Bash, …) rather than always `cmd.exe`.
+///
+/// Only ancestors whose *own* name says "shell" count; anything else (a
+/// terminal emulator, an IDE, `explorer.exe`, a nested Rat Commander) is
+/// skipped. The walk is bounded, and a candidate whose start time is later than
+/// ours is rejected — on Windows a recorded parent PID outlives the parent and
+/// may have been recycled by an unrelated process.
+#[cfg(windows)]
+fn parent_shell() -> Option<String> {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+
+    /// How many ancestors to inspect. A shell is normally the direct parent;
+    /// the slack covers launcher shims (`rc.cmd`, `cargo run`, a `.lnk`).
+    const MAX_DEPTH: usize = 8;
+
+    let mut sys = System::new();
+    let exe_only = ProcessRefreshKind::nothing().with_exe(UpdateKind::OnlyIfNotSet);
+    let mut pid = sysinfo::get_current_pid().ok()?;
+    sys.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), true, exe_only);
+    let mut started = sys.process(pid)?.start_time();
+
+    for _ in 0..MAX_DEPTH {
+        let parent = sys.process(pid)?.parent()?;
+        sys.refresh_processes_specifics(ProcessesToUpdate::Some(&[parent]), true, exe_only);
+        let p = sys.process(parent)?;
+        // A parent that started after its child is a recycled PID, not our
+        // ancestor: the chain is broken, so stop rather than trust it.
+        if p.start_time() > started {
+            return None;
+        }
+        let name = p.name().to_string_lossy().into_owned();
+        if is_shell_name(&name) {
+            // Prefer the full path so we launch exactly this binary (there can
+            // be several `pwsh.exe` on a machine); fall back to the bare name,
+            // which PATH resolves.
+            return Some(
+                p.exe().map(|e| e.to_string_lossy().into_owned()).unwrap_or(name),
+            );
+        }
+        started = p.start_time();
+        pid = parent;
+    }
+    None
+}
+
+#[cfg(not(windows))]
+fn parent_shell() -> Option<String> {
+    None
+}
+
+/// Whether an executable's file name is one of the shells we recognize. Used to
+/// pick an ancestor process out of the tree, so it must not match the terminals
+/// and launchers that also sit above us.
+#[cfg(windows)]
+fn is_shell_name(name: &str) -> bool {
+    matches!(
+        program_stem(name).as_str(),
+        "powershell" | "pwsh" | "cmd" | "bash" | "sh" | "zsh" | "fish" | "nu" | "elvish" | "xonsh"
+    )
+}
+
+/// Argv for an interactive shell session (`Ctrl-O`): the shell program followed
+/// by any flags it needs, with no command to run.
+pub fn interactive_argv() -> Vec<String> {
+    interactive_argv_for(&preferred())
+}
+
+/// Argv that runs `cmd` once through the user's shell, as typed at Rat
+/// Commander's own command line or in an F2 user-menu entry.
+///
+/// A POSIX shell is run **interactively** (`-i -c …`) so the command sees the
+/// same aliases, shell functions and rc-file environment as the user's normal
+/// prompt: a non-interactive shell never sources `~/.bashrc`/`~/.zshrc`, and
+/// bash disables alias expansion outright when non-interactive, so an alias
+/// typed here would silently expand to nothing ("command not found"). `cmd.exe`
+/// and PowerShell have no rc-file aliases to bring in, so they run the plain
+/// one-shot form.
+pub fn command_argv(cmd: &str) -> Vec<String> {
+    let program = preferred();
+    match kind_of(&program) {
+        ShellKind::Posix => {
+            let mut argv = vec![program, "-i".to_string(), "-c".to_string()];
+            argv.push(cmd.to_string());
+            argv
+        }
+        _ => one_shot_argv(&program, cmd),
+    }
+}
+
+/// Argv that runs `cmd` once, non-interactively, for commands Rat Commander
+/// composes itself rather than ones the user typed: launching an external
+/// editor/viewer, and the `rc.ext` filter pipelines.
+///
+/// On Unix that is plain POSIX `sh` — `rc.ext` entries and extfs helpers are
+/// written in `sh` syntax, which a user's `fish` or `nu` login shell would not
+/// understand. Windows has no such lingua franca, so it uses the preferred
+/// shell, the one those commands were written for.
+pub fn script_argv(cmd: &str) -> Vec<String> {
+    if cfg!(windows) {
+        one_shot_argv(&preferred(), cmd)
+    } else {
+        vec!["sh".to_string(), "-c".to_string(), cmd.to_string()]
+    }
+}
+
+/// A `tokio` command built from one of the argv helpers above (element 0 is the
+/// program, the rest its arguments). Callers that need a PTY instead hand the
+/// argv straight to `portable_pty`.
+pub fn command_from(argv: Vec<String>) -> tokio::process::Command {
+    let mut argv = argv.into_iter();
+    let program = argv.next().expect("a shell argv always starts with its program");
+    let mut c = tokio::process::Command::new(program);
+    c.args(argv);
+    c
+}
+
+/// [`interactive_argv`] for an explicit shell program (the testable half).
+fn interactive_argv_for(program: &str) -> Vec<String> {
+    let mut argv = vec![program.to_string()];
+    if kind_of(program) == ShellKind::PowerShell {
+        // Without this every Ctrl-O reprints the PowerShell copyright banner.
+        argv.push("-NoLogo".to_string());
+    }
+    argv
+}
+
+/// Argv running `cmd` as a plain, non-interactive one-shot through `program`,
+/// with whichever "run this command" flag its dialect uses.
+fn one_shot_argv(program: &str, cmd: &str) -> Vec<String> {
+    let mut argv = vec![program.to_string()];
+    match kind_of(program) {
+        ShellKind::Cmd => argv.push("/C".to_string()),
+        ShellKind::PowerShell => {
+            argv.push("-NoLogo".to_string());
+            argv.push("-Command".to_string());
+        }
+        ShellKind::Posix => argv.push("-c".to_string()),
+    }
+    argv.push(cmd.to_string());
+    argv
 }
 
 #[cfg(test)]
@@ -737,5 +970,84 @@ aNbaT1L+sT5Oo+M8cFWUAAAAB3JjLXRlc3QBAgMEBQY=\n\
             }
         }
         assert!(found, "the remote shell echoed the command back to the console backdrop");
+    }
+
+    // -- Which shell to run -------------------------------------------------
+
+    #[test]
+    fn shell_kind_from_program_name() {
+        // Windows shells are recognized by name whichever platform we build on,
+        // so a config pointing at one is honoured under a cross-compile too.
+        assert_eq!(kind_of("cmd"), ShellKind::Cmd);
+        assert_eq!(kind_of(r"C:\Windows\System32\cmd.exe"), ShellKind::Cmd);
+        assert_eq!(kind_of("PowerShell.EXE"), ShellKind::PowerShell);
+        assert_eq!(kind_of(r"C:\Program Files\PowerShell\7\pwsh.exe"), ShellKind::PowerShell);
+        assert_eq!(kind_of("/bin/bash"), ShellKind::Posix);
+        assert_eq!(kind_of("fish"), ShellKind::Posix);
+        assert_eq!(kind_of(r"C:\Program Files\Git\bin\bash.exe"), ShellKind::Posix);
+        // An unknown shell falls back to its platform's convention.
+        let unknown = if cfg!(windows) { ShellKind::Cmd } else { ShellKind::Posix };
+        assert_eq!(kind_of("some-new-shell"), unknown);
+    }
+
+    #[test]
+    fn interactive_argv_matches_the_shell_dialect() {
+        // A POSIX shell and cmd.exe need no flags to sit at a prompt; PowerShell
+        // would otherwise reprint its banner on every Ctrl-O.
+        assert_eq!(interactive_argv_for("/bin/zsh"), ["/bin/zsh"]);
+        assert_eq!(interactive_argv_for("cmd.exe"), ["cmd.exe"]);
+        assert_eq!(interactive_argv_for("pwsh"), ["pwsh", "-NoLogo"]);
+    }
+
+    #[test]
+    fn one_shot_argv_uses_each_shell_s_run_command_flag() {
+        assert_eq!(one_shot_argv("/bin/sh", "ls -l"), ["/bin/sh", "-c", "ls -l"]);
+        assert_eq!(one_shot_argv("cmd.exe", "dir"), ["cmd.exe", "/C", "dir"]);
+        assert_eq!(
+            one_shot_argv("pwsh.exe", "Get-ChildItem"),
+            ["pwsh.exe", "-NoLogo", "-Command", "Get-ChildItem"]
+        );
+    }
+
+    /// The configured `shell` setting overrides detection, and clearing it hands
+    /// the choice back to the platform. Both halves are asserted in one test:
+    /// `PREFERRED` is process-global, so a second test racing this one could see
+    /// a value it did not set.
+    #[test]
+    fn configured_shell_overrides_detection() {
+        let _guard = PREFERRED_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let restore = preferred();
+        set_preferred("  /usr/bin/fish  ");
+        assert_eq!(preferred(), "/usr/bin/fish", "trimmed, and used verbatim");
+        // The command line runs a POSIX shell interactively so aliases expand.
+        assert_eq!(command_argv("ll"), ["/usr/bin/fish", "-i", "-c", "ll"]);
+
+        set_preferred(r"C:\Program Files\PowerShell\7\pwsh.exe");
+        assert_eq!(
+            command_argv("gci"),
+            [r"C:\Program Files\PowerShell\7\pwsh.exe", "-NoLogo", "-Command", "gci"],
+            "a path with spaces stays one argument"
+        );
+
+        set_preferred("");
+        // Nothing configured: Unix follows $SHELL (with a POSIX fallback), and
+        // Windows falls back to %COMSPEC% when no shell ancestor is found.
+        if cfg!(unix) {
+            assert_eq!(preferred(), std::env::var("SHELL").unwrap_or("/bin/sh".into()));
+        }
+        set_preferred(&restore);
+    }
+
+    /// Commands Rat Commander composes itself (external editor/viewer, `rc.ext`
+    /// filters) are `sh` scripts, so on Unix they must keep running under `sh`
+    /// even when the user's shell is something that can't parse them.
+    #[test]
+    #[cfg(unix)]
+    fn script_argv_stays_posix_sh_on_unix() {
+        let _guard = PREFERRED_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let restore = preferred();
+        set_preferred("/usr/bin/nu");
+        assert_eq!(script_argv("less \"a b\""), ["sh", "-c", "less \"a b\""]);
+        set_preferred(&restore);
     }
 }

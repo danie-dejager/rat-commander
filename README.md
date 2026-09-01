@@ -322,6 +322,13 @@ are restored. When no external editor or viewer is configured, `rc` falls back t
 **`$VISUAL`** then **`$EDITOR`** for editing and **`$PAGER`** for viewing before
 using the built-in ones.
 
+**The shell** the command line and `Ctrl-O` run is **`$SHELL`** on Unix. Windows
+has no such variable — and `%COMSPEC%` always says `cmd.exe` — so `rc` looks up
+the process tree and uses the shell it was launched from (**PowerShell**,
+**pwsh**, Git-Bash, …), falling back to `%COMSPEC%`. Set **`shell`** in
+`config.toml` (a program path, e.g. `pwsh` or `/usr/bin/fish`) to pin one
+instead.
+
 ---
 
 ## License

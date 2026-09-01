@@ -72,6 +72,12 @@ pub struct Config {
     pub use_internal_viewer: bool,
     /// Prefer the internal editor even when `editor` is set.
     pub use_internal_editor: bool,
+    /// Shell program for the `Ctrl-O` subshell and the command line (e.g.
+    /// `pwsh`, `C:\Program Files\PowerShell\7\pwsh.exe`, `/bin/fish`).
+    /// A program path only — arguments are added by Rat Commander to match the
+    /// shell's dialect. Empty = detect it (see [`crate::shell::preferred`]).
+    #[serde(default)]
+    pub shell: String,
     /// Ask for confirmation before deleting.
     pub confirm_delete: bool,
     /// Ask before overwriting an existing destination during copy/move.
@@ -166,6 +172,7 @@ impl Default for Config {
             viewer: String::new(),
             use_internal_viewer: true,
             use_internal_editor: true,
+            shell: String::new(),
             confirm_delete: true,
             confirm_overwrite: true,
             confirm_execute: false,

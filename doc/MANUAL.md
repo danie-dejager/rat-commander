@@ -60,7 +60,7 @@ browsing. (FTP has no shell, so an FTP panel keeps using the local shell.)
 
 > **Windows note.** The persistent behind-the-panels console is a Unix feature.
 > On Windows the command line and `Ctrl-O` instead run **the classic way**: the
-> panels are suspended while `cmd.exe` runs (a command line runs once and waits
+> panels are suspended while the shell runs (a command line runs once and waits
 > for a key; `Ctrl-O` opens an interactive shell until you type `exit`), then the
 > panels return. There is no live console backdrop, and shell state is not carried
 > between separate runs — each command runs in the active panel's directory.
@@ -977,9 +977,39 @@ server, that shell runs on the **remote host** over the same SSH connection (see
 *The console → On a remote panel*).
 
 On **Windows** this works differently (see the *Windows note* under *The
-console* above): `Ctrl-O` opens a fresh interactive `cmd.exe` that you leave by
+console* above): `Ctrl-O` opens a fresh interactive shell that you leave by
 typing `exit`, and command-line commands run one at a time with the panels
 suspended — there is no persistent behind-the-panels session.
+
+### Which shell runs
+
+On **Unix**, the command line and `Ctrl-O` run **`$SHELL`** (falling back to
+`/bin/sh`). Commands typed at the command line run it *interactively*, so your
+aliases and shell functions from `~/.bashrc` / `~/.zshrc` work there just as they
+do at your normal prompt.
+
+**Windows** has no `$SHELL`, and `%COMSPEC%` says `cmd.exe` however you started
+`rc`. So Rat Commander looks **up the process tree** for the shell it was
+launched from and uses that one — start `rc` from **PowerShell** or **pwsh** and
+that is what `Ctrl-O` gives you; start it from Git-Bash and you get bash. Only
+when no shell ancestor is found does it fall back to `%COMSPEC%`.
+
+To pin a shell rather than inherit one, set **`shell`** in `config.toml`:
+
+```toml
+shell = "pwsh"
+# or a full path, which is what to use when several versions are installed:
+# shell = 'C:\Program Files\PowerShell\7\pwsh.exe'
+# shell = "/usr/bin/fish"
+```
+
+Give a **program only**, not a command line — the arguments that run a command
+(`-c`, `/C`, `-Command`) are added for you, chosen from the shell's name. The
+setting is read at startup, so restart `rc` after changing it.
+
+Commands Rat Commander composes itself — launching an external editor or viewer,
+and the `%view` filters in `rc.ext` — keep running under plain `sh` on Unix,
+since those are written in `sh` syntax; on Windows they use the shell above.
 
 ### Working without the command prompt
 
@@ -1414,7 +1444,10 @@ open remote connections and the SFTP / FTP / SCP buttons appear below.
 The command line and `Ctrl-O` shell also behave differently on Windows — see the
 **Windows note** under [The console](#the-console-behind-the-panels): commands run
 with the panels suspended (there is no persistent behind-the-panels console), and
-`Ctrl-O` opens an interactive `cmd.exe` you leave by typing `exit`.
+`Ctrl-O` opens an interactive shell you leave by typing `exit`. That shell is the
+one you launched `rc` from (PowerShell, `pwsh`, Git-Bash, …), or whatever
+`shell` in `config.toml` names — see
+[Which shell runs](#which-shell-runs).
 
 
 ## Configuration
@@ -1428,7 +1461,9 @@ Configuration files live in your platform config directory
   servers (without passwords), and your directory **`bookmarks`** (used by the
   command palette, Ctrl-P). It also holds `command_history_max` (default
   `100`) — the maximum number of command-line entries kept in the persistent
-  history; set it to `0` to disable history. Finally it remembers the **session
+  history; set it to `0` to disable history, and `shell` (empty by default) — the
+  shell program the command line and `Ctrl-O` run, overriding the detection
+  described under *Which shell runs*. Finally it remembers the **session
   layout** — each panel's last directory, listing filter, visibility and
   half-height state, the split direction, and which side was active — and
   restores it on the next launch. The one exception is the initially-active
