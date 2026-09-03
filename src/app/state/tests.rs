@@ -3722,3 +3722,321 @@ async fn session_layout_is_captured_and_survives_a_config_round_trip() {
     assert_eq!(back.half_height, st.config.half_height);
     assert_eq!(back.active_panel, st.config.active_panel);
 }
+
+// ---------------------------------------------------------------------------
+// Archives as panels
+// ---------------------------------------------------------------------------
+//
+// The backend's own tests (`vfs::archive::tests`) cover the archive operations
+// directly. These drive the same ground through `AppState`, so the panel keys
+// and dialogs that reach them — F5/F6/F7/F8 — are wired to the right thing.
+
+/// A private scratch directory holding one archive, removed when the test ends.
+struct ArchiveFixture {
+    dir: PathBuf,
+    container: PathBuf,
+}
+
+impl ArchiveFixture {
+    /// `<scratch>/box.zip` containing `notes.txt` and `data/{a.txt,b.txt}`,
+    /// alongside an empty `<scratch>/out` directory for the other panel.
+    fn new(tag: &str) -> Self {
+        let dir = crate::util::temp::rc_temp_path(&format!("test-panel-{tag}"));
+        std::fs::create_dir_all(dir.join("tree/data")).unwrap();
+        std::fs::create_dir_all(dir.join("out")).unwrap();
+        std::fs::write(dir.join("tree/notes.txt"), b"notes").unwrap();
+        std::fs::write(dir.join("tree/data/a.txt"), b"alpha").unwrap();
+        std::fs::write(dir.join("tree/data/b.txt"), b"beta").unwrap();
+        let container = dir.join("box.zip");
+        archive::create_archive(
+            ArchiveFormat::Zip,
+            &container,
+            &[dir.join("tree/notes.txt"), dir.join("tree/data")],
+        )
+        .unwrap();
+        ArchiveFixture { dir, container }
+    }
+
+    fn out(&self) -> PathBuf {
+        self.dir.join("out")
+    }
+
+    fn inner(&self, path: &str) -> VfsPath {
+        VfsPath::archive(&self.container, path)
+    }
+
+    /// Every member the archive stores, sorted.
+    fn members(&self) -> Vec<String> {
+        let mut v: Vec<String> = archive::formats::list_entries(ArchiveFormat::Zip, &self.container)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.path)
+            .collect();
+        v.sort();
+        v
+    }
+}
+
+impl Drop for ArchiveFixture {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.dir).ok();
+    }
+}
+
+/// Panel 0 shows `inner` of the archive, panel 1 shows `right`; panel 0 active.
+async fn archive_state(
+    fx: &ArchiveFixture,
+    inner: &str,
+    right: VfsPath,
+) -> (AppState, crate::util::async_bridge::AppReceiver) {
+    let (tx, rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    let cwd = fx.inner(inner);
+    st.panels[0].backend = st.registry.resolve(&cwd).unwrap();
+    st.panels[0].cwd = cwd;
+    st.panels[0].reload().await.unwrap();
+    st.panels[1].backend = st.registry.resolve(&right).unwrap();
+    st.panels[1].cwd = right;
+    st.panels[1].reload().await.unwrap();
+    st.active = 0;
+    (st, rx)
+}
+
+/// Put the cursor on the named entry of the active panel.
+fn point_at(st: &mut AppState, name: &str) {
+    let p = &mut st.panels[st.active];
+    p.cursor = p
+        .entries
+        .iter()
+        .position(|e| e.name == name)
+        .unwrap_or_else(|| panic!("{name} is not listed: {:?}", p.entries.iter().map(|e| &e.name).collect::<Vec<_>>()));
+}
+
+fn entry_names(st: &AppState, side: usize) -> Vec<String> {
+    let mut v: Vec<String> = st.panels[side].entries.iter().map(|e| e.name.clone()).filter(|n| n != "..").collect();
+    v.sort();
+    v
+}
+
+/// F7 inside an archive creates the directory, the way it does on disk — it
+/// used to fail outright with "operation not supported by this filesystem".
+#[tokio::test]
+async fn f7_makes_a_directory_inside_an_archive() {
+    let fx = ArchiveFixture::new("mkdir");
+    let (mut st, _rx) = archive_state(&fx, "/", VfsPath::local(fx.out())).await;
+
+    st.handle_submit(Submit::MkDir("fresh".into())).await;
+
+    assert!(st.dialog.is_none(), "no error dialog");
+    assert_eq!(entry_names(&st, 0), ["data", "fresh", "notes.txt"], "the panel shows it");
+    assert!(fx.members().contains(&"/fresh".to_string()), "{:?}", fx.members());
+}
+
+/// F8 on a directory inside an archive deletes it and everything under it.
+#[tokio::test]
+async fn f8_deletes_a_directory_inside_an_archive() {
+    let fx = ArchiveFixture::new("delete");
+    let (mut st, mut rx) = archive_state(&fx, "/", VfsPath::local(fx.out())).await;
+
+    st.handle_submit(Submit::Delete(vec![fx.inner("/data")])).await;
+    drain_taskdone(&mut st, &mut rx).await;
+
+    assert_eq!(fx.members(), ["/notes.txt"]);
+    assert_eq!(entry_names(&st, 0), ["notes.txt"]);
+}
+
+/// F5 out of an archive extracts the file to the other panel, leaving the
+/// archive alone.
+#[tokio::test]
+async fn f5_copies_a_file_out_of_an_archive() {
+    let fx = ArchiveFixture::new("copy-out");
+    let (mut st, mut rx) = archive_state(&fx, "/data", VfsPath::local(fx.out())).await;
+    point_at(&mut st, "a.txt");
+
+    st.handle_key(KeyEvent::new(KeyCode::F(5), KeyModifiers::NONE)).await;
+    assert!(matches!(st.dialog, Some(Dialog::Input(_))), "the destination prompt opens");
+    st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+    drain_taskdone(&mut st, &mut rx).await;
+
+    assert_eq!(std::fs::read(fx.out().join("a.txt")).unwrap(), b"alpha");
+    assert!(fx.members().contains(&"/data/a.txt".to_string()), "a copy leaves the original");
+}
+
+/// F6 out of an archive extracts the file *and* removes it from the archive.
+/// The delete half used to fail — the file landed on disk and the user got
+/// "operation not supported by this filesystem" with the member still there.
+#[tokio::test]
+async fn f6_moves_a_file_out_of_an_archive() {
+    let fx = ArchiveFixture::new("move-out");
+    let (mut st, mut rx) = archive_state(&fx, "/data", VfsPath::local(fx.out())).await;
+    point_at(&mut st, "a.txt");
+
+    st.handle_key(KeyEvent::new(KeyCode::F(6), KeyModifiers::NONE)).await;
+    st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+    drain_taskdone(&mut st, &mut rx).await;
+
+    assert!(!matches!(st.dialog, Some(Dialog::Message(_))), "no error");
+    assert_eq!(std::fs::read(fx.out().join("a.txt")).unwrap(), b"alpha");
+    assert!(!fx.members().contains(&"/data/a.txt".to_string()), "gone from the archive: {:?}", fx.members());
+}
+
+/// F6 with a bare name renames a member in place, the same gesture that renames
+/// a file on disk. It used to be refused with "Cannot copy directly between
+/// archives; extract first".
+#[tokio::test]
+async fn f6_renames_a_file_inside_an_archive() {
+    let fx = ArchiveFixture::new("rename");
+    let (mut st, mut rx) = archive_state(&fx, "/data", fx.inner("/")).await;
+    point_at(&mut st, "a.txt");
+
+    st.handle_submit(Submit::Move(vec![fx.inner("/data/a.txt")], "renamed.txt".into())).await;
+    drain_taskdone(&mut st, &mut rx).await;
+
+    assert!(!matches!(st.dialog, Some(Dialog::Message(_))), "no error");
+    assert_eq!(fx.members(), ["/data", "/data/b.txt", "/data/renamed.txt", "/notes.txt"]);
+    assert_eq!(entry_names(&st, 0), ["b.txt", "renamed.txt"]);
+}
+
+/// Moving between two directories of the *same* archive relocates the member
+/// instead of refusing the whole operation.
+#[tokio::test]
+async fn f6_moves_a_file_between_directories_of_one_archive() {
+    let fx = ArchiveFixture::new("move-within");
+    let (mut st, mut rx) = archive_state(&fx, "/", fx.inner("/data")).await;
+    point_at(&mut st, "notes.txt");
+
+    st.handle_key(KeyEvent::new(KeyCode::F(6), KeyModifiers::NONE)).await;
+    match &st.dialog {
+        Some(Dialog::Input(d)) => assert_eq!(d.buffer, "/data", "prefilled with the path inside the archive"),
+        _ => panic!("F6 into the same archive should open the destination prompt"),
+    }
+    st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+    drain_taskdone(&mut st, &mut rx).await;
+
+    assert!(!matches!(st.dialog, Some(Dialog::Message(_))), "no error");
+    assert_eq!(fx.members(), ["/data", "/data/a.txt", "/data/b.txt", "/data/notes.txt"]);
+}
+
+/// Copying a local file into an archive over a member of the same name asks
+/// first, then replaces it — one member, the new content. Before, the copy died
+/// with the zip writer's "Duplicate filename" (and, in a tar, silently stored a
+/// second member that readers never saw).
+#[tokio::test]
+async fn f5_into_an_archive_confirms_before_replacing_a_member() {
+    let fx = ArchiveFixture::new("copy-in-clash");
+    std::fs::write(fx.out().join("notes.txt"), b"REPLACED").unwrap();
+    let (mut st, mut rx) = archive_state(&fx, "/", VfsPath::local(fx.out())).await;
+    // Copy from the local panel into the archive panel.
+    st.active = 1;
+    point_at(&mut st, "notes.txt");
+    assert!(st.config.confirm_overwrite, "the prompt is on by default");
+
+    st.handle_key(KeyEvent::new(KeyCode::F(5), KeyModifiers::NONE)).await;
+    // The archive is scanned in the background; the answer arrives as an event.
+    let ev = rx.recv().await.unwrap();
+    assert!(matches!(ev, AppEvent::ArchiveAddChecked { .. }), "the destination was checked");
+    st.apply_event(ev).await;
+    match &st.dialog {
+        Some(Dialog::Confirm(d)) => assert!(d.message.contains("notes.txt"), "names it: {}", d.message),
+        _ => panic!("an existing member must be confirmed before it is replaced"),
+    }
+
+    st.handle_dialog_result(DialogResult::Submit(Submit::ArchiveAdd(Box::new(
+        crate::ops::ArchiveAdd {
+            kind: OpKind::Copy,
+            sources: vec![VfsPath::local(fx.out().join("notes.txt"))],
+            dest: fx.inner("/"),
+        },
+    ))))
+    .await;
+    drain_taskdone(&mut st, &mut rx).await;
+
+    assert_eq!(fx.members(), ["/data", "/data/a.txt", "/data/b.txt", "/notes.txt"], "one member");
+    let fs = crate::vfs::archive::ArchiveFs::new();
+    let mut r = fs.open_read(&fx.inner("/notes.txt")).await.unwrap();
+    let mut got = Vec::new();
+    tokio::io::AsyncReadExt::read_to_end(&mut r, &mut got).await.unwrap();
+    assert_eq!(got, b"REPLACED");
+}
+
+/// Copying into an archive with nothing to overwrite goes straight through, no
+/// question asked.
+#[tokio::test]
+async fn f5_into_an_archive_does_not_ask_when_nothing_is_replaced() {
+    let fx = ArchiveFixture::new("copy-in-clean");
+    std::fs::write(fx.out().join("new.txt"), b"new").unwrap();
+    let (mut st, mut rx) = archive_state(&fx, "/", VfsPath::local(fx.out())).await;
+    st.active = 1;
+    point_at(&mut st, "new.txt");
+
+    st.handle_key(KeyEvent::new(KeyCode::F(5), KeyModifiers::NONE)).await;
+    st.apply_event(rx.recv().await.unwrap()).await;
+    assert!(matches!(st.dialog, Some(Dialog::Progress(_))), "straight to the rebuild");
+    drain_taskdone(&mut st, &mut rx).await;
+
+    assert!(fx.members().contains(&"/new.txt".to_string()), "{:?}", fx.members());
+}
+
+/// F6 on a whole directory inside an archive extracts the subtree and takes it
+/// out of the archive — the recursive delete has to walk the archive too.
+#[tokio::test]
+async fn f6_moves_a_directory_out_of_an_archive() {
+    let fx = ArchiveFixture::new("move-dir-out");
+    let (mut st, mut rx) = archive_state(&fx, "/", VfsPath::local(fx.out())).await;
+    point_at(&mut st, "data");
+
+    st.handle_key(KeyEvent::new(KeyCode::F(6), KeyModifiers::NONE)).await;
+    st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+    drain_taskdone(&mut st, &mut rx).await;
+
+    assert!(!matches!(st.dialog, Some(Dialog::Message(_))), "no error");
+    assert_eq!(std::fs::read(fx.out().join("data/a.txt")).unwrap(), b"alpha");
+    assert_eq!(std::fs::read(fx.out().join("data/b.txt")).unwrap(), b"beta");
+    assert_eq!(fx.members(), ["/notes.txt"], "the whole subtree left the archive");
+}
+
+/// Copying between two *different* archives streams through the generic engine
+/// (there is no local file to bulk-add), rather than being refused.
+#[tokio::test]
+async fn f5_copies_a_file_from_one_archive_into_another() {
+    let src = ArchiveFixture::new("cross-src");
+    let dst = ArchiveFixture::new("cross-dst");
+    // Empty the destination so the copied name is unambiguous.
+    archive::remove_from_archive(
+        &dst.container,
+        &HashSet::from(["/data".to_string(), "/notes.txt".to_string()]),
+    )
+    .unwrap();
+
+    let (mut st, mut rx) = archive_state(&src, "/data", dst.inner("/")).await;
+    point_at(&mut st, "a.txt");
+
+    st.handle_key(KeyEvent::new(KeyCode::F(5), KeyModifiers::NONE)).await;
+    match &st.dialog {
+        Some(Dialog::Input(d)) => assert_eq!(d.buffer, "/", "the other archive's inner path"),
+        _ => panic!("the destination prompt should open"),
+    }
+    st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+    drain_taskdone(&mut st, &mut rx).await;
+
+    assert!(!matches!(st.dialog, Some(Dialog::Message(_))), "no error");
+    assert_eq!(dst.members(), ["/a.txt"]);
+    assert!(src.members().contains(&"/data/a.txt".to_string()), "the source keeps its copy");
+}
+
+/// Directory sync writes file by file, and each write into an archive rebuilds
+/// the whole container — so an archive destination is refused up front, with a
+/// pointer at F5, which does the same job in one rebuild.
+#[tokio::test]
+async fn sync_refuses_an_archive_destination() {
+    let fx = ArchiveFixture::new("sync-dest");
+    let (mut st, _rx) = archive_state(&fx, "/", VfsPath::local(fx.out())).await;
+    st.active = 1; // sync runs from the local panel into the archive panel
+
+    st.open_sync();
+
+    match &st.dialog {
+        Some(Dialog::Message(m)) => assert!(m.message.contains("F5"), "points at F5: {}", m.message),
+        _ => panic!("an archive sync destination should be refused"),
+    }
+}

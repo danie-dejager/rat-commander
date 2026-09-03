@@ -103,6 +103,7 @@ impl Vfs for SftpFs {
             random_access: true,
             inode: false,
             server_rename: true,
+            atomic_write: false,
         }
     }
 

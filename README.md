@@ -91,8 +91,11 @@ The installed executable is named **`rc`** for quick typing.
   cell art as a fallback). Select several files or a directory and they are
   zipped first (with a progress bar); the box shows a live download count and the
   server stops when you close it.
-- **Archives** — browse `.zip`, `.tar(.gz/.bz2/.xz)`, `.7z` and `.rar` like
-  directories; copy in/out, delete, and compress a selection.
+- **Archives** — browse and *edit* `.zip`, `.tar(.gz/.bz2/.xz)` and `.7z` like
+  directories: copy and move files in and out, make and delete subdirectories,
+  rename, move things around inside the archive, and compress a selection.
+  Members keep their own timestamps and permissions, and an existing one is
+  replaced (after the usual prompt) rather than duplicated. `.rar` is read-only.
 - **Remote filesystems** — SFTP, SCP and FTP/FTPS, each mounted into a panel;
   copy/move/delete works transparently across local, remote and archive panels.
   On an **SFTP/SCP** panel, the command line and **Ctrl-O** run a shell on the

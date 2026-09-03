@@ -74,6 +74,7 @@ impl Vfs for FtpFs {
             random_access: false,
             inode: false,
             server_rename: true,
+            atomic_write: false,
         }
     }
 

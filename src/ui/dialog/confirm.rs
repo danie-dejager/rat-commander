@@ -81,6 +81,29 @@ impl ConfirmDialog {
         Self::yes_no("Delete", message, Submit::Delete(targets), "Yes", "No", None)
     }
 
+    /// Copying into an archive rebuilds the whole container in one pass, so the
+    /// overwrite question is asked once, up front, naming every member the copy
+    /// would replace — rather than file by file the way a filesystem copy does.
+    pub fn archive_overwrite(names: &[String], request: Box<crate::ops::ArchiveAdd>) -> Self {
+        // The box is a fixed height, so this counts rather than lists — the same
+        // way the delete prompt does for a multi-file selection.
+        let what = match names {
+            [one] => format!("\"{}\" already exists", one.trim_start_matches('/')),
+            _ => format!("{} files already exist", names.len()),
+        };
+        let message = format!("{what} in the archive.\n\nReplace?");
+        let mut d = Self::yes_no(
+            "File exists",
+            message,
+            Submit::ArchiveAdd(request),
+            "Replace",
+            "Cancel",
+            None,
+        );
+        d.danger = true;
+        d
+    }
+
     /// `git rm` — the files leave the index *and* the working tree, so this is a
     /// real deletion and is flagged as dangerous.
     pub fn git_remove(names: &[String], args: Vec<String>) -> Self {

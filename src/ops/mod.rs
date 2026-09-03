@@ -26,6 +26,20 @@ pub enum OpKind {
     Sync,
 }
 
+/// A pending "copy/move these local files into an archive" request.
+///
+/// Adding to an archive rebuilds the whole container, so it is a single bulk
+/// step rather than a file-by-file transfer — which means the overwrite
+/// question has to be asked once, up front, before the rebuild starts. The
+/// request is parked in this struct while that happens.
+#[derive(Debug, Clone)]
+pub struct ArchiveAdd {
+    pub kind: OpKind,
+    pub sources: Vec<VfsPath>,
+    /// The directory *inside* the archive the sources land in.
+    pub dest: VfsPath,
+}
+
 /// A fully-resolved operation request handed to the engine.
 pub struct OpRequest {
     pub kind: OpKind,

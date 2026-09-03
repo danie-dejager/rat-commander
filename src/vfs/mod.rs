@@ -108,6 +108,12 @@ pub struct Capabilities {
     pub inode: bool,
     /// Whether the backend can rename server-side (vs copy+delete).
     pub server_rename: bool,
+    /// Whether a writer from [`Vfs::open_write`] commits only on `shutdown`, so
+    /// an interrupted copy leaves the destination untouched. The ops engine uses
+    /// this to decide whether an aborted transfer has a partial file to clean up
+    /// — deleting it on a backend like this would destroy the *previous*
+    /// contents, which were never overwritten.
+    pub atomic_write: bool,
 }
 
 impl Capabilities {
@@ -121,6 +127,7 @@ impl Capabilities {
             random_access: true,
             inode: true,
             server_rename: true,
+            atomic_write: false,
         }
     }
 }
@@ -311,6 +318,7 @@ pub(crate) mod testmock {
                 random_access: false,
                 inode: false,
                 server_rename: false,
+                atomic_write: false,
             }
         }
         async fn read_dir(&self, _: &VfsPath) -> Result<Vec<VfsEntry>> {

@@ -162,6 +162,7 @@ impl AppState {
                 }
             }
             Submit::Compress(sources, name) => self.start_compress(sources, name),
+            Submit::ArchiveAdd(req) => self.run_archive_add(*req),
             Submit::GotoDir(path) => self.goto_dir(*path).await,
             Submit::OpenSync => self.open_sync(),
             Submit::SyncPlan(mode) => self.start_sync_plan(mode),
@@ -526,19 +527,15 @@ impl AppState {
             self.show_error("Cannot copy into a search-result panel");
             return;
         }
-        // Destination is a native archive → add into it (rebuild), not a file
-        // copy. (An extfs mount is writable via its own `open_write`/copyin, so
-        // it falls through to the generic transfer below.)
-        if self.panels[self.other_index()].cwd.is_native_archive() {
-            // start_archive_add reads sources from local disk, so any
-            // container-backed source (archive or extfs mount) must be extracted
-            // first rather than added directly.
-            if self.panels[self.active].cwd.is_archive() {
-                self.show_error("Cannot copy directly between archives; extract first");
-                return;
-            }
-            let dest = self.panels[self.other_index()].cwd.clone();
-            self.start_archive_add(kind, sources, dest);
+        // Destination is a native archive and the sources are ordinary local
+        // files → rebuild the archive once with all of them, which is far
+        // cheaper than the generic engine's rebuild-per-file. Anything else
+        // (sources inside another archive, an extfs mount or a remote host) has
+        // no local path to read, so it takes the generic path below and streams
+        // through `open_read`/`open_write` like any other backend pair.
+        let other_cwd = self.panels[self.other_index()].cwd.clone();
+        if other_cwd.is_native_archive() && self.panels[self.active].cwd.scheme == "file" {
+            self.begin_archive_add(ArchiveAdd { kind, sources, dest: other_cwd });
             return;
         }
         // Prefill the destination panel's path. For a remote panel, show the
@@ -547,6 +544,12 @@ impl AppState {
         let cwd = &self.panels[self.other_index()].cwd;
         let dest = if cwd.scheme == "file" {
             cwd.path.to_string_lossy().into_owned()
+        } else if cwd.is_archive() {
+            // Container-backed (an archive or an extfs mount): the destination is
+            // a path *inside* the container, so prefill that. `display()`'s
+            // "archive.zip!/dir" form would be taken literally and produce a
+            // member actually named "…/archive.zip!/dir".
+            cwd.posix_path()
         } else {
             cwd.display()
         };

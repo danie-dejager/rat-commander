@@ -94,6 +94,7 @@ impl Vfs for ScpFs {
             random_access: false,
             inode: false,
             server_rename: true,
+            atomic_write: false,
         }
     }
 

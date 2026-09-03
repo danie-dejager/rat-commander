@@ -23,13 +23,17 @@ impl AppState {
         if src == dst {
             return self.show_error("Both panels show the same directory");
         }
-        // An archive can be read from but not written into file by file (its
-        // mutations are whole-archive rebuilds), so it can never be a sync
-        // destination. Say so now rather than failing on the first copy.
-        if !self.panels[self.other_index()].backend.capabilities().writable {
+        // Sync copies file by file, and every write into an archive rebuilds the
+        // whole container — mirroring a few hundred files would rebuild it a few
+        // hundred times. Copying the directory in with F5 does the same job in
+        // one pass, so say so now rather than quietly taking hours.
+        if self.panels[self.other_index()].cwd.is_native_archive() {
             return self.show_error(
-                "The destination panel is read-only; an archive cannot be synchronized into",
+                "An archive cannot be a sync destination; copy into it with F5, which rebuilds it once",
             );
+        }
+        if !self.panels[self.other_index()].backend.capabilities().writable {
+            return self.show_error("The destination panel is read-only");
         }
         self.dialog = Some(Dialog::Form(FormDialog::sync(&src, &dst)));
     }
@@ -48,7 +52,11 @@ impl AppState {
     /// [`AppEvent::SyncPlanned`].
     pub(in crate::app::state) fn start_sync_plan(&mut self, mode: SyncMode) {
         let (a, b) = (self.active, self.other_index());
-        // Two-way writes to both sides, so both must accept writes.
+        // Two-way writes to both sides, so both must accept writes — and neither
+        // may be an archive, for the rebuild-per-file reason above.
+        if mode.two_way() && self.panels[a].cwd.is_native_archive() {
+            return self.show_error("A two-way sync cannot write into an archive");
+        }
         if mode.two_way() && !self.panels[a].backend.capabilities().writable {
             return self
                 .show_error("A two-way sync must write to both panels, and this one is read-only");

@@ -194,6 +194,8 @@ pub enum Submit {
     Confirmations(ConfirmValues),
     /// Compress these (local) sources into an archive of the given name.
     Compress(Vec<VfsPath>, String),
+    /// Go ahead with a bulk archive add whose overwrite prompt was confirmed.
+    ArchiveAdd(Box<crate::ops::ArchiveAdd>),
     /// Jump the active panel to this directory (picked from the Alt-H history).
     GotoDir(Box<VfsPath>),
     /// Open the sync options dialog (from the Compare-directories dialog).

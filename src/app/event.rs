@@ -38,6 +38,13 @@ pub enum AppEvent {
     Conflict(ConflictInfo),
     /// A background task finished (success, cancel, or failure).
     TaskDone { id: TaskId, outcome: TaskOutcome },
+    /// A pending archive add has finished scanning the destination archive for
+    /// members the copy would replace. `Ok(names)` lists them (empty = none);
+    /// `Err` is why the archive could not be read.
+    ArchiveAddChecked {
+        conflicts: Result<Vec<String>, String>,
+        request: Box<crate::ops::ArchiveAdd>,
+    },
     /// A privileged disk-manager command (mount/unmount/format) run in the
     /// background finished; carries its result and the success message to show.
     PrivilegedDone {

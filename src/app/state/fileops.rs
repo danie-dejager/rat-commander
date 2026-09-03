@@ -364,13 +364,51 @@ impl AppState {
         });
     }
 
-    pub(in crate::app::state) fn start_archive_add(&mut self, kind: OpKind, sources: Vec<VfsPath>, dest: VfsPath) {
-        let Some(container) = dest.container.clone() else {
+    /// Start a bulk add of local files into an archive. Because the rebuild is
+    /// one indivisible pass there is no per-file overwrite prompt to fall back
+    /// on, so the members it would replace are looked up first and confirmed in
+    /// one question — the archive equivalent of the engine's overwrite dialog.
+    pub(in crate::app::state) fn begin_archive_add(&mut self, req: ArchiveAdd) {
+        let Some(container) = req.dest.container.clone() else {
             return self.show_error("Destination is not an archive");
         };
-        let dest_inner = dest.path.to_string_lossy().into_owned();
-        let local: Vec<PathBuf> = sources.iter().map(|s| s.path.clone()).collect();
-        let is_move = matches!(kind, OpKind::Move);
+        if self.refuse_lossy(&req.sources) {
+            return;
+        }
+        if !self.config.confirm_overwrite {
+            return self.run_archive_add(req);
+        }
+        let dest_inner = req.dest.path.to_string_lossy().into_owned();
+        let local: Vec<PathBuf> = req.sources.iter().map(|s| s.path.clone()).collect();
+        let tx = self.tx.clone();
+        // Listing a big archive is not instant (a .tar.gz has to be decompressed
+        // to be read at all), so the scan runs off the UI thread behind a
+        // spinner rather than freezing the panels.
+        self.dialog = Some(Dialog::Busy(BusyDialog::new("Please wait", "Checking the archive…")));
+        tokio::spawn(async move {
+            let conflicts = match tokio::task::spawn_blocking(move || {
+                archive::add_conflicts(&container, &dest_inner, &local)
+            })
+            .await
+            {
+                Ok(Ok(names)) => Ok(names),
+                Ok(Err(e)) => Err(e.to_string()),
+                Err(e) => Err(e.to_string()),
+            };
+            let _ = tx
+                .send(AppEvent::ArchiveAddChecked { conflicts, request: Box::new(req) })
+                .await;
+        });
+    }
+
+    /// Perform the rebuild for a confirmed [`ArchiveAdd`].
+    pub(in crate::app::state) fn run_archive_add(&mut self, req: ArchiveAdd) {
+        let Some(container) = req.dest.container.clone() else {
+            return self.show_error("Destination is not an archive");
+        };
+        let dest_inner = req.dest.path.to_string_lossy().into_owned();
+        let local: Vec<PathBuf> = req.sources.iter().map(|s| s.path.clone()).collect();
+        let is_move = matches!(req.kind, OpKind::Move);
         self.spawn_archive_op("Updating archive", move || {
             archive::add_to_archive(&container, &dest_inner, &local)?;
             if is_move {

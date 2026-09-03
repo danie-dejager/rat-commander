@@ -518,7 +518,10 @@ impl Engine {
 /// masking the original error.
 async fn discard_partial(writer: BoxWrite, dst_fs: &Arc<dyn Vfs>, dst: &VfsPath, append: bool) {
     drop(writer);
-    if !append {
+    // A backend whose writer commits atomically on shutdown has written nothing
+    // yet, so there is no partial destination to discard — and removing it would
+    // delete the file that was already there and never got overwritten.
+    if !append && !dst_fs.capabilities().atomic_write {
         let _ = dst_fs.remove_file(dst).await;
     }
 }

@@ -260,6 +260,7 @@ impl Vfs for ExtfsFs {
             random_access: false,
             inode: false,
             server_rename: false, // extfs has no rename op
+            atomic_write: false,
         }
     }
 

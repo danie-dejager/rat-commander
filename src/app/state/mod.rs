@@ -5,7 +5,7 @@ use crate::config::Config;
 use crate::editor::{EditorSignal, EditorState};
 use crate::ops::progress::{ProgressUpdate, TaskOutcome};
 use crate::ops::CancelToken;
-use crate::ops::{OpKind, OpRequest, TaskHandle, TaskId, spawn_op};
+use crate::ops::{ArchiveAdd, OpKind, OpRequest, TaskHandle, TaskId, spawn_op};
 use crate::diff::{DiffSignal, DiffView};
 use crate::disk::{DiskSignal, DiskView};
 use crate::mount::{MountSignal, MountView};

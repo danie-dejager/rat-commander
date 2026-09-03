@@ -385,6 +385,21 @@ impl AppState {
                 self.stashed_progress = Some(self.progress_dialog_for(info.id));
                 self.dialog = Some(Dialog::Overwrite(OverwriteDialog::new(info)));
             }
+            AppEvent::ArchiveAddChecked { conflicts, request } => {
+                // Drop the "checking…" spinner; whatever comes next replaces it.
+                if matches!(self.dialog, Some(Dialog::Busy(_))) {
+                    self.dialog = None;
+                }
+                match conflicts {
+                    Err(e) => self.show_error(format!("Cannot read the archive: {e}")),
+                    Ok(names) if names.is_empty() => self.run_archive_add(*request),
+                    Ok(names) => {
+                        self.dialog = Some(Dialog::Confirm(ConfirmDialog::archive_overwrite(
+                            &names, request,
+                        )));
+                    }
+                }
+            }
             AppEvent::TaskDone { id, outcome } => {
                 self.tasks.remove(&id);
                 self.task_progress.remove(&id);
