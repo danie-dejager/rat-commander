@@ -171,9 +171,11 @@ fn render_hex(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) ->
         .bg(theme.panel_border)
         .add_modifier(Modifier::BOLD);
 
+    // `window` can come back shorter than `len` implies (the file shrank under
+    // us, or a read failed), so index it rather than trusting the length.
     let cell = |off: u64| -> Option<u8> {
         if off < h.len {
-            Some(window[(off - h.top) as usize])
+            window.get((off - h.top) as usize).copied()
         } else {
             None
         }

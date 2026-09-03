@@ -1553,6 +1553,12 @@ impl EditorState {
                 self.status = "Hex mode requires a local file".to_string();
                 return;
             }
+            // A fresh buffer's path is the working directory, not a file: hex
+            // mode edits a file in place, so it needs a name first.
+            if self.unnamed {
+                self.status = "Save the buffer (F2) before switching to hex mode".to_string();
+                return;
+            }
             if self.dirty {
                 self.status = "Save (F2) before switching to hex mode".to_string();
                 return;
@@ -3193,6 +3199,34 @@ r");
         // entries are greyed out (see `editor::menu`'s own tests).
         e.handle_key(key(KeyCode::F(9)));
         assert!(e.menu_open());
+        std::fs::remove_file(&p).ok();
+    }
+
+    /// A fresh buffer carries the working directory as its path, so Ctrl-F9 used
+    /// to hand a *directory* to the hex editor: on Unix that opens read-only and
+    /// reports the directory's size while reading back nothing, and the renderer
+    /// then indexed past the end of its (empty) window and panicked.
+    #[test]
+    fn hex_mode_is_refused_on_a_fresh_unnamed_buffer() {
+        let mut e = EditorState::new_unnamed();
+        e.handle_key(key_mod(KeyCode::F(9), KeyModifiers::CONTROL));
+        assert!(!e.is_hex(), "an unnamed buffer has no file to hex-edit");
+        assert!(e.status.contains("hex mode"), "the refusal is explained: {}", e.status);
+    }
+
+    /// A zero-byte file is a valid hex-mode target: no bytes to show, no panic.
+    #[test]
+    fn hex_mode_renders_an_empty_file() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let p = std::env::temp_dir().join(format!("rc_hex_empty_{}", std::process::id()));
+        std::fs::write(&p, b"").unwrap();
+        let mut e = EditorState::new("empty".into(), VfsPath::local(&p), "");
+        e.handle_key(key_mod(KeyCode::F(9), KeyModifiers::CONTROL));
+        assert!(e.is_hex(), "an existing empty file enters hex mode: {}", e.status);
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        t.draw(|f| crate::editor::render::render(f, f.area(), &mut e, &theme)).unwrap();
         std::fs::remove_file(&p).ok();
     }
 }

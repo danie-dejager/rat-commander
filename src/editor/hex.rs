@@ -43,7 +43,15 @@ impl HexEditor {
             Ok(f) => (f, false),
             Err(_) => (OpenOptions::new().read(true).open(path)?, true),
         };
-        let len = file.metadata()?.len();
+        let meta = file.metadata()?;
+        // Only a regular file can be hex-edited. A directory (and some device
+        // nodes) opens read-only just fine on Unix but reads back nothing, while
+        // still reporting a nonzero length — which would then index past the end
+        // of every window read.
+        if !meta.is_file() {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a regular file"));
+        }
+        let len = meta.len();
         Ok(HexEditor {
             file,
             len,
@@ -338,6 +346,16 @@ mod tests {
         let mut h = HexEditor::open(&p).unwrap();
         assert_eq!(h.replace_all(b"abc", b"ab"), 0, "different length is refused");
         std::fs::remove_file(&p).ok();
+    }
+
+    /// Only regular files can be hex-edited: a directory opens read-only on Unix
+    /// and reports a nonzero length while reading back nothing.
+    #[test]
+    fn open_rejects_a_directory() {
+        let Err(err) = HexEditor::open(&std::env::temp_dir()) else {
+            panic!("a directory is refused");
+        };
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
     }
 
     #[test]
