@@ -58,6 +58,97 @@ pub struct PanelView {
     pub sort: crate::panel::sort::SortConfig,
 }
 
+/// How the editor treats long lines (Options → General → "Wrap mode").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WrapMode {
+    /// Long lines run off the right edge; the view scrolls sideways.
+    #[default]
+    None,
+    /// Long lines are *shown* across several rows. The file is not changed.
+    Dynamic,
+    /// Typing past the wrap column breaks the line for real, as a typewriter
+    /// would — the newline is written into the file.
+    Typewriter,
+}
+
+impl WrapMode {
+    /// The three modes in dialog order, with the labels the form shows.
+    pub const ALL: [(WrapMode, &'static str); 3] = [
+        (WrapMode::None, "None"),
+        (WrapMode::Dynamic, "Dynamic paragraphing"),
+        (WrapMode::Typewriter, "Type writer wrap"),
+    ];
+
+    pub fn label(self) -> &'static str {
+        Self::ALL.iter().find(|(m, _)| *m == self).map(|(_, l)| *l).unwrap_or("None")
+    }
+
+    /// The mode a dialog label selects (unknown text falls back to `None`).
+    pub fn from_label(label: &str) -> Self {
+        Self::ALL.iter().find(|(_, l)| *l == label).map(|(m, _)| *m).unwrap_or(WrapMode::None)
+    }
+}
+
+/// The internal editor's behaviour settings (Options → General in the editor's
+/// F9 menu), persisted so they survive a restart.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EditorOptions {
+    pub wrap_mode: WrapMode,
+    /// Column the paragraph formatter and typewriter wrap break at.
+    pub word_wrap_line_length: usize,
+    /// Columns a Tab advances by (and the width of one indent step).
+    pub tab_spacing: usize,
+    /// Tab inserts that many spaces instead of a tab character.
+    pub fill_tabs_with_spaces: bool,
+    /// Backspace over indentation removes a whole tab stop at a time.
+    pub backspace_through_tabs: bool,
+    /// Enter copies the current line's leading whitespace to the new line.
+    pub return_does_autoindent: bool,
+    /// F2 asks for confirmation before writing the file.
+    pub confirm_before_saving: bool,
+    /// Remember the cursor position per file and restore it on re-open.
+    pub save_file_position: bool,
+    /// Mark trailing whitespace so it can't hide.
+    pub visible_trailing_spaces: bool,
+    /// Draw tab characters as an arrow rather than blank space.
+    pub visible_tabs: bool,
+    /// Colour the buffer by syntax.
+    pub syntax_highlighting: bool,
+    /// Leave the cursor after a block that F5/paste just inserted (rather than
+    /// before it).
+    pub cursor_after_inserted_block: bool,
+    /// A plain (unshifted) cursor move keeps the marked block rather than
+    /// dropping it.
+    pub persistent_selection: bool,
+    /// A run of typing undoes in one step instead of character by character.
+    pub group_undo: bool,
+}
+
+impl Default for EditorOptions {
+    fn default() -> Self {
+        EditorOptions {
+            wrap_mode: WrapMode::None,
+            word_wrap_line_length: 72,
+            // Four, not mcedit's eight: it is what this editor's Tab has always
+            // inserted, and changing it would silently re-indent people's files.
+            tab_spacing: 4,
+            fill_tabs_with_spaces: true,
+            backspace_through_tabs: false,
+            return_does_autoindent: true,
+            confirm_before_saving: true,
+            save_file_position: true,
+            visible_trailing_spaces: false,
+            visible_tabs: false,
+            syntax_highlighting: true,
+            cursor_after_inserted_block: true,
+            persistent_selection: true,
+            group_undo: false,
+        }
+    }
+}
+
 /// User configuration, serialized to `config.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -163,6 +254,10 @@ pub struct Config {
     /// The active panel (0 = left/top, 1 = right/bottom).
     #[serde(default)]
     pub active_panel: usize,
+
+    /// The internal editor's behaviour settings (its Options → General dialog).
+    #[serde(default)]
+    pub editor_options: EditorOptions,
 }
 
 impl Default for Config {
@@ -198,6 +293,7 @@ impl Default for Config {
             panel_hidden: [false, false],
             half_height: false,
             active_panel: 0,
+            editor_options: EditorOptions::default(),
         }
     }
 }
@@ -454,6 +550,34 @@ mod tests {
         let back: Config = toml::from_str("theme = \"Nord\"\n").unwrap();
         assert_eq!(back.panels[0].format, crate::panel::ViewFormat::Full);
         assert_eq!(back.brief_columns, 2);
+        // …including one predating the editor's own options table.
+        assert_eq!(back.editor_options, EditorOptions::default());
+    }
+
+    #[test]
+    fn editor_options_round_trip_through_toml() {
+        let mut c = Config::default();
+        c.editor_options.wrap_mode = WrapMode::Typewriter;
+        c.editor_options.tab_spacing = 8;
+        c.editor_options.visible_tabs = true;
+        c.editor_options.confirm_before_saving = false;
+        c.editor_options.word_wrap_line_length = 100;
+
+        let text = toml::to_string_pretty(&c).unwrap();
+        let back: Config = toml::from_str(&text).unwrap();
+        assert_eq!(back.editor_options, c.editor_options);
+        // The wrap mode is stored by name, so the file stays readable by hand.
+        assert!(text.contains("wrap_mode = \"typewriter\""), "{text}");
+    }
+
+    #[test]
+    fn wrap_mode_labels_map_both_ways() {
+        for (mode, label) in WrapMode::ALL {
+            assert_eq!(WrapMode::from_label(label), mode);
+            assert_eq!(mode.label(), label);
+        }
+        // Anything unrecognized falls back to the harmless default.
+        assert_eq!(WrapMode::from_label("nonsense"), WrapMode::None);
     }
 
     #[test]

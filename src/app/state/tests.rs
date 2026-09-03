@@ -4040,3 +4040,225 @@ async fn sync_refuses_an_archive_destination() {
         _ => panic!("an archive sync destination should be refused"),
     }
 }
+
+/// A temp directory named after the calling test, unique per process/run.
+fn temp_dir(tag: &str) -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("rc_{tag}_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// F9 → Command → "Go to line…" raises the prompt, and submitting it moves the
+/// editor's cursor.
+#[tokio::test]
+async fn editor_goto_line_prompt_moves_the_cursor() {
+    let dir = temp_dir("edgoto");
+    let file = dir.join("lines.txt");
+    std::fs::write(&file, b"a\nb\nc\nd\ne").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(file).await;
+
+    st.apply_editor_signal(EditorSignal::OpenGotoLine).await;
+    assert!(matches!(st.dialog, Some(Dialog::Input(_))), "the line prompt is up");
+    // The prompt is prefilled with the current line, 1-based.
+    if let Some(Dialog::Input(d)) = st.dialog.as_ref() {
+        assert_eq!(d.buffer, "1");
+    }
+    st.handle_submit(Submit::EditorGotoLine("4".into())).await;
+    assert_eq!(st.editor.as_ref().unwrap().cursor_line_col(), (3, 0));
+
+    // Nonsense is reported rather than silently ignored.
+    st.handle_submit(Submit::EditorGotoLine("nope".into())).await;
+    assert!(matches!(st.dialog, Some(Dialog::Message(_))));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// The editor options dialog round-trips: what it submits reaches the open
+/// editor *and* the config, so the next file opens with the same settings.
+#[tokio::test]
+async fn editor_options_reach_the_editor_and_the_config() {
+    let dir = temp_dir("edopts");
+    let file = dir.join("f.txt");
+    std::fs::write(&file, b"text").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(file.clone()).await;
+    assert!(!st.editor.as_ref().unwrap().wrap(), "wrap is off by default");
+
+    st.apply_editor_signal(EditorSignal::OpenOptions).await;
+    assert!(matches!(st.dialog, Some(Dialog::Form(_))), "the options form is up");
+
+    let opts = crate::config::EditorOptions {
+        wrap_mode: crate::config::WrapMode::Dynamic,
+        tab_spacing: 2,
+        confirm_before_saving: false,
+        ..crate::config::EditorOptions::default()
+    };
+    st.handle_submit(Submit::EditorOptions(Box::new(opts.clone()))).await;
+    let ed = st.editor.as_ref().unwrap();
+    assert!(ed.wrap(), "dynamic paragraphing turns the display wrap on");
+    assert!(!ed.confirm_before_saving());
+    assert_eq!(st.config.editor_options, opts, "and the config keeps them");
+
+    // With "confirm before saving" off, F2 writes straight away. (The real
+    // dialog path clears `dialog` before handing the submit over; do the same.)
+    st.dialog = None;
+    st.apply_editor_signal(EditorSignal::Save { close_after: false }).await;
+    assert!(st.dialog.is_none(), "no confirmation was raised");
+    assert!(!st.editor.as_ref().unwrap().dirty);
+
+    // A file opened afterwards starts from the saved options.
+    st.editor = None;
+    st.open_path_in_editor(file).await;
+    assert!(st.editor.as_ref().unwrap().wrap(), "the new editor picked the options up");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// File → Insert file / Copy to file / Open, as the browser delivers them.
+#[tokio::test]
+async fn editor_browse_actions_insert_write_and_open_files() {
+    use crate::editor::BrowseKind;
+    let dir = temp_dir("edbrowse");
+    let main = dir.join("main.txt");
+    let other = dir.join("other.txt");
+    std::fs::write(&main, b"AB").unwrap();
+    std::fs::write(&other, b"XY").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(main.clone()).await;
+
+    // Insert at the cursor (which starts at the top of the buffer).
+    st.editor_browsed(BrowseKind::Insert, other.clone()).await;
+    assert_eq!(st.editor.as_ref().unwrap().contents(), "XYAB");
+
+    // Copy to file writes the marked block, or — as here — the whole buffer.
+    let out = dir.join("out.txt");
+    st.editor_browsed(BrowseKind::CopyTo, out.clone()).await;
+    assert_eq!(std::fs::read_to_string(&out).unwrap(), "XYAB");
+
+    // Open refuses to discard unsaved work.
+    st.editor_browsed(BrowseKind::Open, other.clone()).await;
+    assert!(matches!(st.dialog, Some(Dialog::Message(_))), "unsaved changes are flagged");
+    assert_eq!(st.editor.as_ref().unwrap().contents(), "XYAB", "the buffer is untouched");
+
+    // Saved, it opens the chosen file in place.
+    st.dialog = None;
+    st.save_editor(false).await;
+    st.editor_browsed(BrowseKind::Open, other).await;
+    let ed = st.editor.as_ref().unwrap();
+    assert_eq!(ed.contents(), "XY");
+    assert_eq!(ed.name, "other.txt");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Format → "Paste output of…" runs the command and inserts what it printed.
+#[tokio::test]
+async fn editor_pastes_a_commands_output() {
+    let dir = temp_dir("edpaste");
+    let file = dir.join("f.txt");
+    std::fs::write(&file, b"").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(file).await;
+
+    st.apply_editor_signal(EditorSignal::OpenPasteOutput).await;
+    assert!(matches!(st.dialog, Some(Dialog::Input(_))), "the command prompt is up");
+    st.dialog = None;
+
+    st.editor_paste_output("echo rc-paste-marker".to_string()).await;
+    assert!(
+        st.editor.as_ref().unwrap().contents().contains("rc-paste-marker"),
+        "the command's stdout landed in the buffer"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Format → Sort, as the options dialog delivers it.
+#[tokio::test]
+async fn editor_sort_submit_sorts_the_buffer() {
+    let dir = temp_dir("edsort");
+    let file = dir.join("f.txt");
+    std::fs::write(&file, b"c\na\nb").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(file).await;
+
+    st.apply_editor_signal(EditorSignal::OpenSortBlock).await;
+    assert!(matches!(st.dialog, Some(Dialog::Form(_))));
+    st.handle_submit(Submit::EditorSort { reverse: true, ignore_case: false, unique: false }).await;
+    assert_eq!(st.editor.as_ref().unwrap().contents(), "c\nb\na");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Ctrl-L asks the run loop to repaint; About and Save setup are handled too.
+#[tokio::test]
+async fn editor_refresh_about_and_save_setup() {
+    let dir = temp_dir("edmisc");
+    let file = dir.join("f.txt");
+    std::fs::write(&file, b"x").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(file).await;
+
+    assert!(!st.force_clear);
+    st.apply_editor_signal(EditorSignal::RefreshScreen).await;
+    assert!(st.force_clear, "the next frame is repainted from scratch");
+
+    st.apply_editor_signal(EditorSignal::About).await;
+    match st.dialog.as_ref() {
+        Some(Dialog::Message(m)) => {
+            assert!(m.message.contains(env!("CARGO_PKG_VERSION")), "About names the version");
+            assert!(!m.is_error);
+        }
+        _ => panic!("About should raise a message box"),
+    }
+    st.dialog = None;
+
+    // Save setup copies the editor's current options into the config.
+    let dark = st.dark_ui();
+    let opts = crate::config::EditorOptions { visible_tabs: true, ..Default::default() };
+    st.editor.as_mut().unwrap().set_options(opts.clone(), dark);
+    st.apply_editor_signal(EditorSignal::SaveSetup).await;
+    assert_eq!(st.config.editor_options, opts);
+    assert!(st.dialog.is_none(), "a successful save reports on the footer, not in a dialog");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// While the editor's F9 menu is open, Esc closes the menu instead of being
+/// held as a Midnight-Commander function-key prefix.
+#[tokio::test]
+async fn esc_closes_the_editor_menu_rather_than_arming_a_prefix() {
+    let dir = temp_dir("edesc");
+    let file = dir.join("f.txt");
+    std::fs::write(&file, b"x").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(file).await;
+
+    st.handle_key(KeyEvent::new(KeyCode::F(9), KeyModifiers::NONE)).await;
+    assert!(st.editor.as_ref().unwrap().menu_open());
+    st.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
+    assert!(!st.editor.as_ref().unwrap().menu_open(), "Esc closed the menu");
+    assert!(st.pending_esc.is_none(), "and was not held as a key prefix");
+    assert!(st.editor.is_some(), "nor did it reach the editor as a quit request");
+
+    std::fs::remove_dir_all(&dir).ok();
+}

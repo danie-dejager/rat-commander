@@ -29,11 +29,17 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
     ed.view_cols = text_area.width as usize;
     ed.text_area = text_area;
     ed.footer_area = footer;
+    ed.menu_area = status;
 
     if ed.is_hex() {
         let cursor_pos = render_hex(f, text_area, ed, theme);
         render_hex_status(f, status, ed, theme);
         render_hex_footer(f, footer, ed, theme);
+        // The open menu replaces the status row, as in mcedit, and hides the
+        // hardware cursor while it is up.
+        if render_menu(f, area, ed, theme) {
+            return;
+        }
         if let Some(p) = cursor_pos {
             f.set_cursor_position(p);
         }
@@ -69,9 +75,26 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
         render_help(f, area, theme);
         return;
     }
+    if render_menu(f, area, ed, theme) {
+        return;
+    }
     if let Some(p) = cursor_pos {
         f.set_cursor_position(p);
     }
+}
+
+/// Draw the F9 pulldown over the top row (where the status line normally sits),
+/// the way mcedit does. Returns whether a menu was open — the caller then leaves
+/// the hardware cursor hidden.
+fn render_menu(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) -> bool {
+    let titles = crate::editor::menu::titles();
+    let Some(menu) = ed.menu_mut() else {
+        return false;
+    };
+    let bar = Rect { height: 1, ..area };
+    crate::ui::menubar::render_titles(f, bar, theme, &titles, true);
+    menu.render(f, area, theme);
+    true
 }
 
 /// A centered modal listing the editor's keyboard shortcuts (F1).
@@ -276,9 +299,10 @@ fn render_status(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
     };
     let dirty = if ed.dirty { "[+]" } else { "   " };
     let wrap = if ed.wrap() { " WRAP" } else { "" };
-    let name = ellipsize(&ed.name, area.width.saturating_sub(54) as usize);
+    let mode = if ed.overwrite() { " OVR" } else { "" };
+    let name = ellipsize(&ed.name, area.width.saturating_sub(58) as usize);
     let text = format!(
-        " {name} {dirty}{wrap}  Ln {}/{}  Col {}  {code}  Ofs {} ",
+        " {name} {dirty}{wrap}{mode}  Ln {}/{}  Col {}  {code}  Ofs {} ",
         line + 1,
         total,
         col + 1,
@@ -302,6 +326,40 @@ fn found_line_bg(theme: &Theme) -> ratatui::style::Color {
     theme.cursor_inactive.bg.unwrap_or(theme.panel_bg)
 }
 
+/// Where a line's trailing whitespace starts, for the "visible trailing spaces"
+/// option — or `usize::MAX` when the option is off or the line has none.
+fn trailing_start(chars: &[char], enabled: bool) -> usize {
+    if !enabled || chars.is_empty() {
+        return usize::MAX;
+    }
+    match chars.iter().rposition(|c| !c.is_whitespace()) {
+        Some(last) if last + 1 < chars.len() => last + 1,
+        Some(_) => usize::MAX,
+        // An all-whitespace line is trailing whitespace from its first column.
+        None => 0,
+    }
+}
+
+/// What a buffer character is actually drawn as, and whether it should take the
+/// dimmed "whitespace marker" colour. A tab is always substituted: left as-is it
+/// would be a zero-width control character in the cell grid, throwing every
+/// column after it out of step with the cursor.
+fn display_char(c: char, trailing: bool, show_tabs: bool) -> (char, bool) {
+    if c == '\t' {
+        return if show_tabs {
+            ('\u{2192}', true)
+        } else if trailing {
+            ('\u{00b7}', true)
+        } else {
+            (' ', false)
+        };
+    }
+    if c == ' ' && trailing {
+        return ('\u{00b7}', true);
+    }
+    (c, false)
+}
+
 fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Option<Position> {
     let normal = Style::default().fg(theme.text_fg).bg(theme.panel_bg);
     let found_bg = found_line_bg(theme);
@@ -322,7 +380,11 @@ fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Op
         // A "Find all" hit tints the whole line, using the theme's inactive-cursor
         // bar — the same "highlighted, but not where you are" shade the panels use.
         let line_bg = if ed.line_found(li) { found_bg } else { theme.panel_bg };
+        // A bookmarked line is drawn in the "marked" colour the panels use for
+        // selected files, so it stands out without a background of its own.
+        let bookmark_fg = ed.line_bookmarked(li).then_some(theme.marked_fg);
         let chars: Vec<char> = ed.buf.line_text(li).chars().collect();
+        let trail_from = trailing_start(&chars, ed.show_trailing_spaces());
         // Syntax foreground per character (None ⇒ all `text_fg`).
         let mut fg = ed.line_fg(li, chars.len(), theme.text_fg);
         // Tint the `#` of any hex-color token with its own color, regardless of
@@ -346,11 +408,16 @@ fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Op
             let ci = ed.left_col + vc;
             let (ch, style) = if ci < chars.len() {
                 let abs = line_start + ci;
+                let (dch, marker) =
+                    display_char(chars[ci], ci >= trail_from, ed.show_tabs());
                 if block.map(|(s, e)| abs >= s && abs < e).unwrap_or(false) {
-                    (chars[ci], block_style)
+                    (dch, block_style)
+                } else if marker {
+                    (dch, Style::default().fg(theme.panel_border).bg(line_bg))
                 } else {
-                    let color = fg.as_ref().map(|v| v[ci]).unwrap_or(theme.text_fg);
-                    (chars[ci], Style::default().fg(color).bg(line_bg))
+                    let color = bookmark_fg
+                        .unwrap_or_else(|| fg.as_ref().map(|v| v[ci]).unwrap_or(theme.text_fg));
+                    (dch, Style::default().fg(color).bg(line_bg))
                 }
             } else {
                 // Pad to the full width in the line's own colour, so a highlighted
@@ -467,7 +534,9 @@ fn render_text_wrapped(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Them
         let line_start = ed.buf.line_to_char(line);
         // A "Find all" hit tints every visual row of the wrapped line.
         let line_bg = if ed.line_found(line) { found_bg } else { theme.panel_bg };
+        let bookmark_fg = ed.line_bookmarked(line).then_some(theme.marked_fg);
         let chars: Vec<char> = ed.buf.line_text(line).chars().collect();
+        let trail_from = trailing_start(&chars, ed.show_trailing_spaces());
         let mut fg = ed.line_fg(line, chars.len(), theme.text_fg);
         let hashes = crate::ui::hexcolor::hex_color_hashes(&chars);
         if !hashes.is_empty() {
@@ -496,11 +565,16 @@ fn render_text_wrapped(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Them
             let ci = start + vc;
             let (ch, style) = if ci < end {
                 let abs = line_start + ci;
+                let (dch, marker) =
+                    display_char(chars[ci], ci >= trail_from, ed.show_tabs());
                 if block.map(|(s, e)| abs >= s && abs < e).unwrap_or(false) {
-                    (chars[ci], block_style)
+                    (dch, block_style)
+                } else if marker {
+                    (dch, Style::default().fg(theme.panel_border).bg(line_bg))
                 } else {
-                    let color = fg.as_ref().map(|v| v[ci]).unwrap_or(theme.text_fg);
-                    (chars[ci], Style::default().fg(color).bg(line_bg))
+                    let color = bookmark_fg
+                        .unwrap_or_else(|| fg.as_ref().map(|v| v[ci]).unwrap_or(theme.text_fg));
+                    (dch, Style::default().fg(color).bg(line_bg))
                 }
             } else {
                 (' ', normal)

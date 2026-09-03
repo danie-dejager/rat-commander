@@ -19,7 +19,9 @@ impl AppState {
         // Esc-prefix function-key aliases (Esc-1..Esc-9 => F1..F9, Esc-0 => F10)
         // are active in the base modes (panels, editor, viewer); dialogs and the
         // pulldown menu keep Esc as an immediate cancel.
-        let prefixable = self.dialog.is_none() && self.menu.is_none();
+        let prefixable = self.dialog.is_none()
+            && self.menu.is_none()
+            && !self.editor.as_ref().is_some_and(|e| e.menu_open());
         if prefixable {
             if self.pending_esc.take().is_some() {
                 // The previous key was a lone Esc; this key completes the

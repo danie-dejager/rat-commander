@@ -27,6 +27,10 @@ pub enum InputPurpose {
     PanelFilter(usize),
     /// Answer a `%{…}` prompt of a user-menu command (any text, blank allowed).
     MenuPrompt,
+    /// A line number to jump to in the editor (Command → Go to line).
+    EditorGotoLine,
+    /// A shell command whose output the editor pastes at the cursor.
+    EditorPasteOutput,
 }
 
 pub struct InputDialog {
@@ -114,6 +118,8 @@ impl InputDialog {
                     return DialogResult::Cancel;
                 }
                 let submit = match &self.purpose {
+                    InputPurpose::EditorGotoLine => Submit::EditorGotoLine(text),
+                    InputPurpose::EditorPasteOutput => Submit::EditorPasteOutput(text),
                     InputPurpose::MkDir => Submit::MkDir(text),
                     InputPurpose::CopyDest(s) => Submit::Copy(s.clone(), text),
                     InputPurpose::MoveDest(s) => Submit::Move(s.clone(), text),

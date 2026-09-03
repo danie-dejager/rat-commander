@@ -63,6 +63,7 @@ impl AppState {
             viewer: None,
             editor: None,
             menu: None,
+            force_clear: false,
             procview: None,
             diskview: None,
             diffview: None,
@@ -606,7 +607,7 @@ impl AppState {
                             Ok(bytes) => {
                                 let text = String::from_utf8_lossy(&bytes).into_owned();
                                 let mut ed = EditorState::new(name, orig_path, &text);
-                                ed.enable_syntax(self.dark_ui());
+                                self.prepare_editor(&mut ed);
                                 // No-op for remote paths (keys aren't stable), but
                                 // keeps every editor-open site uniform.
                                 Self::restore_editor_position(&mut ed);

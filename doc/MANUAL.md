@@ -257,23 +257,99 @@ used to share now lives on `Alt-T`.
 - `F6` — Move the block to the cursor
 - `F8` — Delete the block
 - `F7` — Search
-- `Ctrl-C` / `Ctrl-V` — Copy the block to the clipboard / paste
+- `Shift-F5` — Insert a file at the cursor
+- `Shift-F7` — Search again (repeat the last search)
+- `Ctrl-C` / `Ctrl-X` / `Ctrl-V` — Copy / cut the block to the clipboard, paste
 - `Ctrl-Z` / `Ctrl-Y` — Undo / redo
+- `Ctrl-A` — Mark the whole file
+- `Ins` — Toggle insert / overwrite (the status line shows `OVR`)
 - `Shift+arrows` (or `Shift+Ctrl-arrows`) — Mark text while moving
 - `Ctrl-Home` / `Ctrl-End` — Start / end of the document
 - `Ctrl-← / →` — Move by word
-- `F9` — Toggle the in-place hex editor
-- `Shift-F9` / `Ctrl-F9` — Toggle word wrap
+- `Ctrl-N` — Start a new, unnamed buffer
+- `Ctrl-F` — Write the block (or the whole file) to another file
+- `Ctrl-S` — Toggle syntax highlighting
+- `Ctrl-L` — Repaint the screen
+- `Alt-L` — Go to a line number
+- `Alt-B` — Jump to the bracket matching the one at the cursor
+- `Alt-P` — Format (re-wrap) the paragraph around the cursor
+- `Alt-T` — Sort the marked block's lines
+- `Alt-U` — Run a command and paste its output at the cursor
+- `Alt-K` / `Alt-J` / `Alt-I` / `Alt-O` — Bookmark: toggle, next, previous, flush
+- `F9` — Pulldown menu (see *The editor menu* below)
+- `Shift-F9` — Toggle word wrap
+- `Ctrl-F9` — Toggle the in-place hex editor
 - `Esc` / `F10` — Quit (prompts if modified)
 
-While **Shift** or **Ctrl** is held, the F-key bar relabels **F2 → Save as**
-and **F9 → Wrap** to show those alternates.
+While **Shift** or **Ctrl** is held, the F-key bar relabels the keys those
+modifiers reach — **F2 → Save as**, and with Shift also **F5 → InsFil**,
+**F7 → Again** and **F9 → Wrap** (Ctrl shows **F9 → Hex**).
 
 The editor remembers where you left the cursor in each of the last **50** local
 files (in `editor-positions.toml`); re-opening a file restores the cursor and
-scrolls so it sits in the vertical center of the view.
+scrolls so it sits in the vertical center of the view. Turn *Save file position*
+off in the editor options to stop it.
 
-### Hex editor (F9 in the editor)
+### The editor menu (F9)
+
+**F9** opens an `mcedit`-style pulldown over the editor's status row. Its six
+menus are **File**, **Edit**, **Search**, **Command**, **Format** and
+**Options**; ← → step between them, ↑ ↓ move within one, `Enter` activates the
+highlighted item, and a menu's underlined letter jumps straight to it. `Esc`,
+`F9` or `F10` close the menu again, and the mouse works throughout. "File" and
+"Format" share the letter `f`, so pressing it repeatedly steps between the two.
+
+Every item is also reachable by its own shortcut (listed above and in the menu
+itself). Only actions this editor can carry out are listed — mcedit entries that
+would need a tags database, a macro recorder, a spell checker or a window
+manager are absent rather than present-but-dead. In **hex mode** the items that
+work on the text buffer are greyed out; saving, quitting and switching back to
+text mode stay available.
+
+Beyond the F-key actions, the menus offer:
+
+- **File** — Open another file, start a new buffer, insert a file at the cursor,
+  write the block to a file, and an About box.
+- **Edit** — Mark all / unmark, the clipboard operations, and jumps to the start
+  and end of the file.
+- **Search** — Search, search again, replace, and the four **line bookmark**
+  actions. A bookmarked line's text is drawn in the "marked" colour, and
+  `Alt-J` / `Alt-I` step through the bookmarks in order, wrapping around.
+- **Command** — Go to line, jump to the matching bracket, and the syntax /
+  word-wrap / hex-mode toggles, plus a screen repaint.
+- **Format** — Insert the date and time, re-wrap the current paragraph to the
+  configured line length, sort the marked block's lines (with reverse,
+  ignore-case and remove-duplicates options), and paste a shell command's output.
+- **Options** — **General…** opens the editor options dialog below; **Save
+  setup** writes the current options to `config.toml` as the new defaults.
+
+#### Editor options (Options → General)
+
+The options are stored in `config.toml` under `[editor_options]`, so they
+persist across runs and apply to every file opened afterwards.
+
+- **Wrap mode** — `None` (long lines scroll sideways), `Dynamic paragraphing`
+  (long lines are *shown* across several rows; the file is unchanged) or
+  `Type writer wrap` (typing past the wrap column breaks the line for real).
+- **Tabulation** — *Backspace through tabs* makes one Backspace inside a line's
+  indentation remove a whole indent step; *Fill tabs with spaces* decides
+  whether Tab types spaces or a tab character; *Tab spacing* is how wide one
+  step is (Tab advances to the next multiple of it).
+- **Return does autoindent** — Enter copies the current line's leading
+  whitespace to the new line.
+- **Confirm before saving** — whether F2 asks first.
+- **Save file position** — remember the cursor position per file (see below).
+- **Visible trailing spaces** / **Visible tabs** — mark whitespace that would
+  otherwise be invisible.
+- **Syntax highlighting** — the same toggle as `Ctrl-S`, but remembered.
+- **Cursor after inserted block** — where the cursor lands after F5 or a paste.
+- **Persistent selection** — whether a plain cursor move keeps the marked block
+  (on) or drops it (off, the behaviour of most GUI editors).
+- **Group undo** — undo a run of typing in one step instead of per character.
+- **Word wrap line length** — the column *Format paragraph* and typewriter wrap
+  break at.
+
+### Hex editor (Ctrl-F9 in the editor)
 
 - `0`–`9`, `a`–`f` — Overwrite the current byte's nibble (hex column)
 - typed character — Overwrite the current byte (ASCII column)
@@ -283,7 +359,8 @@ scrolls so it sits in the vertical center of the view.
 - `F7` — Search (hex bytes like `48 65` or text)
 - `F4` — Replace all (same length, overwrite-only)
 - `F2` — Save the changed bytes in place
-- `F9` — Back to text mode
+- `Ctrl-F9` — Back to text mode
+- `F9` — Pulldown menu (text-only items greyed out)
 - `Esc` / `F10` — Quit (prompts if modified)
 
 ### Process explorer
@@ -779,7 +856,8 @@ can abort.
 ## The editor (F4)
 
 An `mcedit`-style text editor with block operations, search
-and replace, undo/redo, syntax highlighting, and an in-place hex editor.
+and replace, undo/redo, syntax highlighting, a pulldown menu on **F9**, and an
+in-place hex editor.
 
 **Useful for** quick edits without leaving the file manager.
 
@@ -804,7 +882,9 @@ clears the selection (F3 again toggles a block off).
 - **F5** — copy the block to the cursor position.
 - **F6** — move the block to the cursor position.
 - **F8** — delete the block.
-- **Ctrl-C** / **Ctrl-V** — copy the block to the clipboard / paste it.
+- **Ctrl-C** / **Ctrl-X** / **Ctrl-V** — copy or cut the block to the
+  clipboard, paste it.
+- **Ctrl-A** — mark the whole file; **Edit → Unmark** drops the mark.
 
 **Search and replace.** **F7** searches; **F4** opens search & replace. Both use
 the same dialog, and the viewer (F3) uses it too:
@@ -827,14 +907,15 @@ dropped when the editor closes. It honours the mode and options, so you can
 highlight, say, every whole-word `foo` case-sensitively. The status line reports
 how many lines were marked, and the cursor lands on the first of them.
 
-**Saving.** **F2** writes the file in place. **Save as** (**Shift-F2** or
+**Saving.** **F2** writes the file in place (after a confirmation, unless
+*Confirm before saving* is turned off). **Save as** (**Shift-F2** or
 **Ctrl-F2**) opens a browser — navigate directories and type a file name,
 prefilled with the current one — to write the buffer somewhere else; the editor
 then continues editing the new file. If a normal save fails (a read-only
 location, a permission error, …), the Save-as browser opens automatically with
 the reason shown, so you can redirect the write without losing your work.
 
-**Word wrap.** **Shift-F9** (or **Ctrl-F9**) toggles virtual word wrap: long
+**Word wrap.** **Shift-F9** toggles virtual word wrap: long
 lines are shown across several screen rows without changing the file, and each
 *continued* row ends in a **`>`** marker so soft wraps are distinguishable from
 real line breaks. Cursor movement, scrolling and the mouse all follow the
@@ -842,19 +923,39 @@ visible (wrapped) rows; `WRAP` shows on the status line while it is on.
 
 **Help.** **F1** brings up a list of the editor's keyboard shortcuts and what
 they do; any key closes it. While **Shift** or **Ctrl** is held, the F-key bar
-relabels **F2 → Save as** and **F9 → Wrap** to advertise those alternates (on
+relabels the keys those modifiers reach — **F2 → Save as**, and with Shift also
+**F5 → InsFil**, **F7 → Again** and **F9 → Wrap**, with Ctrl **F9 → Hex** (on
 terminals that report held modifier keys via the enhanced keyboard protocol).
 
-**Other.** **Ctrl-Z** / **Ctrl-Y** undo and redo. The status bar shows the byte
-under the cursor, the line and column, and the totals. Syntax highlighting
-updates incrementally as you type.
+**The menu.** **F9** opens a pulldown menu bar over the status row — see *The
+editor menu (F9)* in the key reference above for what each of its six menus
+offers, and *Editor options* for the settings dialog behind Options → General.
 
-**Hex editor (F9).** Toggles an in-place offset / hex / ASCII editor. Only the
+**Bookmarks.** **Alt-K** marks the line the cursor is on (its text turns the
+"marked" colour); **Alt-J** and **Alt-I** step forward and back through the
+marked lines, wrapping around, and **Alt-O** clears them all. Bookmarks live for
+as long as the file is open.
+
+**Reformatting text.** **Alt-P** re-wraps the paragraph around the cursor (blank
+lines delimit it) to the configured *Word wrap line length*, keeping the
+paragraph's own indentation; one undo puts the whole reflow back. **Alt-T**
+sorts the marked block's lines — or the whole file when nothing is marked — with
+reverse / ignore-case / remove-duplicates options. **Alt-U** runs a shell
+command and pastes its output at the cursor.
+
+**Other.** **Ctrl-Z** / **Ctrl-Y** undo and redo (see the *Group undo* option).
+**Ins** switches between insert and overwrite typing. **Alt-L** jumps to a line
+number and **Alt-B** to the bracket matching the one at the cursor. The status
+bar shows the byte under the cursor, the line and column, and the totals.
+Syntax highlighting updates incrementally as you type (**Ctrl-S** toggles it).
+
+**Hex editor (Ctrl-F9).** Toggles an in-place offset / hex / ASCII editor. Only the
 visible window is read and only changed bytes are written back, so arbitrarily
 large files can be hex-edited (and a file too big to load as text opens straight
 into hex mode). Editing is overwrite-only (length-preserving). **Tab** switches
 between the hex and ASCII columns; **F7** searches for hex bytes (`48 65 6c`) or
-text, **F4** replaces all (same length), **F2** saves the changed bytes.
+text, **F4** replaces all (same length), **F2** saves the changed bytes. **F9**
+still opens the menu, with the text-buffer items greyed out.
 
 
 ## Archives — browsed like directories
@@ -1469,7 +1570,9 @@ Configuration files live in your platform config directory
   restores it on the next launch. The one exception is the initially-active
   panel, which opens at the current directory (where `rc` was launched) so you
   land where you were working; the other panel restores its saved directory (or
-  the working directory if that directory is gone).
+  the working directory if that directory is gone). An **`[editor_options]`**
+  table holds the internal editor's settings, written by its Options → General
+  dialog and by Options → Save setup (see *The editor*).
 - **`history`** — the persistent command-line history, one command per line
   (recalled with `Alt-P` / `Alt-N` / `Alt-H`), trimmed to `command_history_max`.
 - **`editor-positions.toml`** — the editor's cursor-position memory for the last

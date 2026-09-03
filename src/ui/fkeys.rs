@@ -14,12 +14,12 @@ pub const PANEL_LABELS: [&str; 10] = [
 
 /// Labels for the internal editor's function-key row (mcedit order).
 pub const EDITOR_LABELS: [&str; 10] = [
-    "Help", "Save", "Mark", "Replac", "Copy", "Move", "Search", "Delete", "Hex", "Quit",
+    "Help", "Save", "Mark", "Replac", "Copy", "Move", "Search", "Delete", "PullDn", "Quit",
 ];
 
 /// Labels for the editor's hex mode (only the supported functions are shown).
 pub const HEX_LABELS: [&str; 10] = [
-    "", "Save", "", "Replac", "", "", "Search", "", "Text", "Quit",
+    "", "Save", "", "Replac", "", "", "Search", "", "PullDn", "Quit",
 ];
 
 /// The function-key index (0-based — `i` means F`i+1`) at screen column `col`

@@ -6,10 +6,13 @@
 
 pub mod buffer;
 pub mod hex;
+pub mod menu;
 pub mod render;
 
+use crate::config::{EditorOptions, WrapMode};
 use crate::vfs::VfsPath;
 use buffer::EditorBuffer;
+use menu::{EditorAction, EditorMenu};
 use ratatui::crossterm::event::{
     KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
@@ -31,6 +34,35 @@ pub enum EditorSignal {
     OpenSearch,
     /// Open the modal search & replace dialog (F4).
     OpenReplace,
+    /// Start a fresh, unnamed buffer (File → New).
+    NewFile,
+    /// Open the file browser for one of the editor's file actions.
+    Browse(BrowseKind),
+    /// Open the "go to line" prompt.
+    OpenGotoLine,
+    /// Open the block-sort options dialog.
+    OpenSortBlock,
+    /// Open the "paste output of a command" prompt.
+    OpenPasteOutput,
+    /// Open the editor options dialog (Options → General).
+    OpenOptions,
+    /// Persist the current editor options as the saved defaults.
+    SaveSetup,
+    /// Show the About box.
+    About,
+    /// Repaint the whole screen from scratch (Ctrl-L).
+    RefreshScreen,
+}
+
+/// Which of the editor's file actions a browser was opened for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowseKind {
+    /// Replace the buffer with the chosen file (File → Open).
+    Open,
+    /// Insert the chosen file at the cursor (File → Insert file).
+    Insert,
+    /// Write the marked block — or the whole buffer — to the chosen file.
+    CopyTo,
 }
 
 /// Remembered search options for "find next" (`n`).
@@ -75,6 +107,8 @@ pub struct EditorState {
     /// mouse hit-testing.
     text_area: Rect,
     footer_area: Rect,
+    /// The status/menu-bar row, recorded by the renderer for menu hit-testing.
+    menu_area: Rect,
     /// Where a left-drag selection began (char index), while a drag is active.
     mouse_anchor: Option<usize>,
     /// When `Some`, the editor is in (in-place, file-backed) hex mode.
@@ -97,6 +131,19 @@ pub struct EditorState {
     /// Set by [`restore_position`](EditorState::restore_position) so the next
     /// render scrolls the restored cursor to the vertical center of the view.
     pending_center: bool,
+    /// The open F9 pulldown menu, when one is showing.
+    menu: Option<EditorMenu>,
+    /// The persisted behaviour settings (Options → General).
+    opts: EditorOptions,
+    /// Typing replaces the character under the cursor instead of pushing it
+    /// along (the Ins toggle).
+    overwrite: bool,
+    /// Bookmarked line numbers (Alt-K), jumped between with Alt-J / Alt-I.
+    bookmarks: std::collections::HashSet<usize>,
+    /// Whether the syntax theme picked by [`enable_syntax`](EditorState::enable_syntax)
+    /// was the dark one — remembered so the Ctrl-S toggle can rebuild the
+    /// highlighter without asking the app again.
+    hl_dark: bool,
 }
 
 /// Above this size a file is opened straight into hex mode (text mode loads the
@@ -107,18 +154,26 @@ pub const MAX_TEXT_EDIT: u64 = crate::viewer::MAX_VIEW_BYTES as u64;
 pub const EDITOR_HELP: &[(&str, &str)] = &[
     ("F1", "This help"),
     ("F2", "Save"),
-    ("Shift-F2 / Ctrl-F2", "Save as…"),
+    ("Shift-F2", "Save as…"),
     ("F3", "Start / end block mark"),
     ("F4", "Search & replace"),
-    ("F5", "Copy block to the cursor"),
+    ("F5 / Shift-F5", "Copy block to the cursor / insert a file"),
     ("F6", "Move block to the cursor"),
-    ("F7", "Search"),
+    ("F7 / Shift-F7", "Search / search again"),
     ("F8", "Delete block"),
-    ("F9", "Toggle hex editor"),
-    ("Shift-F9 / Ctrl-F9", "Toggle word wrap"),
+    ("F9", "Menu"),
+    ("Shift-F9", "Toggle word wrap"),
+    ("Ctrl-F9", "Toggle hex editor"),
     ("F10 / Esc", "Quit (prompts if modified)"),
-    ("Ctrl-C / Ctrl-V", "Copy block to clipboard / paste"),
+    ("Ins", "Toggle insert / overwrite"),
+    ("Ctrl-C / X / V", "Copy / cut block to clipboard, paste"),
     ("Ctrl-Z / Ctrl-Y", "Undo / redo"),
+    ("Ctrl-A", "Mark the whole file"),
+    ("Ctrl-N / Ctrl-F", "New buffer / copy block to a file"),
+    ("Ctrl-S / Ctrl-L", "Toggle syntax highlighting / repaint"),
+    ("Alt-L / Alt-B", "Go to line / matching bracket"),
+    ("Alt-P / Alt-T / Alt-U", "Format paragraph / sort block / paste output"),
+    ("Alt-K / J / I / O", "Bookmark: toggle, next, previous, flush"),
     ("Shift + arrows", "Mark text while moving"),
     ("Ctrl-← / →", "Move by word"),
     ("Ctrl-Home / End", "Start / end of document"),
@@ -148,6 +203,7 @@ impl EditorState {
             view_cols: 1,
             text_area: Rect::default(),
             footer_area: Rect::default(),
+            menu_area: Rect::default(),
             mouse_anchor: None,
             hex: None,
             hl: None,
@@ -157,6 +213,11 @@ impl EditorState {
             hint_mods: KeyModifiers::NONE,
             unnamed: false,
             pending_center: false,
+            menu: None,
+            opts: EditorOptions::default(),
+            overwrite: false,
+            bookmarks: std::collections::HashSet::new(),
+            hl_dark: false,
         }
     }
 
@@ -227,17 +288,26 @@ impl EditorState {
         }
     }
 
-    /// The F-key bar labels for the current mode and modifier state. While Shift
-    /// or Ctrl is held in text mode, F2 / F9 show their alternates ("Save as" /
-    /// "Wrap").
+    /// The F-key bar labels for the current mode and modifier state. Holding
+    /// Shift or Ctrl in text mode swaps in the alternates those modifiers reach:
+    /// "Save as", "Insert file", "Search again", and F9's two view toggles.
     pub fn footer_labels(&self) -> [String; 10] {
         let src = if self.hex.is_some() {
             crate::ui::fkeys::HEX_LABELS
         } else {
             let mut labels = crate::ui::fkeys::EDITOR_LABELS;
-            if self.hint_mods.intersects(KeyModifiers::SHIFT | KeyModifiers::CONTROL) {
+            let shift = self.hint_mods.contains(KeyModifiers::SHIFT);
+            let ctrl = self.hint_mods.contains(KeyModifiers::CONTROL);
+            if shift || ctrl {
                 labels[1] = "Save as"; // F2
+            }
+            if shift {
+                labels[4] = "InsFil"; // F5
+                labels[6] = "Again"; // F7
                 labels[8] = "Wrap"; // F9
+            }
+            if ctrl {
+                labels[8] = "Hex"; // F9
             }
             labels
         };
@@ -372,6 +442,12 @@ impl EditorState {
         self.status = "Saved".to_string();
     }
 
+    /// Show a one-line message on the footer row (replacing the F-key bar until
+    /// the next key). Used by the app for outcomes it, not the editor, knows.
+    pub fn set_status(&mut self, msg: impl Into<String>) {
+        self.status = msg.into();
+    }
+
     // -- Geometry helpers --------------------------------------------------
 
     fn cur_line(&self) -> usize {
@@ -494,6 +570,11 @@ impl EditorState {
         let shift = key.modifiers.contains(KeyModifiers::SHIFT);
         self.status.clear();
 
+        // The open F9 menu takes every key until it closes or fires an action.
+        if self.menu.is_some() {
+            return self.handle_menu_key(key);
+        }
+
         // The F1 help overlay swallows the next key (any key closes it).
         if self.help_open {
             self.help_open = false;
@@ -504,22 +585,15 @@ impl EditorState {
             return EditorSignal::Stay;
         }
 
-        // F9 toggles hex mode; Shift-F9 / Ctrl-F9 toggle word wrap (text mode).
+        // F9 opens the pulldown menu (mcedit's); its Shift/Ctrl variants keep the
+        // two view toggles that used to live on the bare key.
         if key.code == KeyCode::F(9) {
-            if shift || ctrl {
-                if self.hex.is_none() {
-                    self.wrap = !self.wrap;
-                    self.left_col = 0;
-                    self.top_sub = 0;
-                    self.goal_col = None;
-                    self.status = if self.wrap {
-                        "Word wrap ON".to_string()
-                    } else {
-                        "Word wrap OFF".to_string()
-                    };
-                }
-            } else {
+            if ctrl {
                 self.toggle_hex();
+            } else if shift {
+                self.toggle_wrap();
+            } else {
+                self.open_menu(0);
             }
             return EditorSignal::Stay;
         }
@@ -541,10 +615,554 @@ impl EditorState {
         sig
     }
 
+    // -- The F9 pulldown menu ----------------------------------------------
+
+    /// Open the menu bar on menu `active` (0 = File).
+    fn open_menu(&mut self, active: usize) {
+        self.menu = Some(menu::editor_menu(active, self.is_hex()));
+    }
+
+    /// Whether the F9 menu is currently open (the renderer draws it over the
+    /// status row, and the app keeps Esc from being taken as a key prefix).
+    pub fn menu_open(&self) -> bool {
+        self.menu.is_some()
+    }
+
+    /// The open menu, for the renderer.
+    pub(crate) fn menu_mut(&mut self) -> Option<&mut EditorMenu> {
+        self.menu.as_mut()
+    }
+
+    /// Route a key to the open menu, running whatever it activates.
+    fn handle_menu_key(&mut self, key: KeyEvent) -> EditorSignal {
+        use crate::ui::pulldown::MenuSignal;
+        let signal = self.menu.as_mut().expect("only called with a menu open").handle_key(key);
+        match signal {
+            MenuSignal::Stay => EditorSignal::Stay,
+            MenuSignal::Close => {
+                self.menu = None;
+                EditorSignal::Stay
+            }
+            MenuSignal::Activate(action) => {
+                self.menu = None;
+                self.run_menu_action(action)
+            }
+        }
+    }
+
+    /// Carry out a menu item. Most act on the buffer here and now; the rest ask
+    /// the app for a dialog through an [`EditorSignal`].
+    fn run_menu_action(&mut self, action: EditorAction) -> EditorSignal {
+        use EditorAction as A;
+        match action {
+            A::Separator => {}
+
+            // -- File --
+            A::OpenFile => return EditorSignal::Browse(BrowseKind::Open),
+            A::NewFile => return EditorSignal::NewFile,
+            A::Save => return EditorSignal::Save { close_after: false },
+            A::SaveAs => return EditorSignal::SaveAs,
+            A::InsertFile => return EditorSignal::Browse(BrowseKind::Insert),
+            A::CopyToFile => return EditorSignal::Browse(BrowseKind::CopyTo),
+            A::About => return EditorSignal::About,
+            A::Quit => {
+                return if self.dirty {
+                    EditorSignal::ConfirmQuit
+                } else {
+                    EditorSignal::Close
+                };
+            }
+
+            // -- Edit --
+            A::Undo => self.undo(),
+            A::Redo => self.redo(),
+            A::ToggleInsert => self.toggle_overwrite(),
+            A::ToggleMark => self.toggle_mark(),
+            A::MarkAll => self.mark_all(),
+            A::Unmark => {
+                self.clear_marks();
+                self.status = "Unmarked".to_string();
+            }
+            A::CopyBlock => self.copy_block(),
+            A::MoveBlock => self.move_block(),
+            A::DeleteBlock => self.delete_block(),
+            A::ClipCopy => self.copy_to_clipboard(),
+            A::ClipCut => self.cut_to_clipboard(),
+            A::ClipPaste => self.paste(),
+            A::DocStart => {
+                self.pre_move(false);
+                self.cursor = 0;
+                self.goal_col = None;
+            }
+            A::DocEnd => {
+                self.pre_move(false);
+                self.cursor = self.buf.len_chars();
+                self.goal_col = None;
+            }
+
+            // -- Search --
+            A::Search => return EditorSignal::OpenSearch,
+            A::SearchAgain => self.search_again(),
+            A::Replace => return EditorSignal::OpenReplace,
+            A::BookmarkToggle => self.bookmark_toggle(),
+            A::BookmarkNext => self.bookmark_jump(true),
+            A::BookmarkPrev => self.bookmark_jump(false),
+            A::BookmarkFlush => self.bookmark_flush(),
+
+            // -- Command --
+            A::GotoLine => return EditorSignal::OpenGotoLine,
+            A::MatchBracket => self.goto_matching_bracket(),
+            A::ToggleSyntax => self.toggle_syntax(),
+            A::ToggleWrap => self.toggle_wrap(),
+            A::ToggleHex => self.toggle_hex(),
+            A::RefreshScreen => return EditorSignal::RefreshScreen,
+
+            // -- Format --
+            A::InsertDateTime => self.insert_date_time(),
+            A::FormatParagraph => self.format_paragraph(),
+            A::SortBlock => return EditorSignal::OpenSortBlock,
+            A::PasteOutput => return EditorSignal::OpenPasteOutput,
+
+            // -- Options --
+            A::Options => return EditorSignal::OpenOptions,
+            A::SaveSetup => return EditorSignal::SaveSetup,
+        }
+        EditorSignal::Stay
+    }
+
+    // -- Settings ----------------------------------------------------------
+
+    /// Apply the persisted editor options (at open time, and again whenever the
+    /// options dialog is accepted).
+    pub fn set_options(&mut self, opts: EditorOptions, dark: bool) {
+        self.wrap = opts.wrap_mode == WrapMode::Dynamic;
+        if !self.wrap {
+            self.top_sub = 0;
+        }
+        self.buf.set_group_undo(opts.group_undo);
+        self.hl_dark = dark;
+        self.opts = opts;
+        // Idempotent, so this is also how a freshly opened editor gets its
+        // highlighter: build one if it should have one, drop it if not.
+        if self.opts.syntax_highlighting {
+            if self.hl.is_none() {
+                self.enable_syntax(dark);
+            }
+        } else {
+            self.hl = None;
+        }
+        self.goal_col = None;
+    }
+
+    /// The editor's current options (the dialog opens on these).
+    pub fn options(&self) -> &EditorOptions {
+        &self.opts
+    }
+
+    /// Whether F2 should raise a confirmation before writing the file.
+    pub fn confirm_before_saving(&self) -> bool {
+        self.opts.confirm_before_saving
+    }
+
+    /// Whether the cursor position in this file should be remembered.
+    pub fn save_file_position(&self) -> bool {
+        self.opts.save_file_position
+    }
+
+    /// Typing replaces rather than inserts (shown in the status line).
+    pub fn overwrite(&self) -> bool {
+        self.overwrite
+    }
+
+    /// Whether `line` carries a bookmark (the renderer tints it).
+    pub(crate) fn line_bookmarked(&self, line: usize) -> bool {
+        self.bookmarks.contains(&line)
+    }
+
+    /// Whether tab characters are drawn as a visible arrow.
+    pub(crate) fn show_tabs(&self) -> bool {
+        self.opts.visible_tabs
+    }
+
+    /// Whether whitespace at the end of a line is marked.
+    pub(crate) fn show_trailing_spaces(&self) -> bool {
+        self.opts.visible_trailing_spaces
+    }
+
+    fn toggle_overwrite(&mut self) {
+        self.overwrite = !self.overwrite;
+        self.status = if self.overwrite {
+            "Overwrite mode".to_string()
+        } else {
+            "Insert mode".to_string()
+        };
+    }
+
+    /// Toggle the display-only word wrap (Shift-F9). Hex mode has no wrapping.
+    fn toggle_wrap(&mut self) {
+        if self.hex.is_some() {
+            return;
+        }
+        self.wrap = !self.wrap;
+        self.left_col = 0;
+        self.top_sub = 0;
+        self.goal_col = None;
+        self.status = if self.wrap {
+            "Word wrap ON".to_string()
+        } else {
+            "Word wrap OFF".to_string()
+        };
+    }
+
+    /// Toggle syntax colouring, rebuilding the highlighter when turning it on.
+    fn toggle_syntax(&mut self) {
+        if self.hl.is_some() {
+            self.hl = None;
+            self.status = "Syntax highlighting OFF".to_string();
+            return;
+        }
+        self.enable_syntax(self.hl_dark);
+        self.status = if self.hl.is_some() {
+            "Syntax highlighting ON".to_string()
+        } else {
+            "No syntax matches this file".to_string()
+        };
+    }
+
+    fn undo(&mut self) {
+        match self.buf.undo() {
+            Some(c) => {
+                self.cursor = c.min(self.buf.len_chars());
+                self.dirty = true;
+                self.clear_marks();
+            }
+            None => self.status = "Nothing to undo".to_string(),
+        }
+    }
+
+    fn redo(&mut self) {
+        match self.buf.redo() {
+            Some(c) => {
+                self.cursor = c.min(self.buf.len_chars());
+                self.dirty = true;
+                self.clear_marks();
+            }
+            None => self.status = "Nothing to redo".to_string(),
+        }
+    }
+
+    // -- Bookmarks ---------------------------------------------------------
+
+    fn bookmark_toggle(&mut self) {
+        let line = self.cur_line();
+        if self.bookmarks.remove(&line) {
+            self.status = format!("Bookmark cleared on line {}", line + 1);
+        } else {
+            self.bookmarks.insert(line);
+            self.status = format!("Bookmark set on line {}", line + 1);
+        }
+    }
+
+    /// Jump to the next (or previous) bookmarked line, wrapping around.
+    fn bookmark_jump(&mut self, forward: bool) {
+        if self.bookmarks.is_empty() {
+            self.status = "No bookmarks".to_string();
+            return;
+        }
+        let cur = self.cur_line();
+        let mut lines: Vec<usize> = self.bookmarks.iter().copied().collect();
+        lines.sort_unstable();
+        let target = if forward {
+            lines.iter().find(|&&l| l > cur).copied().or_else(|| lines.first().copied())
+        } else {
+            lines.iter().rev().find(|&&l| l < cur).copied().or_else(|| lines.last().copied())
+        };
+        if let Some(line) = target {
+            self.goto_line(line);
+        }
+    }
+
+    fn bookmark_flush(&mut self) {
+        let n = self.bookmarks.len();
+        self.bookmarks.clear();
+        self.status = format!("Cleared {n} bookmark(s)");
+    }
+
+    /// Put the cursor at the start of `line` (0-based, clamped).
+    pub fn goto_line(&mut self, line: usize) {
+        let line = line.min(self.buf.len_lines().saturating_sub(1));
+        self.pre_move(false);
+        self.cursor = self.line_start_char(line);
+        self.goal_col = None;
+        self.pending_center = true;
+    }
+
+    // -- Command menu actions ----------------------------------------------
+
+    /// Repeat the last search in the same direction (Shift-F7).
+    fn search_again(&mut self) {
+        if self.last_search.pattern.is_empty() {
+            self.status = "No previous search".to_string();
+            return;
+        }
+        self.search_next();
+    }
+
+    /// Jump between a bracket and its partner. Looks at the character under the
+    /// cursor, then — so it also works from just past a closing bracket — the one
+    /// before it.
+    fn goto_matching_bracket(&mut self) {
+        const PAIRS: [(char, char); 3] = [('(', ')'), ('[', ']'), ('{', '}')];
+        let at = |i: usize| self.buf.char_at(i);
+        let (pos, ch) = match at(self.cursor).filter(|c| is_bracket(*c)) {
+            Some(c) => (self.cursor, c),
+            None => match self.cursor.checked_sub(1).and_then(at).filter(|c| is_bracket(*c)) {
+                Some(c) => (self.cursor - 1, c),
+                None => {
+                    self.status = "No bracket at the cursor".to_string();
+                    return;
+                }
+            },
+        };
+        let (open, close, forward) = match PAIRS.iter().find(|(o, _)| *o == ch) {
+            Some((o, c)) => (*o, *c, true),
+            None => {
+                let (o, c) = PAIRS.iter().find(|(_, c)| *c == ch).expect("ch is a bracket");
+                (*o, *c, false)
+            }
+        };
+        let n = self.buf.len_chars();
+        let mut depth = 0i32;
+        let mut i = pos;
+        loop {
+            match at(i) {
+                Some(c) if c == open => depth += 1,
+                Some(c) if c == close => depth -= 1,
+                _ => {}
+            }
+            if depth == 0 {
+                self.cursor = i;
+                self.goal_col = None;
+                return;
+            }
+            if forward {
+                i += 1;
+                if i >= n {
+                    break;
+                }
+            } else {
+                if i == 0 {
+                    break;
+                }
+                i -= 1;
+            }
+        }
+        self.status = "No matching bracket".to_string();
+    }
+
+    // -- Format menu actions -----------------------------------------------
+
+    /// Insert the current date and time at the cursor, in ISO order.
+    fn insert_date_time(&mut self) {
+        let (date, time) = crate::rename::date_time_now();
+        let stamp = format!(
+            "{}-{}-{} {}:{}:{}",
+            &date[0..4], &date[4..6], &date[6..8],
+            &time[0..2], &time[2..4], &time[4..6],
+        );
+        self.insert_text(&stamp);
+    }
+
+    /// Re-wrap the paragraph around the cursor (blank lines delimit it) to the
+    /// configured line length, keeping its first line's indentation. Done as one
+    /// buffer edit, so one undo step puts it back.
+    fn format_paragraph(&mut self) {
+        let total = self.buf.len_lines();
+        if total == 0 {
+            return;
+        }
+        let blank = |l: usize| self.buf.line_text(l).trim().is_empty();
+        let cur = self.cur_line();
+        if blank(cur) {
+            self.status = "The cursor is not in a paragraph".to_string();
+            return;
+        }
+        let mut first = cur;
+        while first > 0 && !blank(first - 1) {
+            first -= 1;
+        }
+        let mut last = cur;
+        while last + 1 < total && !blank(last + 1) {
+            last += 1;
+        }
+        // The paragraph's own indentation is preserved on every wrapped line.
+        let head = self.buf.line_text(first);
+        let indent: String = head.chars().take_while(|c| c.is_whitespace()).collect();
+        let words: Vec<String> = (first..=last)
+            .flat_map(|l| {
+                self.buf
+                    .line_text(l)
+                    .split_whitespace()
+                    .map(|w| w.to_string())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        if words.is_empty() {
+            return;
+        }
+        let width = self.opts.word_wrap_line_length.max(indent.chars().count() + 8);
+        let mut out = String::new();
+        let mut line = indent.clone();
+        let mut empty = true;
+        for w in words {
+            let extra = if empty { 0 } else { 1 };
+            if !empty && line.chars().count() + extra + w.chars().count() > width {
+                out.push_str(&line);
+                out.push('\n');
+                line = indent.clone();
+                empty = true;
+            }
+            if !empty {
+                line.push(' ');
+            }
+            line.push_str(&w);
+            empty = false;
+        }
+        out.push_str(&line);
+
+        let start = self.line_start_char(first);
+        let end = self.line_start_char(last) + self.buf.line_len(last);
+        self.clear_marks();
+        self.cursor = self.buf.replace_range(start, end, &out);
+        self.dirty = true;
+        self.goal_col = None;
+        if let Some(hl) = self.hl.as_mut() {
+            hl.invalidate(first);
+        }
+    }
+
+    /// Sort the marked block's lines (Format → Sort). With no block the whole
+    /// buffer is sorted. One buffer edit, so it undoes in one step.
+    pub fn sort_block(&mut self, reverse: bool, ignore_case: bool, unique: bool) {
+        let (start, end) = match self.block_range() {
+            // Grow the block out to whole lines: sorting half a line is nonsense.
+            Some((s, e)) => {
+                let (ls, le) = (self.buf.char_to_line(s), self.buf.char_to_line(e.saturating_sub(1).max(s)));
+                (self.line_start_char(ls), self.line_start_char(le) + self.buf.line_len(le))
+            }
+            None => (0, self.buf.len_chars()),
+        };
+        let text = self.buf.slice(start, end);
+        let mut lines: Vec<String> = text.split('\n').map(|l| l.to_string()).collect();
+        let key = |l: &String| if ignore_case { l.to_lowercase() } else { l.clone() };
+        lines.sort_by_key(&key);
+        if unique {
+            lines.dedup_by(|a, b| key(a) == key(b));
+        }
+        if reverse {
+            lines.reverse();
+        }
+        let out = lines.join("\n");
+        self.clear_marks();
+        self.cursor = start;
+        self.buf.replace_range(start, end, &out);
+        self.dirty = true;
+        self.goal_col = None;
+        if let Some(hl) = self.hl.as_mut() {
+            hl.invalidate(self.buf.char_to_line(start));
+        }
+        self.status = format!("Sorted {} line(s)", out.split('\n').count());
+    }
+
+    /// Insert `text` at the cursor (the app's hook for "paste output of…" and
+    /// "insert file"), as one undo step.
+    pub fn insert_at_cursor(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        let pre_line = self.cur_line();
+        self.insert_text(text);
+        if let Some(hl) = self.hl.as_mut() {
+            hl.invalidate(pre_line);
+        }
+    }
+
+    /// The text File → "Copy to file" should write: the marked block, or the
+    /// whole buffer when nothing is marked.
+    pub fn block_or_all(&self) -> String {
+        match self.block_range() {
+            Some((s, e)) => self.buf.slice(s, e),
+            None => self.buf.text(),
+        }
+    }
+
+    /// Replace the whole buffer with `text` (File → Open reuses the open
+    /// editor). Resets the view, marks and undo history.
+    pub fn load_text(&mut self, name: String, path: VfsPath, text: &str) {
+        self.name = name;
+        self.path = path;
+        self.buf = EditorBuffer::from_str(text);
+        self.buf.set_group_undo(self.opts.group_undo);
+        self.cursor = 0;
+        self.top_line = 0;
+        self.top_sub = 0;
+        self.left_col = 0;
+        self.goal_col = None;
+        self.dirty = false;
+        self.unnamed = false;
+        self.clear_marks();
+        self.bookmarks.clear();
+        self.found_lines.clear();
+        self.hl = None;
+        if self.opts.syntax_highlighting {
+            self.enable_syntax(self.hl_dark);
+        }
+    }
+
+    fn mark_all(&mut self) {
+        let n = self.buf.len_chars();
+        self.anchor = None;
+        self.shift_marking = false;
+        self.block = (n > 0).then_some((0, n));
+        self.status = format!("Marked {n} chars");
+    }
+
+    /// Copy the block to the clipboard and delete it (Ctrl-X).
+    fn cut_to_clipboard(&mut self) {
+        if self.block_range().is_none() {
+            self.status = "No block is marked".to_string();
+            return;
+        }
+        self.copy_to_clipboard();
+        self.delete_block();
+    }
+
     /// Route a mouse event: a left click positions the cursor, a left-drag marks
     /// a block (like F3), the wheel scrolls, and the F-key bar acts as buttons.
     pub fn handle_mouse(&mut self, ev: MouseEvent) -> EditorSignal {
         let (col, row) = (ev.column, ev.row);
+
+        // While the F9 menu is open it owns the pointer: a click either picks an
+        // item or (anywhere else) closes the menu.
+        if self.menu.is_some() {
+            if !matches!(ev.kind, MouseEventKind::Down(MouseButton::Left)) {
+                return EditorSignal::Stay;
+            }
+            use crate::ui::pulldown::MenuSignal;
+            let area = Rect { height: 1, ..self.menu_area };
+            let signal = self.menu.as_mut().expect("checked above").click(area, col, row);
+            return match signal {
+                MenuSignal::Stay => EditorSignal::Stay,
+                MenuSignal::Close => {
+                    self.menu = None;
+                    EditorSignal::Stay
+                }
+                MenuSignal::Activate(action) => {
+                    self.menu = None;
+                    self.run_menu_action(action)
+                }
+            };
+        }
 
         // Any click dismisses the help overlay.
         if self.help_open && matches!(ev.kind, MouseEventKind::Down(_)) {
@@ -714,6 +1332,9 @@ impl EditorState {
 
     fn handle_text_key(&mut self, key: KeyEvent, ctrl: bool) -> EditorSignal {
         let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+        // AltGr is Ctrl+Alt on some layouts, so a key that composes a character
+        // must not be mistaken for an Alt shortcut.
+        let alt = key.modifiers.contains(KeyModifiers::ALT) && !ctrl;
         match key.code {
             KeyCode::F(10) | KeyCode::Esc => {
                 if self.dirty {
@@ -725,27 +1346,36 @@ impl EditorState {
             KeyCode::F(2) if shift || ctrl => return EditorSignal::SaveAs,
             KeyCode::F(2) => return EditorSignal::Save { close_after: false },
             KeyCode::F(3) => self.toggle_mark(),
+            // Shift-F5 inserts a file at the cursor (mcedit's F15).
+            KeyCode::F(5) if shift => return EditorSignal::Browse(BrowseKind::Insert),
             KeyCode::F(5) => self.copy_block(),
             KeyCode::F(6) => self.move_block(),
             KeyCode::F(8) => self.delete_block(),
+            KeyCode::F(7) if shift => self.search_again(),
             KeyCode::F(7) => return EditorSignal::OpenSearch,
             KeyCode::F(4) => return EditorSignal::OpenReplace,
-            KeyCode::Char('z') if ctrl => {
-                if let Some(c) = self.buf.undo() {
-                    self.cursor = c;
-                    self.dirty = true;
-                    self.clear_marks();
-                }
-            }
-            KeyCode::Char('y') if ctrl => {
-                if let Some(c) = self.buf.redo() {
-                    self.cursor = c;
-                    self.dirty = true;
-                    self.clear_marks();
-                }
-            }
+            KeyCode::Insert => self.toggle_overwrite(),
+            KeyCode::Char('z') if ctrl => self.undo(),
+            KeyCode::Char('y') if ctrl => self.redo(),
             KeyCode::Char('c') if ctrl => self.copy_to_clipboard(),
+            KeyCode::Char('x') if ctrl => self.cut_to_clipboard(),
             KeyCode::Char('v') if ctrl => self.paste(),
+            KeyCode::Char('a') if ctrl => self.mark_all(),
+            KeyCode::Char('n') if ctrl => return EditorSignal::NewFile,
+            KeyCode::Char('f') if ctrl => return EditorSignal::Browse(BrowseKind::CopyTo),
+            KeyCode::Char('s') if ctrl => self.toggle_syntax(),
+            KeyCode::Char('l') if ctrl => return EditorSignal::RefreshScreen,
+            // The Alt shortcuts mirror mcedit's (M-l, M-b, M-p, M-t, M-u, and the
+            // four bookmark keys).
+            KeyCode::Char('l') if alt => return EditorSignal::OpenGotoLine,
+            KeyCode::Char('b') if alt => self.goto_matching_bracket(),
+            KeyCode::Char('p') if alt => self.format_paragraph(),
+            KeyCode::Char('t') if alt => return EditorSignal::OpenSortBlock,
+            KeyCode::Char('u') if alt => return EditorSignal::OpenPasteOutput,
+            KeyCode::Char('k') if alt => self.bookmark_toggle(),
+            KeyCode::Char('j') if alt => self.bookmark_jump(true),
+            KeyCode::Char('i') if alt => self.bookmark_jump(false),
+            KeyCode::Char('o') if alt => self.bookmark_flush(),
 
             KeyCode::Up => {
                 self.pre_move(shift);
@@ -803,14 +1433,93 @@ impl EditorState {
                 self.move_vertical(self.view_rows as isize - 1);
             }
 
-            KeyCode::Enter => self.insert_text("\n"),
-            KeyCode::Tab => self.insert_text("    "),
+            KeyCode::Enter => self.newline(),
+            KeyCode::Tab => self.insert_tab(),
             KeyCode::Backspace => self.backspace(),
             KeyCode::Delete => self.delete_forward(),
-            KeyCode::Char(c) => self.insert_text(&c.to_string()),
+            KeyCode::Char(c) => self.type_char(c),
             _ => {}
         }
         EditorSignal::Stay
+    }
+
+    /// Enter: a newline, carrying the current line's indentation onto it when
+    /// "Return does autoindent" is on.
+    fn newline(&mut self) {
+        if !self.opts.return_does_autoindent {
+            return self.insert_text("\n");
+        }
+        // Only the indentation *before* the cursor is copied, so pressing Enter
+        // in the middle of a run of leading spaces doesn't over-indent.
+        let line = self.cur_line();
+        let col = self.cur_col();
+        let indent: String = self
+            .buf
+            .line_text(line)
+            .chars()
+            .take(col)
+            .take_while(|c| *c == ' ' || *c == '\t')
+            .collect();
+        self.insert_text(&format!("\n{indent}"));
+    }
+
+    /// Tab: spaces up to the next tab stop, or a literal tab when "Fill tabs
+    /// with spaces" is off.
+    fn insert_tab(&mut self) {
+        if !self.opts.fill_tabs_with_spaces {
+            return self.insert_text("\t");
+        }
+        let w = self.opts.tab_spacing.max(1);
+        let n = w - self.cur_col() % w;
+        self.insert_text(&" ".repeat(n));
+    }
+
+    /// Type one character: overwriting the one under the cursor in overwrite
+    /// mode, and hard-wrapping the line afterwards in typewriter mode.
+    fn type_char(&mut self, c: char) {
+        let over = self.overwrite
+            && self.buf.char_at(self.cursor).is_some_and(|ch| ch != '\n');
+        if over {
+            self.finalize_marks();
+            let pos = self.cursor;
+            self.cursor = self.buf.replace_range(pos, pos + 1, &c.to_string());
+            self.dirty = true;
+            self.goal_col = None;
+        } else {
+            self.insert_text(&c.to_string());
+        }
+        if self.opts.wrap_mode == WrapMode::Typewriter {
+            self.typewriter_wrap();
+        }
+    }
+
+    /// Typewriter wrap: once the line the cursor is on runs past the wrap
+    /// column, turn the last space before that column into a newline. The space
+    /// is *replaced*, so the cursor's char index is unaffected.
+    fn typewriter_wrap(&mut self) {
+        let limit = self.opts.word_wrap_line_length.max(8);
+        let line = self.cur_line();
+        if self.buf.line_len(line) <= limit {
+            return;
+        }
+        let chars: Vec<char> = self.buf.line_text(line).chars().collect();
+        let Some(brk) = chars[..=limit.min(chars.len() - 1)]
+            .iter()
+            .rposition(|c| *c == ' ' || *c == '\t')
+        else {
+            return; // one long unbroken word: leave it alone
+        };
+        let start = self.line_start_char(line);
+        // Only break behind the cursor — otherwise typing at the start of a long
+        // line would keep re-breaking text the user is not writing.
+        if start + brk >= self.cursor {
+            return;
+        }
+        self.buf.replace_range(start + brk, start + brk + 1, "\n");
+        self.adjust_block_delete(start + brk, start + brk + 1);
+        if let Some(hl) = self.hl.as_mut() {
+            hl.invalidate(line);
+        }
     }
 
     /// Toggle between text and hex modes. Switching is only allowed when the
@@ -865,6 +1574,7 @@ impl EditorState {
     /// Key handling while in hex mode.
     fn handle_hex_key(&mut self, key: KeyEvent) -> EditorSignal {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
         match key.code {
             KeyCode::F(10) | KeyCode::Esc => {
                 return if self.dirty {
@@ -897,7 +1607,10 @@ impl EditorState {
                 KeyCode::PageDown => h.move_rows((rows - 1).max(1)),
                 KeyCode::Tab => h.toggle_pane(),
                 KeyCode::Backspace => h.move_by(-1),
-                KeyCode::Char(c) => {
+                // Only a plainly typed character edits a byte: a Ctrl/Alt
+                // shortcut that hex mode has no answer for must be ignored, not
+                // written into the file.
+                KeyCode::Char(c) if !ctrl && !alt => {
                     typed = true;
                     if !readonly {
                         if h.ascii_pane {
@@ -1131,6 +1844,10 @@ impl EditorState {
             }
         } else if self.shift_marking {
             self.finalize_marks();
+        } else if !self.opts.persistent_selection {
+            // With persistent selection off, moving the cursor drops the mark —
+            // the GUI-editor behaviour mcedit's option switches to.
+            self.clear_marks();
         }
     }
 
@@ -1179,6 +1896,24 @@ impl EditorState {
 
     fn backspace(&mut self) {
         self.finalize_marks();
+        // "Backspace through tabs": inside a line's leading spaces, one press
+        // removes a whole indent step rather than a single space.
+        if self.opts.backspace_through_tabs {
+            let line = self.cur_line();
+            let start = self.line_start_char(line);
+            let col = self.cursor - start;
+            let indent_only = col > 0 && self.buf.slice(start, self.cursor).chars().all(|c| c == ' ');
+            if indent_only {
+                let w = self.opts.tab_spacing.max(1);
+                let back = if col.is_multiple_of(w) { w } else { col % w }.min(col);
+                let (d0, d1) = (self.cursor - back, self.cursor);
+                self.cursor = self.buf.delete(d0, d1);
+                self.adjust_block_delete(d0, d1);
+                self.dirty = true;
+                self.goal_col = None;
+                return;
+            }
+        }
         if self.cursor > 0 {
             let (d0, d1) = (self.cursor - 1, self.cursor);
             self.cursor = self.buf.delete(d0, d1);
@@ -1200,14 +1935,22 @@ impl EditorState {
     }
 
     fn paste(&mut self) {
-        if !self.clipboard.is_empty() {
-            self.finalize_marks();
-            let text = self.clipboard.clone();
-            let pos = self.cursor;
-            let len = text.chars().count();
-            self.cursor = self.buf.insert(pos, &text);
-            self.adjust_block_insert(pos, len);
-            self.dirty = true;
+        if self.clipboard.is_empty() {
+            self.status = "The clipboard is empty".to_string();
+            return;
+        }
+        self.finalize_marks();
+        let text = self.clipboard.clone();
+        let pos = self.cursor;
+        let len = text.chars().count();
+        self.cursor = self.buf.insert(pos, &text);
+        if !self.opts.cursor_after_inserted_block {
+            self.cursor = pos;
+        }
+        self.adjust_block_insert(pos, len);
+        self.dirty = true;
+        if let Some(hl) = self.hl.as_mut() {
+            hl.invalidate(self.buf.char_to_line(pos));
         }
     }
 
@@ -1298,6 +2041,9 @@ impl EditorState {
         self.finalize_marks();
         let pos = self.cursor;
         self.cursor = self.buf.insert(pos, &text);
+        if !self.opts.cursor_after_inserted_block {
+            self.cursor = pos;
+        }
         self.adjust_block_insert(pos, len);
         self.dirty = true;
         self.status = format!("Copied {len} chars to the cursor");
@@ -1344,6 +2090,11 @@ impl EditorState {
         self.clear_marks();
     }
 
+}
+
+/// Whether `c` is one of the bracket characters "go to matching bracket" pairs.
+fn is_bracket(c: char) -> bool {
+    matches!(c, '(' | ')' | '[' | ']' | '{' | '}')
 }
 
 fn order(a: usize, b: usize) -> (usize, usize) {
@@ -1583,7 +2334,7 @@ mod tests {
     fn hex_mode_edits_file_in_place() {
         let p = tmpfile(b"hello");
         let mut e = EditorState::new("h".into(), VfsPath::local(&p), "hello");
-        e.handle_key(key(KeyCode::F(9))); // enter hex
+        e.handle_key(key_mod(KeyCode::F(9), KeyModifiers::CONTROL)); // enter hex
         assert!(e.is_hex());
         // Overwrite first byte 'h' (0x68) with 'H' (0x48).
         e.handle_key(key(KeyCode::Char('4')));
@@ -1596,7 +2347,7 @@ mod tests {
         assert_eq!(std::fs::read(&p).unwrap(), b"Hello", "in-place byte write");
 
         // Toggle back to text reflects the saved change.
-        e.handle_key(key(KeyCode::F(9)));
+        e.handle_key(key_mod(KeyCode::F(9), KeyModifiers::CONTROL));
         assert!(!e.is_hex());
         assert_eq!(e.contents(), "Hello");
         std::fs::remove_file(&p).ok();
@@ -1606,7 +2357,7 @@ mod tests {
     fn hex_search_and_replace() {
         let p = tmpfile(b"hello hello hello");
         let mut e = EditorState::new("h".into(), VfsPath::local(&p), "x");
-        e.handle_key(key(KeyCode::F(9)));
+        e.handle_key(key_mod(KeyCode::F(9), KeyModifiers::CONTROL));
         // ASCII search moves the cursor to the next match.
         e.apply_hex_search_replace(false, "hello", "", false, false);
         // Cursor was at 0; next match starts at offset 6.
@@ -1626,7 +2377,7 @@ mod tests {
         let p = tmpfile(b"abc");
         let mut e = EditorState::new("h".into(), VfsPath::local(&p), "abc");
         e.handle_key(key(KeyCode::Char('x'))); // dirty text
-        e.handle_key(key(KeyCode::F(9)));
+        e.handle_key(key_mod(KeyCode::F(9), KeyModifiers::CONTROL));
         assert!(!e.is_hex(), "can't enter hex with unsaved text edits");
         std::fs::remove_file(&p).ok();
     }
@@ -1659,7 +2410,7 @@ mod tests {
         use ratatui::backend::TestBackend;
         let p = tmpfile(b"hello world example bytes 0123456789ABCDEF");
         let mut e = EditorState::new("h".into(), VfsPath::local(&p), "x");
-        e.handle_key(key(KeyCode::F(9)));
+        e.handle_key(key_mod(KeyCode::F(9), KeyModifiers::CONTROL));
         let theme = crate::ui::theme::Theme::mc();
         let mut t = Terminal::new(TestBackend::new(90, 12)).unwrap();
         t.draw(|f| crate::editor::render::render(f, f.area(), &mut e, &theme))
@@ -1675,7 +2426,7 @@ mod tests {
         assert!(s.contains("HEX"), "hex status indicator");
         assert!(s.contains("hello world"), "ascii pane shows content");
         // The F-key bar (not a mode banner) is shown, with supported functions.
-        assert!(s.contains("Save") && s.contains("Text"), "F-key bar in hex mode");
+        assert!(s.contains("Save") && s.contains("PullDn"), "F-key bar in hex mode");
         assert!(!s.contains("Hex mode"), "no persistent mode banner");
         std::fs::remove_file(&p).ok();
     }
@@ -1993,12 +2744,16 @@ r");
     }
 
     #[test]
-    fn word_wrap_toggles_with_shift_and_ctrl_f9() {
+    fn word_wrap_toggles_with_shift_f9() {
         let mut e = ed("hello");
         e.handle_key(key_mod(KeyCode::F(9), KeyModifiers::SHIFT));
         assert!(e.wrap, "Shift-F9 turns word wrap on");
-        e.handle_key(key_mod(KeyCode::F(9), KeyModifiers::CONTROL));
-        assert!(!e.wrap, "Ctrl-F9 turns word wrap off");
+        e.handle_key(key_mod(KeyCode::F(9), KeyModifiers::SHIFT));
+        assert!(!e.wrap, "and off again");
+        // Plain F9 now opens the menu instead of toggling anything.
+        e.handle_key(key(KeyCode::F(9)));
+        assert!(e.menu_open());
+        assert!(!e.wrap);
     }
 
     #[test]
@@ -2059,21 +2814,386 @@ r");
 
         let plain = e.footer_labels();
         assert_eq!(plain[1], "Save");
-        assert_eq!(plain[8], "Hex");
-        // Pressing (holding) Ctrl flips F2/F9 to their alternates.
+        assert_eq!(plain[8], "PullDn");
+        // Pressing (holding) Ctrl flips F2/F9 to the alternates Ctrl reaches.
         e.note_key(press(KeyCode::Modifier(ModifierKeyCode::LeftControl)));
         let held = e.footer_labels();
         assert_eq!(held[1], "Save as");
-        assert_eq!(held[8], "Wrap");
+        assert_eq!(held[8], "Hex");
         // Releasing it restores the defaults (a modifier-key release event still
         // reports the modifier as set, so this must come from the release kind).
         e.note_key(release(KeyCode::Modifier(ModifierKeyCode::LeftControl)));
         assert_eq!(e.footer_labels()[1], "Save");
-        assert_eq!(e.footer_labels()[8], "Hex");
-        // Shift works too.
+        assert_eq!(e.footer_labels()[8], "PullDn");
+        // Shift reaches a different set: Save as, Insert file, Search again, Wrap.
         e.note_key(press(KeyCode::Modifier(ModifierKeyCode::RightShift)));
-        assert_eq!(e.footer_labels()[1], "Save as");
+        let held = e.footer_labels();
+        assert_eq!(held[1], "Save as");
+        assert_eq!(held[4], "InsFil");
+        assert_eq!(held[6], "Again");
+        assert_eq!(held[8], "Wrap");
         e.note_key(release(KeyCode::Modifier(ModifierKeyCode::RightShift)));
         assert_eq!(e.footer_labels()[1], "Save");
     }
+    // -- F9 menu and the actions it drives ---------------------------------
+
+    /// Run a menu action directly, as choosing it from the F9 menu would.
+    fn act(e: &mut EditorState, a: menu::EditorAction) -> EditorSignal {
+        e.run_menu_action(a)
+    }
+
+    #[test]
+    fn f9_opens_the_menu_and_esc_closes_it() {
+        let mut e = ed("hello");
+        e.handle_key(key(KeyCode::F(9)));
+        assert!(e.menu_open(), "F9 opens the pulldown");
+        // Keys go to the menu, not the buffer, while it is open.
+        e.handle_key(key(KeyCode::Down));
+        assert_eq!(e.contents(), "hello", "typing into the menu never edits the file");
+        e.handle_key(key(KeyCode::Esc));
+        assert!(!e.menu_open(), "Esc closes it");
+        // ...and Esc did not reach the editor as a quit request.
+        assert!(matches!(e.handle_key(key(KeyCode::Char('!'))), EditorSignal::Stay));
+        assert_eq!(e.contents(), "!hello");
+    }
+
+    #[test]
+    fn menu_file_items_leave_through_signals() {
+        let mut e = ed("x");
+        assert!(matches!(
+            act(&mut e, menu::EditorAction::OpenFile),
+            EditorSignal::Browse(BrowseKind::Open)
+        ));
+        assert!(matches!(act(&mut e, menu::EditorAction::NewFile), EditorSignal::NewFile));
+        assert!(matches!(act(&mut e, menu::EditorAction::About), EditorSignal::About));
+        // Quit on a clean buffer closes; on a modified one it asks first.
+        assert!(matches!(act(&mut e, menu::EditorAction::Quit), EditorSignal::Close));
+        e.handle_key(key(KeyCode::Char('y')));
+        assert!(matches!(act(&mut e, menu::EditorAction::Quit), EditorSignal::ConfirmQuit));
+    }
+
+    #[test]
+    fn mark_all_and_cut_to_clipboard() {
+        let mut e = ed("one\ntwo");
+        act(&mut e, menu::EditorAction::MarkAll);
+        assert_eq!(e.block, Some((0, 7)));
+        act(&mut e, menu::EditorAction::ClipCut);
+        assert_eq!(e.contents(), "", "cut removes the block");
+        e.paste();
+        assert_eq!(e.contents(), "one\ntwo", "and the clipboard still holds it");
+        // Unmark drops the mark without touching the text.
+        act(&mut e, menu::EditorAction::MarkAll);
+        act(&mut e, menu::EditorAction::Unmark);
+        assert!(e.block_range().is_none());
+        assert_eq!(e.contents(), "one\ntwo");
+    }
+
+    #[test]
+    fn insert_toggles_overwrite_typing() {
+        let mut e = ed("abcd");
+        e.handle_key(key(KeyCode::Insert));
+        assert!(e.overwrite());
+        e.handle_key(key(KeyCode::Char('X')));
+        assert_eq!(e.contents(), "Xbcd", "overwrite replaces the character under the cursor");
+        // At the end of a line there is nothing to replace, so it inserts.
+        e.cursor = 4;
+        e.handle_key(key(KeyCode::Char('!')));
+        assert_eq!(e.contents(), "Xbcd!");
+        e.handle_key(key(KeyCode::Insert));
+        assert!(!e.overwrite());
+        e.cursor = 0;
+        e.handle_key(key(KeyCode::Char('Z')));
+        assert_eq!(e.contents(), "ZXbcd!");
+    }
+
+    // -- Typing options ----------------------------------------------------
+
+    /// An editor with `opts` applied (no syntax highlighting, so tests stay fast).
+    fn ed_opts(text: &str, opts: EditorOptions) -> EditorState {
+        let mut e = ed(text);
+        e.set_options(EditorOptions { syntax_highlighting: false, ..opts }, false);
+        e
+    }
+
+    #[test]
+    fn return_autoindents_only_up_to_the_cursor() {
+        let mut e = ed_opts("    body", EditorOptions::default());
+        e.cursor = 8; // end of the line
+        e.handle_key(key(KeyCode::Enter));
+        assert_eq!(e.contents(), "    body\n    ", "the line's indent is carried over");
+
+        // Turned off, Enter is a bare newline.
+        let mut e = ed_opts(
+            "    body",
+            EditorOptions { return_does_autoindent: false, ..EditorOptions::default() },
+        );
+        e.cursor = 8;
+        e.handle_key(key(KeyCode::Enter));
+        assert_eq!(e.contents(), "    body\n");
+
+        // Pressing Enter inside the indentation copies only what precedes it.
+        let mut e = ed_opts("    body", EditorOptions::default());
+        e.cursor = 2;
+        e.handle_key(key(KeyCode::Enter));
+        assert_eq!(e.contents(), "  \n    body");
+    }
+
+    #[test]
+    fn tab_advances_to_the_next_tab_stop() {
+        let mut e = ed_opts("", EditorOptions { tab_spacing: 4, ..EditorOptions::default() });
+        e.handle_key(key(KeyCode::Tab));
+        assert_eq!(e.contents(), "    ");
+        e.insert_text("ab");
+        e.handle_key(key(KeyCode::Tab));
+        assert_eq!(e.contents(), "    ab  ", "column 6 → two spaces reach column 8");
+
+        // With "fill tabs with spaces" off it types a real tab.
+        let mut e = ed_opts(
+            "",
+            EditorOptions { fill_tabs_with_spaces: false, ..EditorOptions::default() },
+        );
+        e.handle_key(key(KeyCode::Tab));
+        assert_eq!(e.contents(), "\t");
+    }
+
+    #[test]
+    fn backspace_through_tabs_removes_a_whole_indent_step() {
+        let opts = EditorOptions {
+            backspace_through_tabs: true,
+            tab_spacing: 4,
+            ..EditorOptions::default()
+        };
+        let mut e = ed_opts("        code", opts.clone());
+        e.cursor = 8;
+        e.handle_key(key(KeyCode::Backspace));
+        assert_eq!(e.contents(), "    code", "one press eats a whole tab stop");
+        // Past the indentation it is an ordinary backspace again.
+        e.cursor = 8;
+        e.handle_key(key(KeyCode::Backspace));
+        assert_eq!(e.contents(), "    cod");
+
+        // Off (the default), backspace always removes one character.
+        let mut e = ed_opts("        code", EditorOptions::default());
+        e.cursor = 8;
+        e.handle_key(key(KeyCode::Backspace));
+        assert_eq!(e.contents(), "       code");
+    }
+
+    #[test]
+    fn typewriter_wrap_breaks_the_line_for_real() {
+        let opts = EditorOptions {
+            wrap_mode: WrapMode::Typewriter,
+            word_wrap_line_length: 10,
+            ..EditorOptions::default()
+        };
+        let mut e = ed_opts("", opts);
+        for c in "aaa bbb ccc ddd".chars() {
+            e.handle_key(key(KeyCode::Char(c)));
+        }
+        assert!(e.contents().contains('\n'), "a newline was written into the buffer");
+        for line in e.contents().lines() {
+            assert!(line.chars().count() <= 11, "line {line:?} stays near the wrap column");
+        }
+    }
+
+    #[test]
+    fn group_undo_takes_back_a_whole_run_of_typing() {
+        let mut e = ed_opts("", EditorOptions { group_undo: true, ..EditorOptions::default() });
+        for c in "hello".chars() {
+            e.handle_key(key(KeyCode::Char(c)));
+        }
+        e.handle_key(key_mod(KeyCode::Char('z'), KeyModifiers::CONTROL));
+        assert_eq!(e.contents(), "", "one undo takes back the whole run");
+
+        // Off (the default) each character undoes on its own.
+        let mut e = ed_opts("", EditorOptions::default());
+        for c in "hello".chars() {
+            e.handle_key(key(KeyCode::Char(c)));
+        }
+        e.handle_key(key_mod(KeyCode::Char('z'), KeyModifiers::CONTROL));
+        assert_eq!(e.contents(), "hell");
+    }
+
+    #[test]
+    fn persistent_selection_can_be_turned_off() {
+        // On (the default): a plain move keeps the block marked.
+        let mut e = ed_opts("hello", EditorOptions::default());
+        e.mark_all();
+        e.handle_key(key(KeyCode::Right));
+        assert!(e.block_range().is_some());
+
+        let mut e = ed_opts(
+            "hello",
+            EditorOptions { persistent_selection: false, ..EditorOptions::default() },
+        );
+        e.mark_all();
+        e.handle_key(key(KeyCode::Right));
+        assert!(e.block_range().is_none(), "the mark is dropped by a plain move");
+    }
+
+    #[test]
+    fn cursor_after_inserted_block_can_be_turned_off() {
+        let mut e = ed_opts("ab", EditorOptions::default());
+        e.clipboard = "XY".to_string();
+        e.cursor = 1;
+        e.paste();
+        assert_eq!((e.contents().as_str(), e.cursor), ("aXYb", 3));
+
+        let mut e = ed_opts(
+            "ab",
+            EditorOptions { cursor_after_inserted_block: false, ..EditorOptions::default() },
+        );
+        e.clipboard = "XY".to_string();
+        e.cursor = 1;
+        e.paste();
+        assert_eq!((e.contents().as_str(), e.cursor), ("aXYb", 1));
+    }
+
+    // -- Bookmarks, brackets, goto -----------------------------------------
+
+    #[test]
+    fn bookmarks_toggle_jump_and_flush() {
+        let mut e = ed("l0\nl1\nl2\nl3\nl4");
+        e.goto_line(1);
+        e.bookmark_toggle();
+        e.goto_line(3);
+        e.bookmark_toggle();
+        assert!(e.line_bookmarked(1) && e.line_bookmarked(3));
+
+        // Next from line 3 wraps around to line 1; previous steps back.
+        e.bookmark_jump(true);
+        assert_eq!(e.cursor_line_col().0, 1);
+        e.bookmark_jump(true);
+        assert_eq!(e.cursor_line_col().0, 3);
+        e.bookmark_jump(false);
+        assert_eq!(e.cursor_line_col().0, 1);
+
+        // Toggling the same line again clears it; flush clears the rest.
+        e.bookmark_toggle();
+        assert!(!e.line_bookmarked(1));
+        e.bookmark_flush();
+        assert!(!e.line_bookmarked(3));
+        e.bookmark_jump(true);
+        assert_eq!(e.status, "No bookmarks");
+    }
+
+    #[test]
+    fn matching_bracket_jumps_both_ways() {
+        let mut e = ed("fn f(a, (b), c) {}");
+        e.cursor = 4; // the opening '('
+        e.goto_matching_bracket();
+        assert_eq!(e.cursor, 14, "skips the nested pair and lands on the closing ')'");
+        e.goto_matching_bracket();
+        assert_eq!(e.cursor, 4, "and back again");
+
+        // Just past a closing bracket counts as being on it.
+        e.cursor = 11; // ')' of "(b)"
+        e.goto_matching_bracket();
+        assert_eq!(e.cursor, 8);
+
+        e.cursor = 1; // 'n' — no bracket here
+        e.goto_matching_bracket();
+        assert_eq!(e.cursor, 1);
+        assert_eq!(e.status, "No bracket at the cursor");
+    }
+
+    #[test]
+    fn goto_line_clamps_and_centers() {
+        let mut e = ed("a\nb\nc");
+        e.goto_line(1);
+        assert_eq!(e.cursor_line_col(), (1, 0));
+        e.goto_line(999);
+        assert_eq!(e.cursor_line_col(), (2, 0), "past the end clamps to the last line");
+    }
+
+    // -- Format menu -------------------------------------------------------
+
+    #[test]
+    fn format_paragraph_rewraps_only_its_own_paragraph() {
+        let opts = EditorOptions { word_wrap_line_length: 20, ..EditorOptions::default() };
+        let mut e = ed_opts("  one two three four five six seven\n\nuntouched line", opts);
+        e.cursor = 3;
+        e.format_paragraph();
+        let text = e.contents();
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(lines.len() > 3, "the paragraph was split over several lines");
+        for l in lines.iter().take_while(|l| !l.is_empty()) {
+            assert!(l.chars().count() <= 20, "{l:?} fits the wrap column");
+            assert!(l.starts_with("  "), "{l:?} keeps the paragraph's indent");
+        }
+        assert_eq!(*lines.last().unwrap(), "untouched line", "the next paragraph is left alone");
+        // One undo puts the whole reflow back.
+        e.undo();
+        assert_eq!(e.contents(), "  one two three four five six seven\n\nuntouched line");
+    }
+
+    #[test]
+    fn sort_block_sorts_the_marked_lines() {
+        let mut e = ed("c\na\nb\nzzz");
+        e.block = Some((0, 5)); // "c\na\nb"
+        e.sort_block(false, false, false);
+        assert_eq!(e.contents(), "a\nb\nc\nzzz", "only the marked lines move");
+
+        // Reverse, case-insensitive and unique all apply; no block = whole buffer.
+        let mut e = ed("b\nA\na\nB");
+        e.sort_block(true, true, true);
+        assert_eq!(e.contents(), "b\nA");
+    }
+
+    #[test]
+    fn insert_date_time_writes_a_timestamp() {
+        let mut e = ed("");
+        e.insert_date_time();
+        let text = e.contents();
+        assert_eq!(text.len(), 19, "YYYY-MM-DD HH:MM:SS");
+        assert!(text.chars().enumerate().all(|(i, c)| match i {
+            4 | 7 => c == '-',
+            10 => c == ' ',
+            13 | 16 => c == ':',
+            _ => c.is_ascii_digit(),
+        }), "unexpected timestamp shape: {text}");
+    }
+
+    // -- File-menu helpers the app calls back into -------------------------
+
+    #[test]
+    fn block_or_all_and_insert_at_cursor() {
+        let mut e = ed("hello world");
+        assert_eq!(e.block_or_all(), "hello world", "no block ⇒ the whole buffer");
+        e.block = Some((0, 5));
+        assert_eq!(e.block_or_all(), "hello");
+
+        e.cursor = 5;
+        e.insert_at_cursor(" there");
+        assert_eq!(e.contents(), "hello there world");
+    }
+
+    #[test]
+    fn load_text_replaces_the_buffer_and_its_history() {
+        let mut e = ed("old");
+        e.handle_key(key(KeyCode::Char('x')));
+        e.bookmark_toggle();
+        assert!(e.dirty);
+        e.load_text("new.txt".into(), VfsPath::local("/tmp/new.txt"), "fresh");
+        assert_eq!(e.contents(), "fresh");
+        assert_eq!(e.name, "new.txt");
+        assert!(!e.dirty, "a just-loaded file is unmodified");
+        assert_eq!(e.cursor, 0);
+        assert!(!e.line_bookmarked(0), "bookmarks belong to the file that had them");
+        assert!(e.buf.undo().is_none(), "the previous file's undo history is gone");
+    }
+
+    #[test]
+    fn hex_mode_menu_greys_out_the_text_actions() {
+        let p = tmpfile(b"abc");
+        let mut e = EditorState::new("h".into(), VfsPath::local(&p), "abc");
+        e.handle_key(key_mod(KeyCode::F(9), KeyModifiers::CONTROL));
+        assert!(e.is_hex());
+        // F9 still opens the menu in hex mode — built for hex, so the text-only
+        // entries are greyed out (see `editor::menu`'s own tests).
+        e.handle_key(key(KeyCode::F(9)));
+        assert!(e.menu_open());
+        std::fs::remove_file(&p).ok();
+    }
 }
+

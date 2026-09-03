@@ -1,12 +1,48 @@
-//! A generic "Save as" browser: navigate directories and type a file name.
-//! Used by the editor (Shift-F2 / Ctrl-F2) and as the automatic fallback when a
-//! normal save fails, so the user can pick a different path.
+//! A generic file browser for the editor: navigate directories and type a file
+//! name. It serves "Save as" (Shift-F2, and the automatic fallback when a normal
+//! save fails so the user can pick a different path) as well as the File menu's
+//! Open / Insert file / Copy to file, which differ only in what the chosen path
+//! is then used for.
 
 use super::flash::{BrowseEntry, SaveFocus};
 use super::widgets::*;
 use super::{DialogResult, Submit};
+use crate::editor::BrowseKind;
+
+/// What the chosen path is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaveAsPurpose {
+    /// Write the editor buffer to it (Save as).
+    SaveBuffer,
+    /// One of the File menu's browse actions.
+    Browse(BrowseKind),
+}
+
+impl SaveAsPurpose {
+    fn title(self) -> &'static str {
+        match self {
+            // Its own key, not the F-key bar's "Save as": that one is abbreviated
+            // to fit a bar segment, which would read badly as a dialog title.
+            SaveAsPurpose::SaveBuffer => "Save file as",
+            SaveAsPurpose::Browse(BrowseKind::Open) => "Open file",
+            SaveAsPurpose::Browse(BrowseKind::Insert) => "Insert file",
+            SaveAsPurpose::Browse(BrowseKind::CopyTo) => "Copy to file",
+        }
+    }
+
+    /// Whether Enter on a file in the list should choose it outright. Reading an
+    /// existing file is a one-keystroke job; the two that *write* one route
+    /// through the name field first, so an accidental Enter can't overwrite.
+    fn picks_existing(self) -> bool {
+        matches!(
+            self,
+            SaveAsPurpose::Browse(BrowseKind::Open) | SaveAsPurpose::Browse(BrowseKind::Insert)
+        )
+    }
+}
 
 pub struct SaveAsDialog {
+    purpose: SaveAsPurpose,
     cwd: std::path::PathBuf,
     filename: String,
     name_cursor: usize,
@@ -23,7 +59,22 @@ pub struct SaveAsDialog {
 
 impl SaveAsDialog {
     pub fn new(start_dir: std::path::PathBuf, filename: String, error: Option<String>) -> Self {
+        Self::for_purpose(SaveAsPurpose::SaveBuffer, start_dir, filename, error)
+    }
+
+    /// The same browser opened for one of the File menu's browse actions.
+    pub fn browse(kind: BrowseKind, start_dir: std::path::PathBuf, filename: String) -> Self {
+        Self::for_purpose(SaveAsPurpose::Browse(kind), start_dir, filename, None)
+    }
+
+    fn for_purpose(
+        purpose: SaveAsPurpose,
+        start_dir: std::path::PathBuf,
+        filename: String,
+        error: Option<String>,
+    ) -> Self {
         let mut d = SaveAsDialog {
+            purpose,
             cwd: start_dir,
             name_cursor: filename.chars().count(),
             filename,
@@ -31,8 +82,9 @@ impl SaveAsDialog {
             entries: Vec::new(),
             cursor: 0,
             top: 0,
-            // Start on the name field: it is prefilled, so Enter saves at once.
-            focus: SaveFocus::Name,
+            // Saving starts on the (prefilled) name field so Enter writes at
+            // once; opening a file starts in the list, which is what is browsed.
+            focus: if purpose.picks_existing() { SaveFocus::List } else { SaveFocus::Name },
             list_area: Rect::default(),
             list_rows: 1,
             name_area: Rect::default(),
@@ -98,6 +150,9 @@ impl SaveAsDialog {
         } else {
             self.filename = e.name.clone();
             self.name_cursor = self.filename.chars().count();
+            if self.purpose.picks_existing() {
+                return self.confirm();
+            }
             self.focus = SaveFocus::Name;
         }
         DialogResult::None
@@ -108,7 +163,11 @@ impl SaveAsDialog {
         if name.is_empty() {
             return DialogResult::None;
         }
-        DialogResult::Submit(Submit::EditorSaveAs(self.cwd.join(name)))
+        let path = self.cwd.join(name);
+        DialogResult::Submit(match self.purpose {
+            SaveAsPurpose::SaveBuffer => Submit::EditorSaveAs(path),
+            SaveAsPurpose::Browse(kind) => Submit::EditorBrowsed(kind, path),
+        })
     }
 
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
@@ -190,7 +249,7 @@ impl SaveAsDialog {
         let rect = centered(area, w, h);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
-        let block = dialog_block("Save as", theme);
+        let block = dialog_block(&crate::l10n::trd(self.purpose.title()), theme);
         let inner = block.inner(rect);
         f.render_widget(block, rect);
 

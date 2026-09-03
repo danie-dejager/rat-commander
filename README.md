@@ -35,10 +35,16 @@ The installed executable is named **`rc`** for quick typing.
   (F8 toggles to the raw bytes).
 - **Built-in editor (F4)** — `mcedit`-style block copy/move/delete, clipboard,
   search & replace, undo/redo, syntax highlighting, and an
-  in-place **hex editor** for arbitrarily large files. Launch straight into it
-  with **`rc /edit <file>`** (or the installed **`rcedit <file>`** shortcut), or
-  **`rc /edit`** with no file for a blank buffer that prompts for a name on the
-  first save; closing the editor then exits.
+  in-place **hex editor** for arbitrarily large files. **F9** opens an
+  `mcedit`-style pulldown menu (File / Edit / Search / Command / Format /
+  Options) covering line bookmarks, go-to-line, matching-bracket jumps,
+  paragraph formatting, block sorting, pasting a command's output, and an
+  **editor options** dialog (wrap mode, tabs, autoindent, visible whitespace,
+  persistent selection, group undo) that is remembered across runs. Launch
+  straight into it with **`rc /edit <file>`** (or the installed
+  **`rcedit <file>`** shortcut), or **`rc /edit`** with no file for a blank
+  buffer that prompts for a name on the first save; closing the editor then
+  exits.
 - **Multi rename** — batch-rename selected files with a masked, live two-column
   preview, counter, case transform and search-and-replace.
 - **Search** — one dialog for the editor (F7/F4) *and* the viewer (F7): literal,
@@ -211,11 +217,20 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `F3` | Start / end block mark |
 | `F4` | Search & replace |
 | `F5` / `F6` / `F8` | Copy / move / delete block |
-| `F7` | Search |
-| `Ctrl-C` / `Ctrl-V` | Copy block to clipboard / paste |
+| `Shift-F5` | Insert a file at the cursor |
+| `F7` / `Shift-F7` | Search / search again |
+| `F9` | Pulldown menu |
+| `Shift-F9` | Toggle word wrap |
+| `Ctrl-F9` | Toggle in-place hex editor |
+| `Ins` | Toggle insert / overwrite |
+| `Ctrl-C` / `Ctrl-X` / `Ctrl-V` | Copy / cut block to clipboard, paste |
 | `Ctrl-Z` / `Ctrl-Y` | Undo / redo |
-| `F9` | Toggle in-place hex editor |
-| `Shift-F9` / `Ctrl-F9` | Toggle word wrap |
+| `Ctrl-A` | Mark the whole file |
+| `Ctrl-N` / `Ctrl-F` | New buffer / copy block to a file |
+| `Ctrl-S` / `Ctrl-L` | Toggle syntax highlighting / repaint the screen |
+| `Alt-L` / `Alt-B` | Go to line / matching bracket |
+| `Alt-P` / `Alt-T` / `Alt-U` | Format paragraph / sort block / paste command output |
+| `Alt-K` / `Alt-J` / `Alt-I` / `Alt-O` | Bookmark: toggle, next, previous, flush |
 | `Esc` / `F10` | Quit (prompts if modified) |
 
 ### Dialogs

@@ -1,16 +1,13 @@
-//! Interactive pulldown menu bar (F9 / F2).
+//! The file manager's pulldown menu bar (F9 / F2): its actions and the menus
+//! they are laid out in. The bar itself is the shared widget in
+//! [`crate::ui::pulldown`], which the editor's menu is built on too.
 
 use crate::panel::sort::SortKey;
 use crate::panel::ViewFormat;
 use crate::ui::menubar::titles;
+use crate::ui::pulldown::{self, Action, Menu, MenuItem, PulldownState};
 use crate::vfs::remote::Protocol;
-use crate::ui::theme::Theme;
-use ratatui::Frame;
-use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 /// An action a menu item triggers. Mapped to app behaviour in `AppState`.
 #[derive(Debug, Clone, Copy)]
@@ -123,73 +120,44 @@ pub enum MenuAction {
     Quit,
 }
 
-impl MenuAction {
-    fn selectable(self) -> bool {
-        !matches!(self, MenuAction::Separator)
+impl Action for MenuAction {
+    fn separator() -> Self {
+        MenuAction::Separator
+    }
+
+    fn is_separator(self) -> bool {
+        matches!(self, MenuAction::Separator)
     }
 }
 
-struct MenuItem {
-    /// The item's label in the active language (translated when built).
-    label: String,
-    /// Optional keyboard-shortcut hint, drawn right-aligned in the dropdown
-    /// (e.g. `"F3"`, `"Shift-F6"`). Empty for items without a shortcut.
+/// The file manager's menu bar: the shared pulldown widget over [`MenuAction`].
+pub type MenuBarState = PulldownState<MenuAction>;
+/// What a key press did to the file manager's menu bar.
+pub type MenuSignal = pulldown::MenuSignal<MenuAction>;
+/// One item of the file manager's menus.
+type FileMenuItem = MenuItem<MenuAction>;
+
+// The item constructors, bound to this menu's action type so the builders below
+// read as they did when the machinery lived here.
+fn item(label: &str, action: MenuAction) -> FileMenuItem {
+    pulldown::item(label, action)
+}
+fn item_raw(label: String, action: MenuAction) -> FileMenuItem {
+    pulldown::item_raw(label, action)
+}
+fn item_key(label: &str, shortcut: &'static str, action: MenuAction) -> FileMenuItem {
+    pulldown::item_key(label, shortcut, action)
+}
+fn item_sub(
+    label: &str,
     shortcut: &'static str,
     action: MenuAction,
-    /// When false the item is greyed out and cannot be selected or activated
-    /// (e.g. "Go local" while the panel is already on a local directory).
-    enabled: bool,
-    /// Nested items opened as a submenu beside the dropdown. Empty for a normal
-    /// (leaf) item; a non-empty submenu makes the item open it rather than
-    /// activate its own action.
-    submenu: Vec<MenuItem>,
+    submenu: Vec<FileMenuItem>,
+) -> FileMenuItem {
+    pulldown::item_sub(label, shortcut, action, submenu)
 }
-
-impl MenuItem {
-    /// Grey this item out so it can't be navigated to or activated. Used for
-    /// context-dependent items that don't apply in the current state.
-    fn disabled(mut self, disabled: bool) -> Self {
-        self.enabled = !disabled;
-        self
-    }
-
-    /// Whether the item can be selected/activated: not a separator, and enabled.
-    fn selectable(&self) -> bool {
-        self.enabled && self.action.selectable()
-    }
-
-    /// Whether opening this item reveals a submenu rather than running an action.
-    fn has_sub(&self) -> bool {
-        !self.submenu.is_empty()
-    }
-}
-
-struct Menu {
-    items: Vec<MenuItem>,
-}
-
-/// Result of a key press routed to the menu.
-pub enum MenuSignal {
-    Stay,
-    Close,
-    Activate(MenuAction),
-}
-
-pub struct MenuBarState {
-    menus: Vec<Menu>,
-    active: usize,
-    item: usize,
-    /// Whether the highlighted item's submenu is open (only items with a
-    /// non-empty `submenu` can open one).
-    sub_open: bool,
-    /// Highlighted row inside the open submenu.
-    sub_item: usize,
-    /// Screen rect of each top-bar title, recorded at render time.
-    title_rects: Vec<Rect>,
-    /// Screen rect of each dropdown item (with its item index).
-    item_rects: Vec<(usize, Rect)>,
-    /// Screen rect of each open-submenu row (with its index), for click routing.
-    sub_rects: Vec<(usize, Rect)>,
+fn sep() -> FileMenuItem {
+    pulldown::sep()
 }
 
 impl MenuBarState {
@@ -327,408 +295,32 @@ impl MenuBarState {
             ],
         };
 
-        let active = active.min(4);
-        MenuBarState {
-            menus: vec![panel_menu(0), file, command, options, panel_menu(1)],
+        MenuBarState::build(
+            titles().to_vec(),
+            vec![panel_menu(0), file, command, options, panel_menu(1)],
             active,
-            item: 0,
-            sub_open: false,
-            sub_item: 0,
-            title_rects: Vec::new(),
-            item_rects: Vec::new(),
-            sub_rects: Vec::new(),
-        }
+        )
     }
 
     /// Open the bar straight into the File menu's **Git** submenu (Alt-G).
     pub fn new_git(sessions: &[(usize, String)], side_remote: [bool; 2]) -> Self {
         let mut m = Self::new(1, sessions, side_remote);
-        if let Some(idx) = m.menus[1]
+        let git = m.menus()[1]
             .items
             .iter()
-            .position(|it| matches!(it.action, MenuAction::GitMenu))
-        {
+            .position(|it| matches!(it.action, MenuAction::GitMenu));
+        if let Some(idx) = git {
             m.item = idx;
             m.open_sub();
         }
         m
     }
 
-    /// Open the highlighted item's submenu, landing on its first selectable row.
-    /// No-op when the item has no submenu.
-    fn open_sub(&mut self) {
-        let Some(it) = self.menus[self.active].items.get(self.item) else {
-            return;
-        };
-        if !it.has_sub() {
-            return;
-        }
-        self.sub_item = first_sel(&it.submenu, 0, 1);
-        self.sub_open = true;
-    }
-
-    /// The open submenu's items, or `None` when no submenu is showing.
-    fn sub_items(&self) -> Option<&[MenuItem]> {
-        if !self.sub_open {
-            return None;
-        }
-        let it = self.menus[self.active].items.get(self.item)?;
-        it.has_sub().then_some(it.submenu.as_slice())
-    }
-
-    pub fn handle_key(&mut self, key: KeyEvent) -> MenuSignal {
-        // An open submenu captures navigation first; Esc/← step back to its parent
-        // rather than closing the whole bar.
-        if self.sub_open {
-            return self.handle_sub_key(key);
-        }
-        match key.code {
-            KeyCode::Esc | KeyCode::F(9) | KeyCode::F(10) => MenuSignal::Close,
-            KeyCode::Left => {
-                self.active = (self.active + self.menus.len() - 1) % self.menus.len();
-                self.item = self.first_selectable(0, 1);
-                MenuSignal::Stay
-            }
-            // → opens the highlighted item's submenu when it has one, else moves
-            // on to the next top menu.
-            KeyCode::Right => {
-                if self.menus[self.active].items[self.item].has_sub() {
-                    self.open_sub();
-                } else {
-                    self.active = (self.active + 1) % self.menus.len();
-                    self.item = self.first_selectable(0, 1);
-                }
-                MenuSignal::Stay
-            }
-            KeyCode::Up => {
-                self.item = self.next_selectable(self.item, -1);
-                MenuSignal::Stay
-            }
-            KeyCode::Down => {
-                self.item = self.next_selectable(self.item, 1);
-                MenuSignal::Stay
-            }
-            KeyCode::Enter => {
-                let it = &self.menus[self.active].items[self.item];
-                if !it.selectable() {
-                    MenuSignal::Stay
-                } else if it.has_sub() {
-                    self.open_sub();
-                    MenuSignal::Stay
-                } else {
-                    MenuSignal::Activate(it.action)
-                }
-            }
-            KeyCode::Char(c) => self.activate_hotkey(c),
-            _ => MenuSignal::Stay,
-        }
-    }
-
-    /// Keys while a submenu is open. Esc/← close just the submenu; F9/F10 close
-    /// the whole bar; letters match the submenu's own accelerators.
-    fn handle_sub_key(&mut self, key: KeyEvent) -> MenuSignal {
-        if self.sub_items().is_none() {
-            // Defensive: the submenu vanished (shouldn't happen) — drop the flag.
-            self.sub_open = false;
-            return MenuSignal::Stay;
-        }
-        // Resolve the move against a borrow, then apply it — `sub_items()` borrows
-        // `self`, so nothing may be assigned while it is held.
-        let (next, signal) = {
-            let items = self.sub_items().expect("checked above");
-            match key.code {
-                KeyCode::F(9) | KeyCode::F(10) => return MenuSignal::Close,
-                KeyCode::Esc | KeyCode::Left => {
-                    self.sub_open = false;
-                    return MenuSignal::Stay;
-                }
-                KeyCode::Up => (next_sel(items, self.sub_item, -1), MenuSignal::Stay),
-                KeyCode::Down => (next_sel(items, self.sub_item, 1), MenuSignal::Stay),
-                KeyCode::Enter => match items.get(self.sub_item) {
-                    Some(it) if it.selectable() => (self.sub_item, MenuSignal::Activate(it.action)),
-                    _ => return MenuSignal::Stay,
-                },
-                KeyCode::Char(c) => {
-                    let lc = c.to_ascii_lowercase();
-                    match items.iter().position(|it| it.selectable() && it.hotkey() == Some(lc)) {
-                        Some(idx) => (idx, MenuSignal::Activate(items[idx].action)),
-                        // An unclaimed letter does nothing while a submenu is open
-                        // — it must not fall through and switch top menus behind it.
-                        None => return MenuSignal::Stay,
-                    }
-                }
-                _ => return MenuSignal::Stay,
-            }
-        };
-        self.sub_item = next;
-        signal
-    }
-
-    /// Handle a typed letter: an accelerator in the open dropdown activates that
-    /// item; otherwise a top-bar letter (L/F/C/O/R) switches to that menu.
-    fn activate_hotkey(&mut self, c: char) -> MenuSignal {
-        let lc = c.to_ascii_lowercase();
-        if let Some(idx) = self.menus[self.active]
-            .items
-            .iter()
-            .position(|it| it.selectable() && it.hotkey() == Some(lc))
-        {
-            self.item = idx;
-            // A parent's accelerator reveals its submenu instead of acting.
-            if self.menus[self.active].items[idx].has_sub() {
-                self.open_sub();
-                return MenuSignal::Stay;
-            }
-            return MenuSignal::Activate(self.menus[self.active].items[idx].action);
-        }
-        if let Some(ti) = titles()
-            .iter()
-            .position(|t| t.chars().next().map(|x| x.to_ascii_lowercase()) == Some(lc))
-        {
-            self.active = ti;
-            self.item = self.first_selectable(0, 1);
-            return MenuSignal::Stay;
-        }
-        MenuSignal::Stay
-    }
-
-    /// First selectable item at or after `start`, scanning by `dir`.
-    fn first_selectable(&self, start: usize, dir: isize) -> usize {
-        first_sel(&self.menus[self.active].items, start, dir)
-    }
-
-    fn next_selectable(&self, from: usize, dir: isize) -> usize {
-        next_sel(&self.menus[self.active].items, from, dir)
-    }
-
     /// The top-bar title index at screen column `col` on the menu-bar row, or
-    /// `None`. Mirrors the title layout used by `render`/`menubar::render` so it
-    /// works even before the bar has been drawn (i.e. to open it on click).
+    /// `None` — used to open the bar on a click, before it has been drawn.
     pub fn title_index_at(area: Rect, col: u16, row: u16) -> Option<usize> {
-        if row != area.y {
-            return None;
-        }
-        let mut x = area.x + 1;
-        for (i, title) in titles().iter().enumerate() {
-            let w = title.chars().count() as u16 + 2; // " {title} "
-            if col >= x && col < x + w {
-                return Some(i);
-            }
-            x += w;
-        }
-        None
+        pulldown::title_index_at(&titles(), area, col, row)
     }
-
-    /// Route a left-click to the menu (titles switch/open; items activate;
-    /// anything else closes).
-    pub fn click(&mut self, area: Rect, col: u16, row: u16) -> MenuSignal {
-        let hit = |r: &Rect| col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height;
-        // A click on a top-bar title switches to that menu (closing any submenu).
-        if let Some(i) = Self::title_index_at(area, col, row) {
-            self.active = i;
-            self.sub_open = false;
-            self.item = self.first_selectable(0, 1);
-            return MenuSignal::Stay;
-        }
-        // An open submenu's rows take precedence: they overlay the dropdown.
-        if self.sub_open {
-            let picked = self.sub_rects.iter().find(|(_, r)| hit(r)).map(|(i, _)| *i);
-            if let Some(idx) = picked {
-                let action = self
-                    .sub_items()
-                    .and_then(|items| items.get(idx))
-                    .filter(|it| it.selectable())
-                    .map(|it| it.action);
-                self.sub_item = idx;
-                return match action {
-                    Some(a) => MenuSignal::Activate(a),
-                    None => MenuSignal::Stay,
-                };
-            }
-        }
-        // A click on a dropdown item activates it (or opens its submenu).
-        for (idx, rect) in &self.item_rects {
-            if hit(rect) {
-                let idx = *idx;
-                let it = &self.menus[self.active].items[idx];
-                if !it.selectable() {
-                    return MenuSignal::Stay;
-                }
-                let (action, has_sub) = (it.action, it.has_sub());
-                self.item = idx;
-                if has_sub {
-                    self.open_sub();
-                    return MenuSignal::Stay;
-                }
-                return MenuSignal::Activate(action);
-            }
-        }
-        MenuSignal::Close
-    }
-
-    pub fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
-        self.title_rects.clear();
-        self.item_rects.clear();
-        self.sub_rects.clear();
-        // Top bar with the active title highlighted.
-        let bar = Rect { height: 1, ..area };
-        let mut spans: Vec<Span> = vec![Span::styled(" ", theme.menubar)];
-        let rtl = crate::l10n::active_is_rtl();
-        let mut title_x = vec![];
-        let mut x = area.x + 1;
-        for (i, title) in titles().iter().enumerate() {
-            let text = format!(" {} ", crate::l10n::display(title));
-            title_x.push(x);
-            self.title_rects.push(Rect {
-                x,
-                y: area.y,
-                width: text.chars().count() as u16,
-                height: 1,
-            });
-            let style = if i == self.active {
-                Style::default()
-                    .bg(theme.dialog_bg)
-                    .fg(theme.dialog_fg)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                theme.menubar
-            };
-            x += text.chars().count() as u16;
-            // The title's first letter (after the leading space) is its hotkey
-            // (skipped in RTL, where the reshaped title reads right-to-left).
-            let hk = if rtl { None } else { Some(1) };
-            spans.extend(label_spans(&text, hk, style, theme).spans);
-        }
-        f.render_widget(Paragraph::new(Line::from(spans)), bar);
-
-        // Dropdown under the active title.
-        let items = &self.menus[self.active].items;
-        let width = menu_width(items);
-        let height = items.len() as u16 + 2;
-        let dx = title_x[self.active].min(area.x + area.width.saturating_sub(width));
-        let rect = Rect {
-            x: dx,
-            y: area.y + 1,
-            width: width.min(area.width),
-            height: height.min(area.height.saturating_sub(1)),
-        };
-        let inner = draw_menu_box(f, rect, theme);
-        // While a submenu is open the parent row keeps its highlight, so the path
-        // through the menu stays visible.
-        self.item_rects = draw_items(f, inner, items, self.item, rtl, theme);
-
-        // The submenu, anchored beside its parent row.
-        if let Some(sub) = self.sub_items() {
-            let sw = menu_width(sub);
-            let sh = (sub.len() as u16 + 2).min(area.height.saturating_sub(1));
-            // Prefer the right of the parent dropdown; flip to its left when that
-            // would run off the screen edge.
-            let right = rect.x + rect.width;
-            let sx = if right + sw <= area.x + area.width {
-                right
-            } else {
-                rect.x.saturating_sub(sw).max(area.x)
-            };
-            // Align the box so its first row meets the parent item, then pull it
-            // back inside the screen if it would overhang the bottom.
-            let parent_y = inner.y + self.item as u16;
-            let max_y = (area.y + area.height).saturating_sub(sh);
-            let sy = parent_y.saturating_sub(1).min(max_y).max(area.y + 1);
-            let srect = Rect { x: sx, y: sy, width: sw.min(area.width), height: sh };
-            let sinner = draw_menu_box(f, srect, theme);
-            self.sub_rects = draw_items(f, sinner, sub, self.sub_item, rtl, theme);
-        }
-    }
-}
-
-/// Interior width for a dropdown holding `items`: the longest label (plus its
-/// right-aligned shortcut) with padding for the border and margins.
-fn menu_width(items: &[MenuItem]) -> u16 {
-    items
-        .iter()
-        .map(|it| {
-            let disp = it.label.chars().filter(|&c| c != '&').count();
-            if it.shortcut.is_empty() {
-                disp
-            } else {
-                // label + a 2-space gap + the right-aligned shortcut
-                disp + 2 + it.shortcut.chars().count()
-            }
-        })
-        .max()
-        .unwrap_or(8) as u16
-        + 4
-}
-
-/// Clear `rect`, draw the menu border, and return the interior.
-fn draw_menu_box(f: &mut Frame, rect: Rect, theme: &Theme) -> Rect {
-    f.render_widget(Clear, rect);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .style(Style::default().fg(theme.menu_fg).bg(theme.menu_bg));
-    let inner = block.inner(rect);
-    f.render_widget(block, rect);
-    inner
-}
-
-/// Draw `items` into `inner` with row `sel` highlighted, returning the
-/// `(index, rect)` of every drawn row for click hit-testing.
-fn draw_items(
-    f: &mut Frame,
-    inner: Rect,
-    items: &[MenuItem],
-    sel: usize,
-    rtl: bool,
-    theme: &Theme,
-) -> Vec<(usize, Rect)> {
-    let mut rects = Vec::new();
-    let mut lines: Vec<Line> = Vec::with_capacity(items.len());
-    for (i, it) in items.iter().enumerate() {
-        let row_y = inner.y + i as u16;
-        if matches!(it.action, MenuAction::Separator) {
-            lines.push(Line::from(Span::styled(
-                "─".repeat(inner.width as usize),
-                Style::default().fg(theme.panel_border).bg(theme.menu_bg),
-            )));
-            continue;
-        }
-        if row_y < inner.y + inner.height {
-            rects.push((i, Rect { x: inner.x, y: row_y, width: inner.width, height: 1 }));
-        }
-        let style = if !it.enabled {
-            // Greyed out: dimmed foreground, never the selection highlight
-            // (navigation skips disabled items so `i` never lands here).
-            Style::default().fg(theme.panel_border).bg(theme.menu_bg)
-        } else if i == sel {
-            theme.menu_selection
-        } else {
-            Style::default().fg(theme.menu_fg).bg(theme.menu_bg)
-        };
-        let (display, hk) = split_hotkey(&it.label);
-        // Reshape RTL text for display; in that case the hotkey accent can't
-        // line up with the reversed text, so it is dropped (the key still works).
-        let display = crate::l10n::display(&display);
-        // Disabled items don't accent their accelerator (it's inactive).
-        let hk = if rtl || !it.enabled { None } else { hk.map(|i| i + 1) };
-        let iw = inner.width as usize;
-        let mut text = format!(" {display}");
-        // Right-align the shortcut hint (one trailing space from the edge),
-        // then pad the row out to the full interior width.
-        if !it.shortcut.is_empty() {
-            let sc_start = iw.saturating_sub(it.shortcut.chars().count() + 1);
-            while text.chars().count() < sc_start {
-                text.push(' ');
-            }
-            text.push_str(it.shortcut);
-        }
-        while text.chars().count() < iw {
-            text.push(' ');
-        }
-        // The hotkey sits one column right of its index (the leading space).
-        lines.push(label_spans(&text, hk, style, theme));
-    }
-    f.render_widget(Paragraph::new(lines), inner);
-    rects
 }
 
 impl Default for MenuBarState {
@@ -741,7 +333,7 @@ impl Default for MenuBarState {
 /// inspect, stage, commit, exchange with the remote, switch/undo, set up.
 /// [`GIT_MENU_KEYS`] mirrors these label keys for the l10n accelerator test and
 /// the command palette.
-fn git_menu_items() -> Vec<MenuItem> {
+fn git_menu_items() -> Vec<FileMenuItem> {
     vec![
         item("&Status...", MenuAction::GitStatus),
         item("&Log...", MenuAction::GitLog),
@@ -789,111 +381,11 @@ pub const GIT_MENU_KEYS: &[(&str, MenuAction)] = &[
     ("&Init repository...", MenuAction::GitInit),
     ("Clo&ne...", MenuAction::GitClone),
 ];
-
-fn item(label: &str, action: MenuAction) -> MenuItem {
-    MenuItem { label: crate::l10n::tr(label), shortcut: "", action, enabled: true, submenu: Vec::new() }
-}
-
-/// A menu item whose label is used verbatim (no translation, no `&` hotkey) —
-/// for runtime text like a remote-connection label.
-fn item_raw(label: String, action: MenuAction) -> MenuItem {
-    MenuItem { label, shortcut: "", action, enabled: true, submenu: Vec::new() }
-}
-
-/// A menu item with a right-aligned keyboard-shortcut hint.
-fn item_key(label: &str, shortcut: &'static str, action: MenuAction) -> MenuItem {
-    MenuItem { label: crate::l10n::tr(label), shortcut, action, enabled: true, submenu: Vec::new() }
-}
-
-/// A parent item that opens `submenu` (with a right-aligned shortcut hint).
-fn item_sub(label: &str, shortcut: &'static str, action: MenuAction, submenu: Vec<MenuItem>) -> MenuItem {
-    MenuItem { label: crate::l10n::tr(label), shortcut, action, enabled: true, submenu }
-}
-
-fn sep() -> MenuItem {
-    MenuItem {
-        label: String::new(),
-        shortcut: "",
-        action: MenuAction::Separator,
-        enabled: true,
-        submenu: Vec::new(),
-    }
-}
-
-impl MenuItem {
-    /// The lower-cased accelerator key for this item, if its label marks one
-    /// with `&` (e.g. `"&Copy"` → `'c'`, `"Select &group"` → `'g'`).
-    fn hotkey(&self) -> Option<char> {
-        let (display, idx) = split_hotkey(&self.label);
-        idx.and_then(|i| display.chars().nth(i)).map(|c| c.to_ascii_lowercase())
-    }
-}
-
-/// First selectable entry of `items` at or after `start`, scanning by `dir`.
-/// Falls back to `start` when nothing is selectable.
-fn first_sel(items: &[MenuItem], start: usize, dir: isize) -> usize {
-    if items.is_empty() {
-        return 0;
-    }
-    let mut i = start.min(items.len() - 1);
-    for _ in 0..items.len() {
-        if items[i].selectable() {
-            return i;
-        }
-        i = (i as isize + dir).rem_euclid(items.len() as isize) as usize;
-    }
-    start
-}
-
-/// Next selectable entry of `items` from `from`, wrapping, scanning by `dir`.
-fn next_sel(items: &[MenuItem], from: usize, dir: isize) -> usize {
-    if items.is_empty() {
-        return 0;
-    }
-    let n = items.len() as isize;
-    let mut i = (from as isize + dir).rem_euclid(n);
-    for _ in 0..items.len() {
-        if items[i as usize].selectable() {
-            return i as usize;
-        }
-        i = (i + dir).rem_euclid(n);
-    }
-    from
-}
-
-/// Strip the `&` accelerator marker from `label`, returning the display text and
-/// the char index (within that text) of the highlighted hotkey, if any.
-fn split_hotkey(label: &str) -> (String, Option<usize>) {
-    match label.find('&') {
-        Some(byte_pos) => {
-            let idx = label[..byte_pos].chars().count();
-            let display: String = label.chars().filter(|&c| c != '&').collect();
-            (display, Some(idx))
-        }
-        None => (label.to_string(), None),
-    }
-}
-
-/// Render `text` with the char at `pos` painted in the hotkey accent color.
-fn label_spans(text: &str, pos: Option<usize>, base: Style, theme: &Theme) -> Line<'static> {
-    let chars: Vec<char> = text.chars().collect();
-    match pos {
-        Some(p) if p < chars.len() => {
-            let hot = base.fg(theme.hotkey_fg).add_modifier(Modifier::BOLD);
-            Line::from(vec![
-                Span::styled(chars[..p].iter().collect::<String>(), base),
-                Span::styled(chars[p].to_string(), hot),
-                Span::styled(chars[p + 1..].iter().collect::<String>(), base),
-            ])
-        }
-        _ => Line::from(Span::styled(text.to_string(), base)),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::crossterm::event::KeyModifiers;
+    use crate::ui::pulldown::split_hotkey;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     fn key(c: char) -> KeyEvent {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)

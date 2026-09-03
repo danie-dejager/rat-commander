@@ -7,7 +7,7 @@ impl AppState {
     /// there and center it. Only local text files are keyed (a remote session's
     /// path isn't stable across runs); hex buffers restore nothing.
     pub(in crate::app::state) fn restore_editor_position(ed: &mut EditorState) {
-        if ed.path.scheme != "file" || ed.is_hex() || ed.is_unnamed() {
+        if ed.path.scheme != "file" || ed.is_hex() || ed.is_unnamed() || !ed.save_file_position() {
             return;
         }
         if let Some((line, col)) = crate::config::load_editor_position(&ed.path.display()) {
@@ -21,11 +21,18 @@ impl AppState {
         let Some(ed) = self.editor.as_ref() else {
             return;
         };
-        if ed.path.scheme != "file" || ed.is_hex() || ed.is_unnamed() {
+        if ed.path.scheme != "file" || ed.is_hex() || ed.is_unnamed() || !ed.save_file_position() {
             return;
         }
         let (line, col) = ed.cursor_line_col();
         crate::config::save_editor_position(&ed.path.display(), line, col);
+    }
+
+    /// Set a freshly built editor up from the saved options: wrap mode, tab and
+    /// typing behaviour, and whether it gets a syntax highlighter. Every editor
+    /// the app opens goes through this.
+    pub(in crate::app::state) fn prepare_editor(&self, ed: &mut EditorState) {
+        ed.set_options(self.config.editor_options.clone(), self.dark_ui());
     }
 
     /// Apply an [`EditorSignal`] (from a key or a mouse gesture): save, close,
@@ -45,9 +52,11 @@ impl AppState {
                     self.open_save_as(None);
                 } else if close_after {
                     self.save_editor(true).await;
-                } else {
+                } else if self.editor.as_ref().is_some_and(|e| e.confirm_before_saving()) {
                     let name = self.editor.as_ref().map(|e| e.name.clone()).unwrap_or_default();
                     self.dialog = Some(Dialog::Confirm(ConfirmDialog::save_editor(&name)));
+                } else {
+                    self.save_editor(false).await;
                 }
             }
             EditorSignal::SaveAs => self.open_save_as(None),
@@ -61,6 +70,175 @@ impl AppState {
             EditorSignal::OpenReplace => {
                 self.dialog = Some(Dialog::SearchReplace(self.search_dialog(true)));
             }
+            EditorSignal::NewFile => {
+                // Starting a new buffer replaces this one, so unsaved work has to
+                // be dealt with first — the same rule File → Open follows.
+                if self.editor.as_ref().is_some_and(|e| e.dirty) {
+                    self.show_error("Save or discard this file before starting a new one");
+                } else {
+                    self.record_editor_position();
+                    self.open_new_editor();
+                }
+            }
+            EditorSignal::Browse(kind) => self.open_editor_browser(kind),
+            EditorSignal::OpenGotoLine => {
+                let line = self.editor.as_ref().map(|e| e.cursor_line_col().0 + 1).unwrap_or(1);
+                self.dialog = Some(Dialog::Input(InputDialog::new(
+                    "Go to line",
+                    "Line number",
+                    line.to_string(),
+                    InputPurpose::EditorGotoLine,
+                )));
+            }
+            EditorSignal::OpenSortBlock => {
+                self.dialog = Some(Dialog::Form(FormDialog::editor_sort()));
+            }
+            EditorSignal::OpenPasteOutput => {
+                self.dialog = Some(Dialog::Input(InputDialog::new(
+                    "Paste output of",
+                    "Command",
+                    "",
+                    InputPurpose::EditorPasteOutput,
+                )));
+            }
+            EditorSignal::OpenOptions => {
+                let opts = self
+                    .editor
+                    .as_ref()
+                    .map(|e| e.options().clone())
+                    .unwrap_or_else(|| self.config.editor_options.clone());
+                self.dialog = Some(Dialog::Form(FormDialog::editor_options(&opts)));
+            }
+            EditorSignal::SaveSetup => self.save_editor_setup(),
+            EditorSignal::About => {
+                self.dialog = Some(Dialog::Message(MessageDialog::info(
+                    "About",
+                    format!(
+                        "Rat Commander {}\n\nInternal editor\n{}",
+                        env!("CARGO_PKG_VERSION"),
+                        env!("CARGO_PKG_REPOSITORY"),
+                    ),
+                )));
+            }
+            // The screen is repainted from scratch on the next frame.
+            EditorSignal::RefreshScreen => self.force_clear = true,
+        }
+    }
+
+    /// Open the editor's file browser for one of the File menu's actions,
+    /// starting in the edited file's own directory.
+    fn open_editor_browser(&mut self, kind: crate::editor::BrowseKind) {
+        let Some(ed) = self.editor.as_ref() else {
+            return;
+        };
+        let cwd = || std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let dir = if ed.path.scheme == "file" {
+            ed.path.path.parent().map(|p| p.to_path_buf()).unwrap_or_else(cwd)
+        } else {
+            cwd()
+        };
+        // Only "copy to file" writes, and it needs a name to start from.
+        let name = match kind {
+            crate::editor::BrowseKind::CopyTo => ed.name.clone(),
+            _ => String::new(),
+        };
+        self.dialog = Some(Dialog::SaveAs(SaveAsDialog::browse(kind, dir, name)));
+    }
+
+    /// Carry out a path picked in the editor's file browser.
+    pub(in crate::app::state) async fn editor_browsed(
+        &mut self,
+        kind: crate::editor::BrowseKind,
+        path: std::path::PathBuf,
+    ) {
+        use crate::editor::BrowseKind;
+        match kind {
+            BrowseKind::Open => {
+                // A modified buffer would be lost — make the user save or discard
+                // it first (the same rule File → New follows).
+                if self.editor.as_ref().is_some_and(|e| e.dirty) {
+                    return self.show_error("Save or discard this file before opening another");
+                }
+                match tokio::fs::read(&path).await {
+                    Ok(data) => {
+                        let name = crate::vfs::VfsPath::local(&path).file_name();
+                        let text = String::from_utf8_lossy(&data).into_owned();
+                        if let Some(ed) = self.editor.as_mut() {
+                            ed.load_text(name, crate::vfs::VfsPath::local(&path), &text);
+                            Self::restore_editor_position(ed);
+                        }
+                    }
+                    Err(e) => self.show_error(format!("Cannot open file: {e}")),
+                }
+            }
+            BrowseKind::Insert => match tokio::fs::read(&path).await {
+                Ok(data) => {
+                    let text = String::from_utf8_lossy(&data).into_owned();
+                    if let Some(ed) = self.editor.as_mut() {
+                        ed.insert_at_cursor(&text);
+                    }
+                }
+                Err(e) => self.show_error(format!("Cannot read file: {e}")),
+            },
+            BrowseKind::CopyTo => {
+                let Some(text) = self.editor.as_ref().map(|e| e.block_or_all()) else {
+                    return;
+                };
+                match tokio::fs::write(&path, text.as_bytes()).await {
+                    Ok(()) => self.reload_all().await,
+                    Err(e) => self.show_error(format!("Cannot write file: {e}")),
+                }
+            }
+        }
+    }
+
+    /// Run `cmd` through the user's shell and insert its output at the editor's
+    /// cursor (Format → Paste output of…).
+    pub(in crate::app::state) async fn editor_paste_output(&mut self, cmd: String) {
+        let argv = crate::shell::command_argv(&cmd);
+        let out = crate::shell::command_from(argv).output().await;
+        match out {
+            Ok(o) => {
+                // Failures still have something to say — paste stderr so the user
+                // sees why nothing came back, rather than a silent no-op.
+                let bytes = if o.stdout.is_empty() && !o.status.success() { &o.stderr } else { &o.stdout };
+                let text = String::from_utf8_lossy(bytes).into_owned();
+                if text.is_empty() {
+                    return self.show_error(format!("{cmd}: no output"));
+                }
+                if let Some(ed) = self.editor.as_mut() {
+                    ed.insert_at_cursor(&text);
+                }
+            }
+            Err(e) => self.show_error(format!("Cannot run {cmd}: {e}")),
+        }
+    }
+
+    /// Apply new editor options: to the open editor at once, and to the config
+    /// so the next file opens with them too.
+    pub(in crate::app::state) fn apply_editor_options(&mut self, opts: crate::config::EditorOptions) {
+        self.config.editor_options = opts.clone();
+        let dark = self.dark_ui();
+        if let Some(ed) = self.editor.as_mut() {
+            ed.set_options(opts, dark);
+        }
+        if let Err(e) = self.config.save() {
+            self.show_error(format!("Could not save settings: {e}"));
+        }
+    }
+
+    /// Options → Save setup: write the editor's current options to the config.
+    fn save_editor_setup(&mut self) {
+        if let Some(ed) = self.editor.as_ref() {
+            self.config.editor_options = ed.options().clone();
+        }
+        match self.config.save() {
+            Ok(()) => {
+                if let Some(ed) = self.editor.as_mut() {
+                    ed.set_status("Setup saved");
+                }
+            }
+            Err(e) => self.show_error(format!("Could not save settings: {e}")),
         }
     }
 
@@ -179,7 +357,10 @@ impl AppState {
         // Local files too big to load as text open directly in (in-place) hex mode.
         if local && size > crate::editor::MAX_TEXT_EDIT {
             match EditorState::new_hex(name, path) {
-                Ok(ed) => self.editor = Some(ed),
+                Ok(mut ed) => {
+                    self.prepare_editor(&mut ed);
+                    self.editor = Some(ed);
+                }
                 Err(e) => self.show_error(format!("Cannot open file: {e}")),
             }
             return Flow::Continue;
@@ -189,7 +370,7 @@ impl AppState {
                 Ok(data) => {
                     let text = String::from_utf8_lossy(&data).into_owned();
                     let mut ed = EditorState::new(name, path, &text);
-                    ed.enable_syntax(self.dark_ui());
+                    self.prepare_editor(&mut ed);
                     Self::restore_editor_position(&mut ed);
                     self.editor = Some(ed);
                 }
@@ -232,7 +413,10 @@ impl AppState {
         let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
         if size > crate::editor::MAX_TEXT_EDIT {
             match EditorState::new_hex(name, vpath) {
-                Ok(ed) => self.editor = Some(ed),
+                Ok(mut ed) => {
+                    self.prepare_editor(&mut ed);
+                    self.editor = Some(ed);
+                }
                 Err(e) => self.show_error(format!("Cannot open file: {e}")),
             }
             return;
@@ -241,7 +425,7 @@ impl AppState {
             .map(|b| String::from_utf8_lossy(&b).into_owned())
             .unwrap_or_default();
         let mut ed = EditorState::new(name, vpath, &text);
-        ed.enable_syntax(self.dark_ui());
+        self.prepare_editor(&mut ed);
         Self::restore_editor_position(&mut ed);
         self.editor = Some(ed);
     }
@@ -251,7 +435,7 @@ impl AppState {
     /// [`Self::save_editor`]).
     pub(crate) fn open_new_editor(&mut self) {
         let mut ed = EditorState::new_unnamed();
-        ed.enable_syntax(self.dark_ui());
+        self.prepare_editor(&mut ed);
         self.editor = Some(ed);
     }
 
@@ -459,7 +643,7 @@ impl AppState {
         match std::fs::read_to_string(&path) {
             Ok(text) => {
                 let mut ed = EditorState::new("rc.ext".to_string(), VfsPath::local(&path), &text);
-                ed.enable_syntax(self.dark_ui());
+                self.prepare_editor(&mut ed);
                 self.editor = Some(ed);
             }
             Err(e) => self.show_error(format!("Cannot open rc.ext: {e}")),
@@ -475,7 +659,7 @@ impl AppState {
         match std::fs::read_to_string(&path) {
             Ok(text) => {
                 let mut ed = EditorState::new("menu".to_string(), VfsPath::local(&path), &text);
-                ed.enable_syntax(self.dark_ui());
+                self.prepare_editor(&mut ed);
                 self.editor = Some(ed);
             }
             Err(e) => self.show_error(format!("Cannot open menu: {e}")),

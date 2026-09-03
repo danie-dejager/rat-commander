@@ -37,6 +37,14 @@ const SETTINGS_GROUPS: &[(&str, usize)] = &[
     ("Visual", 8),
 ];
 
+/// The editor-options form's groups, in the order [`FormDialog::editor_options`]
+/// builds its fields. The counts must sum to the number of fields.
+const EDITOR_OPTION_GROUPS: &[(&str, usize)] = &[
+    ("Wrap mode", 1),
+    ("Tabulation", 3),
+    ("Other options", 10),
+];
+
 // ---------------------------------------------------------------------------
 // Form dialog (settings, chmod, chown, symlink)
 // ---------------------------------------------------------------------------
@@ -226,6 +234,10 @@ pub enum FormPurpose {
     Git(GitForm),
     /// Collect the options for a directory sync; the app then plans it.
     Sync,
+    /// The internal editor's Options → General dialog.
+    EditorOptions,
+    /// Options for sorting the editor's marked block.
+    EditorSort,
 }
 
 /// The sync-mode choices, in the order they appear in the dropdown. The safest
@@ -356,6 +368,48 @@ impl FormDialog {
         }
     }
 
+    /// Build the internal editor's options form (its Options → General), laid
+    /// out in the same three groups mcedit uses.
+    pub fn editor_options(opts: &crate::config::EditorOptions) -> Self {
+        use crate::config::WrapMode;
+        let modes: Vec<String> = WrapMode::ALL.iter().map(|(_, l)| l.to_string()).collect();
+        // Field order is load-bearing twice over: `EDITOR_OPTION_GROUPS` slices
+        // it into the three boxes, and the submit arm reads it back positionally.
+        let form = Form::new(vec![
+            // --- Wrap mode ---
+            Field::choice("Mode", modes, opts.wrap_mode.label()),
+            // --- Tabulation ---
+            Field::check("Backspace through tabs", opts.backspace_through_tabs),
+            Field::check("Fill tabs with spaces", opts.fill_tabs_with_spaces),
+            Field::text("Tab spacing", opts.tab_spacing.to_string()),
+            // --- Other options ---
+            Field::check("Return does autoindent", opts.return_does_autoindent),
+            Field::check("Confirm before saving", opts.confirm_before_saving),
+            Field::check("Save file position", opts.save_file_position),
+            Field::check("Visible trailing spaces", opts.visible_trailing_spaces),
+            Field::check("Visible tabs", opts.visible_tabs),
+            Field::check("Syntax highlighting", opts.syntax_highlighting),
+            Field::check("Cursor after inserted block", opts.cursor_after_inserted_block),
+            Field::check("Persistent selection", opts.persistent_selection),
+            Field::check("Group undo", opts.group_undo),
+            Field::text("Word wrap line length", opts.word_wrap_line_length.to_string()),
+        ]);
+        FormDialog::from_form("Editor options", form, FormPurpose::EditorOptions)
+    }
+
+    /// Build the editor's block-sort options form (Format → Sort).
+    pub fn editor_sort() -> Self {
+        FormDialog::from_fields(
+            "Sort",
+            vec![
+                Field::check("Reverse order", false),
+                Field::check("Ignore case", false),
+                Field::check("Remove duplicate lines", false),
+            ],
+            FormPurpose::EditorSort,
+        )
+    }
+
     /// Build the "Find duplicates" options form. With size/date/content all off,
     /// only file names are compared; name matching is case-sensitive by default.
     pub fn find_duplicates() -> Self {
@@ -438,9 +492,14 @@ impl FormDialog {
 
     /// A plain form: a title, its fields, and what to do on submit.
     fn from_fields(title: &str, fields: Vec<Field>, purpose: FormPurpose) -> Self {
+        Self::from_form(title, Form::new(fields), purpose)
+    }
+
+    /// As [`Self::from_fields`], for a caller that already built the `Form`.
+    fn from_form(title: &str, form: Form, purpose: FormPurpose) -> Self {
         FormDialog {
             title: title.to_string(),
-            form: Form::new(fields),
+            form,
             purpose,
             connect: None,
         }
@@ -905,6 +964,33 @@ impl FormDialog {
                     inode_bytes: fields[3].as_text().trim().to_string(),
                 })
             }
+            FormPurpose::EditorOptions => {
+                use crate::config::{EditorOptions, WrapMode};
+                let num = |i: usize, fallback: usize, lo: usize, hi: usize| {
+                    fields[i].as_text().trim().parse::<usize>().unwrap_or(fallback).clamp(lo, hi)
+                };
+                Submit::EditorOptions(Box::new(EditorOptions {
+                    wrap_mode: WrapMode::from_label(fields[0].as_text()),
+                    backspace_through_tabs: fields[1].as_bool(),
+                    fill_tabs_with_spaces: fields[2].as_bool(),
+                    tab_spacing: num(3, 4, 1, 16),
+                    return_does_autoindent: fields[4].as_bool(),
+                    confirm_before_saving: fields[5].as_bool(),
+                    save_file_position: fields[6].as_bool(),
+                    visible_trailing_spaces: fields[7].as_bool(),
+                    visible_tabs: fields[8].as_bool(),
+                    syntax_highlighting: fields[9].as_bool(),
+                    cursor_after_inserted_block: fields[10].as_bool(),
+                    persistent_selection: fields[11].as_bool(),
+                    group_undo: fields[12].as_bool(),
+                    word_wrap_line_length: num(13, 72, 20, 1000),
+                }))
+            }
+            FormPurpose::EditorSort => Submit::EditorSort {
+                reverse: fields[0].as_bool(),
+                ignore_case: fields[1].as_bool(),
+                unique: fields[2].as_bool(),
+            },
             FormPurpose::FindDuplicates => Submit::FindDuplicates(DupCriteria {
                 size: fields[0].as_bool(),
                 date: fields[1].as_bool(),
@@ -1040,10 +1126,10 @@ impl FormDialog {
     /// wider and taller to fit its three bordered group boxes; every other form
     /// keeps the compact one-row-per-field box.
     fn outer_dims(&self, area: Rect) -> (u16, u16) {
-        if matches!(self.purpose, FormPurpose::Settings) {
+        if let Some(groups) = self.groups() {
             // Each group box = its fields + 2 border rows; plus a spacer and the
             // hint/button row inside, and the outer border.
-            let group_rows: u16 = SETTINGS_GROUPS.iter().map(|(_, c)| *c as u16 + 2).sum();
+            let group_rows: u16 = groups.iter().map(|(_, c)| *c as u16 + 2).sum();
             let height = group_rows + 1 /* spacer */ + 1 /* hint */ + 2 /* border */;
             let w = 72u16.min(area.width.saturating_sub(4));
             (w, height)
@@ -1060,12 +1146,22 @@ impl FormDialog {
         centered(area, w, h)
     }
 
-    /// For the Settings form, the three group boxes (title + rect) laid out
-    /// vertically inside `inner`.
-    fn group_boxes(inner: Rect) -> Vec<(&'static str, Rect)> {
-        let mut boxes = Vec::with_capacity(SETTINGS_GROUPS.len());
+    /// The titled groups this form's fields are laid out in, or `None` for the
+    /// flat one-row-per-field forms.
+    fn groups(&self) -> Option<&'static [(&'static str, usize)]> {
+        match self.purpose {
+            FormPurpose::Settings => Some(SETTINGS_GROUPS),
+            FormPurpose::EditorOptions => Some(EDITOR_OPTION_GROUPS),
+            _ => None,
+        }
+    }
+
+    /// A grouped form's boxes (title + rect), laid out vertically inside `inner`.
+    fn group_boxes(&self, inner: Rect) -> Vec<(&'static str, Rect)> {
+        let groups = self.groups().unwrap_or(&[]);
+        let mut boxes = Vec::with_capacity(groups.len());
         let mut y = inner.y;
-        for (title, count) in SETTINGS_GROUPS {
+        for (title, count) in groups {
             let box_h = *count as u16 + 2;
             boxes.push((*title, Rect { x: inner.x, y, width: inner.width, height: box_h }));
             y += box_h;
@@ -1076,9 +1172,9 @@ impl FormDialog {
     /// The on-screen row rect for each field. Settings rows sit inside their
     /// group box (inset by the border); other forms stack one row per field.
     fn field_rows(&self, inner: Rect) -> Vec<Rect> {
-        if matches!(self.purpose, FormPurpose::Settings) {
+        if self.groups().is_some() {
             let mut rows = Vec::with_capacity(self.form.fields.len());
-            for (_, brect) in Self::group_boxes(inner) {
+            for (_, brect) in self.group_boxes(inner) {
                 let inner_box = Rect {
                     x: brect.x + 1,
                     y: brect.y + 1,
@@ -1122,8 +1218,8 @@ impl FormDialog {
         // Settings groups its fields into three titled sub-boxes; other forms are
         // a flat one-row-per-field column. `field_rows` maps each field index to
         // its on-screen row either way.
-        if matches!(self.purpose, FormPurpose::Settings) {
-            for (title, brect) in Self::group_boxes(inner) {
+        if self.groups().is_some() {
+            for (title, brect) in self.group_boxes(inner) {
                 let gblock = Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)

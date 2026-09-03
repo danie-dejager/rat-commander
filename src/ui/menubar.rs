@@ -1,5 +1,6 @@
-//! The top menu bar. Phase 1 renders it statically; Phase 2 makes the
-//! pulldowns interactive (F9).
+//! The top menu bar row: the static backdrop the interactive pulldown
+//! ([`crate::ui::pulldown`]) draws its open menu over, plus the two widgets
+//! that share the row (background transfers and the system-status readout).
 
 use crate::ui::theme::Theme;
 use crate::util::sysinfo::SysSampler;
@@ -25,6 +26,21 @@ pub fn titles() -> [String; 5] {
 /// Render the top menu bar. `show_hotkeys` accents the accelerator letters
 /// — shown only while the menu is active or Alt arms it.
 pub fn render(f: &mut Frame, area: Rect, theme: &Theme, show_hotkeys: bool) {
+    render_titles(f, area, theme, &titles(), show_hotkeys);
+}
+
+/// Render a full-width menu bar carrying `bar_titles` — the file manager's own
+/// (via [`render`]) or the editor's. The bar is drawn as a gradient (truecolor)
+/// or two-tone row, with each title's first letter accented when
+/// `show_hotkeys`. The interactive pulldown paints its highlighted title over
+/// the result, so the gradient still shows through either side of it.
+pub fn render_titles(
+    f: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    bar_titles: &[String],
+    show_hotkeys: bool,
+) {
     let width = area.width as usize;
     // In RTL the reshaped title reads right-to-left, so the first-letter hotkey
     // accent no longer lines up — skip it (the accelerator key still works).
@@ -32,11 +48,11 @@ pub fn render(f: &mut Frame, area: Rect, theme: &Theme, show_hotkeys: bool) {
     let mut text = String::from(" ");
     // Char position of each title's first letter — its hotkey.
     let mut hotkeys: Vec<usize> = Vec::new();
-    for title in titles() {
+    for title in bar_titles {
         if !rtl {
             hotkeys.push(text.chars().count() + 1); // +1 for the segment's leading space
         }
-        text.push_str(&format!(" {} ", crate::l10n::display(&title)));
+        text.push_str(&format!(" {} ", crate::l10n::display(title)));
     }
     while text.chars().count() < width {
         text.push(' ');

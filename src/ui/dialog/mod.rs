@@ -160,6 +160,17 @@ pub enum Submit {
     EditorSave,
     /// "Save as" target chosen for the editor: write the buffer to this path.
     EditorSaveAs(std::path::PathBuf),
+    /// A path chosen in the editor's file browser for one of the File menu's
+    /// open / insert / copy-to actions.
+    EditorBrowsed(crate::editor::BrowseKind, std::path::PathBuf),
+    /// Jump the editor to a line (the text typed into its "go to line" prompt).
+    EditorGotoLine(String),
+    /// Run this command and insert its output at the editor's cursor.
+    EditorPasteOutput(String),
+    /// Sort the editor's marked block with these options.
+    EditorSort { reverse: bool, ignore_case: bool, unique: bool },
+    /// New editor options accepted in the editor's Options → General dialog.
+    EditorOptions(Box<crate::config::EditorOptions>),
     /// Confirmed F2 save in the file-comparison view.
     DiffSave,
     /// Close the file-comparison view, saving changes first.

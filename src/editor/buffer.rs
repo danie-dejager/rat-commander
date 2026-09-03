@@ -23,6 +23,9 @@ pub struct EditorBuffer {
     /// Bumped on every mutation; lets callers detect edits (e.g. to invalidate a
     /// syntax-highlight cache) without diffing the rope.
     revision: u64,
+    /// Fold a run of typing into a single undo entry (the editor's "Group undo"
+    /// option). Off by default, so every character undoes on its own.
+    group_undo: bool,
 }
 
 impl EditorBuffer {
@@ -32,7 +35,13 @@ impl EditorBuffer {
             undo: Vec::new(),
             redo: Vec::new(),
             revision: 0,
+            group_undo: false,
         }
+    }
+
+    /// Turn undo grouping on or off (the editor option of the same name).
+    pub fn set_group_undo(&mut self, on: bool) {
+        self.group_undo = on;
     }
 
     /// A counter that increases on every buffer mutation.
@@ -116,13 +125,28 @@ impl EditorBuffer {
         if !text.is_empty() {
             self.rope.insert(start, text);
         }
+        self.redo.clear();
+        self.revision += 1;
+        // With grouping on, typing that continues straight after the previous
+        // insertion extends that undo entry instead of adding another — so one
+        // Ctrl-Z takes back the whole run rather than one character.
+        if self.group_undo
+            && removed.is_empty()
+            && !text.is_empty()
+            && !text.contains('\n')
+            && let Some(last) = self.undo.last_mut()
+            && last.removed.is_empty()
+            && !last.inserted.contains('\n')
+            && last.at + last.inserted.chars().count() == start
+        {
+            last.inserted.push_str(text);
+            return start + text.chars().count();
+        }
         self.undo.push(Edit {
             at: start,
             removed,
             inserted: text.to_string(),
         });
-        self.redo.clear();
-        self.revision += 1;
         start + text.chars().count()
     }
 

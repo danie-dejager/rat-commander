@@ -114,6 +114,13 @@ async fn run_loop(
         // Detect a panel directory change and (re)start its background git-status
         // scan; cheap when nothing changed.
         state.update_git();
+        // A repaint request (the editor's Ctrl-L) drops the diffing renderer's
+        // idea of what is on screen, so the whole frame is rewritten — the point
+        // of the key when another program has scribbled over the terminal.
+        if state.force_clear {
+            state.force_clear = false;
+            term.clear()?;
+        }
         term.draw(|f| ui::draw(f, state))?;
 
         tokio::select! {

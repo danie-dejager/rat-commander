@@ -67,6 +67,7 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
     let git_keys: Vec<&str> = crate::ui::menu::GIT_MENU_KEYS.iter().map(|(k, _)| *k).collect();
     // The item label keys of each menu (mirroring `ui::menu`). The `&`
     // accelerator letter must be unique within a menu, in every language.
+    let editor_menus: Vec<&[&str]> = crate::editor::menu::MENU_KEYS.to_vec();
     let menus: &[&[&str]] = &[
         &[
             "&View", "&Edit", "&Copy", "&Rename/Move", "M&ulti rename", "&Make directory",
@@ -103,6 +104,8 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
             .and_then(|b| s[b + 1..].chars().next())
             .map(|c| c.to_ascii_lowercase())
     };
+    // The editor's six menus are checked on the same terms as the panel ones.
+    let menus: Vec<&[&str]> = menus.iter().copied().chain(editor_menus).collect();
     for cat in builtin_catalogs() {
         for (mi, keys) in menus.iter().enumerate() {
             let mut seen = std::collections::HashSet::new();

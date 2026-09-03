@@ -187,6 +187,9 @@ pub struct AppState {
     pub viewer: Option<ViewerState>,
     pub editor: Option<EditorState>,
     pub menu: Option<MenuBarState>,
+    /// Set when something needs the terminal cleared before the next frame (the
+    /// editor's Ctrl-L). The main loop clears and resets it.
+    pub force_clear: bool,
     /// The full-screen process explorer, when open.
     pub procview: Option<ProcView>,
     /// The full-screen disk-usage explorer, when open.

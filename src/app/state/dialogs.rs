@@ -202,6 +202,25 @@ impl AppState {
             Submit::EditorSaveQuit => self.save_editor(true).await,
             Submit::EditorSave => self.save_editor(false).await,
             Submit::EditorSaveAs(dest) => self.do_save_as(dest).await,
+            Submit::EditorBrowsed(kind, path) => self.editor_browsed(kind, path).await,
+            Submit::EditorGotoLine(text) => {
+                match text.trim().parse::<usize>() {
+                    // The prompt is 1-based, the buffer 0-based.
+                    Ok(n) => {
+                        if let Some(ed) = self.editor.as_mut() {
+                            ed.goto_line(n.saturating_sub(1));
+                        }
+                    }
+                    Err(_) => self.show_error(format!("Not a line number: {text}")),
+                }
+            }
+            Submit::EditorPasteOutput(cmd) => self.editor_paste_output(cmd).await,
+            Submit::EditorSort { reverse, ignore_case, unique } => {
+                if let Some(ed) = self.editor.as_mut() {
+                    ed.sort_block(reverse, ignore_case, unique);
+                }
+            }
+            Submit::EditorOptions(opts) => self.apply_editor_options(*opts),
             Submit::DiffSave => self.save_diff().await,
             Submit::DiffSaveQuit => {
                 self.save_diff().await;

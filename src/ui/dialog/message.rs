@@ -21,12 +21,21 @@ impl MessageDialog {
         }
     }
 
+    /// A plain informational box (the editor's File → About uses it).
+    pub fn info(title: impl Into<String>, message: impl Into<String>) -> Self {
+        MessageDialog {
+            title: title.into(),
+            message: message.into(),
+            is_error: false,
+        }
+    }
+
     pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
         let w = 60u16.min(area.width.saturating_sub(4));
         let rect = centered(area, w, 8);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
-        let block = dialog_block(&self.title, theme);
+        let block = dialog_block(&crate::l10n::trd(&self.title), theme);
         let inner = block.inner(rect);
         f.render_widget(block, rect);
 
