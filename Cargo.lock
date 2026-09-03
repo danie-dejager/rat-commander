@@ -2708,7 +2708,7 @@ dependencies = [
 
 [[package]]
 name = "rat-commander"
-version = "1.7.5"
+version = "1.7.6"
 dependencies = [
  "ar-reshaper",
  "async-trait",

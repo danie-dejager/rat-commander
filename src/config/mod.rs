@@ -216,6 +216,15 @@ fn env_command(var: &str) -> Option<String> {
 impl Config {
     /// Load the config, falling back to defaults on any error.
     pub fn load() -> Self {
+        // Nothing overrides XDG for the test binary, so the config path is the
+        // real user directory even under `cargo test`: reading it would make
+        // every test that builds an `AppState` depend on the developer's own
+        // settings (active panel, filters, theme, nerd fonts). Tests always
+        // start from the defaults; parsing is covered by the round-trip tests
+        // below, and `save` is stubbed out for the same reason.
+        if cfg!(test) {
+            return Config::default();
+        }
         let Some(path) = paths::config_file() else {
             return Config::default();
         };
@@ -283,12 +292,21 @@ impl Config {
 /// Load the persisted command-line history (oldest first), keeping at most the
 /// `max` most-recent entries. A missing file or any error yields an empty list.
 pub fn load_command_history(max: usize) -> Vec<String> {
+    // Not the developer's own history under `cargo test` (see `Config::load`);
+    // `load_history_from` is exercised directly on a temporary file.
+    if cfg!(test) {
+        return Vec::new();
+    }
     paths::history_file().map(|p| load_history_from(&p, max)).unwrap_or_default()
 }
 
 /// Persist the command-line history (oldest first), one entry per line, keeping
 /// at most the `max` most-recent entries. Best-effort; errors are ignored.
 pub fn save_command_history(history: &[String], max: usize) {
+    // Never write over the developer's real history file from a test run.
+    if cfg!(test) {
+        return;
+    }
     if let Some(p) = paths::history_file() {
         save_history_to(&p, history, max);
     }
@@ -343,12 +361,21 @@ struct EditorPositions {
 /// The remembered `(line, col)` cursor position for the file `key` (a
 /// [`crate::vfs::VfsPath::display`] string), or `None` if not remembered.
 pub fn load_editor_position(key: &str) -> Option<(usize, usize)> {
+    // Remembered positions are the developer's own under `cargo test`, and would
+    // move the cursor in the editor tests; `position_from` is tested directly.
+    if cfg!(test) {
+        return None;
+    }
     paths::editor_positions_file().and_then(|p| position_from(&p, key))
 }
 
 /// Remember the cursor `(line, col)` for the file `key`, moving it to the front
 /// and evicting the oldest beyond the 50-file cap. Best-effort; errors ignored.
 pub fn save_editor_position(key: &str, line: usize, col: usize) {
+    // The editor tests close buffers; that must not rewrite the real file.
+    if cfg!(test) {
+        return;
+    }
     if let Some(p) = paths::editor_positions_file() {
         store_position_to(&p, key, line, col);
     }
