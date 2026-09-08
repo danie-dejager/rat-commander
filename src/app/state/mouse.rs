@@ -7,7 +7,8 @@ const DOUBLE_CLICK: Duration = Duration::from_millis(500);
 
 impl AppState {
     /// Handle a mouse event. Left clicks/drags move the cursor and drive the
-    /// menus and dialogs; right clicks/drags mark files.
+    /// menus and dialogs; right clicks/drags mark files; the wheel scrolls the
+    /// panel under the pointer.
     pub async fn handle_mouse(&mut self, ev: MouseEvent) -> Flow {
         let area = self.last_area;
         let (col, row) = (ev.column, ev.row);
@@ -212,9 +213,52 @@ impl AppState {
             MouseEventKind::Down(MouseButton::Right) | MouseEventKind::Drag(MouseButton::Right) => {
                 self.panel_point(col, row, PointAction::InvertPaint);
             }
+            MouseEventKind::ScrollDown => self.panel_wheel(col, row, true),
+            MouseEventKind::ScrollUp => self.panel_wheel(col, row, false),
             _ => {}
         }
         Flow::Continue
+    }
+
+    /// The panel whose rendered area contains `(col, row)`. A hidden panel — and
+    /// the Details view, which has no listing of its own — records no geometry, so
+    /// the pointer never lands on one.
+    fn panel_at(&self, col: u16, row: u16) -> Option<usize> {
+        (0..2).find(|&i| self.panels[i].hit.is_some_and(|h| h.in_panel(col, row)))
+    }
+
+    /// Wheel over a file panel: a notch moves the cursor a whole page, exactly
+    /// like PgDn/PgUp. A page move past either end is clamped onto the first/last
+    /// entry, so the wheel keeps paging right up to the ends of the listing; only
+    /// once a page has nowhere left to go does a notch act as ↓/↑ instead — how
+    /// Midnight Commander's wheel behaves. The panel under the pointer scrolls;
+    /// which panel is active doesn't change.
+    fn panel_wheel(&mut self, col: u16, row: u16, down: bool) {
+        // The tree carries its own cursor over its own row list; the listing
+        // views move the panel cursor over `entries`.
+        fn cursor_of(p: &Panel) -> usize {
+            if p.format == ViewFormat::Tree {
+                p.tree.as_ref().map_or(0, |t| t.cursor)
+            } else {
+                p.cursor
+            }
+        }
+
+        let Some(pi) = self.panel_at(col, row) else {
+            return;
+        };
+        let p = &mut self.panels[pi];
+        // `page` is the screenful the renderer measured (rows × columns in the
+        // Brief grid) — the very step PgUp/PgDn take.
+        let page = p.page.max(1) as isize;
+        let delta = if down { page } else { -page };
+        let before = cursor_of(p);
+        p.move_cursor(delta);
+        // Nothing moved: the cursor already sits on the first/last entry, where
+        // the page key does nothing and the wheel falls back to the arrow key.
+        if cursor_of(p) == before {
+            p.move_cursor(delta.signum());
+        }
     }
 
     /// Map a screen point to a panel entry: activate that panel, move the cursor
@@ -222,13 +266,7 @@ impl AppState {
     /// Returns the `(panel, entry)` that was hit, or `None` when the point misses
     /// the panels or any entry.
     fn panel_point(&mut self, col: u16, row: u16, action: PointAction) -> Option<(usize, usize)> {
-        let pi = if self.panels[0].hit.is_some_and(|h| h.in_panel(col, row)) {
-            0
-        } else if self.panels[1].hit.is_some_and(|h| h.in_panel(col, row)) {
-            1
-        } else {
-            return None;
-        };
+        let pi = self.panel_at(col, row)?;
         self.active = pi;
         let p = &mut self.panels[pi];
         // Tree view: map the click to a tree row and move the tree cursor. There

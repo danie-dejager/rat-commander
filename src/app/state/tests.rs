@@ -1729,6 +1729,85 @@ async fn page_keys_move_by_visible_page() {
 }
 
 #[tokio::test]
+async fn wheel_pages_then_steps_at_the_listing_ends() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_wheel_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    for i in 0..100 {
+        std::fs::write(root.join(format!("f{i:03}.txt")), b"x").unwrap();
+    }
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    // Don't inherit an ambient Tree/Brief config.
+    st.panels[0].format = ViewFormat::Full;
+    st.panels[1].format = ViewFormat::Full;
+    for side in 0..2 {
+        st.panels[side].cwd = VfsPath::local(&root);
+        st.panels[side].backend = st.registry.local();
+        st.panels[side].reload().await.unwrap();
+    }
+
+    // Render so both panels record their page size and click geometry.
+    let mut term = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    term.draw(|f| crate::ui::draw(f, &mut st)).unwrap();
+    let page = st.panels[0].page;
+    assert!(page > 1, "page size should reflect the terminal height");
+    let len = st.panels[0].entries.len();
+    let hit = st.panels[0].hit.expect("hit");
+    let wheel = |down: bool| MouseEvent {
+        kind: if down { MouseEventKind::ScrollDown } else { MouseEventKind::ScrollUp },
+        column: hit.body.x + 1,
+        row: hit.body.y,
+        modifiers: KeyModifiers::NONE,
+    };
+
+    // A notch pages like PgDn...
+    st.panels[0].cursor = 0;
+    st.handle_mouse(wheel(true)).await;
+    assert_eq!(st.panels[0].cursor, page, "wheel down moves a whole page");
+
+    // ...and keeps paging near the end: a page that would run past the listing
+    // lands on the last entry rather than degrading into single steps.
+    st.panels[0].cursor = len - 2;
+    st.handle_mouse(wheel(true)).await;
+    assert_eq!(st.panels[0].cursor, len - 1, "a page past the end lands on the last entry");
+    st.handle_mouse(wheel(true)).await;
+    assert_eq!(st.panels[0].cursor, len - 1, "the wheel stops at the last entry");
+
+    // Same going up: a whole page, clamped onto the first entry at the top.
+    st.panels[0].cursor = page;
+    st.handle_mouse(wheel(false)).await;
+    assert_eq!(st.panels[0].cursor, 0, "wheel up moves a whole page");
+    st.panels[0].cursor = page - 1;
+    st.handle_mouse(wheel(false)).await;
+    assert_eq!(st.panels[0].cursor, 0, "a page past the start lands on the first entry");
+    st.handle_mouse(wheel(false)).await;
+    assert_eq!(st.panels[0].cursor, 0, "the wheel stops at the first entry");
+
+    // The wheel scrolls the panel under the pointer without moving the focus.
+    let other = st.panels[1].hit.expect("hit");
+    st.panels[1].cursor = 0;
+    st.handle_mouse(MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column: other.body.x + 1,
+        row: other.body.y,
+        modifiers: KeyModifiers::NONE,
+    })
+    .await;
+    assert_eq!(st.panels[1].cursor, page, "the hovered panel scrolls");
+    assert_eq!(st.active, 0, "scrolling doesn't change which panel is active");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[tokio::test]
 async fn mouse_click_on_menu_bar_opens_menu() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);

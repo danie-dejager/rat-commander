@@ -96,6 +96,11 @@ The mouse works throughout:
 - **Right-click** a file to invert its mark (tag/untag it).
 - **Drag** with the left button to carry the cursor; **right-drag** flips the
   mark of every file it sweeps over (each file once).
+- Roll the **wheel** over a panel to move a whole page at a time, exactly like
+  `PgUp`/`PgDn` — a page that would run past the listing lands on the first/last
+  entry. Once you are at that end, where the page key does nothing, a further
+  notch acts as `↑`/`↓` instead. The panel under the pointer scrolls; which panel
+  is active doesn't change.
 - Click the **`◀`** arrow (a panel's top-left corner) or the **`▶`** arrow (its
   top-right corner) to step that panel **back / forward** through its directory
   history.
