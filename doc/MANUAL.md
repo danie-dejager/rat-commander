@@ -1427,7 +1427,18 @@ that split a metric into its two directions around a drawn **horizontal axis
 line**: the **Disk** panel grows **writes upward (▲)** and **reads downward
 (▼)**, and the **Net** panel grows **uploads upward (▲)** and **downloads
 downward (▼)**, each direction scaled to their shared peak. **`+`/`-`** adjust the refresh interval.
-**`k`** kills the selected process, **`K`** force-kills it; both ask to confirm.
+
+**The cursor sleeps until you need it.** The explorer opens in **monitor mode**
+with no row cursor, so the constantly re-sorting list can be watched from the
+top — the busiest processes stay where they belong instead of a highlight
+chasing one PID up and down. The first **`↑`**/**`↓`** (or `PgUp`/`PgDn`/`Home`/
+`End`, or a tree key) reveals the cursor on the top row, and from then on it
+sticks to its process across re-sorts. **`Esc`** then backs out one step at a
+time: the first press puts the cursor away and returns to the top of the list,
+the second closes the explorer. (**`F10`** and **`q`** close it either way.)
+
+**`k`** kills the selected process, **`K`** force-kills it; both ask to confirm —
+they need the cursor, so they do nothing in monitor mode.
 
 A couple of details are platform-specific: on **Unix**, `k`/`K` send SIGTERM
 /SIGKILL (graceful vs. forced), while on **Windows** both terminate the process

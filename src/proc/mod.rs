@@ -100,6 +100,11 @@ pub struct ProcView {
     /// collapses it.
     pub collapsed: HashSet<i32>,
     pub cursor: usize,
+    /// Whether the row cursor is live. The explorer opens in "monitor" mode with
+    /// no cursor, so the list can re-sort under the eye without a highlight
+    /// chasing one process around; the first cursor key reveals it and Esc puts
+    /// it away again.
+    pub cursor_active: bool,
     pub offset: usize,
     pub sort: ProcSort,
     pub reverse: bool,
@@ -175,6 +180,7 @@ impl ProcView {
             mode: ProcMode::Flat,
             collapsed: HashSet::new(),
             cursor: 0,
+            cursor_active: false,
             offset: 0,
             sort: ProcSort::Cpu,
             reverse: true, // CPU descending by default
@@ -214,7 +220,32 @@ impl ProcView {
     // --- key handling -----------------------------------------------------
 
     pub fn handle_key(&mut self, key: KeyEvent) -> ProcSignal {
+        // The first cursor key wakes the cursor rather than moving it, so the
+        // list stops re-sorting under the highlight only once it is asked to.
+        // The tree's fold keys count too — they also act on the cursor row.
+        let is_cursor_key = matches!(
+            key.code,
+            KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::PageUp
+                | KeyCode::PageDown
+                | KeyCode::Home
+                | KeyCode::End
+        ) || (self.mode == ProcMode::Tree
+            && matches!(
+                key.code,
+                KeyCode::Left | KeyCode::Right | KeyCode::Enter | KeyCode::Char(' ')
+            ));
+        if is_cursor_key && self.wake_cursor() {
+            return ProcSignal::Stay;
+        }
         match key.code {
+            // Esc backs out one step at a time: it puts the cursor away first,
+            // and only closes the explorer once there is no cursor to dismiss.
+            KeyCode::Esc if self.cursor_active => {
+                self.sleep_cursor();
+                ProcSignal::Stay
+            }
             KeyCode::Esc | KeyCode::F(10) | KeyCode::Char('q') | KeyCode::Char('Q') => {
                 ProcSignal::Close
             }
@@ -314,6 +345,25 @@ impl ProcView {
         }
     }
 
+    /// Turn the cursor on at the top visible row. Returns `true` when this call
+    /// is what woke it, so the caller can swallow the key that did so.
+    fn wake_cursor(&mut self) -> bool {
+        if self.cursor_active {
+            return false;
+        }
+        self.cursor_active = true;
+        self.cursor = self.offset.min(self.rows.len().saturating_sub(1));
+        true
+    }
+
+    /// Put the cursor away and snap back to the top of the list, so the view
+    /// returns to showing whatever the sort currently ranks highest.
+    fn sleep_cursor(&mut self) {
+        self.cursor_active = false;
+        self.cursor = 0;
+        self.offset = 0;
+    }
+
     fn kill_request(&self, force: bool) -> ProcSignal {
         match self.cursor_proc() {
             Some(p) => ProcSignal::Kill {
@@ -334,8 +384,13 @@ impl ProcView {
         self.cursor = (self.cursor as isize + delta).clamp(0, max) as usize;
     }
 
-    /// The process the cursor is currently on (via the visible tree row).
+    /// The process the cursor is currently on (via the visible tree row), or
+    /// `None` in monitor mode — with no cursor drawn, nothing is selected, so
+    /// there is no target to kill or to anchor a re-sort to.
     pub fn cursor_proc(&self) -> Option<&ProcInfo> {
+        if !self.cursor_active {
+            return None;
+        }
         self.rows.get(self.cursor).map(|r| &self.procs[r.proc_idx])
     }
 
@@ -556,7 +611,7 @@ impl ProcView {
     }
 
     fn clamp_cursor(&mut self) {
-        if self.rows.is_empty() {
+        if !self.cursor_active || self.rows.is_empty() {
             self.cursor = 0;
         } else if self.cursor >= self.rows.len() {
             self.cursor = self.rows.len() - 1;
@@ -711,7 +766,8 @@ impl ProcView {
     /// since the last `refresh()`.
     pub fn refresh(&mut self) {
         // Remember which process the cursor is on so it stays put across the
-        // re-sort (and only moves if that process is gone).
+        // re-sort (and only moves if that process is gone). In monitor mode
+        // there is no cursor to anchor: the list simply re-ranks from the top.
         let anchor = self.cursor_pid();
         // Seconds since the last sample, to turn sysinfo's bytes-since-refresh
         // disk/network counters into per-second rates.
@@ -924,6 +980,10 @@ mod tests {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)
     }
 
+    fn esc() -> KeyEvent {
+        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)
+    }
+
     fn visible(pv: &ProcView) -> Vec<i32> {
         pv.rows.iter().map(|r| pv.procs[r.proc_idx].pid).collect()
     }
@@ -950,6 +1010,7 @@ mod tests {
         pv.sort = ProcSort::Pid;
         pv.reverse = false;
         pv.rebuild_rows();
+        pv.cursor_active = true;
         pv.cursor = 1; // on pid 2
 
         // Sort by CPU (descending): order becomes 2,3,1 — cursor must stay on pid 2.
@@ -1080,6 +1141,7 @@ mod tests {
         assert_eq!(pv.rows[row_of(&pv, 12)].tree_prefix, "  └─", "last grandchild └─, indented");
 
         // Collapse init (←): its whole subtree hides; the box flips to [+].
+        pv.cursor_active = true;
         pv.cursor = row_of(&pv, 1);
         pv.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
         assert_eq!(visible(&pv), vec![2, 20, 1], "init's subtree folded away");
@@ -1091,6 +1153,60 @@ mod tests {
         assert_eq!(visible(&pv), vec![2, 20, 1, 10, 11, 12], "unfold-all restores the forest");
         pv.handle_key(key('*'));
         assert_eq!(visible(&pv), vec![2, 1], "fold-all leaves only the roots");
+    }
+
+    /// The explorer opens with no cursor: the list re-ranks freely under the
+    /// eye, the first cursor key reveals the cursor at the top row, and Esc
+    /// backs out one step at a time (cursor away, then close). Issue #15.
+    #[test]
+    fn cursor_starts_asleep_and_esc_backs_out_in_two_steps() {
+        use super::ProcSignal;
+        let mut pv = ProcView::new();
+        pv.procs = vec![
+            mk(1, None, "a", 10.0),
+            mk(2, None, "b", 50.0),
+            mk(3, None, "c", 30.0),
+        ];
+        pv.sort = ProcSort::Pid;
+        pv.reverse = false;
+        pv.rebuild_rows();
+
+        assert!(!pv.cursor_active, "opens in monitor mode");
+        assert!(pv.cursor_proc().is_none(), "so nothing is selected");
+        // ...and nothing is selected to kill either.
+        assert!(matches!(pv.handle_key(key('k')), ProcSignal::Stay), "no kill target");
+
+        // Re-sorting has no cursor to chase: the list just re-ranks from the top.
+        pv.handle_key(key('c'));
+        assert_eq!(visible(&pv), vec![2, 3, 1], "sorted by CPU, descending");
+        assert_eq!(pv.cursor, 0);
+
+        // The first Down only reveals the cursor, on the top row.
+        let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+        pv.handle_key(down);
+        assert!(pv.cursor_active, "a cursor key wakes the cursor");
+        assert_eq!(pv.cursor_pid(), Some(2), "on the top row, not one row down");
+        // The next one moves it.
+        pv.handle_key(down);
+        assert_eq!(pv.cursor_pid(), Some(3));
+
+        // Esc puts the cursor away and snaps back to the top...
+        assert!(matches!(pv.handle_key(esc()), ProcSignal::Stay), "Esc #1 keeps the view");
+        assert!(!pv.cursor_active);
+        assert_eq!((pv.cursor, pv.offset), (0, 0), "back at the top of the list");
+        // ...and only the second Esc closes the explorer.
+        assert!(matches!(pv.handle_key(esc()), ProcSignal::Close), "Esc #2 closes");
+    }
+
+    /// With the cursor asleep, a refresh must not park it on a process — the
+    /// point of monitor mode is that the ranking, not one process, stays put.
+    #[test]
+    fn a_sleeping_cursor_does_not_anchor_a_refresh() {
+        let mut pv = ProcView::new();
+        pv.refresh();
+        assert!(!pv.cursor_active);
+        assert_eq!(pv.cursor, 0, "still pinned to the top row");
+        assert!(pv.cursor_proc().is_none());
     }
 
     /// Fold/expand keys are inert in flat mode; Tab round-trips between modes.

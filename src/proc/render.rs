@@ -637,7 +637,7 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
             continue;
         };
         let p = &pv.procs[row.proc_idx];
-        let cur = idx == pv.cursor;
+        let cur = pv.cursor_active && idx == pv.cursor;
         let row_style = if cur { theme.cursor } else { normal };
         let row_bg = if cur {
             theme.cursor.bg.unwrap_or(theme.panel_bg)
@@ -719,9 +719,12 @@ fn cpu_spark_spans(
 
 fn render_footer(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme) {
     // Tree-specific fold keys are only shown while in tree mode.
-    let hint = match pv.mode {
-        ProcMode::Flat => "↑↓ move   ⇥ tree   c CPU  m Mem  t Thr  n Prog  u User  p PID   r reverse   +/- rate   k kill  K force   Esc close",
-        ProcMode::Tree => "↑↓ move   ⇥ flat   →←⏎ fold  * all   c CPU  m Mem  t Thr  n Prog  u User  p PID   r rev   +/- rate   k kill  Esc close",
+    // Without a cursor there is nothing to move, fold or kill, so the bar
+    // advertises only what actually works and how to get the cursor back.
+    let hint = match (pv.cursor_active, pv.mode) {
+        (false, _) => "↑↓ cursor   ⇥ tree/flat   c CPU  m Mem  t Thr  n Prog  u User  p PID   r reverse   +/- rate   Esc close",
+        (true, ProcMode::Flat) => "↑↓ move   ⇥ tree   c CPU  m Mem  t Thr  n Prog  u User  p PID   r reverse   +/- rate   k kill  K force   Esc no cursor",
+        (true, ProcMode::Tree) => "↑↓ move   ⇥ flat   →←⏎ fold  * all   c CPU  m Mem  t Thr  n Prog  u User  p PID   r rev   +/- rate   k kill  Esc no cursor",
     };
     // Highlighted bar (matching the F-key row) so the hints are clearly visible.
     let line = pad_right(&format!(" {hint}"), area.width as usize);
