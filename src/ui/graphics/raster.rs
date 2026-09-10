@@ -521,6 +521,8 @@ pub struct SubBox {
     pub w: f32,
     pub h: f32,
     pub color: Rgb,
+    /// A bright rim drawn just inside this sub-box, marking it as selected.
+    pub border: Option<Rgb>,
 }
 
 /// Draw one "pillow" box into `img` at `(ox, oy)` of size `w × h`: a cushion-
@@ -594,6 +596,18 @@ pub fn pillow_into(
                     c = over(c, (255, 255, 255), 0.24);
                 }
                 put(img, x, y, c);
+            }
+        }
+        // Selected sub-box: a bright rim over the bevel, so a file picked out
+        // inside a box stands out the way the selected box itself does.
+        if let Some(bc) = s.border {
+            for x in jx0..jx1 {
+                put(img, x, jy0, bc);
+                put(img, x, jy1 - 1, bc);
+            }
+            for y in jy0..jy1 {
+                put(img, jx0, y, bc);
+                put(img, jx1 - 1, y, bc);
             }
         }
     }
@@ -692,7 +706,8 @@ mod tests {
         let fill = (120, 120, 120);
         let bg = (0, 0, 0);
         // One sub-box in the middle of a 40x40 pillow.
-        let subs = vec![SubBox { x: 10.0, y: 10.0, w: 20.0, h: 20.0, color: (60, 60, 60) }];
+        let subs =
+            vec![SubBox { x: 10.0, y: 10.0, w: 20.0, h: 20.0, color: (60, 60, 60), border: None }];
         let img = pillow_box(40, 40, fill, &subs, bg);
         let lum = |x: u32, y: u32| {
             let p = img.get_pixel(x, y).0;

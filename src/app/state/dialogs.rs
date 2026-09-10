@@ -196,6 +196,7 @@ impl AppState {
             }
             Submit::MenuPrompt(answer) => self.advance_menu_prompt(answer),
             Submit::KillProcess { pid, force } => self.kill_process(pid, force),
+            Submit::DeleteDiskFile(path) => self.delete_disk_file(path),
             Submit::CompareDirs(mode) => self.compare_dirs(mode).await,
             Submit::FindDuplicates(crit) => self.start_find_duplicates(crit),
             Submit::Quit => self.pending_quit = true,

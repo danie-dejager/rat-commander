@@ -229,6 +229,8 @@ pub enum Submit {
     MenuPrompt(String),
     /// Kill a process from the process explorer (`force` ⇒ SIGKILL).
     KillProcess { pid: i32, force: bool },
+    /// Delete one large file picked out inside a disk-explorer box.
+    DeleteDiskFile(std::path::PathBuf),
     /// Compare the two panels' directories and mark the differing files.
     CompareDirs(CompareMode),
     /// Find files identical between the two panels (by the chosen criteria) and

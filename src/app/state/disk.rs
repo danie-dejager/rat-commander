@@ -302,6 +302,27 @@ impl AppState {
                     .try_enter(VfsPath::local(path), backend, None)
                     .await;
             }
+            DiskSignal::DeleteFile { path, label } => {
+                if self.config.confirm_delete {
+                    self.dialog = Some(Dialog::Confirm(ConfirmDialog::delete_disk_file(&label, path)));
+                } else {
+                    self.delete_disk_file(path);
+                }
+            }
+        }
+    }
+
+    /// Delete one file the disk explorer's cursor picked out of a box, then fold
+    /// the loss into the treemap in place — the box shrinks and the file drops
+    /// off its list immediately, without re-walking the whole subtree.
+    pub(in crate::app::state) fn delete_disk_file(&mut self, path: PathBuf) {
+        match std::fs::remove_file(&path) {
+            Ok(()) => {
+                if let Some(dv) = self.diskview.as_mut() {
+                    dv.note_file_deleted(&path);
+                }
+            }
+            Err(e) => self.show_error(format!("Cannot delete {}: {e}", path.display())),
         }
     }
 

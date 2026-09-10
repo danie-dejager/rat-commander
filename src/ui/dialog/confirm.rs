@@ -394,6 +394,20 @@ impl ConfirmDialog {
         )
     }
 
+    /// Confirm deleting one file picked out inside a disk-explorer box. The
+    /// label is the `dir/relative/path` shown in the treemap, so it is obvious
+    /// which of the listed big files is about to go.
+    pub fn delete_disk_file(label: &str, path: std::path::PathBuf) -> Self {
+        Self::yes_no(
+            "Delete",
+            format!("Delete \"{label}\"?"),
+            Submit::DeleteDiskFile(path),
+            "Yes",
+            "No",
+            None,
+        )
+    }
+
     /// Confirm killing a process (from the process explorer).
     pub fn kill(pid: i32, name: &str, force: bool) -> Self {
         let how = if force { "Force-kill (SIGKILL)" } else { "Kill (SIGTERM)" };

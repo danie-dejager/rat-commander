@@ -80,15 +80,19 @@ impl AppState {
             return Flow::Continue;
         }
 
-        // Disk explorer: a left click selects the box under the pointer; a second
-        // click on the same box (within the double-click window) dives into it,
-        // mirroring Enter. `usize::MAX` marks a disk click so it never collides
-        // with a file-panel double-click.
+        // Disk explorer: a left click selects the box under the pointer — and the
+        // file inside it, when the click lands on one of the box's listed files;
+        // a second click on the same box (within the double-click window) dives
+        // into it, mirroring Enter. `usize::MAX` marks a disk click so it never
+        // collides with a file-panel double-click.
         if self.diskview.is_some() {
             if let MouseEventKind::Down(MouseButton::Left) = ev.kind {
                 const DISK: usize = usize::MAX;
+                let on_file = self.diskview.as_ref().unwrap().file_at(col, row);
                 if let Some(i) = self.diskview.as_ref().unwrap().box_at(col, row) {
-                    self.diskview.as_mut().unwrap().selected = i;
+                    let dv = self.diskview.as_mut().unwrap();
+                    dv.selected = i;
+                    dv.file_sel = on_file.filter(|(e, _)| *e == i).map(|(_, k)| k);
                     let now = Instant::now();
                     let double = self.last_click.is_some_and(|(p, idx, t)| {
                         p == DISK && idx == i && now.duration_since(t) < DOUBLE_CLICK

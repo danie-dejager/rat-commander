@@ -48,18 +48,20 @@ pub fn render(f: &mut Frame, area: Rect, dv: &mut DiskView, theme: &Theme, gfx: 
     render_footer(f, rows[2], theme);
 
     dv.rects.clear();
+    dv.file_rects.clear();
     if dv.scanning {
-        render_header(f, header, None, 0, theme);
+        render_header(f, header, None, None, 0, theme);
         render_scanning(f, body, dv.scan_done, dv.scan_total, theme, gfx);
         return;
     }
     if dv.entries.is_empty() {
-        render_header(f, header, None, 0, theme);
+        render_header(f, header, None, None, 0, theme);
         center_text(f, body, &crate::l10n::trd("(no subdirectories)"), theme);
         return;
     }
     let selected = dv.entries.get(dv.selected.min(dv.entries.len() - 1));
-    render_header(f, header, selected, dv.total(), theme);
+    let file = dv.file_sel.and_then(|k| selected.and_then(|e| e.files.get(k)));
+    render_header(f, header, selected, file, dv.total(), theme);
 
     let rects = treemap(&dv.entries, body);
     dv.rects = rects.clone();
@@ -71,20 +73,59 @@ pub fn render(f: &mut Frame, area: Rect, dv: &mut DiskView, theme: &Theme, gfx: 
         // Graphics terminal: draw the whole treemap as one image of nested
         // "pillow" boxes, then overlay the text labels on top.
         Some(g) if g.available() => {
-            render_treemap_graphics(f, body, &dv.entries, &rects, dv.selected, theme, g);
+            let frects =
+                render_treemap_graphics(f, body, &dv.entries, &rects, dv.selected, dv.file_sel, theme, g);
+            dv.file_rects = frects;
         }
         // Fallback: classic character-cell boxes.
         _ => {
+            let (sel, fsel) = (dv.selected, dv.file_sel);
+            let mut frects: Vec<(usize, usize, Rect)> = Vec::new();
             for (i, (entry, rect)) in dv.entries.iter().zip(rects.iter()).enumerate() {
-                draw_box(f, *rect, entry, i == dv.selected, i, n, theme);
+                let on = (i == sel).then_some(fsel).flatten();
+                draw_box(f, *rect, entry, i == sel, on, i, n, theme, &mut frects);
             }
+            dv.file_rects = frects;
         }
     }
 }
 
 /// Show the selected box's name and size at the top, so the selection is always
 /// legible even when its box is too small to render a label.
-fn render_header(f: &mut Frame, area: Rect, selected: Option<&DiskEntry>, total: u64, theme: &Theme) {
+fn render_header(
+    f: &mut Frame,
+    area: Rect,
+    selected: Option<&DiskEntry>,
+    file: Option<&super::FileEntry>,
+    total: u64,
+    theme: &Theme,
+) {
+    // With the cursor inside a box, the readout names the file rather than the
+    // directory — otherwise there'd be nothing saying what Del would remove.
+    if let (Some(e), Some(fe)) = (selected, file) {
+        let spans = vec![
+            Span::styled(
+                " ▶ ",
+                Style::default().fg(theme.panel_border_active).bg(theme.panel_bg),
+            ),
+            Span::styled(
+                ellipsize(
+                    &format!("{}/{}", e.name, fe.rel),
+                    area.width.saturating_sub(20) as usize,
+                ),
+                Style::default()
+                    .fg(theme.cursor_fg)
+                    .bg(theme.panel_bg)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("   {}", human_gb(fe.size)),
+                Style::default().fg(theme.panel_fg).bg(theme.panel_bg),
+            ),
+        ];
+        f.render_widget(Paragraph::new(Line::from(spans)).style(theme.panel_base()), area);
+        return;
+    }
     let spans = match selected {
         Some(e) => {
             let pct = if total > 0 {
@@ -119,7 +160,7 @@ fn render_header(f: &mut Frame, area: Rect, selected: Option<&DiskEntry>, total:
 }
 
 fn render_footer(f: &mut Frame, area: Rect, theme: &Theme) {
-    let hint = "←↑↓→/click move   Enter/dbl-click open   g go to dir   Bksp up   Esc close";
+    let hint = "←↑↓→/click move   ↑↓ into files   Enter open   Del delete   g go to dir   Bksp up   Esc close";
     // Draw as a highlighted bar (like the F-key row) so it's clearly visible.
     let line = pad_right(&format!(" {}", crate::l10n::trd(hint)), area.width as usize);
     f.render_widget(
@@ -223,7 +264,18 @@ fn center_text(f: &mut Frame, area: Rect, text: &str, theme: &Theme) {
 
 /// Character-cell rendering of one treemap box (the fallback used when there is
 /// no terminal-graphics protocol).
-fn draw_box(f: &mut Frame, rect: Rect, entry: &DiskEntry, selected: bool, idx: usize, n: usize, theme: &Theme) {
+#[allow(clippy::too_many_arguments)]
+fn draw_box(
+    f: &mut Frame,
+    rect: Rect,
+    entry: &DiskEntry,
+    selected: bool,
+    file_sel: Option<usize>,
+    idx: usize,
+    n: usize,
+    theme: &Theme,
+    frects: &mut Vec<(usize, usize, Rect)>,
+) {
     if rect.width == 0 || rect.height == 0 {
         return;
     }
@@ -283,7 +335,7 @@ fn draw_box(f: &mut Frame, rect: Rect, entry: &DiskEntry, selected: bool, idx: u
         // Big enough: list the largest files (path relative to this box + size).
         if bi.height >= 5 && bi.width >= 16 && !entry.files.is_empty() {
             let list = Rect { y: bi.y + 3, height: bi.height - 3, ..bi };
-            draw_file_list(f, list, &entry.files, color, theme);
+            draw_file_list(f, list, &entry.files, file_sel, color, theme, idx, frects);
         }
     } else {
         // One interior row: show the name only.
@@ -296,26 +348,41 @@ fn draw_box(f: &mut Frame, rect: Rect, entry: &DiskEntry, selected: bool, idx: u
 }
 
 /// List the biggest files inside a box: each row is `relative/path … SIZE`,
-/// the path left-aligned (dim) and the size right-aligned in the box color.
+/// the path left-aligned (dim) and the size right-aligned in the box color. The
+/// row the cursor stepped onto (`file_sel`) is drawn in the cursor colors, and
+/// every drawn row is recorded in `frects` so the mouse can hit it too.
+#[allow(clippy::too_many_arguments)]
 fn draw_file_list(
     f: &mut Frame,
     area: Rect,
     files: &[super::FileEntry],
+    file_sel: Option<usize>,
     color: ratatui::style::Color,
     theme: &Theme,
+    idx: usize,
+    frects: &mut Vec<(usize, usize, Rect)>,
 ) {
     let w = area.width as usize;
     let rows = area.height as usize;
     for (k, file) in files.iter().take(rows).enumerate() {
+        let row = Rect { y: area.y + k as u16, height: 1, ..area };
+        frects.push((idx, k, row));
+        let on = file_sel == Some(k);
         // In truecolor, fade each successive row's background a little darker so
         // the list reads as a gradient down the box.
-        let bg = if theme.truecolor {
+        let bg = if on {
+            theme.cursor.bg.unwrap_or(theme.panel_bg)
+        } else if theme.truecolor {
             darken(theme.panel_bg, (k as f32 * 0.08).min(0.6))
         } else {
             theme.panel_bg
         };
-        let path_style = Style::default().fg(theme.panel_fg).bg(bg);
-        let size_style = Style::default().fg(color).bg(bg);
+        let path_style = if on {
+            theme.cursor.add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.panel_fg).bg(bg)
+        };
+        let size_style = if on { theme.cursor } else { Style::default().fg(color).bg(bg) };
 
         let size = human_gb(file.size);
         // Reserve "<space>SIZE" on the right; the path fills the rest.
@@ -325,10 +392,7 @@ fn draw_file_list(
             Span::styled(pad_right(&path, path_w), path_style),
             Span::styled(format!(" {size}"), size_style),
         ]);
-        f.render_widget(
-            Paragraph::new(line).style(Style::default().bg(bg)),
-            Rect { y: area.y + k as u16, height: 1, ..area },
-        );
+        f.render_widget(Paragraph::new(line).style(Style::default().bg(bg)), row);
     }
 }
 
@@ -337,15 +401,17 @@ fn draw_file_list(
 /// recessed, semi-transparent sub-boxes for its largest files, with the names
 /// baked into the pixels. Used whenever the terminal has a graphics protocol;
 /// [`draw_box`] is the cell fallback.
+#[allow(clippy::too_many_arguments)]
 fn render_treemap_graphics(
     f: &mut Frame,
     body: Rect,
     entries: &[DiskEntry],
     rects: &[Rect],
     selected: usize,
+    file_sel: Option<usize>,
     theme: &Theme,
     g: &mut Gfx,
-) {
+) -> Vec<(usize, usize, Rect)> {
     let (cw, ch) = g.cell();
     let (iw, ih) = g.px_size(body);
     let accent = raster::rgb(theme.panel_border_active);
@@ -358,7 +424,7 @@ fn render_treemap_graphics(
     let sig = {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        (iw, ih, cw, ch, selected).hash(&mut h);
+        (iw, ih, cw, ch, selected, file_sel).hash(&mut h);
         raster::rgb(theme.panel_bg).hash(&mut h);
         accent.hash(&mut h);
         raster::rgb(theme.cursor_fg).hash(&mut h);
@@ -374,8 +440,67 @@ fn render_treemap_graphics(
         h.finish()
     };
 
-    let build = move || build_treemap_image(body, cw, ch, entries, rects, selected, theme, accent);
+    let build =
+        move || build_treemap_image(body, cw, ch, entries, rects, selected, file_sel, theme, accent);
     g.draw_cached(f, body, Slot::Treemap(0), sig, build);
+    // The image is cached, but the cursor still needs to know where each file
+    // sub-box landed, so the (cheap) layout is repeated in cell coordinates.
+    file_cell_rects(cw, ch, entries, rects)
+}
+
+/// Where each box's file sub-boxes land, in terminal cells — the mouse and the
+/// ↑/↓ cursor work in cells, while the treemap image is laid out in pixels.
+/// Mirrors the sub-box layout [`build_treemap_image`] performs.
+fn file_cell_rects(
+    cw: u32,
+    ch: u32,
+    entries: &[DiskEntry],
+    rects: &[Rect],
+) -> Vec<(usize, usize, Rect)> {
+    let mut out = Vec::new();
+    for (i, (entry, rect)) in entries.iter().zip(rects).enumerate() {
+        let (bw, bh) = (rect.width as u32 * cw, rect.height as u32 * ch);
+        if bw < 3 || bh < 3 {
+            continue;
+        }
+        for (k, r) in sub_file_rects(entry, bw, bh).iter().enumerate() {
+            // Pixel rect → cells, relative to the box's top-left (+1px grout).
+            let x = rect.x + ((r.x as u32 + 1) / cw) as u16;
+            let y = rect.y + ((r.y as u32 + 1) / ch) as u16;
+            let w = (r.w as u32 / cw) as u16;
+            let h = (r.h as u32 / ch) as u16;
+            if w == 0 || h == 0 {
+                continue;
+            }
+            out.push((i, k, Rect { x, y, width: w, height: h }));
+        }
+    }
+    out
+}
+
+/// Squarify a box's largest files into its interior, below the name/size header.
+/// Shared by the image builder and the cell-coordinate mirror above so the two
+/// can never disagree about where a file sub-box is.
+fn sub_file_rects(entry: &DiskEntry, bw: u32, bh: u32) -> Vec<FRect> {
+    let (inner_w, inner_h) = (bw.saturating_sub(2) as f64, bh.saturating_sub(2) as f64);
+    let (name_px, size_px) = label_px(bw, bh);
+    let header_px = header_layout(bh, name_px, size_px).0 as f64;
+    let region_h = inner_h - header_px;
+    if entry.files.len() < 2 || inner_w <= 10.0 || region_h <= 10.0 {
+        return Vec::new();
+    }
+    let sizes: Vec<f64> = entry.files.iter().take(16).map(|fe| fe.size.max(1) as f64).collect();
+    // `squarify` expects each area pre-scaled to fill the region (like `treemap`
+    // does), so normalize the file sizes to the region's pixels — otherwise the
+    // raw byte counts produce a degenerate, incomplete layout.
+    let total: f64 = sizes.iter().sum::<f64>().max(1.0);
+    let region_area = inner_w * region_h;
+    let areas: Vec<f64> = sizes.iter().map(|s| s / total * region_area).collect();
+    let mut frects = squarify(&areas, 0.0, 0.0, inner_w, region_h);
+    for r in &mut frects {
+        r.y += header_px; // shift the sub-treemap below the header
+    }
+    frects
 }
 
 /// Build the full treemap image: one nested "pillow" box per entry with baked
@@ -389,6 +514,7 @@ fn build_treemap_image(
     entries: &[DiskEntry],
     rects: &[Rect],
     selected: usize,
+    file_sel: Option<usize>,
     theme: &Theme,
     accent: raster::Rgb,
 ) -> image::RgbaImage {
@@ -410,27 +536,11 @@ fn build_treemap_image(
         } else {
             raster::hsv(i as f64 * 137.508, 0.55, 0.72)
         };
-        // Squarify the box's largest files into its interior, below the name/size
-        // header (sized to the label scales so it doesn't overlap the sub-boxes).
-        let (inner_w, inner_h) = (bw.saturating_sub(2) as f64, bh.saturating_sub(2) as f64);
-        let (name_px, size_px) = label_px(bw, bh);
-        let header_px = header_layout(bh, name_px, size_px).0 as f64;
-        let region_h = inner_h - header_px;
-        let mut frects = if entry.files.len() >= 2 && inner_w > 10.0 && region_h > 10.0 {
-            let sizes: Vec<f64> = entry.files.iter().take(16).map(|fe| fe.size.max(1) as f64).collect();
-            // `squarify` expects each area pre-scaled to fill the region (like
-            // `treemap` does), so normalize the file sizes to the region's pixels —
-            // otherwise the raw byte counts produce a degenerate, incomplete layout.
-            let total: f64 = sizes.iter().sum::<f64>().max(1.0);
-            let region_area = inner_w * region_h;
-            let areas: Vec<f64> = sizes.iter().map(|s| s / total * region_area).collect();
-            squarify(&areas, 0.0, 0.0, inner_w, region_h)
-        } else {
-            Vec::new()
-        };
-        for r in &mut frects {
-            r.y += header_px; // shift the sub-treemap below the header
-        }
+        // The box's largest files, squarified into its interior below the
+        // name/size header. The cursor's file (if it is in this box) gets a
+        // bright rim, the same way the selected box does.
+        let frects = sub_file_rects(entry, bw, bh);
+        let on_file = (i == selected).then_some(file_sel).flatten();
         let subs: Vec<raster::SubBox> = frects
             .iter()
             .enumerate()
@@ -440,6 +550,7 @@ fn build_treemap_image(
                 w: r.w as f32,
                 h: r.h as f32,
                 color: raster::over((0, 0, 0), fill, 0.42 + 0.12 * (k % 3) as f64),
+                border: (on_file == Some(k)).then(|| raster::rgb(theme.cursor_fg)),
             })
             .collect();
         let border = (i == selected).then(|| raster::rgb(theme.cursor_fg));
@@ -695,6 +806,46 @@ mod tests {
         assert!(s.contains("25%"), "percentage shown");
     }
 
+    /// The renderer records where every file row landed (so the mouse and the
+    /// ↑/↓ cursor can reach it) and highlights the one the cursor is on.
+    #[test]
+    fn file_rows_are_recorded_and_the_selected_one_is_highlighted() {
+        use crate::disk::{DiskView, FileEntry};
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let mut dv = DiskView::new(std::path::PathBuf::from("/tmp"));
+        dv.scanning = false;
+        dv.entries = vec![DiskEntry {
+            name: "project".into(),
+            size: 9_000_000,
+            files: vec![
+                FileEntry { rel: "target/huge.bin".into(), size: 5_000_000 },
+                FileEntry { rel: "assets/movie.mp4".into(), size: 3_000_000 },
+            ],
+        }];
+        dv.file_sel = Some(1);
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        t.draw(|f| render(f, f.area(), &mut dv, &theme, None)).unwrap();
+
+        assert!(dv.file_rects.len() >= 2, "both file rows were recorded");
+        assert_eq!(dv.file_rects[0].0, 0, "recorded against the box that drew them");
+        assert_eq!(dv.file_rects[1].1, 1, "in file order");
+        // The selected row is painted in the cursor colors.
+        let row = dv.file_rects[1].2;
+        let b = t.backend().buffer();
+        assert_eq!(b[(row.x, row.y)].style().bg, theme.cursor.bg, "cursor row highlighted");
+        let other = dv.file_rects[0].2;
+        assert_ne!(b[(other.x, other.y)].style().bg, theme.cursor.bg, "the other row is not");
+
+        // The header names the selected file rather than the directory.
+        let mut header = String::new();
+        for x in 0..b.area.width {
+            header.push_str(b[(x, 1)].symbol());
+        }
+        assert!(header.contains("project/assets/movie.mp4"), "header: {header:?}");
+    }
+
     #[test]
     fn big_box_lists_its_largest_files() {
         use crate::disk::{DiskView, FileEntry};
@@ -756,6 +907,16 @@ mod tests {
             .filter(|&(x, y)| matches!(b[(x, y)].symbol(), "\u{2580}" | "\u{2584}"))
             .count();
         assert!(image_cells > 100, "the graphical pillow treemap should paint many image cells");
+        // The file sub-boxes are baked into the image, so the cursor needs the
+        // same layout mirrored into cells to know where they are.
+        assert!(!dv.file_rects.is_empty(), "file sub-boxes recorded in cell coordinates");
+        assert!(
+            dv.file_rects.iter().all(|(e, _, r)| *e == 0
+                && r.x >= dv.rects[0].x
+                && r.x + r.width <= dv.rects[0].x + dv.rects[0].width),
+            "every file rect sits inside its box: {:?}",
+            dv.file_rects
+        );
     }
 
     #[test]

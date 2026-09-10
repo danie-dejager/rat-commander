@@ -384,7 +384,7 @@ code = "en"
 "Tab switch   ↑↓ move   Enter actions   u unmount   r refresh   Esc close" = "Tab switch   ↑↓ move   Enter actions   u unmount   r refresh   Esc close"
 "arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close" = "arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close"
 "/ filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close" = "/ filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close"
-"←↑↓→/click move   Enter/dbl-click open   g go to dir   Bksp up   Esc close" = "←↑↓→/click move   Enter/dbl-click open   g go to dir   Bksp up   Esc close"
+"←↑↓→/click move   ↑↓ into files   Enter open   Del delete   g go to dir   Bksp up   Esc close" = "←↑↓→/click move   ↑↓ into files   Enter open   Del delete   g go to dir   Bksp up   Esc close"
 
 # -- Editor menu (F9) --
 "&Open file..." = "&Open file..."

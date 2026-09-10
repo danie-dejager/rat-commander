@@ -4341,3 +4341,51 @@ async fn esc_closes_the_editor_menu_rather_than_arming_a_prefix() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// Del on a file the disk explorer picked out inside a box confirms, deletes it,
+/// and folds the loss into the treemap in place — no rescan needed (issue #14).
+#[tokio::test]
+async fn disk_explorer_deletes_the_file_under_the_cursor() {
+    use crate::disk::{DiskSignal, DiskView};
+
+    let dir = temp_dir("dskdel");
+    let sub = dir.join("cache");
+    std::fs::create_dir_all(&sub).unwrap();
+    let file = sub.join("huge.bin");
+    std::fs::write(&file, vec![0u8; 64]).unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    let mut dv = DiskView::new(dir.clone());
+    dv.scanning = false;
+    dv.entries = crate::disk::scan_dir(&dir);
+    st.diskview = Some(dv);
+    // Draw once so the renderer records where the box's file rows landed — the
+    // cursor only steps onto files that are really on screen.
+    let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
+    term.draw(|f| crate::ui::draw(f, &mut st)).unwrap();
+    let before = st.diskview.as_ref().unwrap().entries[0].size;
+    assert!(!st.diskview.as_ref().unwrap().file_rects.is_empty(), "file rows drawn");
+
+    // ↓ steps onto the file, Del raises the confirmation.
+    st.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).await;
+    assert_eq!(st.diskview.as_ref().unwrap().file_sel, Some(0));
+    let sig = st.diskview.as_mut().unwrap().handle_key(key_del());
+    assert!(matches!(sig, DiskSignal::DeleteFile { .. }));
+    st.apply_disk_signal(sig).await;
+    assert!(st.dialog.is_some(), "deleting asks first");
+
+    // Confirming removes it from disk and from the box, right away.
+    st.handle_dialog_result(DialogResult::Submit(Submit::DeleteDiskFile(file.clone()))).await;
+    assert!(!file.exists(), "the file is gone");
+    let dv = st.diskview.as_ref().unwrap();
+    assert!(dv.entries[0].files.is_empty(), "and off the box's list at once");
+    assert!(dv.entries[0].size < before, "the box shrank by the file's size");
+    assert!(!dv.scanning, "without re-walking the subtree");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+fn key_del() -> KeyEvent {
+    KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE)
+}

@@ -116,8 +116,9 @@ The mouse works throughout:
   **dropdown** to open and pick from it, and click **OK/Cancel** to finish.
 - Click an entry in the **user menu** (F2) or the **shell-history** window to run
   / recall it.
-- In the **disk explorer**, click a box to select it and **double-click** to
-  enter that subdirectory.
+- In the **disk explorer**, click a box to select it — or click one of the big
+  files it lists to put the cursor on that file — and **double-click** to enter
+  that subdirectory.
 
 
 ## Keyboard shortcuts
@@ -1392,12 +1393,22 @@ drawn as pixel "pillow" boxes**: each directory is a softly cushion-shaded box
 **in its own hue**, subdivided into recessed, semi-transparent **sub-boxes** for
 its largest files (sized by their share, with names labeled where they fit), so
 every box reads as a little map of its own contents and much finer detail is
-visible than with characters. It falls back to character-cell boxes on a plain terminal. The top
-bar always shows the selected box's name, size and share of the total. **Arrow
-keys** move the selection, **Enter** dives into a subdirectory, **Backspace**
-goes up, **`g`** (or **Ctrl-Enter**) exits and points the active panel at the
-selected directory, **Esc** closes. With the **mouse**, click a box to select it
-and **double-click** to dive into it. Symlinks are never followed or counted.
+visible than with characters. It falls back to character-cell boxes on a plain terminal.
+
+**The cursor reaches the files, not just the boxes.** **`←`**/**`→`** move
+between boxes; **`↓`** steps *into* the selected box's list of biggest files and
+walks down it, and **`↑`** walks back up and out onto the box again — so the
+files a box advertises can be picked out directly, instead of vanishing the
+moment you dive into the directory. The top bar names whatever the cursor is on:
+the box's name, size and share of the total, or the selected file's path and
+size. **`Del`** (or **`F8`**) deletes the selected file after a confirmation, and
+the box shrinks and drops the row immediately — no rescan of the subtree.
+
+**Enter** still dives into a subdirectory (whether or not a file is selected),
+**Backspace** goes up, **`g`** (or **Ctrl-Enter**) exits and points the active
+panel at the selected directory, **Esc** closes. With the **mouse**, click a box
+to select it — or click one of its file rows/sub-boxes to select that file — and
+**double-click** to dive in. Symlinks are never followed or counted.
 
 
 ## Process explorer

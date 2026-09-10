@@ -375,7 +375,7 @@ code = "nl"
 "Tab switch   ↑↓ move   Enter actions   u unmount   r refresh   Esc close" = "Tab wisselen   ↑↓ bewegen   Enter acties   u ontkoppelen   r vernieuwen   Esc sluiten"
 "arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close" = "pijlen bewegen  ⏎ IP-details  k/K stoppen  / filteren  p proto  e verbonden  h loopback  Tab weergave  r vernieuwen  Esc sluiten"
 "/ filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close" = "/ filteren  s/S sorteren  p proto  e verbonden  h loopback  k/K stoppen  ⏎ details  Tab weergave  r vernieuwen  Esc sluiten"
-"←↑↓→/click move   Enter/dbl-click open   g go to dir   Bksp up   Esc close" = "←↑↓→/klik bewegen   Enter/dbl-klik openen   g naar map   Bksp omhoog   Esc sluiten"
+"←↑↓→/click move   ↑↓ into files   Enter open   Del delete   g go to dir   Bksp up   Esc close" = "←↑↓→/klik bewegen   ↑↓ naar bestanden   Enter openen   Del wissen   g naar map   Bksp omhoog   Esc sluiten"
 
 # -- Editor menu (F9) --
 "&Open file..." = "Bestand openen… (&O)"

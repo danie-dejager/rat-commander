@@ -375,7 +375,7 @@ code = "uk"
 "Tab switch   ↑↓ move   Enter actions   u unmount   r refresh   Esc close" = "Tab перемк.   ↑↓ рух   Enter дії   u відмонт.   r оновити   Esc закрити"
 "arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close" = "стрілки рух  ⏎ деталі IP  k/K вбити  / фільтр  p прото  e встановл.  h loopback  Tab вигляд  r оновити  Esc закрити"
 "/ filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close" = "/ фільтр  s/S сорт.  p прото  e встановл.  h loopback  k/K вбити  ⏎ деталі  Tab вигляд  r оновити  Esc закрити"
-"←↑↓→/click move   Enter/dbl-click open   g go to dir   Bksp up   Esc close" = "←↑↓→/клік рух   Enter/подв.клік відкрити   g до каталогу   Bksp вгору   Esc закрити"
+"←↑↓→/click move   ↑↓ into files   Enter open   Del delete   g go to dir   Bksp up   Esc close" = "←↑↓→/клік рух   ↑↓ до файлів   Enter відкрити   Del видалити   g до каталогу   Bksp вгору   Esc закрити"
 
 # -- Editor menu (F9) --
 "&Open file..." = "Відкрити файл… (&O)"
