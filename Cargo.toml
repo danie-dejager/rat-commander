@@ -117,6 +117,14 @@ epaint_default_fonts = "0.36.1"
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.31.3", features = ["fs", "user", "signal", "process", "term"] }
 
+# Console input-mode save/restore around suspended child programs: PowerShell
+# hands the shared console back with its own input mode set, which would
+# otherwise outlive it and break both the "press a key" prompt and the resumed
+# TUI's key decoding. Already in the tree as crossterm's own Windows backend, so
+# this adds no new crate.
+[target.'cfg(windows)'.dependencies]
+crossterm_winapi = "0.9.1"
+
 [profile.release]
 strip = true
 opt-level = 3

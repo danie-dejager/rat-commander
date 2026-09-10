@@ -94,11 +94,26 @@ async fn run_loop(
     // Persistent Ctrl-O shells, kept alive across toggles: the local subshell plus
     // one per open SFTP/SCP session (opened on demand).
     let mut shells = Shells::default();
-    // The crossterm event stream is owned here (not by `run`) so the Ctrl-O
-    // subshell path can drop it: its background reader thread would otherwise
-    // keep competing for stdin while the subshell does its own blocking read,
-    // stealing the very Ctrl-O that should toggle back.
+    // The crossterm event stream is owned here (not by `run`) so it can be
+    // dropped whenever the terminal is handed to something else — see
+    // `handing_over!` below.
     let mut events = EventStream::new();
+
+    // Run something that takes the terminal away from us (a suspended command,
+    // an external program, the Ctrl-O subshell) with the event stream's stdin
+    // reader released for the duration: its background thread would otherwise
+    // keep competing for input while that program does its own blocking read —
+    // stealing the very Ctrl-O that should toggle back from the subshell, or
+    // the key press that dismisses a finished command's output (issue #12). A
+    // fresh stream is created on the way back.
+    macro_rules! handing_over {
+        ($call:expr) => {{
+            drop(events);
+            let result = $call.await;
+            events = EventStream::new();
+            result?
+        }};
+    }
 
     loop {
         // Start-in-editor mode (`rc /edit …`): once the editor and any of its
@@ -117,9 +132,13 @@ async fn run_loop(
         // A repaint request (the editor's Ctrl-L) drops the diffing renderer's
         // idea of what is on screen, so the whole frame is rewritten — the point
         // of the key when another program has scribbled over the terminal.
+        // `force_full_redraw` rather than `Terminal::clear`: the latter queries
+        // the cursor position through crossterm's event reader, which is
+        // unreliable right after a suspend recreated the event stream (see its
+        // doc comment), and it wouldn't drop the stale terminal-graphics cache.
         if state.force_clear {
             state.force_clear = false;
-            term.clear()?;
+            force_full_redraw(term, state)?;
         }
         term.draw(|f| ui::draw(f, state))?;
 
@@ -141,23 +160,16 @@ async fn run_loop(
                             match state.handle_key(key).await {
                                 Flow::Quit => break,
                                 Flow::RunCommand(cmd) => {
-                                    run_command(term, state, &mut shells, &cmd).await?
+                                    handing_over!(run_command(term, state, &mut shells, &cmd))
                                 }
                                 Flow::RunCommandForeground(cmd) => {
-                                    run_command_foreground(term, state, &cmd).await?
+                                    handing_over!(run_command_foreground(term, state, &cmd))
                                 }
                                 Flow::RunExternal { program, path } => {
-                                    run_external(term, state, &program, &path).await?
+                                    handing_over!(run_external(term, state, &program, &path))
                                 }
                                 Flow::SubShell => {
-                                    // Release the event stream's stdin reader
-                                    // so the subshell owns the terminal input
-                                    // while toggled in (its Ctrl-O to return
-                                    // would otherwise be swallowed by the reader
-                                    // thread). A fresh stream is recreated after.
-                                    drop(events);
-                                    toggle_subshell(term, state, &mut shells).await?;
-                                    events = EventStream::new();
+                                    handing_over!(toggle_subshell(term, state, &mut shells))
                                 }
                                 Flow::Continue => {}
                             }
@@ -167,18 +179,16 @@ async fn run_loop(
                         match state.handle_mouse(me).await {
                             Flow::Quit => break,
                             Flow::RunCommand(cmd) => {
-                                run_command(term, state, &mut shells, &cmd).await?
+                                handing_over!(run_command(term, state, &mut shells, &cmd))
                             }
                             Flow::RunCommandForeground(cmd) => {
-                                run_command_foreground(term, state, &cmd).await?
+                                handing_over!(run_command_foreground(term, state, &cmd))
                             }
                             Flow::RunExternal { program, path } => {
-                                run_external(term, state, &program, &path).await?
+                                handing_over!(run_external(term, state, &program, &path))
                             }
                             Flow::SubShell => {
-                                drop(events);
-                                toggle_subshell(term, state, &mut shells).await?;
-                                events = EventStream::new();
+                                handing_over!(toggle_subshell(term, state, &mut shells))
                             }
                             Flow::Continue => {}
                         }
@@ -449,6 +459,7 @@ fn ensure_subshell(
 /// when no PTY console can be created (and always on Windows).
 async fn run_command_foreground(term: &mut Term, state: &mut AppState, cmd: &str) -> Result<()> {
     restore_terminal(term, state.kbd_enhanced)?;
+    let mode = InputMode::save();
     let console_cwd = state.console_cwd();
     let cwd = if console_cwd.scheme == "file" {
         console_cwd.path.clone()
@@ -459,16 +470,88 @@ async fn run_command_foreground(term: &mut Term, state: &mut AppState, cmd: &str
     let mut child = command_line_shell(cmd);
     child.current_dir(&cwd);
     let status = run_foreground(child).await;
+    mode.restore();
     match status {
         Ok(s) if !s.success() => println!("\n[exit status: {s}]"),
         Err(e) => println!("\n[failed to run: {e}]"),
         _ => {}
     }
-    print!("\n[Press Enter to return to Rat Commander]");
+    print!("\n[Press any key to return to Rat Commander]");
     io::stdout().flush().ok();
-    let mut line = String::new();
-    let _ = io::stdin().read_line(&mut line);
+    wait_for_key();
     resume_tui(term, state).await
+}
+
+/// The terminal's input mode, captured before handing the terminal to a child
+/// program so whatever the child leaves behind can be undone.
+///
+/// This only does anything on Windows, where every console program shares one
+/// console and its input mode outlives the program that set it: PowerShell and
+/// pwsh hand it back with `ENABLE_VIRTUAL_TERMINAL_INPUT` set, which changes
+/// how Enter arrives and how keys decode afterwards (issue #12). On Unix the
+/// tty settings that matter are the ones `enable_raw_mode`/`disable_raw_mode`
+/// manage, so there is nothing to save.
+#[cfg(windows)]
+struct InputMode(Option<u32>);
+
+#[cfg(windows)]
+impl InputMode {
+    fn save() -> Self {
+        use crossterm_winapi::{ConsoleMode, Handle};
+        InputMode(
+            Handle::current_in_handle()
+                .ok()
+                .and_then(|h| ConsoleMode::from(h).mode().ok()),
+        )
+    }
+
+    fn restore(&self) {
+        use crossterm_winapi::{ConsoleMode, Handle};
+        if let (Some(mode), Ok(h)) = (self.0, Handle::current_in_handle()) {
+            let _ = ConsoleMode::from(h).set_mode(mode);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+struct InputMode;
+
+#[cfg(not(windows))]
+impl InputMode {
+    fn save() -> Self {
+        InputMode
+    }
+    fn restore(&self) {}
+}
+
+/// Wait for a key press before restoring the TUI, after a command has printed
+/// its output to the bare terminal.
+///
+/// Reading a line from stdin is not enough. A child can hand the terminal back
+/// in an input mode where that never returns: on Windows, PowerShell and pwsh
+/// leave the console with `ENABLE_VIRTUAL_TERMINAL_INPUT` set, so Enter arrives
+/// as a bare CR and `read_line` — which waits for an LF — blocks forever, with
+/// only Ctrl-Break getting out (issue #12; `cmd.exe` doesn't do this, which is
+/// why it worked). crossterm reads key *events* instead, which every console
+/// input mode delivers, and raw mode makes a single press enough on Unix too.
+///
+/// The caller must have dropped the app's [`EventStream`] first — its reader
+/// thread would otherwise race us for the very key we are waiting for.
+fn wait_for_key() {
+    let raw = enable_raw_mode().is_ok();
+    loop {
+        match ratatui::crossterm::event::read() {
+            // Releases and repeats are ignored: the key that launched the
+            // command may still have its release pending in the input queue.
+            Ok(Event::Key(k)) if k.kind == KeyEventKind::Press => break,
+            Ok(_) => continue,
+            Err(_) => break, // nothing to read from — never hang on it
+        }
+    }
+    if raw {
+        let _ = disable_raw_mode();
+    }
+    println!();
 }
 
 /// Suspend the TUI and run an external program (editor/viewer) against a file.
@@ -479,16 +562,17 @@ async fn run_external(
     path: &std::path::Path,
 ) -> Result<()> {
     restore_terminal(term, state.kbd_enhanced)?;
+    let mode = InputMode::save();
 
     // Run `program <path>` via the shell so arguments in the command work.
     let cmd = format!("{program} \"{}\"", path.display());
     let status = run_foreground(shell_command(&cmd)).await;
+    mode.restore();
     if let Err(e) = status {
         println!("\n[failed to run external program: {e}]");
-        print!("[Press Enter to continue]");
+        print!("[Press any key to continue]");
         io::stdout().flush().ok();
-        let mut line = String::new();
-        let _ = io::stdin().read_line(&mut line);
+        wait_for_key();
     }
 
     resume_tui(term, state).await
@@ -616,8 +700,10 @@ fn take_terminal_back(term: &mut Term, state: &mut AppState) -> Result<()> {
 /// Fallback when a PTY can't be created: run an interactive shell once.
 async fn run_oneshot_shell(term: &mut Term, state: &mut AppState, cwd: &std::path::Path) -> Result<()> {
     restore_terminal(term, state.kbd_enhanced)?;
+    let mode = InputMode::save();
     println!("[Rat Commander subshell — type 'exit' to return]");
     let _ = interactive_shell().current_dir(cwd).status().await;
+    mode.restore();
     resume_tui(term, state).await
 }
 
