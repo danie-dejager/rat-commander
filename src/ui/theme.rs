@@ -6,6 +6,7 @@
 //! terminalcolors.com is provided in [`PALETTES`]; more can be added by
 //! appending palette literals.
 
+use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -44,6 +45,241 @@ pub struct Palette {
     pub bright_magenta: Color,
     pub bright_cyan: Color,
     pub bright_white: Color,
+}
+
+// ---------------------------------------------------------------------------
+// Per-element gradients
+// ---------------------------------------------------------------------------
+
+/// The axis a gradient runs along inside the element it paints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GradientDir {
+    /// Left edge to right edge.
+    #[default]
+    Horizontal,
+    /// Top edge to bottom edge.
+    Vertical,
+    /// Top-left corner to bottom-right corner.
+    Diagonal,
+    /// Center outwards to the corners.
+    Radial,
+}
+
+impl GradientDir {
+    pub const ALL: [GradientDir; 4] =
+        [Self::Horizontal, Self::Vertical, Self::Diagonal, Self::Radial];
+
+    /// A one-character marker for the theme editor's item list. Kept to arrows
+    /// and a circle from the common blocks, so a plain terminal font has them.
+    pub fn glyph(self) -> char {
+        match self {
+            Self::Horizontal => '↔',
+            Self::Vertical => '↕',
+            Self::Diagonal => '↘',
+            Self::Radial => '◎',
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Horizontal => "Horizontal",
+            Self::Vertical => "Vertical",
+            Self::Diagonal => "Diagonal",
+            Self::Radial => "Radial",
+        }
+    }
+
+    /// The next direction, for cycling through them in the theme editor.
+    pub fn next(self) -> Self {
+        let i = Self::ALL.iter().position(|d| *d == self).unwrap_or(0);
+        Self::ALL[(i + 1) % Self::ALL.len()]
+    }
+
+    /// Where the cell at `(x, y)` sits along the gradient, in `[0, 1]`. The
+    /// coordinates are absolute; `r` is the region the ramp spans.
+    pub fn t(self, x: u16, y: u16, r: Rect) -> f64 {
+        let fx = frac(x.saturating_sub(r.x), r.width);
+        let fy = frac(y.saturating_sub(r.y), r.height);
+        match self {
+            Self::Horizontal => fx,
+            Self::Vertical => fy,
+            Self::Diagonal => (fx + fy) / 2.0,
+            Self::Radial => {
+                // Normalized offset from the center, so the ramp fills whatever
+                // shape the region has (a wide box gets a wide ellipse).
+                let (dx, dy) = ((fx - 0.5) * 2.0, (fy - 0.5) * 2.0);
+                ((dx * dx + dy * dy).sqrt() / std::f64::consts::SQRT_2).clamp(0.0, 1.0)
+            }
+        }
+    }
+}
+
+/// `d`'s position within a `span`-wide axis, in `[0, 1]`.
+fn frac(d: u16, span: u16) -> f64 {
+    if span <= 1 {
+        0.0
+    } else {
+        (d as f64 / (span - 1) as f64).clamp(0.0, 1.0)
+    }
+}
+
+/// A gradient attached to one UI element in `themes.toml`:
+///
+/// ```toml
+/// [theme.gradients.panel_bg]
+/// to = "#001a80"
+/// direction = "vertical"
+/// animated = false
+/// ```
+///
+/// `from` defaults to the element's own color (`panel_bg` above), so a gradient
+/// usually only has to name its second endpoint. `animated` is off by default —
+/// a moving background is distracting, while a moving cursor or bar is not — and
+/// is additionally gated on the global animation setting.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct GradientSpec {
+    /// First endpoint; the element's own flat color when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "opt_hex_color")]
+    pub from: Option<Color>,
+    /// Second endpoint.
+    #[serde(with = "hex_color")]
+    pub to: Color,
+    #[serde(default)]
+    pub direction: GradientDir,
+    #[serde(default)]
+    pub animated: bool,
+}
+
+impl GradientSpec {
+    /// A still, horizontal ramp from the element's own color to `to`.
+    pub fn new(to: Color) -> Self {
+        GradientSpec { from: None, to, direction: GradientDir::Horizontal, animated: false }
+    }
+
+    /// The ramp the theme editor switches an element on with: towards white on a
+    /// dark color, towards black on a light one, so the gradient is visible the
+    /// moment it is enabled and can then be tuned.
+    pub fn default_for(base: Color) -> Self {
+        let (r, g, b) = to_rgb(base);
+        let luma = 0.299 * r as f64 + 0.587 * g as f64 + 0.114 * b as f64;
+        let target = if luma > 140.0 { rgb(0x000000) } else { rgb(0xffffff) };
+        Self::new(mix(base, target, 0.35))
+    }
+}
+
+/// Whether a gradient repaints a cell's background or its foreground.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GradPaint {
+    Bg,
+    Fg,
+}
+
+/// The part of the screen an element owns. The bars are the only chrome drawn
+/// over a full row of their own, so keeping them in their own zone stops a body
+/// gradient from bleeding into a bar that happens to share its color (the stock
+/// themes give the cursor, the menu bar and the F-key bar one and the same
+/// teal).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GradZone {
+    Body,
+    Menubar,
+    Fkeys,
+}
+
+/// Generate the gradient-carrying elements from one ordered list: the role enum,
+/// the serialized `[theme.gradients.*]` table, and the lookup from a role to the
+/// flat color it ramps from. Roles are listed most-specific first — that is the
+/// order [`crate::ui::gradient`] resolves a cell's color in.
+macro_rules! gradient_roles {
+    ( $( $variant:ident, $field:ident, $paint:ident, $zone:ident ; )* ) => {
+        /// A UI element that can carry its own gradient.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum GradRole { $( $variant, )* }
+
+        /// How many elements can carry a gradient.
+        pub const GRAD_ROLES: usize = [ $( stringify!($variant), )* ].len();
+
+        impl GradRole {
+            /// Every role, most-specific first.
+            pub const ALL: [GradRole; GRAD_ROLES] = [ $( GradRole::$variant, )* ];
+
+            /// This role's slot in a theme's resolved gradient table.
+            pub fn index(self) -> usize {
+                self as usize
+            }
+
+            pub fn paint(self) -> GradPaint {
+                match self { $( GradRole::$variant => GradPaint::$paint, )* }
+            }
+
+            pub fn zone(self) -> GradZone {
+                match self { $( GradRole::$variant => GradZone::$zone, )* }
+            }
+        }
+
+        /// A theme's per-element gradients. Every element is optional; without
+        /// one it keeps painting its flat color.
+        #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct Gradients {
+            $( #[serde(default, skip_serializing_if = "Option::is_none")]
+               pub $field: Option<GradientSpec>, )*
+        }
+
+        impl Gradients {
+            pub fn get(&self, role: GradRole) -> Option<&GradientSpec> {
+                match role { $( GradRole::$variant => self.$field.as_ref(), )* }
+            }
+
+            /// The (possibly absent) gradient of `role`, for switching it on or off.
+            pub fn slot(&mut self, role: GradRole) -> &mut Option<GradientSpec> {
+                match role { $( GradRole::$variant => &mut self.$field, )* }
+            }
+
+            /// Whether the theme defines no gradients at all.
+            pub fn is_empty(&self) -> bool {
+                $( self.$field.is_none() && )* true
+            }
+        }
+
+        impl ThemeSpec {
+            /// The flat color `role` paints without a gradient — the ramp's
+            /// default first endpoint, and what the screen repaint matches
+            /// already-drawn cells against.
+            pub fn gradient_base(&self, role: GradRole) -> Color {
+                match role { $( GradRole::$variant => self.$field, )* }
+            }
+        }
+    };
+}
+
+gradient_roles! {
+    ButtonFocusedBg,   button_focused_bg,   Bg, Body;
+    ButtonBg,          button_bg,           Bg, Body;
+    InputBg,           input_bg,            Bg, Body;
+    CursorBg,          cursor_bg,           Bg, Body;
+    CursorInactiveBg,  cursor_inactive_bg,  Bg, Body;
+    DialogSelectionBg, dialog_selection_bg, Bg, Body;
+    MenuSelectionBg,   menu_selection_bg,   Bg, Body;
+    MenuBg,            menu_bg,             Bg, Body;
+    DialogBg,          dialog_bg,           Bg, Body;
+    PanelBg,           panel_bg,            Bg, Body;
+    MenubarBg,         menubar_bg,          Bg, Menubar;
+    FkeyLabelBg,       fkey_label_bg,       Bg, Fkeys;
+    PanelBorderActive, panel_border_active, Fg, Body;
+    PanelBorder,       panel_border,        Fg, Body;
+    DialogBorderFg,    dialog_border_fg,    Fg, Body;
+}
+
+/// A theme's gradient for one element, resolved to RGB endpoints.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Grad {
+    /// The flat color the element has without the gradient.
+    pub base: Color,
+    pub from: (u8, u8, u8),
+    pub to: (u8, u8, u8),
+    pub dir: GradientDir,
+    pub animated: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -128,9 +364,16 @@ pub struct ThemeSpec {
     #[serde(with = "hex_color")] pub error_fg: Color,
     /// Text drawn over animated gradient bars.
     #[serde(with = "hex_color")] pub bar_fg: Color,
-    /// Animated gradient endpoints (bars/cursor on truecolor terminals).
+    /// Accent gradient endpoints: the ramp the progress bars, graphs and disk
+    /// treemap fade through, and the default look of the bars and the cursor on
+    /// truecolor terminals (until those elements get a gradient of their own).
     #[serde(with = "hex_color")] pub gradient_from: Color,
     #[serde(with = "hex_color")] pub gradient_to: Color,
+
+    /// Per-element gradients (`[theme.gradients.*]`). Serialized last, since
+    /// TOML sub-tables have to follow the plain keys of their parent table.
+    #[serde(default, skip_serializing_if = "Gradients::is_empty")]
+    pub gradients: Gradients,
 }
 
 /// Which live-preview surface best exercises a given color, so the visual theme
@@ -145,37 +388,63 @@ pub enum PreviewKind {
     Editor,
 }
 
-/// One editable color in a [`ThemeSpec`]: a human label and the preview surface
-/// it drives. Entries are shown, in order, in the theme editor's item list.
+/// One editable row in a [`ThemeSpec`]: a human label and the preview surface it
+/// drives. Entries are shown, in order, in the theme editor's item list. A row
+/// with a `role` edits that element's *gradient* (its second endpoint) rather
+/// than a flat color, and follows the row of the color it ramps from.
 pub struct ThemeFieldMeta {
     pub group: &'static str,
     pub label: &'static str,
     pub preview: PreviewKind,
+    pub role: Option<GradRole>,
 }
 
 /// Generate the editable-field table and indexed color accessors from a single
 /// ordered list, so [`THEME_FIELDS`] and [`ThemeSpec::color_at`] can never drift
-/// out of sync.
+/// out of sync. Each entry names the flat color it edits; a gradient row names
+/// the same field plus the [`GradRole`] whose ramp it edits.
 macro_rules! theme_fields {
-    ( $( $group:literal, $label:literal, $preview:ident, $field:ident ; )* ) => {
-        /// Every editable color, in item-list display order. The index into this
+    ( $( $group:literal, $label:literal, $preview:ident, $field:ident, $role:expr ; )* ) => {
+        /// Every editable row, in item-list display order. The index into this
         /// table matches [`ThemeSpec::color_at`] / [`ThemeSpec::set_color_at`].
         pub static THEME_FIELDS: &[ThemeFieldMeta] = &[
-            $( ThemeFieldMeta { group: $group, label: $label, preview: PreviewKind::$preview }, )*
+            $( ThemeFieldMeta {
+                group: $group,
+                label: $label,
+                preview: PreviewKind::$preview,
+                role: $role,
+            }, )*
         ];
         impl ThemeSpec {
             /// The color of the editable field at display index `i` (falls back to
-            /// the panel background for an out-of-range index).
+            /// the panel background for an out-of-range index). A gradient row
+            /// yields its second endpoint, or — while the gradient is off — the
+            /// flat color it would ramp from.
             pub fn color_at(&self, i: usize) -> Color {
                 let mut n = 0usize;
-                $( if n == i { return self.$field; } n += 1; )*
+                $( if n == i {
+                    return match $role {
+                        Some(r) => self.gradients.get(r).map_or(self.$field, |g| g.to),
+                        None => self.$field,
+                    };
+                } n += 1; )*
                 let _ = n;
                 self.panel_bg
             }
             /// Replace the color of the editable field at display index `i`.
+            /// Setting a gradient row's color switches that gradient on.
             pub fn set_color_at(&mut self, i: usize, c: Color) {
                 let mut n = 0usize;
-                $( if n == i { self.$field = c; return; } n += 1; )*
+                $( if n == i {
+                    match $role {
+                        Some(r) => match self.gradients.slot(r) {
+                            Some(g) => g.to = c,
+                            slot => *slot = Some(GradientSpec::new(c)),
+                        },
+                        None => self.$field = c,
+                    }
+                    return;
+                } n += 1; )*
                 let _ = n;
             }
         }
@@ -184,55 +453,70 @@ macro_rules! theme_fields {
 
 theme_fields! {
     // -- Panels & chrome (previewed on the two-panel view) --
-    "Panel", "Background", Panels, panel_bg;
-    "Panel", "Foreground", Panels, panel_fg;
-    "Panel", "Border", Panels, panel_border;
-    "Panel", "Active border", Panels, panel_border_active;
-    "Panel", "Column header", Panels, header_fg;
-    "Cursor", "Background", Panels, cursor_bg;
-    "Cursor", "Foreground", Panels, cursor_fg;
-    "Cursor", "Inactive background", Panels, cursor_inactive_bg;
-    "Cursor", "Inactive foreground", Panels, cursor_inactive_fg;
-    "File types", "Marked", Panels, marked_fg;
-    "File types", "Directory", Panels, dir_fg;
-    "File types", "File", Panels, file_fg;
-    "File types", "Executable", Panels, exec_fg;
-    "File types", "Symlink", Panels, symlink_fg;
-    "File types", "Archive", Panels, archive_fg;
-    "File types", "Document", Panels, doc_fg;
-    "File types", "Image", Panels, image_fg;
-    "File types", "Media", Panels, media_fg;
-    "Menu bar", "Background", Panels, menubar_bg;
-    "Menu bar", "Foreground", Panels, menubar_fg;
-    "Function keys", "Label background", Panels, fkey_label_bg;
-    "Function keys", "Label foreground", Panels, fkey_label_fg;
-    "Function keys", "Number background", Panels, fkey_num_bg;
-    "Function keys", "Number foreground", Panels, fkey_num_fg;
-    "Function keys", "Gradient text", Panels, bar_fg;
-    "Gradient", "From", Panels, gradient_from;
-    "Gradient", "To", Panels, gradient_to;
-    "Pulldown menu", "Background", Panels, menu_bg;
-    "Pulldown menu", "Foreground", Panels, menu_fg;
-    "Pulldown menu", "Selection background", Panels, menu_selection_bg;
-    "Pulldown menu", "Selection foreground", Panels, menu_selection_fg;
-    "Pulldown menu", "Hotkey letter", Panels, hotkey_fg;
+    "Panel", "Background", Panels, panel_bg, None;
+    "Panel", "Background gradient", Panels, panel_bg, Some(GradRole::PanelBg);
+    "Panel", "Foreground", Panels, panel_fg, None;
+    "Panel", "Border", Panels, panel_border, None;
+    "Panel", "Border gradient", Panels, panel_border, Some(GradRole::PanelBorder);
+    "Panel", "Active border", Panels, panel_border_active, None;
+    "Panel", "Active border gradient", Panels, panel_border_active, Some(GradRole::PanelBorderActive);
+    "Panel", "Column header", Panels, header_fg, None;
+    "Cursor", "Background", Panels, cursor_bg, None;
+    "Cursor", "Background gradient", Panels, cursor_bg, Some(GradRole::CursorBg);
+    "Cursor", "Foreground", Panels, cursor_fg, None;
+    "Cursor", "Inactive background", Panels, cursor_inactive_bg, None;
+    "Cursor", "Inactive background gradient", Panels, cursor_inactive_bg, Some(GradRole::CursorInactiveBg);
+    "Cursor", "Inactive foreground", Panels, cursor_inactive_fg, None;
+    "File types", "Marked", Panels, marked_fg, None;
+    "File types", "Directory", Panels, dir_fg, None;
+    "File types", "File", Panels, file_fg, None;
+    "File types", "Executable", Panels, exec_fg, None;
+    "File types", "Symlink", Panels, symlink_fg, None;
+    "File types", "Archive", Panels, archive_fg, None;
+    "File types", "Document", Panels, doc_fg, None;
+    "File types", "Image", Panels, image_fg, None;
+    "File types", "Media", Panels, media_fg, None;
+    "Menu bar", "Background", Panels, menubar_bg, None;
+    "Menu bar", "Background gradient", Panels, menubar_bg, Some(GradRole::MenubarBg);
+    "Menu bar", "Foreground", Panels, menubar_fg, None;
+    "Function keys", "Label background", Panels, fkey_label_bg, None;
+    "Function keys", "Label background gradient", Panels, fkey_label_bg, Some(GradRole::FkeyLabelBg);
+    "Function keys", "Label foreground", Panels, fkey_label_fg, None;
+    "Function keys", "Number background", Panels, fkey_num_bg, None;
+    "Function keys", "Number foreground", Panels, fkey_num_fg, None;
+    "Function keys", "Gradient text", Panels, bar_fg, None;
+    "Accent", "Gradient from", Panels, gradient_from, None;
+    "Accent", "Gradient to", Panels, gradient_to, None;
+    "Pulldown menu", "Background", Panels, menu_bg, None;
+    "Pulldown menu", "Background gradient", Panels, menu_bg, Some(GradRole::MenuBg);
+    "Pulldown menu", "Foreground", Panels, menu_fg, None;
+    "Pulldown menu", "Selection background", Panels, menu_selection_bg, None;
+    "Pulldown menu", "Selection background gradient", Panels, menu_selection_bg, Some(GradRole::MenuSelectionBg);
+    "Pulldown menu", "Selection foreground", Panels, menu_selection_fg, None;
+    "Pulldown menu", "Hotkey letter", Panels, hotkey_fg, None;
     // -- Dialogs, inputs & buttons (previewed on the demo dialog) --
-    "Dialog", "Background", Dialog, dialog_bg;
-    "Dialog", "Foreground", Dialog, dialog_fg;
-    "Dialog", "Title", Dialog, dialog_title;
-    "Dialog", "Border", Dialog, dialog_border_fg;
-    "Dialog", "Border background", Dialog, dialog_border_bg;
-    "Dialog", "Selection background", Dialog, dialog_selection_bg;
-    "Dialog", "Selection foreground", Dialog, dialog_selection_fg;
-    "Dialog", "Error text", Dialog, error_fg;
-    "Input", "Background", Dialog, input_bg;
-    "Input", "Foreground", Dialog, input_fg;
-    "Button", "Background", Dialog, button_bg;
-    "Button", "Foreground", Dialog, button_fg;
-    "Button", "Focused background", Dialog, button_focused_bg;
-    "Button", "Focused foreground", Dialog, button_focused_fg;
+    "Dialog", "Background", Dialog, dialog_bg, None;
+    "Dialog", "Background gradient", Dialog, dialog_bg, Some(GradRole::DialogBg);
+    "Dialog", "Foreground", Dialog, dialog_fg, None;
+    "Dialog", "Title", Dialog, dialog_title, None;
+    "Dialog", "Border", Dialog, dialog_border_fg, None;
+    "Dialog", "Border gradient", Dialog, dialog_border_fg, Some(GradRole::DialogBorderFg);
+    "Dialog", "Border background", Dialog, dialog_border_bg, None;
+    "Dialog", "Selection background", Dialog, dialog_selection_bg, None;
+    "Dialog", "Selection background gradient", Dialog, dialog_selection_bg, Some(GradRole::DialogSelectionBg);
+    "Dialog", "Selection foreground", Dialog, dialog_selection_fg, None;
+    "Dialog", "Error text", Dialog, error_fg, None;
+    "Input", "Background", Dialog, input_bg, None;
+    "Input", "Background gradient", Dialog, input_bg, Some(GradRole::InputBg);
+    "Input", "Foreground", Dialog, input_fg, None;
+    "Button", "Background", Dialog, button_bg, None;
+    "Button", "Background gradient", Dialog, button_bg, Some(GradRole::ButtonBg);
+    "Button", "Foreground", Dialog, button_fg, None;
+    "Button", "Focused background", Dialog, button_focused_bg, None;
+    "Button", "Focused background gradient", Dialog, button_focused_bg, Some(GradRole::ButtonFocusedBg);
+    "Button", "Focused foreground", Dialog, button_focused_fg, None;
     // -- Editor / viewer --
-    "Editor / Viewer", "Body text", Editor, text_fg;
+    "Editor / Viewer", "Body text", Editor, text_fg, None;
 }
 
 /// A clone of every active theme spec, in file order — the editable source for
@@ -312,6 +596,9 @@ fn theme_to_spec(t: &Theme) -> ThemeSpec {
         bar_fg: t.bar_fg,
         gradient_from: Color::Rgb(t.grad_a.0, t.grad_a.1, t.grad_a.2),
         gradient_to: Color::Rgb(t.grad_b.0, t.grad_b.1, t.grad_b.2),
+        // The derived ANSI schemes keep their flat elements; gradients are
+        // something a theme opts into (in the editor or in `themes.toml`).
+        gradients: Gradients::default(),
     }
 }
 
@@ -339,6 +626,23 @@ mod hex_color {
     }
 }
 
+/// (De)serialize an optional [`Color`]: a `#rrggbb` string, or absent.
+mod opt_hex_color {
+    use ratatui::style::Color;
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(c: &Option<Color>, s: S) -> Result<S::Ok, S::Error> {
+        match c {
+            Some(c) => super::hex_color::serialize(c, s),
+            None => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Color>, D::Error> {
+        super::hex_color::deserialize(d).map(Some)
+    }
+}
+
 /// Default for [`ThemeSpec::file_fg`] (added after the initial release) so older
 /// `themes.toml` files without the field still deserialize; a neutral light gray
 /// like most themes' normal-file text. Regenerated presets set a per-theme value.
@@ -362,7 +666,23 @@ const THEMES_HEADER: &str = "\
 # UI element (e.g. menu_bg, dialog_bg, dialog_border_fg, input_bg, cursor_bg).
 # Edit any preset, add your own [[theme]] blocks, then pick one in Options →
 # Settings (the Theme field). Saving applies the change at once. Delete this file
-# to regenerate the presets.\n\n";
+# to regenerate the presets.
+#
+# Panels, dialogs, menus, inputs, buttons, cursors, the two bars and the frames
+# can each fade between two colors instead of painting one. Add a table per
+# element at the end of its [[theme]] (truecolor terminals only):
+#
+#   [theme.gradients.panel_bg]
+#   to = \"#001a80\"        # second endpoint; `from` defaults to panel_bg itself
+#   direction = \"vertical\" # horizontal | vertical | diagonal | radial
+#   animated = false       # off by default; drifts when on (with animations on)
+#
+# The elements that take one are panel_bg, panel_border, panel_border_active,
+# cursor_bg, cursor_inactive_bg, menubar_bg, fkey_label_bg, menu_bg,
+# menu_selection_bg, dialog_bg, dialog_border_fg, dialog_selection_bg, input_bg,
+# button_bg and button_focused_bg. Two elements set to the same flat color can
+# not be told apart on screen and so share a gradient — give them distinct
+# colors to ramp them separately. See the `Rat Commander Neon` preset.\n\n";
 
 /// The signature Rat Commander theme (the default): a deep-blue two-panel look
 /// with a teal selection bar and light "paper" dialogs. Defined with explicit
@@ -417,6 +737,7 @@ fn rat_commander_spec() -> ThemeSpec {
         bar_fg: rgb(0x000000),
         gradient_from: rgb(0x009c9c),
         gradient_to: rgb(0x12baba),
+        gradients: Gradients::default(),
     }
 }
 
@@ -472,6 +793,7 @@ fn midnight_commander_spec() -> ThemeSpec {
         bar_fg: rgb(0x000000),
         gradient_from: rgb(0x0dcdcd),
         gradient_to: rgb(0x0dcdcd),
+        gradients: Gradients::default(),
     }
 }
 
@@ -526,6 +848,68 @@ fn midnight_commander_dark_spec() -> ThemeSpec {
         bar_fg: rgb(0x000000),
         gradient_from: rgb(0x009c9c),
         gradient_to: rgb(0x12baba),
+        gradients: Gradients::default(),
+    }
+}
+
+/// A gradient showcase built on the Rat Commander colors: still ramps on the
+/// panels, dialogs and frames, and moving ones on the cursor and the two bars.
+/// Kept as a preset so the per-element gradients are visible (and editable)
+/// without hand-writing `themes.toml`.
+fn rat_commander_neon_spec() -> ThemeSpec {
+    let grad = |to: u32, direction: GradientDir, animated: bool| {
+        Some(GradientSpec { from: None, to: rgb(to), direction, animated })
+    };
+    ThemeSpec {
+        name: "Rat Commander Neon".to_string(),
+        panel_bg: rgb(0x14003c),
+        panel_border: rgb(0x7a3cff),
+        panel_border_active: rgb(0x22e0ff),
+        cursor_bg: rgb(0x7a1fff),
+        cursor_inactive_bg: rgb(0x2a0a5e),
+        menubar_bg: rgb(0x7a1fff),
+        menubar_fg: rgb(0xffffff),
+        fkey_label_bg: rgb(0x7a1fff),
+        fkey_label_fg: rgb(0xffffff),
+        fkey_num_bg: rgb(0x14003c),
+        dialog_bg: rgb(0x1d0a4e),
+        dialog_fg: rgb(0xe8e8ff),
+        dialog_title: rgb(0x22e0ff),
+        dialog_border_fg: rgb(0x7a3cff),
+        dialog_border_bg: rgb(0x1d0a4e),
+        dialog_selection_bg: rgb(0x7a1fff),
+        dialog_selection_fg: rgb(0xffffff),
+        menu_bg: rgb(0x1d0a4e),
+        menu_selection_bg: rgb(0x7a1fff),
+        input_bg: rgb(0x2a0a5e),
+        input_fg: rgb(0xe8e8ff),
+        button_bg: rgb(0x2a0a5e),
+        button_fg: rgb(0xe8e8ff),
+        button_focused_bg: rgb(0x7a1fff),
+        button_focused_fg: rgb(0xffffff),
+        bar_fg: rgb(0xffffff),
+        gradient_from: rgb(0x7a1fff),
+        gradient_to: rgb(0x22e0ff),
+        gradients: Gradients {
+            // Backgrounds stay still — a drifting panel is distracting.
+            panel_bg: grad(0x3d0a6e, GradientDir::Vertical, false),
+            dialog_bg: grad(0x2f1470, GradientDir::Diagonal, false),
+            menu_bg: grad(0x2f1470, GradientDir::Vertical, false),
+            input_bg: grad(0x3d0a6e, GradientDir::Horizontal, false),
+            panel_border: grad(0x22e0ff, GradientDir::Vertical, false),
+            panel_border_active: grad(0xff3caa, GradientDir::Vertical, false),
+            dialog_border_fg: grad(0x22e0ff, GradientDir::Horizontal, false),
+            // …while the chrome that marks *where you are* moves.
+            cursor_bg: grad(0x22e0ff, GradientDir::Horizontal, true),
+            cursor_inactive_bg: grad(0x3d0a6e, GradientDir::Horizontal, false),
+            menubar_bg: grad(0x22e0ff, GradientDir::Horizontal, true),
+            fkey_label_bg: grad(0x22e0ff, GradientDir::Horizontal, true),
+            button_bg: grad(0x3d0a6e, GradientDir::Radial, false),
+            button_focused_bg: grad(0x22e0ff, GradientDir::Radial, true),
+            dialog_selection_bg: grad(0x22e0ff, GradientDir::Horizontal, false),
+            menu_selection_bg: grad(0x22e0ff, GradientDir::Horizontal, false),
+        },
+        ..rat_commander_spec()
     }
 }
 
@@ -535,8 +919,12 @@ fn midnight_commander_dark_spec() -> ThemeSpec {
 /// `themes.toml` and serve as the fallback set. `Rat Commander` is first, so it
 /// is the default ([`Theme::mc`], [`BUILTIN`]`[0]`).
 fn builtin_specs() -> Vec<ThemeSpec> {
-    let mut specs =
-        vec![rat_commander_spec(), midnight_commander_spec(), midnight_commander_dark_spec()];
+    let mut specs = vec![
+        rat_commander_spec(),
+        midnight_commander_spec(),
+        midnight_commander_dark_spec(),
+        rat_commander_neon_spec(),
+    ];
     specs.extend(PALETTES.iter().map(|p| theme_to_spec(&Theme::from_ansi(p, true))));
     specs
 }
@@ -688,9 +1076,12 @@ pub struct Theme {
     pub anim: usize,
     /// Whether gradients should animate (slide) this frame.
     pub animated: bool,
-    /// Gradient endpoints (RGB) used for bars when `truecolor` is set.
+    /// Accent gradient endpoints (RGB) used for bars when `truecolor` is set.
     grad_a: (u8, u8, u8),
     grad_b: (u8, u8, u8),
+    /// Per-element gradients, resolved from the spec and indexed by
+    /// [`GradRole::index`]. Empty on a theme that defines none.
+    grads: [Option<Grad>; GRAD_ROLES],
 }
 
 impl Theme {
@@ -705,6 +1096,21 @@ impl Theme {
     pub fn from_spec(s: &ThemeSpec, truecolor: bool) -> Self {
         let bg_fg = |bg: Color, fg: Color| Style::default().bg(bg).fg(fg);
         let bold = |bg: Color, fg: Color| bg_fg(bg, fg).add_modifier(Modifier::BOLD);
+        // Resolve each element's gradient once: endpoints to RGB, with `from`
+        // defaulting to the flat color the element would otherwise paint.
+        let mut grads = [None; GRAD_ROLES];
+        for role in GradRole::ALL {
+            if let Some(g) = s.gradients.get(role) {
+                let base = s.gradient_base(role);
+                grads[role.index()] = Some(Grad {
+                    base,
+                    from: to_rgb(g.from.unwrap_or(base)),
+                    to: to_rgb(g.to),
+                    dir: g.direction,
+                    animated: g.animated,
+                });
+            }
+        }
         Theme {
             name: s.name.clone(),
             truecolor,
@@ -749,6 +1155,7 @@ impl Theme {
             animated: false,
             grad_a: to_rgb(s.gradient_from),
             grad_b: to_rgb(s.gradient_to),
+            grads,
         }
     }
 
@@ -856,6 +1263,7 @@ impl Theme {
             animated: false,
             grad_a: to_rgb(p.bright_blue),
             grad_b: to_rgb(p.bright_magenta),
+            grads: [None; GRAD_ROLES],
         };
 
         // The dialog frame matches the title/interior.
@@ -905,6 +1313,61 @@ impl Theme {
         let g = lerp(self.grad_a.1, self.grad_b.1, t);
         let b = lerp(self.grad_a.2, self.grad_b.2, t);
         Color::Rgb(r, g, b)
+    }
+
+    // -- Per-element gradients ------------------------------------------------
+
+    /// The gradient painting `role`, if this theme defines one. Gradients need
+    /// truecolor, so a 16/256-color terminal always gets `None` and the flat
+    /// element color it already had.
+    pub fn grad(&self, role: GradRole) -> Option<&Grad> {
+        if !self.truecolor {
+            return None;
+        }
+        self.grads[role.index()].as_ref()
+    }
+
+    /// Whether any element carries a gradient — the cheap check that lets the
+    /// screen-wide repaint skip a theme that has none.
+    pub fn has_gradients(&self) -> bool {
+        self.truecolor && self.grads.iter().any(Option::is_some)
+    }
+
+    /// `role`'s gradient color for the cell at `(x, y)` of the region `r` the
+    /// ramp spans.
+    pub fn grad_color_in(&self, role: GradRole, x: u16, y: u16, r: Rect) -> Option<Color> {
+        let g = self.grad(role)?;
+        Some(self.grad_color_of(g, g.dir.t(x, y, r)))
+    }
+
+    /// `role`'s gradient color at column `i` of a `width`-cell row — for the
+    /// one-row bars and the cursor bar, which paint themselves cell by cell.
+    pub fn grad_color_at(&self, role: GradRole, i: usize, width: usize) -> Option<Color> {
+        let w = width.min(u16::MAX as usize) as u16;
+        self.grad_color_in(role, i.min(u16::MAX as usize) as u16, 0, Rect::new(0, 0, w, 1))
+    }
+
+    /// The background for one cell of a gradient bar (menu bar, F-key labels,
+    /// cursor bar): the element's own gradient, else — on truecolor — the
+    /// theme's accent gradient, else `None` for "keep the flat style".
+    pub fn bar_bg(&self, role: GradRole, i: usize, width: usize) -> Option<Color> {
+        self.grad_color_at(role, i, width)
+            .or_else(|| self.truecolor.then(|| self.gradient_at(i, width)))
+    }
+
+    /// Interpolate one resolved gradient, sliding it when both the gradient and
+    /// the app's animation setting ask for it.
+    fn grad_color_of(&self, g: &Grad, t: f64) -> Color {
+        let t = if g.animated && self.animated {
+            triangle(t * 1.5 + self.anim as f64 * 0.04)
+        } else {
+            t.clamp(0.0, 1.0)
+        };
+        Color::Rgb(
+            lerp(g.from.0, g.to.0, t),
+            lerp(g.from.1, g.to.1, t),
+            lerp(g.from.2, g.to.2, t),
+        )
     }
 
     /// The gradient color (full RGB) at normalized position `t` in `[0, 1]`,
@@ -1271,6 +1734,155 @@ pub static PALETTES: &[Palette] = &[
 mod tests {
     use super::*;
 
+    // -- Per-element gradients ------------------------------------------------
+
+    /// A spec with `panel_bg` ramping black → white, for the gradient tests.
+    fn ramp_spec() -> ThemeSpec {
+        let mut spec = BUILTIN[0].clone();
+        spec.panel_bg = rgb(0x000000);
+        spec.gradients.panel_bg = Some(GradientSpec::new(rgb(0xffffff)));
+        spec
+    }
+
+    #[test]
+    fn a_gradient_runs_from_the_element_color_to_its_second_endpoint() {
+        let t = Theme::from_spec(&ramp_spec(), true);
+        let r = Rect::new(0, 0, 10, 1);
+        assert_eq!(t.grad_color_in(GradRole::PanelBg, 0, 0, r), Some(rgb(0x000000)));
+        assert_eq!(t.grad_color_in(GradRole::PanelBg, 9, 0, r), Some(rgb(0xffffff)));
+        // …and interpolates in between.
+        let mid = t.grad_color_in(GradRole::PanelBg, 5, 0, r).unwrap();
+        assert!(matches!(mid, Color::Rgb(v, _, _) if (100..=180).contains(&v)), "{mid:?}");
+        // An element the theme gives no gradient has none.
+        assert!(t.grad(GradRole::ButtonBg).is_none());
+    }
+
+    #[test]
+    fn an_explicit_from_overrides_the_element_color() {
+        let mut spec = ramp_spec();
+        spec.gradients.panel_bg = Some(GradientSpec { from: Some(rgb(0xff0000)), ..GradientSpec::new(rgb(0x00ff00)) });
+        let t = Theme::from_spec(&spec, true);
+        let r = Rect::new(0, 0, 4, 1);
+        assert_eq!(t.grad_color_in(GradRole::PanelBg, 0, 0, r), Some(rgb(0xff0000)));
+        assert_eq!(t.grad_color_in(GradRole::PanelBg, 3, 0, r), Some(rgb(0x00ff00)));
+    }
+
+    #[test]
+    fn gradients_need_truecolor() {
+        let t = Theme::from_spec(&ramp_spec(), false);
+        assert!(!t.has_gradients(), "no ramps on a 16/256-color terminal");
+        assert!(t.grad(GradRole::PanelBg).is_none());
+    }
+
+    #[test]
+    fn only_an_animated_gradient_moves_with_the_phase() {
+        let r = Rect::new(0, 0, 10, 4);
+        let still = Theme::from_spec(&ramp_spec(), true);
+        let mut moving = {
+            let mut spec = ramp_spec();
+            spec.gradients.panel_bg.as_mut().unwrap().animated = true;
+            Theme::from_spec(&spec, true)
+        };
+        let mut still = still;
+        for t in [&mut still, &mut moving] {
+            t.animated = true; // the app-wide animation setting is on
+        }
+        let sample = |t: &Theme, phase: usize| {
+            let mut t = t.clone();
+            t.anim = phase;
+            t.grad_color_in(GradRole::PanelBg, 3, 1, r)
+        };
+        assert_eq!(sample(&still, 0), sample(&still, 9), "a still gradient ignores the phase");
+        assert_ne!(sample(&moving, 0), sample(&moving, 9), "an animated one drifts");
+        // …and stands still again when the app's animations are switched off.
+        moving.animated = false;
+        assert_eq!(sample(&moving, 0), sample(&moving, 9));
+    }
+
+    #[test]
+    fn a_direction_picks_the_axis_the_ramp_runs_along() {
+        let r = Rect::new(0, 0, 8, 8);
+        let of = |dir: GradientDir, x, y| {
+            let mut spec = ramp_spec();
+            spec.gradients.panel_bg.as_mut().unwrap().direction = dir;
+            Theme::from_spec(&spec, true).grad_color_in(GradRole::PanelBg, x, y, r).unwrap()
+        };
+        // Horizontal varies across x and not down y; vertical is the other way.
+        assert_ne!(of(GradientDir::Horizontal, 0, 0), of(GradientDir::Horizontal, 7, 0));
+        assert_eq!(of(GradientDir::Horizontal, 3, 0), of(GradientDir::Horizontal, 3, 7));
+        assert_ne!(of(GradientDir::Vertical, 0, 0), of(GradientDir::Vertical, 0, 7));
+        assert_eq!(of(GradientDir::Vertical, 0, 3), of(GradientDir::Vertical, 7, 3));
+        // Diagonal reaches both endpoints only in the corners.
+        assert_eq!(of(GradientDir::Diagonal, 0, 0), rgb(0x000000));
+        assert_eq!(of(GradientDir::Diagonal, 7, 7), rgb(0xffffff));
+        // Radial starts in the middle and brightens outwards.
+        assert_eq!(of(GradientDir::Radial, 3, 3), of(GradientDir::Radial, 4, 4));
+        assert!(luma(of(GradientDir::Radial, 0, 0)) > luma(of(GradientDir::Radial, 4, 4)));
+    }
+
+    #[test]
+    fn gradients_round_trip_through_themes_toml() {
+        let mut spec = ramp_spec();
+        spec.gradients.cursor_bg = Some(GradientSpec {
+            from: Some(rgb(0x102030)),
+            to: rgb(0x405060),
+            direction: GradientDir::Radial,
+            animated: true,
+        });
+        let text = toml::to_string_pretty(&ThemesFile { theme: vec![spec.clone()] }).unwrap();
+        assert!(text.contains("[theme.gradients.panel_bg]"), "gradients get their own table:\n{text}");
+        assert!(text.contains("direction = \"radial\""), "the direction is a plain word:\n{text}");
+        let back: ThemesFile = toml::from_str(&text).unwrap();
+        assert_eq!(back.theme[0], spec);
+        // An absent `from` stays absent rather than being written out.
+        assert_eq!(text.matches("\nfrom =").count(), 1, "only cursor_bg names a `from`:\n{text}");
+    }
+
+    #[test]
+    fn a_theme_without_gradients_writes_no_table_and_still_loads() {
+        let spec = BUILTIN[1].clone(); // Midnight Commander: flat colors throughout
+        assert!(spec.gradients.is_empty());
+        let text = toml::to_string_pretty(&ThemesFile { theme: vec![spec.clone()] }).unwrap();
+        assert!(!text.contains("gradients"), "nothing is written for a flat theme:\n{text}");
+        let back: ThemesFile = toml::from_str(&text).unwrap();
+        assert_eq!(back.theme[0], spec);
+    }
+
+    #[test]
+    fn a_bar_falls_back_to_the_accent_gradient_until_it_has_its_own() {
+        // Stock themes: the menu bar keeps the accent ramp it always had.
+        let stock = Theme::from_spec(&BUILTIN[0], true);
+        assert_eq!(stock.bar_bg(GradRole::MenubarBg, 0, 10), Some(stock.gradient_at(0, 10)));
+        // Given its own gradient, the bar uses that instead.
+        let mut spec = BUILTIN[0].clone();
+        spec.menubar_bg = rgb(0x000000);
+        spec.gradients.menubar_bg = Some(GradientSpec::new(rgb(0xffffff)));
+        let own = Theme::from_spec(&spec, true);
+        assert_eq!(own.bar_bg(GradRole::MenubarBg, 0, 10), Some(rgb(0x000000)));
+        assert_eq!(own.bar_bg(GradRole::MenubarBg, 9, 10), Some(rgb(0xffffff)));
+        // Without truecolor there is no ramp at all, own gradient or not.
+        assert_eq!(Theme::from_spec(&spec, false).bar_bg(GradRole::MenubarBg, 0, 10), None);
+    }
+
+    #[test]
+    fn switching_a_gradient_on_starts_from_a_visible_ramp() {
+        // Dark elements ramp towards white, light ones towards black, so the
+        // theme editor shows something the moment the ramp is switched on.
+        assert!(luma(GradientSpec::default_for(rgb(0x101010)).to) > luma(rgb(0x101010)));
+        assert!(luma(GradientSpec::default_for(rgb(0xf0f0f0)).to) < luma(rgb(0xf0f0f0)));
+    }
+
+    #[test]
+    fn the_neon_preset_ships_still_backgrounds_and_moving_chrome() {
+        let neon = BUILTIN.iter().find(|s| s.name == "Rat Commander Neon").expect("preset present");
+        let g = &neon.gradients;
+        for still in [&g.panel_bg, &g.dialog_bg, &g.menu_bg] {
+            assert!(!still.expect("background ramps").animated, "backgrounds stay still");
+        }
+        assert!(g.cursor_bg.unwrap().animated, "the cursor drifts");
+        assert!(g.menubar_bg.unwrap().animated, "so do the bars");
+    }
+
     #[test]
     fn readable_on_only_adjusts_low_contrast_colors() {
         // A bright accent on a dark background already contrasts — left as-is.
@@ -1338,7 +1950,15 @@ mod tests {
             assert_eq!(a.menu_bg, b.menu_bg, "{} menu_bg", a.name);
             assert_eq!(a.dialog_border_fg, b.dialog_border_fg, "{} dialog_border_fg", a.name);
             assert_eq!(a.cursor_bg, b.cursor_bg, "{} cursor_bg", a.name);
+            assert_eq!(a, b, "{} round-trips whole, gradients included", a.name);
         }
+        // A gradient theme writes `[theme.gradients.*]` sub-tables, which have to
+        // sit after its own plain keys and must not swallow the presets after it.
+        let with_gradients = specs.iter().position(|s| !s.gradients.is_empty());
+        assert!(
+            with_gradients.is_some_and(|i| i < specs.len() - 1),
+            "a gradient preset is followed by more themes"
+        );
     }
 
     #[test]

@@ -9,7 +9,7 @@
 use super::{Focus, Overlay, ThemeEditor, SWATCHES, rgb_of};
 use crate::l10n::trd;
 use crate::ui::dialog::widgets::centered;
-use crate::ui::theme::{PreviewKind, Theme, THEME_FIELDS};
+use crate::ui::theme::{GradRole, GradZone, PreviewKind, Theme, THEME_FIELDS};
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -96,7 +96,12 @@ fn render_title(f: &mut Frame, area: Rect, ed: &ThemeEditor, theme: &Theme) {
     let style = Style::default().bg(theme.dialog_title).fg(theme.dialog_bg).add_modifier(Modifier::BOLD);
     fill(f, area, style);
     put(f, area, area.x, area.y, &left, style);
-    let help = "F2 Save   Tab Focus   Esc Close ";
+    // The gradient keys only exist on a gradient row, so advertise them there.
+    let help = if ed.role().is_some() {
+        "Space On/Off   ^D Direction   ^A Animate   F2 Save   Tab Focus   Esc Close "
+    } else {
+        "F2 Save   Tab Focus   Esc Close "
+    };
     if (help.len() as u16) < area.width {
         put(f, area, area.right() - help.len() as u16, area.y, help, style);
     }
@@ -187,19 +192,54 @@ fn render_item_list(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &The
         // Row background.
         put(f, inner, inner.x, y, &" ".repeat(iw), base);
         let marker = if selected { "▶ " } else { "  " };
-        let label = format!("{marker}{group} · {tlabel}");
+        // A gradient row hangs under the color it ramps from, labelled with its
+        // direction and a `*` while it animates (or "off" when switched off).
+        let grad = meta.role.and_then(|r| ed.spec.gradients.get(r));
+        let label = match meta.role {
+            Some(_) => {
+                let state = match grad {
+                    Some(g) => format!("{}{}", g.direction.glyph(), if g.animated { " *" } else { "" }),
+                    None => trd("off"),
+                };
+                format!("{marker}  ↳ {} {state}", trd("Gradient"))
+            }
+            None => format!("{marker}{group} · {tlabel}"),
+        };
         let label: String = label.chars().take(text_w).collect();
         put(f, inner, inner.x, y, &label, base);
-        // Swatch + hex, right-aligned.
-        let color = ed.spec.color_at(i);
+        // Right-aligned: the swatch and hex of a flat color, both endpoints of a
+        // live gradient, and nothing at all for one that is switched off.
         let sx = inner.x + inner.width - (hexw + sw) as u16;
-        put(f, inner, sx, y, "  ", Style::default().bg(color));
-        put(f, inner, sx + sw as u16, y, &format!(" {}", hex(color)), base);
+        match (meta.role, grad) {
+            (Some(_), None) => {}
+            (Some(role), Some(g)) => {
+                let from = g.from.unwrap_or_else(|| ed.spec.gradient_base(role));
+                put(f, inner, sx, y, " ", Style::default().bg(from));
+                put(f, inner, sx + 1, y, " ", Style::default().bg(g.to));
+                put(f, inner, sx + sw as u16, y, &format!(" {}", hex(g.to)), base);
+            }
+            (None, _) => {
+                let color = ed.spec.color_at(i);
+                put(f, inner, sx, y, "  ", Style::default().bg(color));
+                put(f, inner, sx + sw as u16, y, &format!(" {}", hex(color)), base);
+            }
+        }
     }
 }
 
 fn render_color_picker(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &Theme) {
-    let title = trd(THEME_FIELDS[ed.item.min(THEME_FIELDS.len() - 1)].label);
+    let meta = &THEME_FIELDS[ed.item.min(THEME_FIELDS.len() - 1)];
+    // On a gradient row the picker sets the ramp's second endpoint, so the box
+    // names the direction (and marks an animated one) alongside the element.
+    let title = match meta.role.and_then(|r| ed.spec.gradients.get(r)) {
+        Some(g) => format!(
+            "{} — {}{}",
+            trd(meta.label),
+            trd(g.direction.label()),
+            if g.animated { " *" } else { "" }
+        ),
+        None => trd(meta.label),
+    };
     let block = boxed(&title, ed.focus == Focus::Color, theme);
     let inner = block.inner(area);
     ed.z_color = inner;
@@ -316,20 +356,46 @@ fn render_preview(f: &mut Frame, area: Rect, ed: &ThemeEditor, chrome: &Theme) {
     if inner.width < 8 || inner.height < 4 {
         return;
     }
-    let pt = Theme::from_spec(&ed.spec, ed.truecolor);
+    // The preview animates on its own so a gradient's ✱ is visible while it is
+    // being tuned, whatever the app's own animation setting is doing.
+    let mut pt = Theme::from_spec(&ed.spec, ed.truecolor);
+    pt.animated = ed.truecolor;
+    pt.anim = chrome.anim;
+    crate::ui::gradient::reset();
     match ed.preview_kind() {
         PreviewKind::Panels => preview_panels(f, inner, ed, &pt),
         PreviewKind::Dialog => preview_dialog(f, inner, &pt),
         PreviewKind::Editor => preview_editor(f, inner, &pt),
     }
+    // The editor's own chrome is drawn with the app theme and deliberately left
+    // flat, so only the preview pane gets the edited theme's gradients.
+    crate::ui::gradient::apply(f, inner, &pt);
+}
+
+/// Draw one row of gradient chrome (the menu bar, the cursor bar) cell by cell,
+/// so the preview shows the same ramp the real thing does: the element's own
+/// gradient, else the theme's accent one, else the flat style.
+fn bar_row(f: &mut Frame, row: Rect, text: &str, role: GradRole, flat: Style, fg: Color, pt: &Theme) {
+    let width = row.width as usize;
+    let mut chars: Vec<char> = text.chars().take(width).collect();
+    chars.resize(width, ' ');
+    for (i, ch) in chars.iter().enumerate() {
+        let style = match pt.bar_bg(role, i, width) {
+            Some(bg) => Style::default().bg(bg).fg(fg),
+            None => flat,
+        };
+        put(f, row, row.x + i as u16, row.y, &ch.to_string(), style);
+    }
 }
 
 fn preview_panels(f: &mut Frame, area: Rect, ed: &ThemeEditor, pt: &Theme) {
     fill(f, area, Style::default().bg(pt.panel_bg).fg(pt.panel_fg));
-    // Menu bar.
+    // Menu bar. Claimed as a bar row so a body gradient can't repaint it.
     let mb = Style::default().bg(pt.menu_bg).fg(pt.menu_fg);
-    put(f, area, area.x, area.y, &" ".repeat(area.width as usize), pt.menubar);
-    put(f, area, area.x + 1, area.y, " Left   File   Command   Options   Right", pt.menubar);
+    let bar = Rect { height: 1, ..area };
+    crate::ui::gradient::mark_bar(GradZone::Menubar, bar);
+    let titles = "  Left   File   Command   Options   Right";
+    bar_row(f, bar, titles, GradRole::MenubarBg, pt.menubar, pt.bar_fg, pt);
 
     let body = Rect { x: area.x, y: area.y + 1, width: area.width, height: area.height.saturating_sub(2) };
     let halves = Layout::default()
@@ -371,11 +437,15 @@ fn preview_panels(f: &mut Frame, area: Rect, ed: &ThemeEditor, pt: &Theme) {
             if y >= pi.bottom() {
                 break;
             }
-            // Cursor bar on the second row of each panel.
-            if row == 1 {
-                let cur = if active { pt.cursor } else { pt.cursor_inactive };
-                put(f, pi, pi.x, y, &" ".repeat(pi.width as usize), cur);
-                put(f, pi, pi.x, y, name, cur);
+            // Cursor bar on the second row of each panel. The active one draws
+            // its gradient directly (as the real panel does); the inactive one
+            // paints flat and is repainted by the gradient pass, if it has one.
+            if row == 1 && active {
+                let cursor_row = Rect { y, height: 1, ..pi };
+                bar_row(f, cursor_row, name, GradRole::CursorBg, pt.cursor, pt.cursor_fg, pt);
+            } else if row == 1 {
+                put(f, pi, pi.x, y, &" ".repeat(pi.width as usize), pt.cursor_inactive);
+                put(f, pi, pi.x, y, name, pt.cursor_inactive);
             } else {
                 let mut st = Style::default().fg(*color).bg(pt.panel_bg);
                 if *bold {
@@ -392,14 +462,14 @@ fn preview_panels(f: &mut Frame, area: Rect, ed: &ThemeEditor, pt: &Theme) {
     let total = area.width as usize;
     let seg = total / labels.len().max(1);
     let mut x = area.x as usize;
+    crate::ui::gradient::mark_bar(GradZone::Fkeys, Rect { y: fy, height: 1, ..area });
     put(f, area, area.x, fy, &" ".repeat(total), pt.fkey_label);
     for (i, label) in labels.iter().enumerate() {
         let num = (i + 1).to_string();
         put(f, area, x as u16, fy, &num, pt.fkey_num);
-        let lstyle = if pt.truecolor {
-            Style::default().bg(pt.gradient_at(x, total)).fg(pt.bar_fg)
-        } else {
-            pt.fkey_label
+        let lstyle = match pt.bar_bg(GradRole::FkeyLabelBg, x, total) {
+            Some(bg) => Style::default().bg(bg).fg(pt.bar_fg),
+            None => pt.fkey_label,
         };
         put(f, area, (x + num.len()) as u16, fy, label, lstyle);
         x += seg;

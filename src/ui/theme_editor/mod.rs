@@ -10,7 +10,7 @@
 
 pub mod render;
 
-use crate::ui::theme::{self, PreviewKind, ThemeSpec, THEME_FIELDS};
+use crate::ui::theme::{self, GradRole, GradientSpec, PreviewKind, ThemeSpec, THEME_FIELDS};
 use ratatui::crossterm::event::{
     KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
@@ -238,6 +238,45 @@ impl ThemeEditor {
         }
     }
 
+    /// The element whose gradient the selected row edits, when it is a gradient
+    /// row rather than a flat color.
+    pub(crate) fn role(&self) -> Option<GradRole> {
+        THEME_FIELDS.get(self.item).and_then(|m| m.role)
+    }
+
+    /// The gradient keys, live on a gradient row in both the item list and the
+    /// color picker: `Space` switches the ramp on or off, `Ctrl-D` cycles its
+    /// direction and `Ctrl-A` its animation. Returns whether the key was one of
+    /// them. They take Ctrl because hex-code entry owns the bare letters `a`–`f`.
+    fn key_gradient(&mut self, key: KeyEvent) -> bool {
+        let Some(role) = self.role() else {
+            return false;
+        };
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        match key.code {
+            KeyCode::Char(' ') => {
+                let on = self.spec.gradients.get(role).is_some();
+                let base = self.spec.gradient_base(role);
+                *self.spec.gradients.slot(role) =
+                    (!on).then(|| GradientSpec::default_for(base));
+            }
+            KeyCode::Char('d') if ctrl => {
+                if let Some(g) = self.spec.gradients.slot(role) {
+                    g.direction = g.direction.next();
+                }
+            }
+            KeyCode::Char('a') if ctrl => {
+                if let Some(g) = self.spec.gradients.slot(role) {
+                    g.animated = !g.animated;
+                }
+            }
+            _ => return false,
+        }
+        self.hex_input = None;
+        self.swatch = nearest_swatch(self.spec.color_at(self.item));
+        true
+    }
+
     // -- key handling -------------------------------------------------------
 
     pub fn handle_key(&mut self, key: KeyEvent) -> ThemeEditorSignal {
@@ -318,7 +357,7 @@ impl ThemeEditor {
     fn key_list(&mut self, key: KeyEvent) {
         // Hex digits type a color code for the selected element without leaving
         // the list; any other key ends an in-progress entry.
-        if self.type_hex(key) {
+        if self.key_gradient(key) || self.type_hex(key) {
             return;
         }
         self.hex_input = None;
@@ -343,6 +382,13 @@ impl ThemeEditor {
     /// key was a hex digit — extending, and on the sixth applying, the code — or a
     /// Backspace editing an active entry.
     fn type_hex(&mut self, key: KeyEvent) -> bool {
+        // Ctrl/Alt chords are shortcuts, not typing — but AltGr reports as
+        // Ctrl+Alt on some terminals, so only one of the two disqualifies a key.
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
+        if ctrl != alt {
+            return false;
+        }
         if let KeyCode::Char(c) = key.code
             && c.is_ascii_hexdigit()
         {
@@ -372,7 +418,7 @@ impl ThemeEditor {
     }
 
     fn key_color(&mut self, key: KeyEvent) {
-        if self.type_hex(key) {
+        if self.key_gradient(key) || self.type_hex(key) {
             return;
         }
         // Any other key ends an in-progress hex entry and acts on the sliders.
@@ -687,6 +733,97 @@ mod tests {
     }
     fn editor_item() -> usize {
         THEME_FIELDS.iter().position(|m| m.preview == PreviewKind::Editor).unwrap()
+    }
+
+    /// The item-list index of the first gradient row (`Panel · Background`).
+    fn gradient_item() -> usize {
+        THEME_FIELDS.iter().position(|m| m.role.is_some()).unwrap()
+    }
+
+    #[test]
+    fn space_switches_a_gradient_on_and_off() {
+        let mut ed = ThemeEditor::new("Midnight Commander", true);
+        ed.item = gradient_item();
+        let role = ed.role().expect("a gradient row");
+        assert!(ed.spec.gradients.get(role).is_none(), "themes start flat");
+
+        ed.handle_key(k(KeyCode::Char(' ')));
+        let g = ed.spec.gradients.get(role).expect("switched on");
+        assert_ne!(g.to, ed.spec.gradient_base(role), "with a visible second endpoint");
+        assert!(!g.animated, "still by default");
+        assert!(ed.dirty());
+
+        ed.handle_key(k(KeyCode::Char(' ')));
+        assert!(ed.spec.gradients.get(role).is_none(), "and off again");
+    }
+
+    #[test]
+    fn ctrl_keys_cycle_the_direction_and_the_animation() {
+        use crate::ui::theme::GradientDir;
+        let mut ed = ThemeEditor::new("Midnight Commander", true);
+        ed.item = gradient_item();
+        let role = ed.role().unwrap();
+        let ctrl = |c: char| KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL);
+
+        // The keys do nothing until the gradient exists.
+        ed.handle_key(ctrl('d'));
+        assert!(ed.spec.gradients.get(role).is_none());
+
+        ed.handle_key(k(KeyCode::Char(' ')));
+        assert_eq!(ed.spec.gradients.get(role).unwrap().direction, GradientDir::Horizontal);
+        ed.handle_key(ctrl('d'));
+        assert_eq!(ed.spec.gradients.get(role).unwrap().direction, GradientDir::Vertical);
+        ed.handle_key(ctrl('a'));
+        assert!(ed.spec.gradients.get(role).unwrap().animated);
+        ed.handle_key(ctrl('a'));
+        assert!(!ed.spec.gradients.get(role).unwrap().animated);
+    }
+
+    #[test]
+    fn a_gradient_row_edits_the_second_endpoint() {
+        let mut ed = ThemeEditor::new("Midnight Commander", true);
+        ed.item = gradient_item();
+        let role = ed.role().unwrap();
+        // With the gradient off the row shows the color it would ramp from…
+        assert_eq!(ed.spec.color_at(ed.item), ed.spec.gradient_base(role));
+        // …and typing a hex code switches it on with that as the far endpoint.
+        for c in ['0', '0', 'f', 'f', '8', '8'] {
+            ed.handle_key(k(KeyCode::Char(c)));
+        }
+        let g = ed.spec.gradients.get(role).expect("typing a color switches it on");
+        assert_eq!(rgb_of(g.to), (0x00, 0xff, 0x88));
+        assert_eq!(rgb_of(ed.spec.color_at(ed.item)), (0x00, 0xff, 0x88));
+        // The flat color of the element itself is untouched.
+        assert_eq!(ed.spec.gradient_base(role), ed.baseline.gradient_base(role));
+    }
+
+    #[test]
+    fn the_gradient_keys_are_inert_on_a_color_row() {
+        let mut ed = ThemeEditor::new("Midnight Commander", true);
+        ed.item = THEME_FIELDS.iter().position(|m| m.role.is_none()).unwrap();
+        ed.handle_key(k(KeyCode::Char(' ')));
+        ed.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
+        assert!(!ed.dirty(), "a flat color row ignores them");
+    }
+
+    #[test]
+    fn a_gradient_row_shows_its_state_in_the_list() {
+        let theme = Theme::mc();
+        let mut ed = ThemeEditor::new("Midnight Commander", true);
+        ed.item = gradient_item();
+        let mut t = Terminal::new(TestBackend::new(120, 32)).unwrap();
+        let mut shown = |ed: &mut ThemeEditor| {
+            t.draw(|f| render::render(f, f.area(), ed, &theme)).unwrap();
+            buffer_text(&t)
+        };
+        let text = shown(&mut ed);
+        assert!(text.contains("Gradient off"), "a flat element says so:\n{text}");
+
+        ed.handle_key(k(KeyCode::Char(' '))); // switch it on
+        ed.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+        let text = shown(&mut ed);
+        assert!(text.contains("Gradient ↔ *"), "direction and animation marked:\n{text}");
+        assert!(text.contains("Horizontal"), "the picker names the direction:\n{text}");
     }
 
     #[test]

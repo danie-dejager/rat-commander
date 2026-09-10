@@ -405,7 +405,8 @@ Opened from **Options → Edit themes…**. `Tab` / `Shift-Tab` cycle the four p
   to the first / last. Switching with unsaved edits prompts to save, discard, or
   cancel.
 - **Color list** — `↑ ↓` / `PgUp PgDn` / `Home End` select the element to
-  recolor; `Enter` / `→` jump to the color picker.
+  recolor; `Enter` / `→` jump to the color picker. Under most colors sits an
+  indented **Gradient** row for that element's ramp (see below).
 - **Color picker** (truecolor) — `↑ ↓` pick the R / G / B channel; `← →` adjust
   it by 1, `Shift-←` / `Shift-→` by 20, `PgUp` / `PgDn` by 16, `Home` / `End`
   set it to 0 / 255; `Enter` returns to the list. On a 16-color terminal the
@@ -413,6 +414,12 @@ Opened from **Options → Edit themes…**. `Tab` / `Shift-Tab` cycle the four p
 - **Type a hex code** — from either the color list or the picker, type a
   six-digit hex code (e.g. `1a2b3c`) to set the selected color directly;
   `Backspace` edits it and `Esc` cancels the entry.
+- **Gradient rows** — on an indented **Gradient** row, `Space` switches the
+  ramp on or off, `Ctrl-D` cycles its direction (horizontal → vertical →
+  diagonal → radial) and `Ctrl-A` its animation. The color picker and hex entry
+  then set the ramp's **second** endpoint — the first is the element's own color
+  on the row above. The row shows both endpoints, the direction (`↔ ↕ ↘ ◎`) and
+  a `*` while it animates; the picker's title names the direction in full.
 - **Buttons** — `← →` move between **Save**, **Save as…** and **Cancel**;
   `Enter` / `Space` activates.
 - `F2` / `Ctrl-S` — Save and close. `Esc` / `F10` — Close (prompts to save,
@@ -1696,7 +1703,8 @@ open with default app** (off), **unmount** (on) and **exit** (on).
 Rat Commander ships many themes — Dracula, Nord, Gruvbox, Solarized, Tokyo
 Night, Catppuccin, One Dark and more — plus a classic Midnight Commander look,
 Monochrome, Amber/Green CRT, and some playful ones. On a truecolor terminal the
-bars and cursor render as animated gradients.
+bars and cursor render as animated gradients, and **`Rat Commander Neon`** shows
+off the per-element gradients described below.
 
 **Options → Edit themes…** opens a **visual theme editor**. It starts on the
 theme in use; pick any UI element from the color list and set its color with the
@@ -1720,6 +1728,48 @@ also edit the file directly — open it with **F4** in a panel, and saving
 live-reloads it. Delete the file to regenerate the presets. An older `themes.toml`
 is upgraded in place on start: newly-added fields (such as `file_fg`) are filled
 with sensible per-theme values, preserving each theme's appearance.
+
+#### Per-element gradients
+
+On a truecolor terminal any of these elements can fade between two colors
+instead of painting one flat color:
+
+| | |
+|---|---|
+| Panels | `panel_bg`, `panel_border`, `panel_border_active` |
+| Cursor | `cursor_bg`, `cursor_inactive_bg` |
+| Bars | `menubar_bg`, `fkey_label_bg` |
+| Dialogs | `dialog_bg`, `dialog_border_fg`, `dialog_selection_bg` |
+| Menus | `menu_bg`, `menu_selection_bg` |
+| Controls | `input_bg`, `button_bg`, `button_focused_bg` |
+
+Switch one on from the theme editor's indented **Gradient** rows, or add a table
+to the end of a `[[theme]]` block:
+
+```toml
+[theme.gradients.panel_bg]
+to = "#001a80"          # the second endpoint
+from = "#000040"        # optional; defaults to panel_bg itself
+direction = "vertical"  # horizontal | vertical | diagonal | radial
+animated = false        # off by default
+```
+
+Each element ramps across **its own** bounds, so every dialog, button and cursor
+bar carries a whole gradient rather than a slice of one screen-wide one.
+`animated` makes a ramp drift back and forth; it is off by default (a moving
+background is distracting, a moving cursor or bar is not) and also follows the
+global **Animation** setting, so switching animations off stills everything.
+
+Two caveats. Elements a theme paints in exactly the same color cannot be told
+apart on screen and therefore share a gradient — the stock themes give the
+cursor, the menu bar and the F-key bar one and the same teal, so give them
+distinct colors to ramp them separately. And gradients need truecolor: on a
+16/256-color terminal every element keeps its flat color.
+
+The separate `gradient_from` / `gradient_to` pair is the theme's **accent**
+ramp — the one the progress bars, graphs and the disk treemap fade through, and
+the default look of the bars and the cursor until those elements are given a
+gradient of their own.
 
 ### The F2 user-menu format
 

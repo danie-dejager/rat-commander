@@ -2,7 +2,7 @@
 //! ([`crate::ui::pulldown`]) draws its open menu over, plus the two widgets
 //! that share the row (background transfers and the system-status readout).
 
-use crate::ui::theme::Theme;
+use crate::ui::theme::{GradRole, GradZone, Theme};
 use crate::util::sysinfo::SysSampler;
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -30,10 +30,11 @@ pub fn render(f: &mut Frame, area: Rect, theme: &Theme, show_hotkeys: bool) {
 }
 
 /// Render a full-width menu bar carrying `bar_titles` — the file manager's own
-/// (via [`render`]) or the editor's. The bar is drawn as a gradient (truecolor)
-/// or two-tone row, with each title's first letter accented when
-/// `show_hotkeys`. The interactive pulldown paints its highlighted title over
-/// the result, so the gradient still shows through either side of it.
+/// (via [`render`]) or the editor's. The bar is drawn as a gradient (its own, or
+/// the theme's accent ramp on truecolor) or a two-tone row, with each title's
+/// first letter accented when `show_hotkeys`. The interactive pulldown paints
+/// its highlighted title over the result, so the gradient still shows through
+/// either side of it.
 pub fn render_titles(
     f: &mut Frame,
     area: Rect,
@@ -42,6 +43,9 @@ pub fn render_titles(
     show_hotkeys: bool,
 ) {
     let width = area.width as usize;
+    // Claim the row, so a body gradient can't repaint the bar (and the bar's own
+    // can't reach past it) when the two share a color.
+    crate::ui::gradient::mark_bar(GradZone::Menubar, area);
     // In RTL the reshaped title reads right-to-left, so the first-letter hotkey
     // accent no longer lines up — skip it (the accelerator key still works).
     let rtl = crate::l10n::active_is_rtl();
@@ -59,23 +63,20 @@ pub fn render_titles(
     }
     let is_hot = |i: usize| show_hotkeys && hotkeys.contains(&i);
 
-    // A gradient (truecolor) or two-tone bar, with hotkey letters accented.
+    // A gradient or two-tone bar, with hotkey letters accented.
     let spans: Vec<Span> = text
         .chars()
         .take(width)
         .enumerate()
         .map(|(i, ch)| {
-            let style = if theme.truecolor {
-                let base = Style::default().bg(theme.gradient_at(i, width));
-                if is_hot(i) {
-                    base.fg(theme.hotkey_fg).add_modifier(Modifier::BOLD)
-                } else {
-                    base.fg(theme.bar_fg)
-                }
-            } else if is_hot(i) {
-                theme.menubar.fg(theme.hotkey_fg).add_modifier(Modifier::BOLD)
+            let style = match theme.bar_bg(GradRole::MenubarBg, i, width) {
+                Some(bg) => Style::default().bg(bg).fg(theme.bar_fg),
+                None => theme.menubar,
+            };
+            let style = if is_hot(i) {
+                style.fg(theme.hotkey_fg).add_modifier(Modifier::BOLD)
             } else {
-                theme.menubar
+                style
             };
             Span::styled(ch.to_string(), style)
         })

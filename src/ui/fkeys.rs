@@ -1,6 +1,6 @@
 //! The F1..F10 shortcut hint row at the bottom of the screen.
 
-use crate::ui::theme::Theme;
+use crate::ui::theme::{GradRole, GradZone, Theme};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
@@ -54,9 +54,13 @@ pub fn panel_labels() -> [String; 10] {
 }
 
 /// Render a function-key hint row using the supplied labels. The segments are
-/// distributed so the row spans the full width of `area`. With truecolor, the
-/// bar is drawn as a horizontal gradient; otherwise the classic two-tone look.
+/// distributed so the row spans the full width of `area`. The labels are drawn
+/// as a gradient — the bar's own, or the theme's accent ramp on truecolor —
+/// otherwise in the classic two-tone look.
 pub fn render<S: AsRef<str>>(f: &mut Frame, area: Rect, labels: &[S], theme: &Theme) {
+    // Claim the row, so a body gradient can't repaint the bar (and the bar's own
+    // can't reach past it) when the two share a color.
+    crate::ui::gradient::mark_bar(GradZone::Fkeys, area);
     let n = labels.len().max(1);
     let total = area.width as usize;
     let base = total / n;
@@ -89,10 +93,11 @@ pub fn render<S: AsRef<str>>(f: &mut Frame, area: Rect, labels: &[S], theme: &Th
             let style = if *is_num {
                 // Numbers always sit on their solid, contrasting key-cap color.
                 theme.fkey_num
-            } else if theme.truecolor {
-                Style::default().bg(theme.gradient_at(i, total)).fg(theme.bar_fg)
             } else {
-                theme.fkey_label
+                match theme.bar_bg(GradRole::FkeyLabelBg, i, total) {
+                    Some(bg) => Style::default().bg(bg).fg(theme.bar_fg),
+                    None => theme.fkey_label,
+                }
             };
             Span::styled(ch.to_string(), style)
         })

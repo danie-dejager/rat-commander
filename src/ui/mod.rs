@@ -3,6 +3,7 @@
 pub mod cmdline;
 pub mod dialog;
 pub mod fkeys;
+pub mod gradient;
 pub mod graphics;
 pub mod hexcolor;
 pub mod layout;
@@ -19,11 +20,29 @@ use layout::SplitDir;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
-/// Render the entire UI for one frame.
+/// Render the entire UI for one frame, then paint the theme's per-element
+/// gradients over the finished picture (see [`gradient`]).
 pub fn draw(f: &mut Frame, state: &mut AppState) {
+    gradient::reset();
+    draw_body(f, state);
+    // The theme editor draws its preview with the theme *being edited* and
+    // paints that pane itself; the app theme's gradients would fight with it.
+    if state.theme_editor.is_none() {
+        let area = f.area();
+        gradient::apply(f, area, &frame_theme(state));
+    }
+}
+
+/// The active theme with this frame's animation state folded in.
+fn frame_theme(state: &AppState) -> crate::ui::theme::Theme {
     let mut theme = state.theme.clone();
     theme.anim = state.anim_phase;
     theme.animated = state.config.animation && state.truecolor;
+    theme
+}
+
+fn draw_body(f: &mut Frame, state: &mut AppState) {
+    let theme = frame_theme(state);
     let area = f.area();
     // Remember the frame area so mouse clicks can be hit-tested next event.
     state.last_area = area;
@@ -478,6 +497,30 @@ mod feature_tests {
         let top = (0..b.area.height).find(|&y| row_has(y, "┌")).expect("a panel top border");
         let bottom = (0..b.area.height).rfind(|&y| row_has(y, "└")).expect("a panel bottom border");
         bottom - top + 1
+    }
+
+    #[tokio::test]
+    async fn a_gradient_theme_ramps_the_panels_and_the_bars() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+        st.truecolor = true;
+        st.theme = crate::ui::theme::Theme::by_name("Rat Commander Neon", true);
+
+        let t = drawn(&mut st).await;
+        let b = t.backend().buffer();
+        let bg = |x: u16, y: u16| b[(x, y)].bg;
+
+        // The panel background ramps down the body (a still vertical gradient)…
+        let top = (0..b.area.height).find(|&y| (0..b.area.width).any(|x| b[(x, y)].symbol() == "┌"));
+        let top = top.expect("a panel top border");
+        assert_ne!(bg(2, top + 1), bg(2, b.area.height - 3), "the panels ramp downwards");
+        // …and each row of it is one shade.
+        assert_eq!(bg(2, top + 3), bg(4, top + 3));
+
+        // The F-key bar ramps across instead.
+        let fkeys = b.area.height - 1;
+        assert_ne!(bg(1, fkeys), bg(b.area.width - 2, fkeys), "the F-key bar ramps across");
     }
 
     #[tokio::test]

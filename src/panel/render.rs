@@ -1,7 +1,7 @@
 //! Rendering of a single [`Panel`] into a Ratatui area.
 
 use super::{Panel, ViewFormat};
-use crate::ui::theme::Theme;
+use crate::ui::theme::{GradRole, Theme};
 use crate::util::bytes::{format_time, human_size};
 use crate::util::text::{ellipsize, pad_left, pad_right};
 use crate::vfs::{VfsEntry, VfsKind};
@@ -16,20 +16,21 @@ const COL_SEP: &str = "│";
 /// The horizontal rule drawn between the listing and the mini-status line.
 const COL_SEP_H: &str = "─";
 
-/// Build a horizontal-gradient line for the given text (used for the cursor
-/// bar when truecolor is available).
+/// Build a gradient line for the given text (used for the cursor bar when
+/// truecolor is available): the cursor's own gradient if the theme gives it one,
+/// else the theme's accent ramp.
 fn gradient_line(text: &str, width: usize, fg: Color, theme: &Theme) -> Line<'static> {
     let spans: Vec<Span> = text
         .chars()
         .take(width)
         .enumerate()
         .map(|(i, ch)| {
+            let bg = theme
+                .bar_bg(GradRole::CursorBg, i, width)
+                .unwrap_or_else(|| theme.cursor.bg.unwrap_or(theme.panel_bg));
             Span::styled(
                 ch.to_string(),
-                Style::default()
-                    .bg(theme.gradient_at(i, width))
-                    .fg(fg)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().bg(bg).fg(fg).add_modifier(Modifier::BOLD),
             )
         })
         .collect();
