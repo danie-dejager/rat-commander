@@ -605,6 +605,12 @@ fn theme_to_spec(t: &Theme) -> ThemeSpec {
 /// TOML wrapper: `[[theme]]` array-of-tables.
 #[derive(Default, Serialize, Deserialize)]
 struct ThemesFile {
+    /// Every preset this file has already been offered — so a preset the user
+    /// deleted stays deleted, while presets added in a later release are still
+    /// put in front of them. Declared (and so written) before the themes: a
+    /// plain key after an array of tables would belong to the last table.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    known_presets: Vec<String>,
     #[serde(default, rename = "theme")]
     theme: Vec<ThemeSpec>,
 }
@@ -667,6 +673,11 @@ const THEMES_HEADER: &str = "\
 # Edit any preset, add your own [[theme]] blocks, then pick one in Options →
 # Settings (the Theme field). Saving applies the change at once. Delete this file
 # to regenerate the presets.
+#
+# `known_presets` records which presets you have already been offered: a preset
+# you delete from this file stays deleted, while presets added in a later release
+# are appended on the next start. Take a name off that list to be offered its
+# preset again.
 #
 # Panels, dialogs, menus, inputs, buttons, cursors, the two bars and the frames
 # can each fade between two colors instead of painting one. Add a table per
@@ -949,6 +960,29 @@ fn tint(base: Color, accent: Color, amount: f64, fallback: f64) -> Color {
     if spread(base, tinted) >= 24 { tinted } else { shade(base, fallback) }
 }
 
+/// A preset built *around* its backdrop. [`derive_gradients`] gives every theme
+/// a hint of its own accent behind the panels; these fade to a color chosen for
+/// them instead — the Tron grid glowing at the horizon, the Synthwave dusk
+/// turning magenta, Coral Reef warming from deep water to reef sand — so the
+/// background is part of the design rather than a suggestion of depth. Only the
+/// surfaces are replaced; the cursor, bars and frames still follow the theme's
+/// own accent.
+struct Backdrop {
+    name: &'static str,
+    /// What the panel background fades down to.
+    panels: u32,
+    /// What the dialog and menu surfaces fade across to.
+    dialogs: u32,
+}
+
+const SHOWCASE_BACKDROPS: [Backdrop; 5] = [
+    Backdrop { name: "Tron", panels: 0x06334d, dialogs: 0x0a3d5a },
+    Backdrop { name: "Graphite", panels: 0x2c313a, dialogs: 0x191c21 },
+    Backdrop { name: "Synthwave", panels: 0x4a1046, dialogs: 0x4a1f6b },
+    Backdrop { name: "Aurora", panels: 0x0f4a40, dialogs: 0x123f4a },
+    Backdrop { name: "Coral Reef", panels: 0x56303a, dialogs: 0x3c3040 },
+];
+
 /// The gradients a preset carries by default, derived from its own colors.
 ///
 /// The chrome that marks *where you are* — the cursor and the two bars — sweeps
@@ -975,7 +1009,7 @@ fn derive_gradients(s: &ThemeSpec) -> Gradients {
         // Surfaces: a tint of the theme's own accent, held still.
         panel_bg: still(tint(s.panel_bg, accent, 0.14, 0.10), GradientDir::Vertical),
         dialog_bg: still(tint(s.dialog_bg, accent, 0.10, 0.08), GradientDir::Diagonal),
-        menu_bg: still(tint(s.menu_bg, accent, 0.16, 0.12), GradientDir::Vertical),
+        menu_bg: still(tint(s.menu_bg, accent, 0.12, 0.10), GradientDir::Vertical),
         input_bg: still(shade(s.input_bg, 0.18), GradientDir::Horizontal),
         // The focused panel's frame fades towards the quieter border color, so
         // it reads as lit from the top rather than as a second flat outline.
@@ -1013,6 +1047,19 @@ fn builtin_specs() -> Vec<ThemeSpec> {
         let flat = FLAT_PRESETS.iter().any(|n| norm_name(n) == norm_name(&spec.name));
         if spec.gradients.is_empty() && !flat {
             spec.gradients = derive_gradients(spec);
+        }
+        // The showcase themes swap the derived surface tints for their own
+        // backdrop; everything else about their gradients stays derived.
+        if let Some(b) = SHOWCASE_BACKDROPS.iter().find(|b| norm_name(b.name) == norm_name(&spec.name)) {
+            for (slot, to) in [
+                (&mut spec.gradients.panel_bg, b.panels),
+                (&mut spec.gradients.dialog_bg, b.dialogs),
+                (&mut spec.gradients.menu_bg, b.dialogs),
+            ] {
+                if let Some(g) = slot.as_mut() {
+                    g.to = rgb(to);
+                }
+            }
         }
     }
     specs
@@ -1083,6 +1130,33 @@ fn adopt_preset_gradients(specs: &mut [ThemeSpec]) -> bool {
     changed
 }
 
+/// The names of every shipped preset, in file order.
+fn preset_names() -> Vec<String> {
+    BUILTIN.iter().map(|s| s.name.clone()).collect()
+}
+
+/// Put the presets a `themes.toml` has never been offered — the ones added in a
+/// release later than the file — at the end of it, so an existing install still
+/// gets new themes. A preset the user deleted is not resurrected: once a file
+/// records a preset in `known_presets`, it is never added again.
+///
+/// A file written before `known_presets` existed has no record at all, so it is
+/// offered every preset it is missing, once; from then on its deletions stick.
+/// Returns whether anything was added.
+fn add_new_presets(tf: &mut ThemesFile) -> bool {
+    let mut added = false;
+    for preset in BUILTIN.iter() {
+        let key = norm_name(&preset.name);
+        let present = tf.theme.iter().any(|t| norm_name(&t.name) == key);
+        let offered = tf.known_presets.iter().any(|n| norm_name(n) == key);
+        if !present && !offered {
+            tf.theme.push(preset.clone());
+            added = true;
+        }
+    }
+    added
+}
+
 /// Load `themes.toml` (generating it from the presets if absent) and make those
 /// palettes active. Call once at startup, before deriving the initial theme.
 pub fn load_user_themes() {
@@ -1093,24 +1167,36 @@ pub fn load_user_themes() {
         let _ = write_themes(&path, &builtin_specs());
         return; // built-ins are already active by default
     }
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return; // keep the built-ins on a read error rather than clobbering it
-    };
+    if let Some(specs) = upgrade_themes_file(&path) {
+        set_palettes(specs);
+    }
+}
+
+/// Read `themes.toml` and bring it up to date with this release: newly-added
+/// color fields, the gradients the presets now ship with, and any preset the
+/// file has never been offered. The file is written back when any of that
+/// changed. Returns the themes to make active, or `None` when it can't be read
+/// or parsed — in which case the built-ins stay in effect rather than the user's
+/// file being clobbered.
+fn upgrade_themes_file(path: &Path) -> Option<Vec<ThemeSpec>> {
+    let text = std::fs::read_to_string(path).ok()?;
     // Upgrade an older file in place: add any newly-introduced color fields with
-    // appearance-preserving values, then parse. Keep the built-ins on a parse
-    // error rather than overwriting the user's file.
+    // appearance-preserving values, then parse.
     let migrated = migrate_theme_toml(&text);
     let src = migrated.as_deref().unwrap_or(&text);
-    if let Ok(mut tf) = toml::from_str::<ThemesFile>(src)
-        && !tf.theme.is_empty()
-    {
-        let adopted = adopt_preset_gradients(&mut tf.theme);
-        set_palettes(tf.theme.clone());
-        // Persist the migration so the file now carries the new fields.
-        if migrated.is_some() || adopted {
-            let _ = write_themes(&path, &tf.theme);
-        }
+    let mut tf: ThemesFile = toml::from_str(src).ok()?;
+    if tf.theme.is_empty() {
+        return None;
     }
+    let adopted = adopt_preset_gradients(&mut tf.theme);
+    let added = add_new_presets(&mut tf);
+    // Record the offer even when nothing was added, so a file written before
+    // `known_presets` existed starts keeping its deletions from now on.
+    let recorded = tf.known_presets != preset_names();
+    if migrated.is_some() || adopted || added || recorded {
+        let _ = write_themes(path, &tf.theme);
+    }
+    Some(tf.theme)
 }
 
 /// Re-read `themes.toml` and make it active (after the user edits it). Returns
@@ -1131,7 +1217,9 @@ fn write_themes(path: &Path, specs: &[ThemeSpec]) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let tf = ThemesFile { theme: specs.to_vec() };
+    // Whatever else is being written, every preset has been offered by now —
+    // either it is in `specs` or the user removed it on purpose.
+    let tf = ThemesFile { known_presets: preset_names(), theme: specs.to_vec() };
     let body = toml::to_string_pretty(&tf)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     std::fs::write(path, format!("{THEMES_HEADER}{body}"))
@@ -1848,6 +1936,65 @@ pub static PALETTES: &[Palette] = &[
         bright_yellow: rgb(0xffb84d), bright_blue: rgb(0x33c0d8), bright_magenta: rgb(0xff9a4d),
         bright_cyan: rgb(0x4fe0ee), bright_white: rgb(0xf0f8fa),
     },
+    // Themes built around their backdrop: each fades the panels and dialogs to a
+    // color of its own (see [`SHOWCASE_BACKDROPS`]) instead of the hint of accent
+    // every other preset gets.
+    //
+    // Tron: an icy-blue grid over a black-blue night, with the film's warm red
+    // kept for what wants attention — errors, marked files, the column header.
+    Palette {
+        name: "Tron",
+        bg: rgb(0x000b14), fg: rgb(0xbfe6f5),
+        black: rgb(0x000b14), red: rgb(0xff2d20), green: rgb(0x2fd6bd), yellow: rgb(0xff5a2b),
+        blue: rgb(0x0d4d6b), magenta: rgb(0x2f7fd6), cyan: rgb(0x22a8cc), white: rgb(0xbfe6f5),
+        bright_black: rgb(0x0d3348), bright_red: rgb(0xff4030), bright_green: rgb(0x5ff0d8),
+        bright_yellow: rgb(0xff6b3d), bright_blue: rgb(0x7fe3ff), bright_magenta: rgb(0x35a7e8),
+        bright_cyan: rgb(0xa9f3ff), bright_white: rgb(0xffffff),
+    },
+    // Graphite: monochrome — no hue anywhere, so the UI is carried entirely by
+    // brightness and by the slow fade down the panels.
+    Palette {
+        name: "Graphite",
+        bg: rgb(0x16181c), fg: rgb(0xc9ced6),
+        black: rgb(0x0d0f12), red: rgb(0x8b9198), green: rgb(0x9aa1a9), yellow: rgb(0xb2b9c1),
+        blue: rgb(0x333941), magenta: rgb(0x8f959d), cyan: rgb(0xa7aeb6), white: rgb(0xc9ced6),
+        bright_black: rgb(0x2b3037), bright_red: rgb(0xa9b0b8), bright_green: rgb(0xb9c0c8),
+        bright_yellow: rgb(0xffffff), bright_blue: rgb(0xaab1b9), bright_magenta: rgb(0xd7dce3),
+        bright_cyan: rgb(0xeef1f5), bright_white: rgb(0xffffff),
+    },
+    // Synthwave: a violet dusk deepening to magenta down the panels, with the
+    // cursor and bars sweeping cyan into hot pink.
+    Palette {
+        name: "Synthwave",
+        bg: rgb(0x1b0b2e), fg: rgb(0xf0e6ff),
+        black: rgb(0x120720), red: rgb(0xff3b6b), green: rgb(0x2de2c6), yellow: rgb(0xff9f1c),
+        blue: rgb(0x3a1f6b), magenta: rgb(0xc724b1), cyan: rgb(0x00d9ff), white: rgb(0xf0e6ff),
+        bright_black: rgb(0x3a2158), bright_red: rgb(0xff5c7a), bright_green: rgb(0x5ff5dc),
+        bright_yellow: rgb(0xffd166), bright_blue: rgb(0x00e5ff), bright_magenta: rgb(0xff2e97),
+        bright_cyan: rgb(0x8be9fd), bright_white: rgb(0xffffff),
+    },
+    // Aurora: polar-night blue lit from below by a green curtain, the cursor and
+    // bars sweeping sky blue through violet.
+    Palette {
+        name: "Aurora",
+        bg: rgb(0x0a1626), fg: rgb(0xd8e6f0),
+        black: rgb(0x071120), red: rgb(0xff6b81), green: rgb(0x3ddc97), yellow: rgb(0xffd479),
+        blue: rgb(0x1b3a5c), magenta: rgb(0xa06bff), cyan: rgb(0x37c8d8), white: rgb(0xd8e6f0),
+        bright_black: rgb(0x16324d), bright_red: rgb(0xff8095), bright_green: rgb(0x5cf2a8),
+        bright_yellow: rgb(0xffe08a), bright_blue: rgb(0x6ea8ff), bright_magenta: rgb(0xb388ff),
+        bright_cyan: rgb(0x7ce9ff), bright_white: rgb(0xffffff),
+    },
+    // Coral Reef: deep water at the top warming to reef dusk at the bottom, with
+    // turquoise chrome and coral accents.
+    Palette {
+        name: "Coral Reef",
+        bg: rgb(0x06232e), fg: rgb(0xe8f4f2),
+        black: rgb(0x041a23), red: rgb(0xff6f59), green: rgb(0x34d399), yellow: rgb(0xffc857),
+        blue: rgb(0x0d4a5c), magenta: rgb(0xff7eb6), cyan: rgb(0x2ec4b6), white: rgb(0xe8f4f2),
+        bright_black: rgb(0x0e3d4d), bright_red: rgb(0xff8a70), bright_green: rgb(0x5eead4),
+        bright_yellow: rgb(0xffd98a), bright_blue: rgb(0x22d3ee), bright_magenta: rgb(0xff8fab),
+        bright_cyan: rgb(0x7ee8dd), bright_white: rgb(0xffffff),
+    },
 ];
 
 #[cfg(test)]
@@ -1871,6 +2018,155 @@ mod tests {
         spec.panel_bg = rgb(0x000000);
         spec.gradients.panel_bg = Some(GradientSpec::new(rgb(0xffffff)));
         spec
+    }
+
+    #[test]
+    fn a_themes_file_gains_presets_it_has_never_been_offered() {
+        // An older file: two themes, and no record of what it has been shown.
+        let mine = ThemeSpec { name: "Mine".to_string(), ..BUILTIN[0].clone() };
+        let mut tf = ThemesFile {
+            known_presets: Vec::new(),
+            theme: vec![mine.clone(), BUILTIN[1].clone()],
+        };
+
+        assert!(add_new_presets(&mut tf), "the presets it is missing are added");
+        assert_eq!(tf.theme[0], mine, "the user's own theme keeps its place");
+        assert_eq!(tf.theme[1], BUILTIN[1], "so does the preset it already had");
+        for preset in BUILTIN.iter() {
+            assert!(
+                tf.theme.iter().any(|t| t.name == preset.name),
+                "{} should now be on offer",
+                preset.name
+            );
+        }
+        assert_eq!(tf.theme.len(), BUILTIN.len() + 1, "and nothing is duplicated");
+
+        // Nothing left to add on the next start.
+        assert!(!add_new_presets(&mut tf));
+    }
+
+    #[test]
+    fn a_preset_the_user_deleted_is_not_put_back() {
+        // A file that has been offered everything, with two presets removed.
+        let mut tf = ThemesFile {
+            known_presets: preset_names(),
+            theme: vec![BUILTIN[0].clone()],
+        };
+        assert!(!add_new_presets(&mut tf), "deletions stick");
+        assert_eq!(tf.theme.len(), 1);
+
+        // Taking a name off the list asks for that preset back — and only it.
+        let wanted = BUILTIN[2].name.clone();
+        tf.known_presets.retain(|n| *n != wanted);
+        assert!(add_new_presets(&mut tf));
+        assert_eq!(tf.theme.len(), 2);
+        assert_eq!(tf.theme[1].name, wanted);
+    }
+
+    #[test]
+    fn an_older_themes_file_is_brought_up_to_date_on_load() {
+        // A file as an earlier release left it: one stock preset with no
+        // gradients, one theme of the user's own, and no record of what it has
+        // been offered.
+        let stock = ThemeSpec { gradients: Gradients::default(), ..BUILTIN[0].clone() };
+        let mine = ThemeSpec { name: "Mine".to_string(), ..stock.clone() };
+        let path = std::env::temp_dir().join(format!("rc_upgrade_test_{}.toml", std::process::id()));
+        let old = ThemesFile { known_presets: Vec::new(), theme: vec![stock, mine.clone()] };
+        std::fs::write(&path, toml::to_string_pretty(&old).unwrap()).unwrap();
+
+        let specs = upgrade_themes_file(&path).expect("the file loads");
+        assert!(specs.contains(&mine), "the user's own theme is untouched");
+        assert_eq!(
+            specs.iter().find(|s| s.name == BUILTIN[0].name),
+            Some(&BUILTIN[0]),
+            "the preset it already had picks up its gradients"
+        );
+        for preset in BUILTIN.iter() {
+            assert!(
+                specs.iter().any(|s| s.name == preset.name),
+                "{} should now be on offer",
+                preset.name
+            );
+        }
+
+        // It was written back, record and all, and a second start changes nothing.
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("known_presets = ["), "the offer is recorded:\n{text:.400}");
+        assert_eq!(upgrade_themes_file(&path).as_ref(), Some(&specs), "idempotent");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn the_offer_record_is_written_before_the_themes() {
+        // A plain key after an array of tables would be read as part of the last
+        // table, so `known_presets` has to come first — and survive a round trip.
+        let specs = builtin_specs();
+        let path = std::env::temp_dir().join(format!("rc_offer_test_{}.toml", std::process::id()));
+        write_themes(&path, &specs).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        // Match the keys themselves — the header comment mentions both by name.
+        let (record, first_theme) = (text.find("\nknown_presets = "), text.find("\n[[theme]]\n"));
+        assert!(record.is_some() && record < first_theme, "the record comes first");
+        let back: ThemesFile = toml::from_str(&text).unwrap();
+        assert_eq!(back.known_presets, preset_names());
+        assert_eq!(back.theme, specs);
+    }
+
+    #[test]
+    fn the_showcase_backdrops_name_real_presets_and_reach_them() {
+        let specs = builtin_specs();
+        for b in &SHOWCASE_BACKDROPS {
+            let spec = specs
+                .iter()
+                .find(|s| norm_name(&s.name) == norm_name(b.name))
+                .unwrap_or_else(|| panic!("{} is not a preset", b.name));
+            assert_eq!(spec.gradients.panel_bg.expect("a panel ramp").to, rgb(b.panels));
+            assert_eq!(spec.gradients.dialog_bg.expect("a dialog ramp").to, rgb(b.dialogs));
+            assert_eq!(spec.gradients.menu_bg.expect("a menu ramp").to, rgb(b.dialogs));
+        }
+    }
+
+    /// The worst contrast `fg` hits anywhere along a `from`→`to` ramp — zero
+    /// where the text's brightness falls between the two ends, which is a
+    /// background that swallows its own text partway down.
+    fn worst_contrast(fg: Color, from: Color, to: Color) -> f64 {
+        let (f, a, b) = (luma(fg), luma(from), luma(to));
+        let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+        if (lo..=hi).contains(&f) { 0.0 } else { (f - lo).abs().min((f - hi).abs()) }
+    }
+
+    #[test]
+    fn a_background_ramp_never_swallows_the_text_over_it() {
+        // A ramp repaints the whole surface, so text has to stay legible along
+        // all of it — not just against the flat color the theme lists. Themes
+        // that start out with thin contrast are their own business; what a ramp
+        // must not do is take much of what was there away.
+        for spec in builtin_specs() {
+            for (surface, base, ramp, over) in [
+                ("panel", spec.panel_bg, spec.gradients.panel_bg,
+                 [spec.panel_fg, spec.file_fg, spec.dir_fg]),
+                ("dialog", spec.dialog_bg, spec.gradients.dialog_bg, [spec.dialog_fg; 3]),
+                ("menu", spec.menu_bg, spec.gradients.menu_bg, [spec.menu_fg; 3]),
+            ] {
+                let Some(g) = ramp else { continue };
+                let from = g.from.unwrap_or(base);
+                for fg in over {
+                    // Roughly where terminal text stops being crisp — or all of
+                    // the little the theme had to begin with, since a ramp need
+                    // not improve on a flat color, only leave it alone.
+                    let need = (luma(fg) - luma(base)).abs().min(60.0) - 6.0;
+                    let worst = worst_contrast(fg, from, g.to);
+                    assert!(
+                        worst >= need,
+                        "{}: {surface} text {fg:?} is lost along the ramp to {:?} \
+                         ({worst:.0}, wanted {need:.0})",
+                        spec.name,
+                        g.to
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -2016,7 +2312,7 @@ mod tests {
             direction: GradientDir::Radial,
             animated: true,
         });
-        let text = toml::to_string_pretty(&ThemesFile { theme: vec![spec.clone()] }).unwrap();
+        let text = toml::to_string_pretty(&ThemesFile { known_presets: Vec::new(), theme: vec![spec.clone()] }).unwrap();
         assert!(text.contains("[theme.gradients.panel_bg]"), "gradients get their own table:\n{text}");
         assert!(text.contains("direction = \"radial\""), "the direction is a plain word:\n{text}");
         let back: ThemesFile = toml::from_str(&text).unwrap();
@@ -2029,7 +2325,7 @@ mod tests {
     fn a_theme_without_gradients_writes_no_table_and_still_loads() {
         let spec = flat_preset(); // the CRT themes ship without gradients
         assert!(spec.gradients.is_empty());
-        let text = toml::to_string_pretty(&ThemesFile { theme: vec![spec.clone()] }).unwrap();
+        let text = toml::to_string_pretty(&ThemesFile { known_presets: Vec::new(), theme: vec![spec.clone()] }).unwrap();
         assert!(!text.contains("gradients"), "nothing is written for a flat theme:\n{text}");
         let back: ThemesFile = toml::from_str(&text).unwrap();
         assert_eq!(back.theme[0], spec);
@@ -2106,7 +2402,7 @@ mod tests {
     fn migration_fills_missing_file_fg_from_panel_fg() {
         // Simulate a pre-upgrade file by stripping the `file_fg` lines.
         let spec = builtin_specs()[0].clone();
-        let full = toml::to_string_pretty(&ThemesFile { theme: vec![spec.clone()] }).unwrap();
+        let full = toml::to_string_pretty(&ThemesFile { known_presets: Vec::new(), theme: vec![spec.clone()] }).unwrap();
         let old: String = full
             .lines()
             .filter(|l| !l.trim_start().starts_with("file_fg"))
@@ -2128,7 +2424,7 @@ mod tests {
     fn builtin_themes_serialize_and_reparse() {
         let specs = builtin_specs();
         assert!(specs.len() >= 10, "expected the full preset set");
-        let body = toml::to_string_pretty(&ThemesFile { theme: specs.clone() }).unwrap();
+        let body = toml::to_string_pretty(&ThemesFile { known_presets: Vec::new(), theme: specs.clone() }).unwrap();
         let back: ThemesFile = toml::from_str(&body).unwrap();
         assert_eq!(back.theme.len(), specs.len());
         for (a, b) in specs.iter().zip(&back.theme) {

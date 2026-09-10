@@ -1725,9 +1725,13 @@ for regular files, plus `exec_fg` / `symlink_fg` / `archive_fg` / `doc_fg` /
 also edit the file directly — open it with **F4** in a panel, and saving
 live-reloads it. Delete the file to regenerate the presets. An older `themes.toml`
 is upgraded in place on start: newly-added fields (such as `file_fg`) are filled
-with sensible per-theme values, and presets you have not touched pick up the
-gradients they now ship with. A preset you have recolored — and any theme of your
-own — is left exactly as it is.
+with sensible per-theme values, presets you have not touched pick up the
+gradients they now ship with, and presets added since the file was written are
+appended, so an existing install still gets new themes. A preset you have
+recolored — and any theme of your own — is left exactly as it is. A preset you
+*delete* stays deleted: the `known_presets` list at the top of the file records
+what you have already been offered, so take a name off it to be offered that
+preset again.
 
 #### Per-element gradients
 
