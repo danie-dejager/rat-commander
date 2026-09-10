@@ -1593,6 +1593,31 @@ on, so marks and find-file results behave exactly as they do for a file operatio
   (usually **Shift-Insert** or **Ctrl-Shift-V**) to bring outside text in.
 
 
+### Selecting with the mouse, without the trailing spaces
+
+Dragging your terminal's *own* selection across the internal viewer or editor —
+Shift-drag, in the terminals that reserve plain dragging for the program — used
+to copy every line padded out to the window width, because a full-screen program
+paints blanks where a line stops.
+
+`rc` ends a partly-written line with an *erase to end of line* instead, exactly
+as Midnight Commander's ncurses does. The cells past the text are then **unset**
+rather than holding spaces, and terminals leave unset cells out of a selection:
+you get `let x = 1;`, not `let x = 1;` followed by sixty spaces. Spaces *inside*
+a line — indentation, aligned columns — are untouched.
+
+Nothing changes on screen, because the erase paints in the current background
+colour. Two cases keep their padding:
+
+- a theme whose background behind the text is a **horizontal or diagonal
+  gradient**, since there is no single colour to erase to (a vertical one is
+  fine — each row is one colour);
+- the rare terminal that erases to the *default* background instead of the
+  current one, where the right-hand side of the editor would lose its colour.
+  Turn the behaviour off there: *Strip trailing spaces on copy* in the command
+  palette (**Ctrl-P**), or `strip_trailing_spaces = false` in `config.toml`.
+
+
 ## The directory hotlist (Ctrl-\)
 
 *Command menu → Directory hotlist…*, or **Ctrl-\**.
@@ -1843,7 +1868,10 @@ Configuration files live in your platform config directory
   `100`) — the maximum number of command-line entries kept in the persistent
   history; set it to `0` to disable history, `auto_refresh` (default `true`) —
   whether a panel re-reads itself when its directory changes on disk (see
-  *Auto-refreshing panels*), and `shell` (empty by default) — the
+  *Auto-refreshing panels*), `strip_trailing_spaces` (default `true`) — whether
+  a line is ended with an erase rather than padded with blanks, so terminal
+  selections copy no trailing whitespace (see *Selecting with the mouse, without
+  the trailing spaces*), and `shell` (empty by default) — the
   shell program the command line and `Ctrl-O` run, overriding the detection
   described under *Which shell runs*. Finally it remembers the **session
   layout** — each panel's last directory, listing filter, visibility and

@@ -335,6 +335,7 @@ rtl = true
 "Key file (blank = agent / default keys)" = "ملف المفتاح (فارغ = الوكيل / المفاتيح الافتراضية)"
 "Use trash bin" = "استخدام سلة المهملات"
 "Auto-refresh panels" = "تحديث اللوحات تلقائيًا"
+"Strip trailing spaces on copy" = "إزالة المسافات الزائدة عند النسخ"
 "Go to Trash" = "الانتقال إلى سلة المهملات"
 "New tab" = "علامة تبويب جديدة"
 "Close tab" = "إغلاق علامة التبويب"

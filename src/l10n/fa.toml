@@ -335,6 +335,7 @@ rtl = true
 "Key file (blank = agent / default keys)" = "فایل کلید (خالی = عامل / کلیدهای پیش‌فرض)"
 "Use trash bin" = "استفاده از زباله‌دان"
 "Auto-refresh panels" = "بازآوری خودکار پنجره‌ها"
+"Strip trailing spaces on copy" = "حذف فاصله‌های انتهایی هنگام رونوشت"
 "Go to Trash" = "رفتن به زباله‌دان"
 "New tab" = "زبانه جدید"
 "Close tab" = "بستن زبانه"

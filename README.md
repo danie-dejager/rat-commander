@@ -126,6 +126,13 @@ The installed executable is named **`rc`** for quick typing.
   of the machine in front of you. Inside tmux it needs `allow-passthrough on`.
   Oversized copies are refused rather than silently truncated. Pasting *in* stays
   with your terminal (Shift-Insert), since terminals disable clipboard reads.
+- **Selections without the trailing spaces** — dragging the *terminal's* own
+  selection over the viewer or editor copies each line as it is, not padded out
+  to the window width: `rc` ends a partly-written line with an erase, the way
+  Midnight Commander does, so the cells past the text hold nothing for a
+  selection to pick up. Spaces inside a line are kept. There is a
+  *Strip trailing spaces on copy* toggle in the palette for the odd terminal
+  that erases to the default background rather than the current one.
 - **Archives** — browse and *edit* `.zip`, `.tar(.gz/.bz2/.xz)` and `.7z` like
   directories: copy and move files in and out, make and delete subdirectories,
   rename, move things around inside the archive, and compress a selection.

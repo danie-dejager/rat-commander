@@ -13,6 +13,7 @@ pub mod pulldown;
 pub mod textedit;
 pub mod theme;
 pub mod theme_editor;
+pub mod trim;
 
 use crate::app::state::AppState;
 use crate::panel::render::render_panel;

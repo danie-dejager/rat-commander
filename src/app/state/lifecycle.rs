@@ -125,6 +125,7 @@ impl AppState {
             lang_backup: None,
             reshape_backup: None,
             gfx: None,
+            trim: Default::default(),
             graphics_backup: None,
             user_menu: usermenu::load_or_create(),
             ext_rules: crate::ext::ExtRules::load_or_create(),

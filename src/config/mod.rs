@@ -238,6 +238,15 @@ pub struct Config {
     /// enormous directories, where the re-listing costs more than it saves.
     /// (Missing from an old config → the struct default, `true`.)
     pub auto_refresh: bool,
+    /// End a partly-written row with an erase-to-end-of-line instead of padding
+    /// it with spaces, so the terminal's own mouse selection copies each line
+    /// without the trailing whitespace — the way Midnight Commander's does (see
+    /// [`crate::ui::trim`]). Nothing changes on screen on a terminal that erases
+    /// in the current background colour, which is every one we know of; turn it
+    /// off if the right-hand side of the editor or viewer loses its background.
+    /// (Missing from an old config → the struct default, `true`.)
+    #[serde(default = "crate::config::default_true")]
+    pub strip_trailing_spaces: bool,
     /// Number of columns in the Brief (multi-column names) view.
     /// (Missing from an old config → the struct default, `2`.)
     pub brief_columns: usize,
@@ -320,6 +329,7 @@ impl Default for Config {
             command_prompt: true,
             nerd_font: false,
             auto_refresh: true,
+            strip_trailing_spaces: true,
             brief_columns: 2,
             command_history_max: 100,
             panels: [PanelView::default(); 2],

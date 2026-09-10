@@ -53,6 +53,9 @@ pub enum BoolSetting {
     ReshapeRtl,
     /// Re-read a panel when its directory changes on disk.
     AutoRefresh,
+    /// End each drawn row with an erase instead of padding it with spaces, so a
+    /// terminal selection copies no trailing whitespace.
+    StripTrailingSpaces,
     InternalViewer,
     InternalEditor,
     ConfirmDelete,

@@ -259,6 +259,11 @@ pub struct AppState {
     /// terminal has no graphics protocol or graphics are configured off. Every
     /// graphics-backed widget checks this and falls back to Ratatui cells.
     pub gfx: Option<crate::ui::graphics::Gfx>,
+    /// Erases the blank tail of each drawn row so terminal selections don't pick
+    /// up trailing spaces (see [`crate::ui::trim`]). Carries what the last frame
+    /// erased, so it must be invalidated whenever the screen is cleared behind
+    /// its back — `force_full_redraw` does that.
+    pub trim: crate::ui::trim::Trimmer,
     /// `graphics` preference to restore if the settings dialog is cancelled.
     graphics_backup: Option<String>,
     /// The F2 user menu — entries + pattern mode, from the config `menu` file.

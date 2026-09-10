@@ -152,7 +152,7 @@ async fn run_loop(
             state.force_clear = false;
             force_full_redraw(term, state)?;
         }
-        term.draw(|f| ui::draw(f, state))?;
+        draw_frame(term, state)?;
 
         tokio::select! {
             maybe_event = events.next() => {
@@ -239,6 +239,27 @@ async fn run_loop(
     Ok(())
 }
 
+/// Draw one frame, then erase what each row leaves blank at its right edge.
+///
+/// The erase is a second pass rather than part of the rendering because Ratatui
+/// paints every cell: only the finished frame knows which of those cells are
+/// blanks the terminal should not hand to a selection (see [`ui::trim`]).
+fn draw_frame(term: &mut Term, state: &mut AppState) -> Result<()> {
+    let tails = {
+        let frame = term.draw(|f| ui::draw(f, state))?;
+        if state.config.strip_trailing_spaces {
+            state.trim.plan(frame.buffer)
+        } else {
+            // Switched off mid-session: whatever the pass erased before has since
+            // been painted over, so the next frame starts from nothing.
+            state.trim.invalidate();
+            Vec::new()
+        }
+    };
+    ui::trim::erase(term.backend_mut(), &tails)?;
+    Ok(())
+}
+
 /// Clear the screen and force a full repaint without querying the terminal.
 ///
 /// `Terminal::clear` (ratatui 0.30) reads the cursor position first, which
@@ -258,6 +279,9 @@ fn force_full_redraw(term: &mut Term, state: &mut AppState) -> Result<()> {
     if let Some(g) = state.gfx.as_mut() {
         g.invalidate();
     }
+    // The screen is blank and the next frame rewrites it in full, so nothing the
+    // trailing-space pass erased before is still standing.
+    state.trim.invalidate();
     Ok(())
 }
 
