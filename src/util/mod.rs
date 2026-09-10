@@ -3,6 +3,7 @@
 pub mod async_bridge;
 pub mod bytes;
 pub mod checksum;
+pub mod clipboard;
 pub mod error;
 pub mod img;
 pub mod qr;

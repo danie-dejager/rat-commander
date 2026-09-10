@@ -1828,6 +1828,50 @@ async fn mouse_click_on_menu_bar_opens_menu() {
     assert!(st.menu.is_some(), "clicking the menu bar should open a menu");
 }
 
+#[tokio::test]
+async fn clipboard_text_covers_name_path_and_selection() {
+    use crate::ui::menu::ClipTarget;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_clip_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    for n in ["a.txt", "b.txt", "c.txt"] {
+        std::fs::write(root.join(n), b"x").unwrap();
+    }
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    // Park the cursor on a.txt (the listing is sorted, `..` is absent at a root
+    // only, so find it by name rather than assuming an index).
+    st.panels[0].cursor =
+        st.panels[0].entries.iter().position(|e| e.name == "a.txt").expect("a.txt listed");
+
+    // With nothing marked, both single-item forms describe the cursor entry.
+    assert_eq!(st.clipboard_text(ClipTarget::Name), "a.txt");
+    assert_eq!(st.clipboard_text(ClipTarget::FullPath), root.join("a.txt").display().to_string());
+    assert_eq!(
+        st.clipboard_text(ClipTarget::Selection),
+        root.join("a.txt").display().to_string(),
+        "the cursor entry stands in for an empty selection"
+    );
+
+    // Marking makes Selection a newline-separated list, in listing order.
+    st.panels[0].selection.mark("a.txt");
+    st.panels[0].selection.mark("c.txt");
+    let lines: Vec<String> =
+        st.clipboard_text(ClipTarget::Selection).lines().map(str::to_string).collect();
+    assert_eq!(lines.len(), 2, "two marked files");
+    assert!(lines[0].ends_with("a.txt") && lines[1].ends_with("c.txt"), "got {lines:?}");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
 #[test]
 fn grep_file_streams_and_reports_line_numbers() {
     use crate::viewer::search::Needle;
@@ -3575,6 +3619,29 @@ fn git_shortcuts_are_not_swallowed_by_the_command_line() {
         super::keys::cmdline_edit_wanted(ctrl('d'), true),
         "Ctrl-D is readline's delete-char, which is why the diff is on Alt-D"
     );
+}
+
+/// A panel chord on `Alt`+letter is dead if that letter also opens a menu, since
+/// the menu bar claims it before `route_key` ever runs. This caught a real bug:
+/// the clipboard copy was first put on Alt-C, which just opened the Command menu.
+#[test]
+fn panel_alt_chords_do_not_collide_with_the_menu_bar() {
+    // The menu accelerators are the first letters of the bar's titles.
+    let claimed: Vec<char> = crate::ui::menubar::TITLES
+        .iter()
+        .filter_map(|t| t.chars().next())
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    assert!(claimed.contains(&'c'), "Command owns Alt-C — this is why the copy is on Ctrl-Insert");
+    // Every Alt+letter the panel handler binds must be free of that set. Alt-O
+    // and Alt-F are the documented exceptions: the dispatcher explicitly lets
+    // them through to the panel (Alt-F only on an empty command line).
+    for c in ['y', 'u', 'i', 't', 'k', 'j', 'g', 'd', 'h', 'n', 'p'] {
+        assert!(
+            !claimed.contains(&c),
+            "Alt-{c} is a menu accelerator, so a panel binding on it would be dead code"
+        );
+    }
 }
 
 /// The sync flow end to end at the app level: options dialog → background plan →

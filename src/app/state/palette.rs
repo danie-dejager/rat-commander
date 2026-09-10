@@ -2,6 +2,7 @@
 //! state, and running the entry the user picks.
 
 use super::*;
+use crate::ui::menu::ClipTarget;
 use crate::panel::sort::SortKey;
 use crate::vfs::remote::Protocol;
 
@@ -34,6 +35,9 @@ impl AppState {
             cmd("Com&press...", MenuAction::Compress),
             cmd("Chec&ksum...", MenuAction::Checksum),
             cmd("Send over &LAN...", MenuAction::SendFile),
+            cmd("Cop&y path to clipboard", MenuAction::CopyToClipboard(ClipTarget::FullPath)),
+            cmd("Copy file name to clipboard", MenuAction::CopyToClipboard(ClipTarget::Name)),
+            cmd("Copy selected paths to clipboard", MenuAction::CopyToClipboard(ClipTarget::Selection)),
             cmd("&Background operations...", MenuAction::BackgroundOps),
             cmd("Select gr&oup", MenuAction::SelectGroup),
             cmd("U&nselect group", MenuAction::UnselectGroup),

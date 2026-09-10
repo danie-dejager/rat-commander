@@ -111,6 +111,14 @@ The installed executable is named **`rc`** for quick typing.
   cell art as a fallback). Select several files or a directory and they are
   zipped first (with a progress bar); the box shows a live download count and the
   server stops when you close it.
+- **System clipboard (`Ctrl-Ins`)** — copy the cursor's path, its bare name, or every
+  marked path (one per line) to the **system** clipboard; in the editor `Ctrl-C` /
+  `Ctrl-X` put the marked block there too. It uses the terminal's **OSC 52**
+  sequence rather than a clipboard daemon, so it needs no X or Wayland session and
+  **works over SSH** — copying on a remote server lands the text on the clipboard
+  of the machine in front of you. Inside tmux it needs `allow-passthrough on`.
+  Oversized copies are refused rather than silently truncated. Pasting *in* stays
+  with your terminal (Shift-Insert), since terminals disable clipboard reads.
 - **Archives** — browse and *edit* `.zip`, `.tar(.gz/.bz2/.xz)` and `.7z` like
   directories: copy and move files in and out, make and delete subdirectories,
   rename, move things around inside the archive, and compress a selection.
@@ -207,6 +215,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Alt-Shift-H` | Shell history window (recall a command without running it) |
 | `Alt-G` | Open the **Git menu** (status, log, commit, push/pull, checkout, …) |
 | `Ctrl-G` / `Alt-D` | Git: stage/unstage the selection · diff the file against HEAD |
+| `Ctrl-Ins` | Copy the selected paths (or the cursor's) to the system clipboard |
 | `Ctrl-R` | Re-read the active panel |
 | `Alt-S` / `Ctrl-S` | Quick search the active panel (jump to the first matching name) |
 | `Ctrl-E` | Toggle reverse sort order |

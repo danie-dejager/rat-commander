@@ -94,6 +94,11 @@ pub struct EditorState {
     /// Finalized block (start, end) in char indices.
     block: Option<(usize, usize)>,
     clipboard: String,
+    /// Text the editor wants pushed to the *system* clipboard, drained by the
+    /// app loop after a key is handled. Kept as state rather than written here
+    /// so this stays a pure state machine with no terminal I/O — which is what
+    /// lets every editor test run headlessly.
+    pending_clip: Option<String>,
     last_search: LastSearch,
     /// Lines holding a match, from the search dialog's "Find all". Highlighted
     /// until the next Find all replaces the set — or until the editor closes,
@@ -196,6 +201,7 @@ impl EditorState {
             shift_marking: false,
             block: None,
             clipboard: String::new(),
+            pending_clip: None,
             last_search: LastSearch::default(),
             found_lines: std::collections::HashSet::new(),
             status: String::new(),
@@ -2055,10 +2061,18 @@ impl EditorState {
         self.status = format!("Copied {len} chars to the cursor");
     }
 
-    /// Ctrl-C: copy the marked block to the internal clipboard (paste with Ctrl-V).
+    /// Take any text the editor wants on the system clipboard. The app loop
+    /// calls this after handling a key and does the actual OSC 52 write.
+    pub fn take_pending_clip(&mut self) -> Option<String> {
+        self.pending_clip.take()
+    }
+
+    /// Ctrl-C: copy the marked block to the internal clipboard (paste with Ctrl-V)
+    /// and offer it to the system clipboard too, so it can leave the program.
     fn copy_to_clipboard(&mut self) {
         if let Some((s, e)) = self.block_range() {
             self.clipboard = self.buf.slice(s, e);
+            self.pending_clip = Some(self.clipboard.clone());
             self.status = format!("Copied {} chars to clipboard", e - s);
         } else {
             self.status = "No block is marked".to_string();
@@ -2546,6 +2560,41 @@ mod tests {
         // cursor at end; Ctrl-V paste duplicates.
         e.handle_key(key_mod(KeyCode::Char('v'), KeyModifiers::CONTROL));
         assert_eq!(e.contents(), "abcabc");
+    }
+
+    #[test]
+    fn clipboard_keys_also_offer_the_block_to_the_system_clipboard() {
+        // Ctrl-C records the block for the app loop to push out over OSC 52,
+        // and taking it clears it so one copy is not written twice.
+        let mut e = ed("abc");
+        e.handle_key(key(KeyCode::F(3)));
+        for _ in 0..3 {
+            e.handle_key(key(KeyCode::Right));
+        }
+        e.handle_key(key_mod(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(e.take_pending_clip().as_deref(), Some("abc"));
+        assert_eq!(e.take_pending_clip(), None, "draining it leaves nothing behind");
+
+        // Ctrl-X cuts, and offers the same text (it routes through copy).
+        let mut e = ed("abc");
+        e.handle_key(key(KeyCode::F(3)));
+        for _ in 0..3 {
+            e.handle_key(key(KeyCode::Right));
+        }
+        e.handle_key(key_mod(KeyCode::Char('x'), KeyModifiers::CONTROL));
+        assert_eq!(e.take_pending_clip().as_deref(), Some("abc"));
+        assert_eq!(e.contents(), "", "and the block is gone from the buffer");
+
+        // A block copy that never reaches the clipboard must not leak out either.
+        let mut e = ed("abcdef");
+        e.handle_key(key(KeyCode::F(3)));
+        for _ in 0..2 {
+            e.handle_key(key(KeyCode::Right));
+        }
+        e.handle_key(key(KeyCode::F(3)));
+        e.handle_key(key(KeyCode::End));
+        e.handle_key(key(KeyCode::F(5)));
+        assert_eq!(e.take_pending_clip(), None, "F5 never touches the system clipboard");
     }
 
     #[test]

@@ -119,6 +119,12 @@ impl AppState {
         }
         if self.editor.is_some() {
             let signal = self.editor.as_mut().unwrap().handle_key(key);
+            // Ctrl-C / Ctrl-X also put the block on the system clipboard. The
+            // editor only records the wish; the escape sequence is written here,
+            // outside its state machine.
+            if let Some(text) = self.editor.as_mut().unwrap().take_pending_clip() {
+                self.copy_to_system_clipboard(&text);
+            }
             self.apply_editor_signal(signal).await;
             return Flow::Continue;
         }
@@ -219,6 +225,7 @@ impl AppState {
             MenuAction::Compress => self.open_compress(),
             MenuAction::Checksum => self.open_checksum(),
             MenuAction::SendFile => self.send_file(),
+            MenuAction::CopyToClipboard(what) => self.copy_paths_to_clipboard(what),
             // The Git submenu's parent never acts on its own — opening it is
             // handled inside the menu bar.
             MenuAction::GitMenu => {}
@@ -397,6 +404,14 @@ impl AppState {
             }
             KeyCode::Home => self.active_panel().move_home(),
             KeyCode::End => self.active_panel().move_end(),
+            // Ctrl-Insert copies to the clipboard — the Norton Commander (and
+            // Windows) convention. It has to come first: the plain-Insert arm
+            // below ignores modifiers, so it would otherwise swallow this.
+            // Alt-C is *not* available: the menu bar claims it for the Command
+            // menu before panel keys are ever consulted.
+            KeyCode::Insert if ctrl && !alt => {
+                self.copy_paths_to_clipboard(crate::ui::menu::ClipTarget::Selection)
+            }
             KeyCode::Insert => self.active_panel().toggle_mark_and_advance(),
             // Ctrl-Tab cycles this panel's tabs. It must be tested before the
             // plain Tab arm below, which matches any Tab regardless of modifiers.

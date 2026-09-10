@@ -72,7 +72,7 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
         &[
             "&View", "&Edit", "&Copy", "&Rename/Move", "M&ulti rename", "&Make directory",
             "&Delete", "C&hmod", "Cho&wn", "&Symlink", "Com&press...", "Chec&ksum...",
-            "Send over &LAN...", "&Git",
+            "Send over &LAN...", "Cop&y path to clipboard", "&Git",
             "&Background operations...", "Select gr&oup", "U&nselect group",
             "&Invert selection", "&Quit",
         ],

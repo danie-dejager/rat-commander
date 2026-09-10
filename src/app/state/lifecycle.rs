@@ -735,6 +735,51 @@ impl AppState {
         self.dialog = Some(Dialog::Message(MessageDialog::error(msg)));
     }
 
+    /// Put `text` on the system clipboard, reporting only a refusal.
+    ///
+    /// Success is deliberately silent: OSC 52 gets no reply, so we cannot tell a
+    /// terminal that took the text from one that ignored the sequence, and a
+    /// modal dialog on every copy would be worse than no dialog at all.
+    pub(in crate::app::state) fn copy_to_system_clipboard(&mut self, text: &str) {
+        use crate::util::clipboard::{self, ClipError};
+        if let Err(ClipError::TooLarge(n)) = clipboard::copy(text) {
+            self.show_error(format!(
+                "Too much text for the terminal clipboard: {} bytes, the limit is {}",
+                n,
+                clipboard::MAX_CLIP_BYTES
+            ));
+        }
+    }
+
+    /// The text [`Self::copy_paths_to_clipboard`] would put on the clipboard, or
+    /// empty when there is nothing to copy. Split out so the shapes can be tested
+    /// without writing an escape sequence to the terminal.
+    pub(in crate::app::state) fn clipboard_text(&self, what: crate::ui::menu::ClipTarget) -> String {
+        use crate::ui::menu::ClipTarget;
+        // `operation_targets` resolves marks, the cursor entry and find-file
+        // panelization the same way every file operation does, so what gets
+        // copied is exactly what F5 would act on.
+        let targets = self.panels[self.active].operation_targets();
+        match what {
+            ClipTarget::Selection => {
+                targets.iter().map(|t| t.display()).collect::<Vec<_>>().join("\n")
+            }
+            ClipTarget::FullPath => targets.first().map(|t| t.display()).unwrap_or_default(),
+            ClipTarget::Name => targets.first().map(|t| t.file_name()).unwrap_or_default(),
+        }
+    }
+
+    /// Copy the active panel's paths to the system clipboard (Alt-C, the File
+    /// menu, and the command palette).
+    pub(in crate::app::state) fn copy_paths_to_clipboard(&mut self, what: crate::ui::menu::ClipTarget) {
+        let text = self.clipboard_text(what);
+        if text.is_empty() {
+            // Nothing under the cursor but `..`, or an empty listing.
+            return self.show_error("Nothing to copy");
+        }
+        self.copy_to_system_clipboard(&text);
+    }
+
     pub(in crate::app::state) fn show_info(&mut self, title: &str, msg: impl Into<String>) {
         self.dialog = Some(Dialog::Message(MessageDialog {
             title: title.to_string(),

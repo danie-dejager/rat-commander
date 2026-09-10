@@ -194,6 +194,8 @@ A quick **Alt** + digit does the same.
   *Git-aware panels* below
 - `Alt-D` — Open a side-by-side **diff of the file against its committed (`HEAD`)
   version** (git) — see *Git-aware panels* below
+- `Ctrl-Ins` — Copy the **selected paths** (or, with nothing marked, the cursor's)
+  to the **system clipboard** — see *The system clipboard* below
 - `Ctrl-R` — Re-read (refresh) the active panel
 - `Ctrl-E` — Toggle reverse sort order (choose the sort key from the panel menu)
 - `Alt-T` — Cycle the view format (full → brief → details → tree)
@@ -1522,6 +1524,45 @@ Two shortcuts move the *other* panel without leaving this one:
 
 Both are also on the *Command menu*, and both record the move on the other
 panel's history like any navigation.
+
+
+## The system clipboard
+
+**Ctrl-Ins** (the Norton Commander convention), *File → Copy path to clipboard*,
+or the command palette.
+
+Puts a path — or a marked set of them, one per line — on the **system** clipboard,
+so it can be pasted into a browser, a chat window or another terminal. The palette
+also offers *Copy file name to clipboard* (the bare name, without directories) and
+*Copy selected paths to clipboard*. In the **editor**, **Ctrl-C** and **Ctrl-X**
+now put the marked block on the system clipboard as well as the editor's own.
+
+**Useful for** getting a long path out of the file manager and into something
+else without retyping it.
+
+**How it works — and why it works over SSH.** Rather than talking to a clipboard
+daemon, `rc` asks the *terminal* to set its clipboard, using the **OSC 52** escape
+sequence. That means it needs no X or Wayland session on the machine `rc` is
+running on: copying from a panel on a remote server lands the text on the
+clipboard of the laptop in front of you. What is copied is what **F5** would act
+on, so marks and find-file results behave exactly as they do for a file operation.
+
+**Caveats worth knowing.**
+
+- Your **terminal must support OSC 52**, and some ship with it off. There is no
+  reply to the sequence, so `rc` cannot tell a terminal that took the text from
+  one that ignored it — a copy that appears to do nothing is almost always this.
+- Inside **tmux**, passthrough must be enabled: `set -g allow-passthrough on`
+  (tmux 3.3+) in `tmux.conf`. `rc` wraps the sequence for tmux and for GNU screen
+  automatically, but neither will forward it if configured not to.
+- Very large copies are **refused rather than truncated** (the limit is 64 KiB),
+  because a half-written sequence would silently replace your clipboard with a
+  fragment. You get a message saying so.
+- **Pasting** from the system clipboard is not offered: the same sequence can read
+  the clipboard back, but terminals disable that by default — a remote host could
+  otherwise help itself to whatever you last copied — so **Ctrl-V** in the editor
+  keeps pasting from the editor's own clipboard. Use your terminal's own paste
+  (usually **Shift-Insert** or **Ctrl-Shift-V**) to bring outside text in.
 
 
 ## The directory hotlist (Ctrl-\)

@@ -9,6 +9,18 @@ use crate::ui::pulldown::{self, Action, Menu, MenuItem, PulldownState};
 use crate::vfs::remote::Protocol;
 use ratatui::layout::Rect;
 
+/// What [`MenuAction::CopyToClipboard`] puts on the clipboard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClipTarget {
+    /// The cursor entry's bare file name.
+    Name,
+    /// The cursor entry's full path, as [`crate::vfs::VfsPath::display`] shows it.
+    FullPath,
+    /// Every selected path, one per line (the cursor entry when nothing is
+    /// selected, so the key always does something).
+    Selection,
+}
+
 /// An action a menu item triggers. Mapped to app behaviour in `AppState`.
 #[derive(Debug, Clone, Copy)]
 pub enum MenuAction {
@@ -65,6 +77,9 @@ pub enum MenuAction {
     GitInit,
     /// `git clone` a URL into the panel's directory (form).
     GitClone,
+    /// Copy the cursor file's name or full path, or every selected path, to the
+    /// system clipboard.
+    CopyToClipboard(ClipTarget),
     /// Open the list of running background transfers.
     BackgroundOps,
     SelectGroup,
@@ -241,6 +256,7 @@ impl MenuBarState {
                 item("Com&press...", MenuAction::Compress),
                 item("Chec&ksum...", MenuAction::Checksum),
                 item("Send over &LAN...", MenuAction::SendFile),
+                item("Cop&y path to clipboard", MenuAction::CopyToClipboard(ClipTarget::FullPath)),
                 sep(),
                 item_sub("&Git", "Alt-G  ▶", MenuAction::GitMenu, git_menu_items()),
                 sep(),
