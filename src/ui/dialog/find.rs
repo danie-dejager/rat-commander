@@ -17,6 +17,9 @@ pub struct FindParams {
     pub case_sensitive: bool,
     pub skip_hidden: bool,
     pub shell: bool,
+    /// Treat `content` as a regular expression rather than a literal. Applies to
+    /// the content search only — `shell` governs the file-name pattern.
+    pub regex_content: bool,
 }
 
 pub struct FindDialog {
@@ -30,7 +33,8 @@ pub struct FindDialog {
     case_sensitive: bool,
     skip_hidden: bool,
     shell: bool,
-    focus: usize, // 0 start, 1 name, 2 content, 3..6 checks
+    regex_content: bool,
+    focus: usize, // 0 start, 1 name, 2 content, 3..7 checks
 }
 
 impl FindDialog {
@@ -47,16 +51,17 @@ impl FindDialog {
             case_sensitive: false,
             skip_hidden: true,
             shell: true,
+            regex_content: false,
             focus: 1,
         }
     }
 
-    const FOCUS_COUNT: usize = 7;
+    const FOCUS_COUNT: usize = 8;
 
     /// The centered dialog box, matching [`Self::render`], for click hit-testing.
-    /// Height 14 leaves a blank row between the checkboxes and the button row.
+    /// Height 15 leaves a blank row between the checkboxes and the button row.
     fn box_rect(&self, area: Rect) -> Rect {
-        centered(area, 66u16.min(area.width.saturating_sub(2)), 14)
+        centered(area, 66u16.min(area.width.saturating_sub(2)), 15)
     }
 
     /// Build the find request, or cancel when no file-name pattern was given.
@@ -72,6 +77,7 @@ impl FindDialog {
             case_sensitive: self.case_sensitive,
             skip_hidden: self.skip_hidden,
             shell: self.shell,
+            regex_content: self.regex_content,
         }))
     }
 
@@ -88,6 +94,7 @@ impl FindDialog {
                 4 => self.case_sensitive = !self.case_sensitive,
                 5 => self.skip_hidden = !self.skip_hidden,
                 6 => self.shell = !self.shell,
+                7 => self.regex_content = !self.regex_content,
                 _ => {}
             },
             _ => match self.focus {
@@ -112,8 +119,8 @@ impl FindDialog {
         let half = (rect.width - 2) / 2;
         // Place the caret at the clicked character within a text field.
         let caret_at = |value: &str| (col.saturating_sub(inner_x) as usize).min(value.chars().count());
-        // Row offset within the interior (see `render`: fields at 1/4/6, the two
-        // checkbox rows at 8/9, a blank spacer at 10, and the OK/Cancel row at 11).
+        // Row offset within the interior (see `render`: fields at 1/4/6, the three
+        // checkbox rows at 8/9/10, a blank spacer at 11, and the OK/Cancel row at 12).
         match row as i32 - (rect.y + 1) as i32 {
             1 => {
                 self.focus = 0;
@@ -145,7 +152,14 @@ impl FindDialog {
                     self.shell = !self.shell;
                 }
             }
-            11 => {
+            10 => {
+                // The third row holds a single checkbox in the left column.
+                if col < inner_x + half {
+                    self.focus = 7;
+                    self.regex_content = !self.regex_content;
+                }
+            }
+            12 => {
                 // Button row: OK on the left half, Cancel on the right.
                 return if col < rect.x + rect.width / 2 {
                     self.submit()
@@ -159,7 +173,7 @@ impl FindDialog {
     }
 
     pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
-        let rect = centered(area, 66u16.min(area.width.saturating_sub(2)), 14);
+        let rect = centered(area, 66u16.min(area.width.saturating_sub(2)), 15);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
         let block = dialog_block(&crate::l10n::trd("Find File"), theme);
@@ -223,6 +237,12 @@ impl FindDialog {
         f.render_widget(
             Paragraph::new(Line::from(check_span(&crate::l10n::trd("Using shell patterns"), self.shell, self.focus == 6, theme))).style(base),
             Rect { x: inner.x + half, y: y + 1, width: inner.width - half, height: 1 },
+        );
+        // The content-mode checkbox sits alone on a third row: it qualifies the
+        // Content field above, not the file-name pattern the others govern.
+        f.render_widget(
+            Paragraph::new(Line::from(check_span(&crate::l10n::trd("Content is a regular expression"), self.regex_content, self.focus == 7, theme))).style(base),
+            Rect { x: inner.x, y: y + 2, width: half, height: 1 },
         );
 
         let by = inner.y + inner.height - 1;

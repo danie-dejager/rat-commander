@@ -197,6 +197,7 @@ rtl = true
 "Case sensitive" = "حساس لحالة الأحرف"
 "Skip hidden" = "تجاوز المخفية"
 "Using shell patterns" = "باستخدام أنماط الصدفة"
+"Content is a regular expression" = "المحتوى تعبير نمطي"
 "Compare directories" = "مقارنة الأدلة"
 "Compare the two panels by" = "مقارنة اللوحتين حسب"
 "Quick (name)" = "سريعة (الاسم)"

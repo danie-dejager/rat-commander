@@ -16,6 +16,16 @@ pub enum FetchKind {
     Edit,
 }
 
+/// One find-file match: the file, its size, and the line of the first content
+/// hit. `line` is `None` when the search matched on name alone — which is always
+/// the case on a remote or in-archive panel, where content search isn't run.
+#[derive(Debug, Clone)]
+pub struct FindHit {
+    pub path: VfsPath,
+    pub size: u64,
+    pub line: Option<u64>,
+}
+
 /// Which guided Git dialog to open once the repository's branches/remotes have
 /// been read in the background (see [`AppEvent::GitInfo`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,12 +81,12 @@ pub enum AppEvent {
         id: TaskId,
         result: Result<ChecksumReport, Option<String>>,
     },
-    /// A find-file task finished (or was aborted); carries the matching files
-    /// (path + size) collected so far so partial results can still be panelized.
-    /// Paths may be local or remote, depending on the searched backend.
+    /// A find-file task finished (or was aborted); carries the matches collected
+    /// so far so partial results can still be panelized. Paths may be local or
+    /// remote, depending on the searched backend.
     FindDone {
         id: TaskId,
-        results: Vec<(VfsPath, u64)>,
+        results: Vec<FindHit>,
     },
     /// A find-duplicates task finished (or was cancelled). Carries the file names
     /// to mark in the left and right panels (identical per the chosen criteria);

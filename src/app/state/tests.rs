@@ -1829,6 +1829,55 @@ async fn mouse_click_on_menu_bar_opens_menu() {
 }
 
 #[test]
+fn grep_file_streams_and_reports_line_numbers() {
+    use crate::viewer::search::Needle;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_grep_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let lit = |s: &str| Needle::build(s, false, true, false, false).unwrap();
+
+    // A hit on the first line reports 1; later lines count the newlines before.
+    let p = root.join("lines.txt");
+    std::fs::write(&p, b"alpha\nbeta\ngamma\n").unwrap();
+    assert_eq!(grep_file(&p, &lit("alpha")), Some(1));
+    assert_eq!(grep_file(&p, &lit("gamma")), Some(3));
+    assert_eq!(grep_file(&p, &lit("absent")), None);
+
+    // Case sensitivity follows the needle, not the file.
+    assert_eq!(grep_file(&p, &lit("ALPHA")), None);
+    assert_eq!(grep_file(&p, &Needle::build("ALPHA", false, false, false, false).unwrap()), Some(1));
+
+    // A NUL byte marks the file binary, even though the needle is present.
+    let bin = root.join("blob.bin");
+    std::fs::write(&bin, b"\x00\x01alpha").unwrap();
+    assert_eq!(grep_file(&bin, &lit("alpha")), None, "binary files are skipped");
+
+    // The whole point of streaming: a match straddling a window seam is still
+    // found, and its line number counts every newline before it.
+    let seam = root.join("seam.txt");
+    let mut data = vec![b'x'; GREP_WINDOW - 3];
+    data.extend_from_slice(b"\nNEEDLE\n");
+    std::fs::write(&seam, &data).unwrap();
+    assert_eq!(grep_file(&seam, &lit("NEEDLE")), Some(2), "found across the seam");
+
+    // A hit well past the first window reports a file-wide line number.
+    let big = root.join("big.txt");
+    let mut data = b"filler\n".repeat(GREP_WINDOW / 7 + 10);
+    let lines_before = data.iter().filter(|b| **b == b'\n').count() as u64;
+    data.extend_from_slice(b"TARGET\n");
+    std::fs::write(&big, &data).unwrap();
+    assert_eq!(grep_file(&big, &lit("TARGET")), Some(lines_before + 1));
+
+    // A regex needle works, and takes the RE_OVERLAP window path.
+    assert_eq!(grep_file(&p, &Needle::build(r"g\w+a", true, true, false, false).unwrap()), Some(3));
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
 fn find_files_by_name_and_content() {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1855,15 +1904,35 @@ fn find_files_by_name_and_content() {
         case_sensitive: false,
         skip_hidden: true,
         shell: true,
+        regex_content: false,
     };
     assert_eq!(run(&by_name).len(), 2, "two .txt files");
+    assert!(run(&by_name).iter().all(|(_, l)| l.is_none()), "a name match has no hit line");
 
     let by_content = FindParams {
         file_name: "*".into(),
         content: "HELLO".into(),
-        ..by_name
+        ..by_name.clone()
     };
     assert_eq!(run(&by_content).len(), 2, "two files contain 'hello'");
+    assert!(run(&by_content).iter().all(|(_, l)| *l == Some(1)), "both match on line 1");
+
+    // The content field is a regular expression when asked, and the reported
+    // line is the one the match is actually on.
+    std::fs::write(root.join("d.txt"), b"one\ntwo\nthr33\n").unwrap();
+    let by_regex = FindParams {
+        file_name: "d.txt".into(),
+        content: r"thr\d+".into(),
+        regex_content: true,
+        ..by_name.clone()
+    };
+    let hits = run(&by_regex);
+    assert_eq!(hits.len(), 1, "the regex matches only d.txt");
+    assert_eq!(hits[0].1, Some(3), "'thr33' is on line 3");
+
+    // The same pattern read literally matches nothing.
+    let literal = FindParams { regex_content: false, ..by_regex };
+    assert!(run(&literal).is_empty(), "literal mode does not treat \\d as a class");
 
     std::fs::remove_dir_all(&root).ok();
 }
@@ -1889,11 +1958,13 @@ async fn find_files_vfs_matches_names_recursively() {
         find_files_vfs(&backend, VfsPath::local(&root), &matcher, true, true, &cancel, |_, _| {})
             .await;
 
-    let mut names: Vec<String> = results.iter().map(|(p, _)| p.file_name()).collect();
+    let mut names: Vec<String> = results.iter().map(|h| h.path.file_name()).collect();
     names.sort();
     assert_eq!(names, vec!["a.txt", "b.txt"], "name-only, recursive, .log excluded");
     // Sizes come from the directory listing, not a second stat.
-    assert!(results.iter().any(|(p, s)| p.file_name() == "b.txt" && *s == 2));
+    assert!(results.iter().any(|h| h.path.file_name() == "b.txt" && h.size == 2));
+    // A remote/archive walk is name-only, so it never carries a content line.
+    assert!(results.iter().all(|h| h.line.is_none()), "the VFS walker stays name-only");
 
     std::fs::remove_dir_all(&root).ok();
 }

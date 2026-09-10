@@ -67,6 +67,16 @@ impl AppState {
                 Ok(m) => m,
                 Err(e) => return self.show_error(format!("Invalid pattern: {e}")),
             };
+        // Reject an unusable content pattern here rather than in the walker, where
+        // it would just silently find nothing.
+        if !p.content.is_empty()
+            && crate::viewer::search::Needle::build(
+                &p.content, p.regex_content, p.case_sensitive, false, false,
+            )
+            .is_none()
+        {
+            return self.show_error("Invalid content pattern");
+        }
         let cwd = self.panels[self.active].cwd.clone();
         let backend = self.panels[self.active].backend.clone();
         // Non-local backends (remote, archives) are searched by name only via the
@@ -144,9 +154,9 @@ impl AppState {
                         progress(tx2.clone(), cur, found)
                     })
                     .into_iter()
-                    .map(|path| {
+                    .map(|(path, line)| {
                         let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                        (VfsPath::local(path), size)
+                        crate::app::event::FindHit { path: VfsPath::local(path), size, line }
                     })
                     .collect::<Vec<_>>()
                 })
@@ -160,9 +170,18 @@ impl AppState {
     /// Panelize find-file results (with a `..` entry that returns to browsing).
     /// Results may be local or remote; the panel keeps the backend the matches
     /// live on so navigating into a result — or back out via `..` — works.
-    pub(in crate::app::state) fn panelize_results(&mut self, results: Vec<(VfsPath, u64)>) {
+    pub(in crate::app::state) fn panelize_results(&mut self, results: Vec<crate::app::event::FindHit>) {
         if results.is_empty() {
             return self.show_error("No files found");
+        }
+        // Remember where each content hit was, so opening a result in the viewer
+        // lands on the matching line. Replaced wholesale: these belong to the
+        // search we are panelizing now.
+        self.find_hit_lines.clear();
+        for hit in &results {
+            if let Some(line) = hit.line {
+                self.find_hit_lines.insert(hit.path.display(), line);
+            }
         }
         let cwd = self.panels[self.active].cwd.clone();
         let mut entries = vec![VfsEntry {
@@ -180,7 +199,7 @@ impl AppState {
             symlink_broken: false,
         }];
         let mut vpaths = vec![cwd]; // dummy path paired with ".."
-        for (path, size) in results {
+        for crate::app::event::FindHit { path, size, .. } in results {
             entries.push(VfsEntry {
                 name: path.path.to_string_lossy().into_owned(),
                 kind: VfsKind::File,

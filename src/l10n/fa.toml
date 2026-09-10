@@ -197,6 +197,7 @@ rtl = true
 "Case sensitive" = "حساس به حروف"
 "Skip hidden" = "نادیده گرفتن پنهان‌ها"
 "Using shell patterns" = "استفاده از الگوهای شل"
+"Content is a regular expression" = "محتوا یک عبارت باقاعده است"
 "Compare directories" = "مقایسه پوشه‌ها"
 "Compare the two panels by" = "مقایسه دو پنل بر اساس"
 "Quick (name)" = "سریع (نام)"

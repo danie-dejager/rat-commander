@@ -302,6 +302,11 @@ impl AppState {
                     let mut v = ViewerState::from_scanned(name, file, len, line_starts, scanned, None);
                     v.enable_syntax(dark);
                     v.set_search_seed(self.search_memory.viewer_query.clone());
+                    // A find-file content hit opens the viewer at its matching
+                    // line, so F3 on a result lands where the search matched.
+                    if let Some(line) = self.find_hit_lines.get(&path.display()) {
+                        v.goto(&line.to_string(), crate::viewer::GotoMode::Line);
+                    }
                     // A supported image opens showing the decoded image fullscreen
                     // (it falls back to the raw text/hex view if it can't decode).
                     if crate::util::img::is_image_name(&v.name)

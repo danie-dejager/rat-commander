@@ -1269,15 +1269,15 @@ fn button_labels_fall_back_to_text_for_unrenderable_scripts() {
 
 #[test]
 fn find_dialog_mouse_toggles_focuses_and_submits() {
-    // Box: centered(80x24, 66, 14) → x=7, y=5; inner_x=8, inner.y=6; half=32.
-    // Rows within: fields at 7/10/12, checkbox rows at 14/15, a blank spacer at
-    // 16, and OK/Cancel at 17.
+    // Box: centered(80x24, 66, 15) → x=7, y=4; inner_x=8, inner.y=5; half=32.
+    // Rows within: fields at 6/9/11, checkbox rows at 13/14/15, a blank spacer
+    // at 16, and OK/Cancel at 17.
     let area = Rect::new(0, 0, 80, 24);
     let mut d = FindDialog::new("/tmp".into());
-    // "Find recursively" (row 14, left half) toggles off; "Case sensitive"
-    // (row 14, right half) toggles on.
-    assert!(matches!(d.handle_click(area, 12, 14), DialogResult::None));
-    assert!(matches!(d.handle_click(area, 50, 14), DialogResult::None));
+    // "Find recursively" (row 13, left half) toggles off; "Case sensitive"
+    // (row 13, right half) toggles on.
+    assert!(matches!(d.handle_click(area, 12, 13), DialogResult::None));
+    assert!(matches!(d.handle_click(area, 50, 13), DialogResult::None));
     // The spacer row above the buttons is inert.
     assert!(matches!(d.handle_click(area, 20, 16), DialogResult::None));
     // Clicking OK (left half of the button row) submits with the updated flags.
@@ -1293,12 +1293,43 @@ fn find_dialog_mouse_toggles_focuses_and_submits() {
     let mut d = FindDialog::new("/tmp".into());
     assert!(matches!(d.handle_click(area, 60, 17), DialogResult::Cancel));
     assert!(matches!(d.handle_click(area, 0, 0), DialogResult::None));
-    // Clicking the Content field (row 12) focuses it, so typing edits `content`.
+    // Clicking the Content field (row 11) focuses it, so typing edits `content`.
     let mut d = FindDialog::new("/tmp".into());
-    assert!(matches!(d.handle_click(area, 20, 12), DialogResult::None));
+    assert!(matches!(d.handle_click(area, 20, 11), DialogResult::None));
     d.handle_key(key(KeyCode::Char('x')));
     match d.handle_key(key(KeyCode::Enter)) {
         DialogResult::Submit(Submit::Find(p)) => assert_eq!(p.content, "x"),
+        _ => panic!("expected a Find submit"),
+    }
+}
+
+#[test]
+fn find_dialog_toggles_the_content_regex_box() {
+    // The third checkbox row (screen row 15) holds "Content is a regular
+    // expression" alone in the left half; the right half of that row is inert.
+    let area = Rect::new(0, 0, 80, 24);
+    let mut d = FindDialog::new("/tmp".into());
+    assert!(matches!(d.handle_click(area, 12, 15), DialogResult::None));
+    match d.handle_click(area, 20, 17) {
+        DialogResult::Submit(Submit::Find(p)) => assert!(p.regex_content, "the click set it"),
+        _ => panic!("clicking OK should submit a Find"),
+    }
+    // The empty right half of that row toggles nothing.
+    let mut d = FindDialog::new("/tmp".into());
+    assert!(matches!(d.handle_click(area, 50, 15), DialogResult::None));
+    match d.handle_click(area, 20, 17) {
+        DialogResult::Submit(Submit::Find(p)) => assert!(!p.regex_content, "still off"),
+        _ => panic!("clicking OK should submit a Find"),
+    }
+    // It is also reachable by keyboard: focus starts on the file-name field (1),
+    // so six Tabs land on the last checkbox (7).
+    let mut d = FindDialog::new("/tmp".into());
+    for _ in 0..6 {
+        d.handle_key(key(KeyCode::Tab));
+    }
+    d.handle_key(key(KeyCode::Char(' ')));
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Find(p)) => assert!(p.regex_content, "Space toggled it"),
         _ => panic!("expected a Find submit"),
     }
 }

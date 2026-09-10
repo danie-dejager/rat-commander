@@ -7,7 +7,7 @@
 //! Scrolling is by logical line (text) or 16-byte row (hex).
 
 pub mod markdown;
-mod search;
+pub mod search;
 pub mod render;
 
 use crate::syntax::{ColorRun, Highlighter};

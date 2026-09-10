@@ -316,6 +316,10 @@ pub struct AppState {
     /// Search/replace terms remembered in memory across editor and viewer
     /// sessions (even on different files), used to prefill their search dialogs.
     pub(in crate::app::state) search_memory: SearchMemory,
+    /// Line of the first content hit for each file in the current find-file
+    /// panelization, keyed by [`VfsPath::display`]. Lets F3 on a result open the
+    /// viewer at the match. Replaced by each new search.
+    pub(in crate::app::state) find_hit_lines: HashMap<String, u64>,
     /// Launched via `rc /edit <file>` (or the `rcedit` shim): the program opens
     /// straight into the editor and exits when it is closed.
     pub edit_only: bool,
@@ -688,23 +692,104 @@ fn archive_target_under_cursor(p: &Panel) -> Option<(VfsPath, Option<String>)> {
     Some((VfsPath::archive(file_path, "/"), None))
 }
 
+/// How much of a file we read at a time when grepping. Windows overlap by the
+/// needle's own `overlap()` so a match straddling a seam is still found.
+const GREP_WINDOW: usize = 64 * 1024;
+
+/// Search `path` for `needle`, returning the **1-based line number** of the first
+/// match (`None` when there is none, the file can't be read, or it looks binary).
+///
+/// Streams the file in overlapping windows rather than reading it whole, so a
+/// multi-gigabyte file costs a fixed amount of memory. Files whose first window
+/// holds a NUL byte are treated as binary and skipped, the way `grep` does.
+///
+/// Carries the same caveat as the viewer's own windowed search (see
+/// [`crate::viewer::search::RE_OVERLAP`]): a single *regex* match longer than
+/// 64 KiB can be missed at a window seam.
+fn grep_file(path: &Path, needle: &crate::viewer::search::Needle) -> Option<u64> {
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path).ok()?;
+    let overlap = needle.overlap().min(GREP_WINDOW - 1);
+    // A literal, case-sensitive needle is by far the common case; `memmem` is a
+    // proper substring search where `Needle::find` is a naive scan, and this walks
+    // a whole tree rather than the viewer's single window.
+    let fast = match needle {
+        crate::viewer::search::Needle::Bytes { pat, case_insensitive: false, whole_words: false } => {
+            Some(memchr::memmem::Finder::new(pat).into_owned())
+        }
+        _ => None,
+    };
+
+    let mut buf = vec![0u8; GREP_WINDOW];
+    // Bytes carried over from the previous window, and how many lines ended
+    // before the start of `buf` — together these turn a window-local hit offset
+    // into a file-wide line number.
+    let mut carry = 0usize;
+    let mut lines_before = 0u64;
+    let mut first = true;
+    loop {
+        let read = match file.read(&mut buf[carry..]) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(_) => return None,
+        };
+        let filled = carry + read;
+        let window = &buf[..filled];
+        if first {
+            first = false;
+            if memchr::memchr(0, window).is_some() {
+                return None; // binary
+            }
+        }
+        let hit = match &fast {
+            Some(f) => f.find(window),
+            None => needle.find(window, 0),
+        };
+        if let Some(at) = hit {
+            return Some(lines_before + memchr::memchr_iter(b'\n', &window[..at]).count() as u64 + 1);
+        }
+        if filled < GREP_WINDOW {
+            break; // last (short) window, no match
+        }
+        // Keep the tail as the next window's prefix; everything before it is
+        // behind us for good, so fold its newlines into the running count.
+        let keep = overlap.min(filled);
+        let drop_to = filled - keep;
+        lines_before += memchr::memchr_iter(b'\n', &window[..drop_to]).count() as u64;
+        buf.copy_within(drop_to..filled, 0);
+        carry = keep;
+    }
+    None
+}
+
 /// Recursively find files under `start`, reporting progress and honouring
-/// cancellation. Returns whatever was collected (partial on abort).
+/// cancellation. Returns whatever was collected (partial on abort), each match
+/// paired with the line of its first content hit (`None` when searching by name
+/// only).
 fn find_files(
     start: &Path,
     p: &FindParams,
     matcher: &crate::panel::selection::NameMatcher,
     cancel: &crate::ops::CancelToken,
     mut progress: impl FnMut(String, usize),
-) -> Vec<PathBuf> {
+) -> Vec<(PathBuf, Option<u64>)> {
     const MAX_RESULTS: usize = 50_000;
 
+    // Reuse the viewer's matcher so regex / case / whole-word all mean exactly
+    // what they mean in the viewer's own search. Whole-word and hex aren't
+    // exposed by this dialog, so they are fixed off here.
     let content_needle = if p.content.is_empty() {
         None
-    } else if p.case_sensitive {
-        Some(p.content.clone())
     } else {
-        Some(p.content.to_lowercase())
+        match crate::viewer::search::Needle::build(
+            &p.content, p.regex_content, p.case_sensitive, false, false,
+        ) {
+            Some(n) => Some(n),
+            // An unusable pattern (bad regex) would otherwise silently match
+            // nothing; the caller validates first, so this is belt and braces.
+            None => return Vec::new(),
+        }
     };
 
     let mut walker = walkdir::WalkDir::new(start);
@@ -736,23 +821,14 @@ fn find_files(
         if !matcher.is_match(&name) {
             continue;
         }
-        if let Some(needle) = &content_needle {
-            match std::fs::read(entry.path()) {
-                Ok(bytes) => {
-                    let hay = String::from_utf8_lossy(&bytes);
-                    let hay = if p.case_sensitive {
-                        hay.into_owned()
-                    } else {
-                        hay.to_lowercase()
-                    };
-                    if !hay.contains(needle.as_str()) {
-                        continue;
-                    }
-                }
-                Err(_) => continue,
-            }
-        }
-        out.push(entry.path().to_path_buf());
+        let line = match &content_needle {
+            Some(needle) => match grep_file(entry.path(), needle) {
+                Some(line) => Some(line),
+                None => continue,
+            },
+            None => None,
+        };
+        out.push((entry.path().to_path_buf(), line));
         progress(entry.path().to_string_lossy().into_owned(), out.len());
         if out.len() >= MAX_RESULTS {
             break;
@@ -772,9 +848,9 @@ async fn find_files_vfs(
     skip_hidden: bool,
     cancel: &crate::ops::CancelToken,
     mut progress: impl FnMut(String, usize),
-) -> Vec<(VfsPath, u64)> {
+) -> Vec<crate::app::event::FindHit> {
     const MAX_RESULTS: usize = 50_000;
-    let mut out: Vec<(VfsPath, u64)> = Vec::new();
+    let mut out: Vec<crate::app::event::FindHit> = Vec::new();
     let mut stack = vec![start];
     let mut scanned = 0usize;
     while let Some(dir) = stack.pop() {
@@ -806,7 +882,7 @@ async fn find_files_vfs(
             }
             if matcher.is_match(&e.name) {
                 progress(child.path.to_string_lossy().into_owned(), out.len() + 1);
-                out.push((child, e.size));
+                out.push(crate::app::event::FindHit { path: child, size: e.size, line: None });
                 if out.len() >= MAX_RESULTS {
                     return out;
                 }

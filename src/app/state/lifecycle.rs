@@ -144,6 +144,7 @@ impl AppState {
             git_gen: [0, 0],
             pending_focus: None,
             search_memory: Default::default(),
+            find_hit_lines: HashMap::new(),
             edit_only: false,
             kbd_enhanced: false,
             subshell_disabled,

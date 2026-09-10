@@ -617,6 +617,15 @@ entry at the top returns to normal browsing.
 wildcard vs. regular-expression name matching. On a **remote** panel the search
 matches **file names only** (content search is local).
 
+**Content search.** Fill in **Content** to keep only the files that contain some
+text. Tick **Content is a regular expression** to treat it as a regex instead of
+literal text — the same regex flavour the viewer's and editor's F7 search uses;
+**Case sensitive** applies to it as well as to the file name. Files are read in
+**streaming windows** rather than loaded whole, so searching a tree full of large
+files costs a fixed amount of memory, and files that look **binary** (a NUL byte
+near the start) are skipped the way `grep` skips them. Pressing **F3** on a result
+that matched on content opens the viewer **at the matching line**.
+
 
 ## Compare directories
 
