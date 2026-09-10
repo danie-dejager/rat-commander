@@ -265,7 +265,17 @@ Grab a release from the **Releases** page:
 
 ### From source
 
-Requires a recent stable Rust toolchain (edition 2024, **Rust ≥ 1.85**):
+Requires a recent stable Rust toolchain (edition 2024, **Rust ≥ 1.85**), plus a
+C++ compiler for the bundled `unrar` library — add `--no-default-features` to
+build without RAR support if you'd rather not have one.
+
+The quickest route is to build straight from the repository:
+
+```sh
+cargo install --git https://github.com/dividebysandwich/rat-commander
+```
+
+Or clone first, if you want to hack on it:
 
 ```sh
 git clone https://github.com/dividebysandwich/rat-commander
@@ -274,6 +284,8 @@ cargo install --path .      # installs `rc` into ~/.cargo/bin
 # or just run it:
 cargo run --release
 ```
+
+Either way `rc` lands in `~/.cargo/bin`, so make sure that's on your `PATH`.
 
 ---
 
