@@ -324,6 +324,13 @@ code = "zh-Hans"
 "Password" = "密码"
 "Remote path (blank = home)" = "远程路径 (留空 = 主目录)"
 "Passive mode (PASV)" = "被动模式 (PASV)"
+"Key file (blank = agent / default keys)" = "密钥文件 (留空 = 代理 / 默认密钥)"
+"Use trash bin" = "使用回收站"
+"Go to Trash" = "前往回收站"
+"New tab" = "新建标签页"
+"Close tab" = "关闭标签页"
+"Next tab" = "下一个标签页"
+"Tabs" = "标签页"
 "&Background operations..." = "后台操作…(&B)"
 
 # -- Tree view menu entry --

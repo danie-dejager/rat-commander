@@ -52,6 +52,9 @@ impl AppState {
                 self.dialog = None;
                 // Abandon a user-menu command whose `%{…}` prompt was cancelled.
                 self.pending_menu = None;
+                // Abandon a connect whose key-passphrase prompt was cancelled,
+                // so it can't be re-fired later by an unrelated password dialog.
+                self.pending_connect = None;
                 // Revert a live theme/language preview when Settings is cancelled.
                 if let Some(name) = self.theme_backup.take() {
                     self.theme = Theme::by_name(&name, self.truecolor);
@@ -124,7 +127,7 @@ impl AppState {
                 // Send the decision back to the paused engine, then restore the
                 // operation's progress dialog. (On Abort, TaskDone will close it.)
                 if let Some(h) = self.tasks.get(&id) {
-                    let _ = h.reply.try_send(decision);
+                    let _ = h.reply.try_send(TaskReply::Overwrite(decision));
                 }
                 self.dialog = self.stashed_progress.take().map(Dialog::Progress);
                 Flow::Continue
@@ -160,6 +163,50 @@ impl AppState {
                 } else {
                     self.start_op(OpKind::Delete, targets, None, None, None);
                 }
+            }
+            Submit::PrivilegeAnswer(id, decision) => {
+                // Escalating needs sudo's credential cache primed first, and
+                // that may mean asking for a password — so stash the answer and
+                // come back to it once we have one.
+                let wants_root = matches!(
+                    decision,
+                    PrivDecision::Escalate | PrivDecision::EscalateAll
+                );
+                if wants_root && !crate::priv_ops::available().await {
+                    self.pending_priv_answer = Some((id, decision));
+                    self.dialog = Some(Dialog::Input(InputDialog::password(
+                        "Authentication required",
+                        "Enter sudo password:",
+                        InputPurpose::EscalatePassword,
+                    )));
+                } else {
+                    self.answer_privilege(id, decision);
+                }
+            }
+            Submit::EscalatePassword(password) => {
+                // Validate once, which primes sudo's own timestamp cache; every
+                // later escalation runs `sudo -n` off it, so the password is
+                // used here and then dropped.
+                let pending = self.pending_priv_answer.take();
+                match crate::mount::sudo_validate(&password).await {
+                    Ok(()) => {
+                        if let Some((id, decision)) = pending {
+                            self.answer_privilege(id, decision);
+                        }
+                    }
+                    Err(e) => {
+                        // Tell the paused engine to skip rather than leaving it
+                        // waiting forever on an answer that never comes.
+                        if let Some((id, _)) = pending {
+                            self.answer_privilege(id, PrivDecision::Skip);
+                        }
+                        self.show_error(format!("Authentication failed: {e}"));
+                    }
+                }
+            }
+            Submit::SelectTab(side, index) => self.tab_select(side, index).await,
+            Submit::Trash(targets) => {
+                self.start_op(OpKind::Trash, targets, None, None, None);
             }
             Submit::Compress(sources, name) => self.start_compress(sources, name),
             Submit::ArchiveAdd(req) => self.run_archive_add(*req),
@@ -326,6 +373,14 @@ impl AppState {
             }
             Submit::MountCreate { device, path } => self.do_mount(device, path, true).await,
             Submit::SudoPassword(password) => self.run_pending_sudo(password).await,
+            Submit::KeyPassphrase(passphrase) => {
+                // Retry the connect the passphrase prompt interrupted. The creds
+                // are taken, so a second prompt can't re-fire off a stale one.
+                if let Some((side, mut creds)) = self.pending_connect.take() {
+                    creds.key_passphrase = passphrase;
+                    self.connect_remote(side, creds).await;
+                }
+            }
             Submit::NetworkPassword(password) => self.open_network(password),
             Submit::MountDevice(device) => self.prompt_mount_path(device),
             Submit::FormatDevice(device) => {
@@ -576,24 +631,43 @@ impl AppState {
         let (title, purpose) = match kind {
             OpKind::Copy => ("Copy", InputPurpose::CopyDest(sources)),
             OpKind::Move => ("Move", InputPurpose::MoveDest(sources)),
-            // Delete has its own confirm dialog and Sync its own planner, so
-            // neither reaches this destination prompt.
-            OpKind::Delete | OpKind::Sync => unreachable!("no destination prompt"),
+            // Delete/Trash have their own confirm dialog and Sync its own
+            // planner, so none of them reaches this destination prompt.
+            OpKind::Delete | OpKind::Trash | OpKind::Sync => {
+                unreachable!("no destination prompt")
+            }
         };
         let prompt = format!("{title} to:");
         self.dialog = Some(Dialog::Input(InputDialog::new(title, prompt, dest, purpose)));
     }
 
-    pub(in crate::app::state) fn open_delete_dialog(&mut self) {
+    /// F8 (`permanent == false`) and Shift-F8 / Ctrl-F8 (`permanent == true`).
+    ///
+    /// Trashing only applies to real local files: there is nowhere to move a
+    /// file to on an SFTP server or inside a `.zip`, so those keep deleting
+    /// outright rather than pretending to be recoverable.
+    pub(in crate::app::state) fn open_delete_dialog(&mut self, permanent: bool) {
         let targets = self.panels[self.active].operation_targets();
         if targets.is_empty() {
             return;
         }
-        if self.config.confirm_delete {
-            self.dialog = Some(Dialog::Confirm(ConfirmDialog::delete(targets)));
-        } else {
-            self.start_op(OpKind::Delete, targets, None, None, None);
+        let use_trash = !permanent
+            && self.config.use_trash
+            && crate::trash::is_available()
+            && targets.iter().all(|t| t.is_plain_local());
+        if !self.config.confirm_delete {
+            let kind = if use_trash { OpKind::Trash } else { OpKind::Delete };
+            self.start_op(kind, targets, None, None, None);
+            return;
         }
+        self.dialog = Some(Dialog::Confirm(if use_trash {
+            ConfirmDialog::trash(targets)
+        } else if self.config.use_trash && crate::trash::is_available() {
+            // The trash is on, so make clear that *this* one really is forever.
+            ConfirmDialog::delete_permanently(targets)
+        } else {
+            ConfirmDialog::delete(targets)
+        }));
     }
 
     pub(in crate::app::state) fn open_mkdir(&mut self) {

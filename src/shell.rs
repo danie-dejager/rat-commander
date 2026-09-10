@@ -935,6 +935,8 @@ aNbaT1L+sT5Oo+M8cFWUAAAAB3JjLXRlc3QBAgMEBQY=\n\
             password: "p".to_string(),
             path: String::new(),
             passive: true,
+            key_file: String::new(),
+            key_passphrase: String::new(),
         };
         let handle = crate::vfs::remote::ssh_connect(&creds).await.expect("ssh connect");
         let ch = crate::vfs::remote::open_shell_channel(&handle, 24, 80).await.expect("shell");

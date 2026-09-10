@@ -25,6 +25,7 @@ mod multirename;
 mod overwrite;
 mod palette;
 mod progress;
+mod tabpicker;
 mod saveas;
 mod search;
 mod select;
@@ -49,6 +50,7 @@ pub use checksum::ChecksumResultDialog;
 pub use compare::CompareDialog;
 pub use confirm::ConfirmDialog;
 pub use dirhistory::DirHistoryDialog;
+pub use tabpicker::TabPickerDialog;
 pub use drive::DriveDialog;
 pub use find::{FindDialog, FindParams};
 pub use flash::{FileBrowserDialog, FlashTargetDialog, ImageSaveDialog};
@@ -127,6 +129,8 @@ pub enum Dialog {
     SyncPreview(SyncPreviewDialog),
     /// The Alt-H directory history (the active panel's visited directories).
     DirHistory(DirHistoryDialog),
+    /// The active panel's open tabs, for picking one (Alt-J).
+    TabPicker(TabPickerDialog),
 }
 
 /// What the app should do after a dialog handles a key.
@@ -247,8 +251,18 @@ pub enum Submit {
     Mount { device: String, path: String },
     /// Create the (missing) mount point and then mount.
     MountCreate { device: String, path: String },
+    /// The user's answer to a permission-denied prompt for a running task.
+    PrivilegeAnswer(TaskId, crate::ops::progress::PrivDecision),
+    /// Show tab `index` on panel `side` (from the tab picker).
+    SelectTab(usize, usize),
+    /// Move these paths to the freedesktop trash (the recoverable F8).
+    Trash(Vec<VfsPath>),
     /// A sudo password entered for a queued privileged command.
     SudoPassword(String),
+    /// A passphrase entered for an encrypted SSH key, to finish a queued connect.
+    KeyPassphrase(String),
+    /// A sudo password entered to escalate a paused file operation.
+    EscalatePassword(String),
     /// A root password (possibly blank) for the network-connections explorer.
     NetworkPassword(String),
     /// Prompt for a path and mount this device node.
@@ -425,6 +439,7 @@ impl Dialog {
             Dialog::GitOutput(d) => d.handle_key(key),
             Dialog::SyncPreview(d) => d.handle_key(key),
             Dialog::DirHistory(d) => d.handle_key(key),
+            Dialog::TabPicker(d) => d.handle_key(key),
         }
     }
 
@@ -464,6 +479,7 @@ impl Dialog {
             Dialog::GitOutput(d) => d.render(f, area, theme, gfx),
             Dialog::SyncPreview(d) => d.render(f, area, theme, gfx),
             Dialog::DirHistory(d) => d.render(f, area, theme),
+            Dialog::TabPicker(d) => d.render(f, area, theme),
         }
     }
 
@@ -505,6 +521,7 @@ impl Dialog {
             Dialog::UserMenu(d) => return d.handle_click(area, col, row),
             Dialog::ShellHistory(d) => return d.handle_click(area, col, row),
             Dialog::DirHistory(d) => return d.handle_click(area, col, row),
+            Dialog::TabPicker(d) => return d.handle_click(area, col, row),
             Dialog::CommandPalette(d) => return d.handle_click(area, col, row),
             Dialog::Hotlist(d) => return d.handle_click(area, col, row),
             Dialog::BackgroundOps(d) => return d.handle_click(area, col, row),
@@ -592,6 +609,9 @@ impl Dialog {
                 return d.handle_scroll(delta);
             }
             Dialog::DirHistory(d) => {
+                return d.handle_scroll(delta);
+            }
+            Dialog::TabPicker(d) => {
                 return d.handle_scroll(delta);
             }
             _ => {}

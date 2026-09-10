@@ -331,7 +331,7 @@ impl AppState {
     /// The active panel's directory when it is on the local filesystem.
     fn git_local_dir(&self) -> Option<PathBuf> {
         let cwd = &self.panels[self.active].cwd;
-        (cwd.scheme == "file" && cwd.container.is_none()).then(|| cwd.path.clone())
+        cwd.is_plain_local().then(|| cwd.path.clone())
     }
 
     /// Where a `Submit::GitRun` should run: the active panel's local directory.

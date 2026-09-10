@@ -324,6 +324,13 @@ code = "zh-Hant"
 "Password" = "密碼"
 "Remote path (blank = home)" = "遠端路徑 (空白 = 家目錄)"
 "Passive mode (PASV)" = "被動模式 (PASV)"
+"Key file (blank = agent / default keys)" = "金鑰檔案 (留空 = 代理程式 / 預設金鑰)"
+"Use trash bin" = "使用回收筒"
+"Go to Trash" = "前往回收筒"
+"New tab" = "新增分頁"
+"Close tab" = "關閉分頁"
+"Next tab" = "下一個分頁"
+"Tabs" = "分頁"
 "&Background operations..." = "背景作業…(&B)"
 
 # -- Tree view menu entry --

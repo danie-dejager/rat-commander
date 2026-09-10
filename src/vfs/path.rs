@@ -74,6 +74,15 @@ impl VfsPath {
         self.container.is_none() && self.scheme != "file"
     }
 
+    /// True for a path on the real local filesystem — the `file` backend, and
+    /// not inside a container. This is the test for "something an OS-level
+    /// facility can act on directly" (the trash, a privileged helper, a path
+    /// handed to a shell), as distinct from [`is_remote`](Self::is_remote),
+    /// which counts archives as local because their contents can be extracted.
+    pub fn is_plain_local(&self) -> bool {
+        self.scheme == "file" && self.container.is_none()
+    }
+
     /// True when this points at the root of an archive.
     pub fn is_archive_root(&self) -> bool {
         self.is_archive() && (self.path == Path::new("/") || self.path.as_os_str().is_empty())

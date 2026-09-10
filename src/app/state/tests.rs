@@ -279,6 +279,8 @@ fn creds() -> RemoteCreds {
         password: "p".into(),
         path: String::new(),
         passive: true,
+        key_file: String::new(),
+        key_passphrase: String::new(),
     }
 }
 
@@ -669,7 +671,9 @@ async fn move_skipping_overwrite_conflict_keeps_source() {
         match ev {
             AppEvent::Conflict(info) => {
                 let h = st.tasks.get(&info.id).expect("running move task");
-                let _ = h.reply.try_send(OverwriteDecision::SkipOnce);
+                let _ = h.reply.try_send(crate::ops::progress::TaskReply::Overwrite(
+                    OverwriteDecision::SkipOnce,
+                ));
             }
             AppEvent::TaskDone { id, outcome } => {
                 st.apply_event(AppEvent::TaskDone { id, outcome }).await;
@@ -4388,4 +4392,364 @@ async fn disk_explorer_deletes_the_file_under_the_cursor() {
 
 fn key_del() -> KeyEvent {
     KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE)
+}
+
+/// Temp directory unique to this test run, matching the inline idiom used
+/// throughout this file.
+fn lastdir_tmp(tag: &str) -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("rc_{tag}_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// `rc --print-last-dir` has to hand the shell a real local directory. The two
+/// awkward cases are a panel sitting inside an archive (a valid cwd, but not one
+/// a shell can enter) and a remote panel (whose path isn't local at all).
+#[tokio::test]
+async fn last_dir_for_shell_falls_back_from_archive_and_remote() {
+    let root = lastdir_tmp("lastdir");
+    let inner = root.join("holder");
+    std::fs::create_dir_all(&inner).unwrap();
+    let zip = inner.join("a.zip");
+    std::fs::write(&zip, b"not really a zip").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+
+    // Plain local: handed back as-is.
+    st.panels[0].cwd = VfsPath::local(&inner);
+    assert_eq!(st.last_dir_for_shell(), inner);
+
+    // Inside an archive: the directory *holding* the archive, not the archive
+    // path and not a path inside it.
+    st.panels[0].cwd = VfsPath {
+        scheme: "archive".into(),
+        path: "/sub".into(),
+        container: Some(zip.clone()),
+    };
+    assert_eq!(st.last_dir_for_shell(), inner);
+
+    // Remote: the local directory that panel last showed.
+    st.last_local_cwd[0] = VfsPath::local(&root);
+    setup_remote_panel(&mut st, 0, "sftp-lastdir", "/var/www");
+    assert_eq!(st.last_dir_for_shell(), root);
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// A cwd that no longer exists must not produce a path the shell would reject.
+#[tokio::test]
+async fn last_dir_for_shell_degrades_to_the_process_cwd() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local("/definitely/not/a/real/directory/here");
+    assert_eq!(st.last_dir_for_shell(), std::env::current_dir().unwrap());
+}
+
+/// The file the shell wrapper reads must hold the directory plus one newline.
+#[tokio::test]
+async fn write_last_dir_writes_the_directory_with_a_trailing_newline() {
+    let root = lastdir_tmp("lastdir_write");
+    let out = root.join("out");
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.write_last_dir(&out);
+
+    let written = std::fs::read(&out).unwrap();
+    assert_eq!(written, format!("{}\n", root.display()).into_bytes());
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// F8 goes through the trash and Shift-F8 deletes outright — and the two must
+/// raise visibly different prompts, since only one of them is recoverable.
+#[tokio::test]
+async fn f8_trashes_but_shift_f8_deletes_permanently() {
+    let root = lastdir_tmp("trashkeys");
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let _guard = crate::trash::test_home::TempHome::set(&home);
+    std::fs::write(root.join("a.txt"), b"x").unwrap();
+    std::fs::write(root.join("b.txt"), b"y").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.config.use_trash = true;
+    st.config.confirm_delete = true;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    // Put the cursor on a real file: on ".." there is nothing to delete.
+    st.panels[0].cursor =
+        st.panels[0].entries.iter().position(|e| e.name == "a.txt").expect("a.txt listed");
+
+    // Plain F8: the recoverable prompt, submitting a Trash op.
+    st.handle_key(KeyEvent::from(KeyCode::F(8))).await;
+    match &st.dialog {
+        Some(Dialog::Confirm(c)) => {
+            assert!(c.message.contains("Trash"), "trash wording: {}", c.message);
+            assert!(!c.danger, "trashing is recoverable, so not a danger prompt");
+        }
+        _ => panic!("expected a confirm dialog"),
+    }
+    st.dialog = None;
+
+    // Shift-F8: the permanent prompt, visibly marked as dangerous.
+    st.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::SHIFT)).await;
+    match &st.dialog {
+        Some(Dialog::Confirm(c)) => {
+            assert!(
+                c.message.contains("Permanently"),
+                "permanent wording: {}",
+                c.message
+            );
+            assert!(c.danger, "an irreversible delete is a danger prompt");
+        }
+        _ => panic!("expected a confirm dialog"),
+    }
+    st.dialog = None;
+
+    // With the trash switched off, F8 is the ordinary permanent delete again.
+    st.config.use_trash = false;
+    st.handle_key(KeyEvent::from(KeyCode::F(8))).await;
+    match &st.dialog {
+        Some(Dialog::Confirm(c)) => {
+            assert!(c.message.starts_with("Delete"), "plain wording: {}", c.message);
+        }
+        _ => panic!("expected a confirm dialog"),
+    }
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// There is nowhere to trash a file to on a remote server, so F8 there must keep
+/// deleting outright rather than implying it can be undone.
+#[tokio::test]
+async fn f8_on_a_remote_panel_still_deletes_permanently() {
+    let root = lastdir_tmp("trashremote");
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let _guard = crate::trash::test_home::TempHome::set(&home);
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.config.use_trash = true;
+    st.config.confirm_delete = true;
+    setup_remote_panel(&mut st, 0, "sftp-trash", "/var/www");
+    st.panels[0].reload().await.ok();
+
+    if st.panels[0].operation_targets().is_empty() {
+        // The stub backend listed nothing; nothing to assert about.
+        std::fs::remove_dir_all(&root).ok();
+        return;
+    }
+    st.handle_key(KeyEvent::from(KeyCode::F(8))).await;
+    match &st.dialog {
+        Some(Dialog::Confirm(c)) => {
+            assert!(
+                !c.message.contains("Trash"),
+                "a remote delete must not claim to use the trash: {}",
+                c.message
+            );
+        }
+        _ => panic!("expected a confirm dialog"),
+    }
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// A new tab opens on the same directory, and switching back restores the
+/// position (cursor, filter, view) the other tab was left in.
+#[tokio::test]
+async fn tabs_open_close_and_restore_their_position() {
+    let root = lastdir_tmp("tabs");
+    std::fs::create_dir_all(root.join("alpha")).unwrap();
+    std::fs::create_dir_all(root.join("beta")).unwrap();
+    for n in ["a.txt", "b.txt", "c.txt"] {
+        std::fs::write(root.join(n), b"x").unwrap();
+    }
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    assert_eq!(st.panels[0].tabs.len(), 1, "one tab to start with");
+
+    // Set a distinctive position in tab 0. The filter goes on first and the
+    // listing is reloaded, as the real filter path does, so the cursor lands on
+    // an entry that is actually visible.
+    st.panels[0].filter = Some("*.txt".into());
+    st.panels[0].reload().await.unwrap();
+    st.panels[0].cursor =
+        st.panels[0].entries.iter().position(|e| e.name == "b.txt").expect("b.txt visible");
+    let expected_cursor = st.panels[0].cursor;
+
+    // Open a second tab: same directory, fresh position.
+    st.tab_new(0).await;
+    assert_eq!(st.panels[0].tabs.len(), 2);
+    assert_eq!(st.panels[0].tab, 1, "the new tab is the one in front");
+    assert_eq!(st.panels[0].cwd, VfsPath::local(&root));
+    assert!(st.panels[0].filter.is_none(), "a new tab starts unfiltered");
+
+    // Move the new tab somewhere else, then go back to the first.
+    st.panels[0].cwd = VfsPath::local(root.join("alpha"));
+    st.panels[0].reload().await.unwrap();
+    st.tab_select(0, 0).await;
+
+    assert_eq!(st.panels[0].tab, 0);
+    assert_eq!(st.panels[0].cwd, VfsPath::local(&root), "back where tab 0 was");
+    assert_eq!(st.panels[0].cursor, expected_cursor, "its cursor came back");
+    assert_eq!(
+        st.panels[0].current_entry().map(|e| e.name.as_str()),
+        Some("b.txt"),
+        "and on the same file, not just the same index"
+    );
+    assert_eq!(st.panels[0].filter.as_deref(), Some("*.txt"), "and its filter");
+
+    // And the second tab still remembers where *it* got to.
+    st.tab_select(0, 1).await;
+    assert_eq!(st.panels[0].cwd, VfsPath::local(root.join("alpha")));
+
+    // Closing it returns to the remaining tab.
+    st.tab_close(0, 1).await;
+    assert_eq!(st.panels[0].tabs.len(), 1);
+    assert_eq!(st.panels[0].tab, 0);
+    assert_eq!(st.panels[0].cwd, VfsPath::local(&root));
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// A panel must always show something, so closing the only tab does nothing.
+#[tokio::test]
+async fn closing_the_last_tab_is_a_no_op() {
+    let root = lastdir_tmp("tabs_last");
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+
+    st.tab_close(0, 0).await;
+    assert_eq!(st.panels[0].tabs.len(), 1, "the panel still has its tab");
+    assert!(!st.pending_quit, "and closing a tab never quits");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// The one-remote-panel invariant applies to tab switches too: a tab sitting on
+/// a remote connection must not become a second remote panel.
+#[tokio::test]
+async fn switching_to_a_remote_tab_respects_the_one_remote_rule() {
+    let root = lastdir_tmp("tabs_remote");
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+
+    // Register a remote scheme, then give panel 0 a second tab parked on it
+    // while panel 0 itself stays local.
+    setup_remote_panel(&mut st, 0, "sftp-tabs", "/var/www");
+    let remote_cwd = st.panels[0].cwd.clone();
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].sync_active_tab();
+    st.panels[0].tabs.push(crate::panel::tabs::TabState::new(
+        remote_cwd,
+        st.panels[0].format,
+        st.panels[0].sort,
+    ));
+
+    // With the other panel local, switching to the remote tab is allowed.
+    st.tab_select(0, 1).await;
+    assert!(st.panels[0].cwd.is_remote(), "the remote tab opened fine on its own");
+
+    // Go back, then make the *other* panel remote so the rule now bites.
+    st.tab_select(0, 0).await;
+    setup_remote_panel(&mut st, 1, "sftp-tabs2", "/srv");
+
+    st.tab_select(0, 1).await;
+    assert!(
+        !st.panels[0].cwd.is_remote(),
+        "the switch was refused, so panel 0 stayed local"
+    );
+    assert!(st.dialog.is_some(), "and it said why");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// Both tab-cycling chords, driven through the real key path. Ctrl-Tab only
+/// arrives on terminals that can encode it *and* don't grab it for their own
+/// tabs, which is why Ctrl-PageUp/PageDown exist — a failure here is our
+/// handling, not the terminal's.
+#[tokio::test]
+async fn ctrl_tab_and_ctrl_pageup_down_cycle_tabs() {
+    let root = lastdir_tmp("ctrltab");
+    std::fs::create_dir_all(root.join("alpha")).unwrap();
+    std::fs::create_dir_all(root.join("beta")).unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+
+    // Two tabs on different directories.
+    st.tab_new(0).await;
+    st.panels[0].cwd = VfsPath::local(root.join("alpha"));
+    st.panels[0].reload().await.unwrap();
+    st.panels[0].sync_active_tab();
+    assert_eq!(st.panels[0].tabs.len(), 2);
+    assert_eq!(st.panels[0].tab, 1);
+
+    // Ctrl-Tab wraps forward to tab 0.
+    st.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::CONTROL)).await;
+    assert_eq!(st.panels[0].tab, 0, "Ctrl-Tab moved to the next tab");
+    assert_eq!(st.panels[0].cwd, VfsPath::local(&root));
+
+    // And again, back to tab 1.
+    st.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::CONTROL)).await;
+    assert_eq!(st.panels[0].tab, 1, "and wrapped round again");
+
+    // Ctrl-Shift-Tab goes the other way.
+    st.handle_key(KeyEvent::new(
+        KeyCode::BackTab,
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    ))
+    .await;
+    assert_eq!(st.panels[0].tab, 0, "Ctrl-Shift-Tab moved back");
+
+    // Ctrl-PageDown / Ctrl-PageUp do the same job, and are the reliable route:
+    // terminals grab Ctrl-Tab for their own tabs far more often than not.
+    st.handle_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::CONTROL)).await;
+    assert_eq!(st.panels[0].tab, 1, "Ctrl-PageDown moved to the next tab");
+    st.handle_key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::CONTROL)).await;
+    assert_eq!(st.panels[0].tab, 0, "Ctrl-PageUp moved back");
+
+    // Unmodified PageUp/PageDown must still scroll the listing, not switch tabs.
+    let before_tab = st.panels[0].tab;
+    st.handle_key(KeyEvent::from(KeyCode::PageDown)).await;
+    assert_eq!(st.panels[0].tab, before_tab, "plain PageDown does not switch tabs");
+
+    // Plain Tab must still switch panels, not tabs.
+    let before = st.panels[0].tab;
+    st.handle_key(KeyEvent::from(KeyCode::Tab)).await;
+    assert_eq!(st.active, 1, "plain Tab still flips panel focus");
+    assert_eq!(st.panels[0].tab, before, "and does not touch the tabs");
+
+    std::fs::remove_dir_all(&root).ok();
 }

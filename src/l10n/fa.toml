@@ -328,6 +328,13 @@ rtl = true
 "Password" = "گذرواژه"
 "Remote path (blank = home)" = "مسیر راه دور (خالی = خانه)"
 "Passive mode (PASV)" = "حالت غیرفعال (PASV)"
+"Key file (blank = agent / default keys)" = "فایل کلید (خالی = عامل / کلیدهای پیش‌فرض)"
+"Use trash bin" = "استفاده از زباله‌دان"
+"Go to Trash" = "رفتن به زباله‌دان"
+"New tab" = "زبانه جدید"
+"Close tab" = "بستن زبانه"
+"Next tab" = "زبانه بعدی"
+"Tabs" = "زبانه‌ها"
 "&Background operations..." = "عملیات پس‌زمینه… (&B)"
 
 # -- Tree view menu entry --

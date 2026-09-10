@@ -26,6 +26,23 @@ pub enum Error {
 }
 
 impl Error {
+    /// The underlying `io::ErrorKind`, when this wraps an I/O failure.
+    ///
+    /// The ops engine uses it to tell a permission problem (which the user can
+    /// answer by escalating) from every other failure. Without this the kind is
+    /// lost the moment an error is turned into a message.
+    pub fn io_kind(&self) -> Option<io::ErrorKind> {
+        match self {
+            Error::Io(e) => Some(e.kind()),
+            _ => None,
+        }
+    }
+
+    /// Whether this failed purely because of filesystem permissions.
+    pub fn is_permission_denied(&self) -> bool {
+        self.io_kind() == Some(io::ErrorKind::PermissionDenied)
+    }
+
     pub fn other(msg: impl Into<String>) -> Self {
         Error::Other(msg.into())
     }

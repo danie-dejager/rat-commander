@@ -324,6 +324,13 @@ code = "sr"
 "Password" = "Lozinka"
 "Remote path (blank = home)" = "Udaljena putanja (prazno = početni direktorijum)"
 "Passive mode (PASV)" = "Pasivni režim (PASV)"
+"Key file (blank = agent / default keys)" = "Датотека кључа (празно = агент / подразумевани кључеви)"
+"Use trash bin" = "Користи корпу за отпатке"
+"Go to Trash" = "Иди у корпу за отпатке"
+"New tab" = "Нова картица"
+"Close tab" = "Затвори картицу"
+"Next tab" = "Следећа картица"
+"Tabs" = "Картице"
 "&Background operations..." = "Pozadinske operacije… (&B)"
 
 # -- Tree view menu entry --

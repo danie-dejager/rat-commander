@@ -5,6 +5,7 @@
 //! delete all flow through the [`Vfs`](crate::vfs::Vfs) trait, so the generic
 //! ops engine handles cross-backend copy/move/delete for free.
 
+pub mod auth;
 pub mod ftp;
 pub mod scp;
 pub mod sftp;
@@ -131,6 +132,12 @@ pub struct RemoteCreds {
     /// default and needed behind most NAT/firewalls. Ignored by SFTP/SCP, which
     /// tunnel data over the single SSH connection.
     pub passive: bool,
+    /// SSH private key to authenticate with. Empty means "use the agent, then
+    /// the usual `~/.ssh` defaults". Ignored by FTP.
+    pub key_file: String,
+    /// Passphrase for an encrypted `key_file`, collected by a prompt just before
+    /// connecting. Held in memory for the attempt only and never persisted.
+    pub key_passphrase: String,
 }
 
 /// A live remote connection: a VFS backend plus the directory to open.
@@ -155,7 +162,9 @@ pub async fn connect(creds: &RemoteCreds) -> Result<Connection> {
 
 /// russh client handler implementing trust-on-first-use against the user's
 /// `~/.ssh/known_hosts`: a matching key is accepted, a *changed* key is
-/// rejected (possible MITM), and an unknown host is accepted and recorded.
+/// rejected (possible MITM), and an unknown host is accepted **and recorded**,
+/// so a later key change for that host is detected rather than silently
+/// trusted.
 pub(crate) struct HostKeyHandler {
     host: String,
     port: u16,
@@ -172,8 +181,23 @@ impl russh::client::Handler for HostKeyHandler {
         // certificate; `public_key()` yields the underlying key either way.
         let server_public_key = server_public_key.public_key();
         match russh::keys::check_known_hosts(&self.host, self.port, &server_public_key) {
-            Ok(true) => Ok(true),  // known host, key matches
-            Ok(false) => Ok(true), // unknown host: trust on first use
+            Ok(true) => Ok(true), // known host, key matches
+            Ok(false) => {
+                // Unknown host: trust on first use *and write it down*, so the
+                // "first" in first-use means something and a swapped key later
+                // trips the KeyChanged arm below.
+                //
+                // Not under `cfg(test)`: the in-process SSH tests dial
+                // 127.0.0.1 on a throwaway port, and learning those would append
+                // junk to the developer's real ~/.ssh/known_hosts on every run.
+                #[cfg(not(test))]
+                let _ = russh::keys::known_hosts::learn_known_hosts(
+                    &self.host,
+                    self.port,
+                    &server_public_key,
+                );
+                Ok(true)
+            }
             Err(russh::keys::Error::KeyChanged { .. }) => Ok(false), // reject possible MITM
             Err(_) => Ok(true),    // known_hosts unreadable — fall back to accepting
         }
@@ -212,7 +236,8 @@ pub(crate) async fn open_shell_channel(
     Ok(RemoteShellChannel { channel })
 }
 
-/// Open an SSH connection and authenticate with a password.
+/// Open an SSH connection and authenticate (agent, then keys, then password —
+/// see [`auth::authenticate`]).
 pub(crate) async fn ssh_connect(creds: &RemoteCreds) -> Result<SshHandle> {
     let config = Arc::new(russh::client::Config::default());
     let handler = HostKeyHandler {
@@ -222,13 +247,7 @@ pub(crate) async fn ssh_connect(creds: &RemoteCreds) -> Result<SshHandle> {
     let mut handle = russh::client::connect(config, (creds.host.as_str(), creds.port), handler)
         .await
         .map_err(|e| Error::other(format!("SSH connect failed: {e}")))?;
-    let auth = handle
-        .authenticate_password(&creds.user, &creds.password)
-        .await
-        .map_err(|e| Error::other(format!("SSH auth error: {e}")))?;
-    if !auth.success() {
-        return Err(Error::other("SSH authentication failed (bad user/password)"));
-    }
+    auth::authenticate(&mut handle, creds).await?;
     Ok(handle)
 }
 

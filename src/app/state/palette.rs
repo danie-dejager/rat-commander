@@ -112,6 +112,7 @@ impl AppState {
             toggle("Use internal viewer", BoolSetting::InternalViewer, self.config.use_internal_viewer),
             toggle("Use internal editor", BoolSetting::InternalEditor, self.config.use_internal_editor),
             toggle("Confirm delete", BoolSetting::ConfirmDelete, self.config.confirm_delete),
+            toggle("Use trash bin", BoolSetting::UseTrash, self.config.use_trash),
             toggle("Confirm overwrite", BoolSetting::ConfirmOverwrite, self.config.confirm_overwrite),
             toggle("Confirm execute", BoolSetting::ConfirmExecute, self.config.confirm_execute),
             toggle("Confirm unmount", BoolSetting::ConfirmUnmount, self.config.confirm_unmount),
@@ -178,6 +179,37 @@ impl AppState {
                 PaletteAction::ToggleBookmarkCurrent,
             ));
         }
+        // Tabs: palette labels carry no accelerator constraint, unlike menu
+        // items, so these cost nothing beyond their own strings.
+        entries.extend([
+            PaletteEntry::new(
+                crate::l10n::tr("New tab"),
+                PaletteCategory::Command,
+                PaletteAction::NewTab,
+            ),
+            PaletteEntry::new(
+                crate::l10n::tr("Close tab"),
+                PaletteCategory::Command,
+                PaletteAction::CloseTab,
+            ),
+            PaletteEntry::new(
+                crate::l10n::tr("Next tab"),
+                PaletteCategory::Command,
+                PaletteAction::NextTab,
+            ),
+        ]);
+
+        // The trash is an ordinary directory, so "go and look at it" is all the
+        // restore UI needed: F6 moves anything back out.
+        if let Some(dir) = crate::trash::home_trash_files()
+            && crate::trash::is_available()
+        {
+            entries.push(PaletteEntry::new(
+                crate::l10n::tr("Go to Trash"),
+                PaletteCategory::Command,
+                PaletteAction::JumpBookmark(dir.to_string_lossy().into_owned()),
+            ));
+        }
         for bm in &self.config.bookmarks {
             entries.push(PaletteEntry::new(
                 bm.clone(),
@@ -235,6 +267,13 @@ impl AppState {
                 self.save_config_reporting();
             }
             PaletteAction::JumpBookmark(path) => self.jump_to_local_dir(path).await,
+            PaletteAction::NewTab => self.tab_new(self.active).await,
+            PaletteAction::CloseTab => {
+                let s = self.active;
+                let idx = self.panels[s].tab;
+                self.tab_close(s, idx).await;
+            }
+            PaletteAction::NextTab => self.tab_cycle(self.active, true).await,
             PaletteAction::ToggleBookmarkCurrent => {
                 self.toggle_bookmark_current();
                 self.save_config_reporting();
@@ -277,6 +316,7 @@ impl AppState {
                 self.config.use_internal_editor = !self.config.use_internal_editor
             }
             BoolSetting::ConfirmDelete => self.config.confirm_delete = !self.config.confirm_delete,
+            BoolSetting::UseTrash => self.config.use_trash = !self.config.use_trash,
             BoolSetting::ConfirmOverwrite => {
                 self.config.confirm_overwrite = !self.config.confirm_overwrite
             }

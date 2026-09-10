@@ -8,6 +8,16 @@ pub mod paths;
 
 use serde::{Deserialize, Serialize};
 
+/// One saved directory tab. Only what survives a restart: the listing, cursor
+/// and history are all rebuilt from the directory.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TabRecord {
+    pub dir: String,
+    pub filter: String,
+    pub view: PanelView,
+}
+
 /// A previously-used remote connection, remembered for the connect dialog's
 /// dropdown. Passwords are intentionally *not* stored.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,6 +35,11 @@ pub struct RemoteHistoryEntry {
     /// passive mode, the FTP default.
     #[serde(default = "crate::config::default_true")]
     pub passive: bool,
+    /// SSH key file used for this server, so a key-authenticated host reconnects
+    /// without retyping the path. Blank means "agent / default keys" (and is what
+    /// entries saved before this field existed get). Passphrases are *not* stored.
+    #[serde(default)]
+    pub key_file: String,
 }
 
 /// serde default for [`RemoteHistoryEntry::passive`].
@@ -171,6 +186,11 @@ pub struct Config {
     pub shell: String,
     /// Ask for confirmation before deleting.
     pub confirm_delete: bool,
+    /// Send deleted files to the freedesktop trash (F8) instead of unlinking
+    /// them, keeping Shift-F8 as the permanent delete. Defaults on, and is
+    /// ignored where there is no trash to use (see [`crate::trash`]).
+    #[serde(default = "crate::config::default_true")]
+    pub use_trash: bool,
     /// Ask before overwriting an existing destination during copy/move.
     pub confirm_overwrite: bool,
     /// Ask before opening/executing a file with its default application.
@@ -241,6 +261,16 @@ pub struct Config {
     /// Each panel's persistent listing filter (`Alt-Shift-I`); empty = none.
     #[serde(default)]
     pub panel_filters: [String; 2],
+    /// Each panel's extra directory tabs, in tab order. Only plain-local tabs
+    /// are saved — a remote one would need credentials we deliberately don't
+    /// keep, exactly as for `panel_dirs`. Empty (the default, and what an older
+    /// config yields) simply means "one tab", so nothing changes for anyone who
+    /// never opens a second one.
+    #[serde(default)]
+    pub panel_tabs: [Vec<TabRecord>; 2],
+    /// Which of `panel_tabs` each panel had in front.
+    #[serde(default)]
+    pub panel_tab_active: [usize; 2],
     /// Panel split: `true` = horizontal (stacked), `false` = vertical (the
     /// classic side-by-side default).
     #[serde(default)]
@@ -269,6 +299,7 @@ impl Default for Config {
             use_internal_editor: true,
             shell: String::new(),
             confirm_delete: true,
+            use_trash: true,
             confirm_overwrite: true,
             confirm_execute: false,
             confirm_unmount: true,
@@ -289,6 +320,8 @@ impl Default for Config {
             bookmarks: Vec::new(),
             panel_dirs: [String::new(), String::new()],
             panel_filters: [String::new(), String::new()],
+            panel_tabs: [Vec::new(), Vec::new()],
+            panel_tab_active: [0, 0],
             split_horizontal: false,
             panel_hidden: [false, false],
             half_height: false,
@@ -518,6 +551,7 @@ mod tests {
             user: "u".into(),
             path: path.into(),
             passive: true,
+            key_file: String::new(),
         }
     }
 
@@ -619,6 +653,44 @@ mod tests {
         assert_eq!(load_history_from(&path, 100), vec!["ok".to_string()]);
         let _ = std::fs::remove_dir_all(&dir);
         assert!(load_history_from(&path, 100).is_empty());
+    }
+
+    #[test]
+    fn panel_tabs_round_trip_and_default_empty_for_old_configs() {
+        // An older config simply has no tabs, which means "one tab" — nothing
+        // about the panel changes for anyone who never opens a second one.
+        let c: Config = toml::from_str("brief_columns = 2\n").unwrap();
+        assert!(c.panel_tabs[0].is_empty() && c.panel_tabs[1].is_empty());
+        assert_eq!(c.panel_tab_active, [0, 0]);
+
+        // And a saved set survives a write/read cycle intact.
+        let mut c = Config::default();
+        c.panel_tabs[0] = vec![
+            TabRecord { dir: "/tmp".into(), filter: "*.rs".into(), ..Default::default() },
+            TabRecord { dir: "/etc".into(), filter: String::new(), ..Default::default() },
+        ];
+        c.panel_tab_active[0] = 1;
+        let text = toml::to_string(&c).unwrap();
+        let back: Config = toml::from_str(&text).unwrap();
+        assert_eq!(back.panel_tabs[0].len(), 2);
+        assert_eq!(back.panel_tabs[0][0].dir, "/tmp");
+        assert_eq!(back.panel_tabs[0][0].filter, "*.rs");
+        assert_eq!(back.panel_tabs[0][1].dir, "/etc");
+        assert_eq!(back.panel_tab_active[0], 1);
+    }
+
+    #[test]
+    fn remote_history_defaults_key_file_empty_for_old_entries() {
+        // An entry saved before the key-file field existed means "agent /
+        // default keys", which is exactly the empty string.
+        let e: RemoteHistoryEntry =
+            toml::from_str("protocol = \"sftp\"\nhost = \"h\"\nport = 22\n").unwrap();
+        assert!(e.key_file.is_empty());
+        let e: RemoteHistoryEntry = toml::from_str(
+            "protocol = \"sftp\"\nhost = \"h\"\nport = 22\nkey_file = \"~/.ssh/id_x\"\n",
+        )
+        .unwrap();
+        assert_eq!(e.key_file, "~/.ssh/id_x");
     }
 
     #[test]

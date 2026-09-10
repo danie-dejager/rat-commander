@@ -6,7 +6,7 @@ use std::collections::HashSet;
 
 /// The set of marked (tagged) file names within a single directory listing.
 /// Keyed by name because the listing is re-sorted/reloaded frequently.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Selection {
     marked: HashSet<String>,
 }

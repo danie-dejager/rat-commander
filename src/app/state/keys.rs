@@ -212,7 +212,7 @@ impl AppState {
             MenuAction::Move => self.open_transfer_dialog(OpKind::Move),
             MenuAction::MultiRename => self.open_multi_rename(),
             MenuAction::Mkdir => self.open_mkdir(),
-            MenuAction::Delete => self.open_delete_dialog(),
+            MenuAction::Delete => self.open_delete_dialog(false),
             MenuAction::Chmod => self.open_chmod(),
             MenuAction::Chown => self.open_chown(),
             MenuAction::Symlink => self.open_symlink(),
@@ -364,7 +364,13 @@ impl AppState {
             }
             KeyCode::F(6) => self.open_transfer_dialog(OpKind::Move),
             KeyCode::F(7) => self.open_mkdir(),
-            KeyCode::F(8) => self.open_delete_dialog(),
+            // Shift-F8 / Ctrl-F8 delete permanently, plain F8 uses the trash
+            // (when it is enabled — otherwise both delete outright). Ctrl-F8 is
+            // bound as well because Shift-F8 is not reported by every terminal.
+            KeyCode::F(8) if ctrl || key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.open_delete_dialog(true)
+            }
+            KeyCode::F(8) => self.open_delete_dialog(false),
             KeyCode::F(9) => self.open_menu(),
 
             // -- Panel navigation --
@@ -373,6 +379,12 @@ impl AppState {
             // up/down and rolls over to the previous/next column at a column edge.
             KeyCode::Up => self.active_panel().move_cursor(-1),
             KeyCode::Down => self.active_panel().move_cursor(1),
+            // Ctrl-PageUp / Ctrl-PageDown switch tabs — the conventional chord,
+            // and the *reliable* one: unlike Ctrl-Tab, terminal emulators do not
+            // grab it for their own tab switching. Both must be tested before
+            // the unmodified arms below, which match any PageUp/PageDown.
+            KeyCode::PageUp if ctrl => self.tab_cycle(self.active, false).await,
+            KeyCode::PageDown if ctrl => self.tab_cycle(self.active, true).await,
             KeyCode::PageUp => {
                 let p = self.active_panel();
                 let step = p.page.max(1) as isize;
@@ -386,6 +398,20 @@ impl AppState {
             KeyCode::Home => self.active_panel().move_home(),
             KeyCode::End => self.active_panel().move_end(),
             KeyCode::Insert => self.active_panel().toggle_mark_and_advance(),
+            // Ctrl-Tab cycles this panel's tabs. It must be tested before the
+            // plain Tab arm below, which matches any Tab regardless of modifiers.
+            //
+            // Treat this as a bonus: Ctrl-Tab is unreliable through no fault of
+            // ours. Terminals without the Kitty keyboard protocol cannot encode
+            // it at all (they send a bare 0x09, identical to Tab), and several
+            // that can — Konsole, GNOME Terminal, Tilix, Terminator — bind it to
+            // their *own* tab switching and never forward it. Ctrl-PageUp /
+            // Ctrl-PageDown above and Alt-J's picker are the reliable routes.
+            KeyCode::Tab if ctrl => {
+                let forward = !key.modifiers.contains(KeyModifiers::SHIFT);
+                self.tab_cycle(self.active, forward).await;
+            }
+            KeyCode::BackTab if ctrl => self.tab_cycle(self.active, false).await,
             // Tab flips focus, but never onto a hidden panel.
             KeyCode::Tab => {
                 let other = self.other_index();
@@ -508,6 +534,19 @@ impl AppState {
             // diffs the file against HEAD (the diff moved off Alt-G when the menu
             // took it; Ctrl-D can't be used — readline claims it to delete a
             // character on the command line, see `cmdline_edit_wanted`).
+            // -- Directory tabs --
+            // Ctrl-T (mc's "tag file") and Ctrl-W (readline kill-word) are both
+            // taken, and Alt-1..9 are the Esc-N function-key aliases, so tabs
+            // use these instead. Alt-J's picker matters: Ctrl-Tab is only
+            // reported by terminals that send modified keys, so without a
+            // pickable list, switching would silently not work for many users.
+            KeyCode::Char('n') if ctrl && !alt => self.tab_new(self.active).await,
+            KeyCode::Char('k') if alt && !ctrl => {
+                let side = self.active;
+                let idx = self.panels[side].tab;
+                self.tab_close(side, idx).await;
+            }
+            KeyCode::Char('j') if alt && !ctrl => self.open_tab_picker(),
             KeyCode::Char('g') if ctrl && !alt => self.git_stage_toggle().await,
             KeyCode::Char('g') if alt && !ctrl => self.open_git_menu(),
             KeyCode::Char('d') if alt && !ctrl => self.open_git_diff().await,

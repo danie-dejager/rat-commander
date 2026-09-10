@@ -4,6 +4,7 @@ pub mod icons;
 pub mod render;
 pub mod selection;
 pub mod sort;
+pub mod tabs;
 pub mod tree;
 
 use crate::util::Result;
@@ -146,6 +147,15 @@ pub struct Panel {
     /// with pixel graphics, the renderer records the target rect here so the root
     /// draw can composite the image (via `Gfx`) after the panels are laid out.
     pub preview_image_area: Option<Rect>,
+    /// Saved positions for this panel's other tabs. Always non-empty: entry
+    /// `tab` is *this* panel's own position, kept in step on every switch, so
+    /// the list can be rendered without special-casing the active one.
+    pub tabs: Vec<crate::panel::tabs::TabState>,
+    /// Index into `tabs` of the position currently being shown.
+    pub tab: usize,
+    /// Screen rects of the tab strip's clickable labels, recorded at render time
+    /// (`None`/empty when the strip is not drawn).
+    pub tab_hits: Vec<(Rect, usize)>,
 }
 
 /// Largest number of directories kept on a panel's back/forward history stacks.
@@ -153,6 +163,8 @@ const HISTORY_MAX: usize = 128;
 
 impl Panel {
     pub fn new(backend: Arc<dyn Vfs>, cwd: VfsPath) -> Self {
+        let first_tab =
+            crate::panel::tabs::TabState::new(cwd.clone(), ViewFormat::Full, SortConfig::default());
         Panel {
             cwd,
             backend,
@@ -179,6 +191,58 @@ impl Panel {
             fwd_arrow: None,
             git: None,
             preview_image_area: None,
+            tabs: vec![first_tab],
+            tab: 0,
+            tab_hits: Vec::new(),
+        }
+    }
+
+    // -- Tabs --------------------------------------------------------------
+
+    /// This panel's current position, as a saved tab.
+    pub fn capture_tab(&self) -> crate::panel::tabs::TabState {
+        crate::panel::tabs::TabState {
+            cwd: self.cwd.clone(),
+            format: self.format,
+            sort: self.sort,
+            filter: self.filter.clone(),
+            selection: self.selection.clone(),
+            cursor: self.cursor,
+            cursor_name: self.current_entry().map(|e| e.name.clone()),
+            offset: self.offset,
+            back: self.back.clone(),
+            forward: self.forward.clone(),
+        }
+    }
+
+    /// Restore a saved position. The caller is responsible for setting
+    /// `backend` (resolved from `cwd`) and reloading the listing — everything
+    /// derived from the directory is deliberately *not* carried in a tab.
+    pub fn apply_tab(&mut self, tab: &crate::panel::tabs::TabState) {
+        self.cwd = tab.cwd.clone();
+        self.format = tab.format;
+        self.sort = tab.sort;
+        self.filter = tab.filter.clone();
+        self.selection = tab.selection.clone();
+        self.cursor = tab.cursor;
+        self.offset = tab.offset;
+        self.back = tab.back.clone();
+        self.forward = tab.forward.clone();
+        // Derived state that belongs to the directory we just left.
+        self.entries.clear();
+        self.error = None;
+        self.result_paths = None;
+        self.tree = None;
+        self.git = None;
+        self.disk = None;
+    }
+
+    /// Fold the live position back into the tab list, so the entry for the
+    /// active tab is never stale.
+    pub fn sync_active_tab(&mut self) {
+        let current = self.capture_tab();
+        if let Some(slot) = self.tabs.get_mut(self.tab) {
+            *slot = current;
         }
     }
 

@@ -32,6 +32,36 @@ impl AppState {
             if !filter.is_empty() {
                 panel.filter = Some(filter.clone());
             }
+
+            // Restore the saved tabs, dropping any whose directory has gone.
+            // The *active* panel keeps its launch directory in the front tab
+            // (as above), so only its background tabs come back.
+            let saved = &config.panel_tabs[i];
+            if saved.len() > 1 {
+                let mut tabs: Vec<crate::panel::tabs::TabState> = saved
+                    .iter()
+                    .filter(|r| !r.dir.is_empty() && std::path::Path::new(&r.dir).is_dir())
+                    .map(|r| {
+                        let mut t = crate::panel::tabs::TabState::new(
+                            VfsPath::local(&r.dir),
+                            r.view.format,
+                            r.view.sort,
+                        );
+                        t.filter = (!r.filter.is_empty()).then(|| r.filter.clone());
+                        t
+                    })
+                    .collect();
+                if !tabs.is_empty() {
+                    let active_tab = config.panel_tab_active[i].min(tabs.len() - 1);
+                    // The panel itself is showing `panel.cwd`, so the front tab
+                    // has to agree with it or the first switch would jump.
+                    tabs[active_tab] =
+                        crate::panel::tabs::TabState::new(panel.cwd.clone(), panel.format, panel.sort);
+                    tabs[active_tab].filter = panel.filter.clone();
+                    panel.tabs = tabs;
+                    panel.tab = active_tab;
+                }
+            }
         }
         let restored_split =
             if config.split_horizontal { SplitDir::Horizontal } else { SplitDir::Vertical };
@@ -71,6 +101,8 @@ impl AppState {
             netview: None,
             theme_editor: None,
             pending_sudo: None,
+            pending_connect: None,
+            pending_priv_answer: None,
             pending_flash: None,
             pending_image: None,
             flash_tasks: HashMap::new(),
@@ -141,17 +173,84 @@ impl AppState {
             // Only a local directory can be restored; a remote/archive location
             // needs credentials we don't keep, so it isn't saved.
             let cwd = &self.panels[i].cwd;
-            self.config.panel_dirs[i] = if cwd.scheme == "file" && cwd.container.is_none() {
+            self.config.panel_dirs[i] = if cwd.is_plain_local() {
                 cwd.path.to_string_lossy().into_owned()
             } else {
                 String::new()
             };
             self.config.panel_filters[i] = self.panels[i].filter.clone().unwrap_or_default();
+
+            // Tabs, on the same "only what can be restored" rule as panel_dirs:
+            // a remote or in-archive tab needs state we deliberately don't keep.
+            self.panels[i].sync_active_tab();
+            let mut records = Vec::new();
+            let mut active = 0;
+            for (idx, tab) in self.panels[i].tabs.iter().enumerate() {
+                if !tab.cwd.is_plain_local() {
+                    continue;
+                }
+                if idx == self.panels[i].tab {
+                    active = records.len();
+                }
+                records.push(crate::config::TabRecord {
+                    dir: tab.cwd.path.to_string_lossy().into_owned(),
+                    filter: tab.filter.clone().unwrap_or_default(),
+                    view: crate::config::PanelView { format: tab.format, sort: tab.sort },
+                });
+            }
+            // One tab is the ordinary case and is already covered by
+            // `panel_dirs`; saving it too would just be duplication.
+            self.config.panel_tabs[i] = if records.len() > 1 { records } else { Vec::new() };
+            self.config.panel_tab_active[i] = active;
         }
         self.config.split_horizontal = matches!(self.split, SplitDir::Horizontal);
         self.config.panel_hidden = self.panel_hidden;
         self.config.half_height = self.half_height;
         self.config.active_panel = self.active;
+    }
+
+    /// The directory a calling shell should `cd` to after we quit, for
+    /// `rc --print-last-dir`.
+    ///
+    /// Only a real local directory is useful to a shell, so the two non-local
+    /// cases fall back: inside an **archive** (or extfs) we hand back the
+    /// directory *holding* the archive, and on a **remote** panel we hand back
+    /// the local directory that panel last showed. Anything that still isn't a
+    /// directory (a deleted cwd, say) degrades to the process's own cwd.
+    pub(in crate::app::state) fn last_dir_for_shell(&self) -> std::path::PathBuf {
+        let cwd = &self.panels[self.active].cwd;
+        let candidate = if let Some(container) = &cwd.container {
+            // Archive/extfs: the container is a real file on local disk.
+            container.parent().map(std::path::Path::to_path_buf)
+        } else if cwd.is_remote() {
+            Some(self.last_local_cwd[self.active].path.clone())
+        } else {
+            Some(cwd.path.clone())
+        };
+        match candidate {
+            Some(p) if p.is_dir() => p,
+            _ => std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+        }
+    }
+
+    /// Write [`last_dir_for_shell`](Self::last_dir_for_shell) to `file` for the
+    /// calling shell to read. Best effort: a failure here must not stop the exit
+    /// path, and the wrapper function simply doesn't `cd`.
+    ///
+    /// The raw OS bytes are written rather than a lossy string, so a directory
+    /// whose name isn't valid UTF-8 still round-trips into the shell.
+    pub fn write_last_dir(&self, file: &std::path::Path) {
+        let dir = self.last_dir_for_shell();
+        #[cfg(unix)]
+        let bytes = {
+            use std::os::unix::ffi::OsStrExt;
+            dir.as_os_str().as_bytes().to_vec()
+        };
+        #[cfg(not(unix))]
+        let bytes = dir.to_string_lossy().into_owned().into_bytes();
+        let mut out = bytes;
+        out.push(b'\n');
+        let _ = std::fs::write(file, out);
     }
 
     /// Persist the command-line history to disk (capped at the configured max),
@@ -385,6 +484,13 @@ impl AppState {
                 // whether the task was foreground or in the background.
                 self.stashed_progress = Some(self.progress_dialog_for(info.id));
                 self.dialog = Some(Dialog::Overwrite(OverwriteDialog::new(info)));
+            }
+            AppEvent::PermissionDenied(info) => {
+                // Same shape as a conflict: the engine is paused, so foreground
+                // the task's progress dialog and raise the prompt over it. The
+                // answer restores the stashed progress dialog.
+                self.stashed_progress = Some(self.progress_dialog_for(info.id));
+                self.dialog = Some(Dialog::Confirm(ConfirmDialog::permission_denied(&info)));
             }
             AppEvent::ArchiveAddChecked { conflicts, request } => {
                 // Drop the "checking…" spinner; whatever comes next replaces it.

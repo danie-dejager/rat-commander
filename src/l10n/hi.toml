@@ -324,6 +324,13 @@ code = "hi"
 "Password" = "पासवर्ड"
 "Remote path (blank = home)" = "रिमोट पथ (खाली = होम)"
 "Passive mode (PASV)" = "निष्क्रिय मोड (PASV)"
+"Key file (blank = agent / default keys)" = "कुंजी फ़ाइल (खाली = एजेंट / डिफ़ॉल्ट कुंजियाँ)"
+"Use trash bin" = "रद्दी का उपयोग करें"
+"Go to Trash" = "रद्दी पर जाएँ"
+"New tab" = "नया टैब"
+"Close tab" = "टैब बंद करें"
+"Next tab" = "अगला टैब"
+"Tabs" = "टैब"
 "&Background operations..." = "बैकग्राउंड ऑपरेशन… (&B)"
 
 # -- Tree view menu entry --

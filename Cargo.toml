@@ -32,6 +32,11 @@ configurable F2 user menu."""
 assets = [
     ["target/release/rc", "usr/bin/", "755"],
     ["README.md", "usr/share/doc/rat-commander/README.md", "644"],
+    # Shell wrappers for `rc --print-last-dir` ("cd to where I quit"). A shell
+    # function can't be a symlink, so unlike the `rcedit` shim these are sourced
+    # by the user rather than installed onto PATH.
+    ["packaging/shell/rc.sh", "usr/share/rat-commander/rc.sh", "644"],
+    ["packaging/shell/rc.fish", "usr/share/rat-commander/rc.fish", "644"],
 ]
 
 [features]

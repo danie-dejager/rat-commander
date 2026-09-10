@@ -54,10 +54,18 @@ pub fn format_time(time: SystemTime) -> String {
 /// Convert a Unix timestamp (UTC) into civil (year, month, day, hour, minute).
 /// Based on Howard Hinnant's `civil_from_days` algorithm.
 fn civil_from_unix(secs: i64) -> (i64, i64, i64, i64, i64) {
+    let (y, m, d, h, mi, _) = civil_parts(secs);
+    (y, m, d, h, mi)
+}
+
+/// As [`civil_from_unix`], but to second resolution — the trash's
+/// `DeletionDate` needs the seconds field.
+pub fn civil_parts(secs: i64) -> (i64, i64, i64, i64, i64, i64) {
     let days = secs.div_euclid(86_400);
     let rem = secs.rem_euclid(86_400);
     let hour = rem / 3600;
     let min = (rem % 3600) / 60;
+    let sec = rem % 60;
 
     let z = days + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
@@ -69,5 +77,5 @@ fn civil_from_unix(secs: i64) -> (i64, i64, i64, i64, i64) {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = if m <= 2 { y + 1 } else { y };
-    (year, m, d, hour, min)
+    (year, m, d, hour, min, sec)
 }

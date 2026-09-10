@@ -41,7 +41,7 @@ impl AppState {
     /// A short display label for a panel's directory (used in the dialogs).
     fn sync_label(&self, side: usize) -> String {
         let cwd = &self.panels[side].cwd;
-        if cwd.scheme == "file" && cwd.container.is_none() {
+        if cwd.is_plain_local() {
             cwd.path.to_string_lossy().into_owned()
         } else {
             cwd.display()

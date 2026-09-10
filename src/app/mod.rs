@@ -25,7 +25,10 @@ use std::io::{self, Stdout, Write};
 type Term = Terminal<CrosstermBackend<Stdout>>;
 
 /// Set up, run, and tear down the application.
-pub async fn run(startup: crate::Startup) -> Result<()> {
+pub async fn run(
+    startup: crate::Startup,
+    last_dir_file: Option<std::path::PathBuf>,
+) -> Result<()> {
     // Load user themes (generating themes.toml from the presets on first run)
     // before the initial theme is derived from the config.
     crate::ui::theme::load_user_themes();
@@ -76,6 +79,12 @@ pub async fn run(startup: crate::Startup) -> Result<()> {
     // history, for the next session.
     state.persist_panel_views();
     state.persist_command_history();
+    // `rc --print-last-dir <file>`: hand the directory we are quitting in back to
+    // the calling shell, so a wrapper function can `cd` there (see the `rcd`
+    // shell function in packaging/shell/).
+    if let Some(file) = last_dir_file {
+        state.write_last_dir(&file);
+    }
     // Stop any running "Send file over LAN" server and delete its temp archive.
     state.stop_send_server();
     restore_terminal(&mut term, state.kbd_enhanced)?;

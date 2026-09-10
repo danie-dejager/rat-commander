@@ -23,6 +23,12 @@ pub enum InputPurpose {
     ImagePassword,
     /// Enter a root password for the network explorer (blank ⇒ user mode).
     NetworkPassword,
+    /// Enter the passphrase for an encrypted SSH private key, to finish a
+    /// connection that is waiting on it.
+    KeyPassphrase,
+    /// Enter a sudo password to escalate a file operation that hit a permission
+    /// denial and is paused waiting on it.
+    EscalatePassword,
     /// Set the persistent listing filter on panel `side` (blank clears it).
     PanelFilter(usize),
     /// Answer a `%{…}` prompt of a user-menu command (any text, blank allowed).
@@ -97,6 +103,12 @@ impl InputDialog {
                 if let InputPurpose::ImagePassword = self.purpose {
                     return DialogResult::Submit(Submit::ImagePassword(self.buffer.clone()));
                 }
+                if let InputPurpose::KeyPassphrase = self.purpose {
+                    return DialogResult::Submit(Submit::KeyPassphrase(self.buffer.clone()));
+                }
+                if let InputPurpose::EscalatePassword = self.purpose {
+                    return DialogResult::Submit(Submit::EscalatePassword(self.buffer.clone()));
+                }
                 // A blank network password is valid (means "user mode").
                 if let InputPurpose::NetworkPassword = self.purpose {
                     return DialogResult::Submit(Submit::NetworkPassword(self.buffer.clone()));
@@ -131,6 +143,8 @@ impl InputDialog {
                     InputPurpose::SudoPassword
                     | InputPurpose::FlashPassword
                     | InputPurpose::ImagePassword
+                    | InputPurpose::KeyPassphrase
+                    | InputPurpose::EscalatePassword
                     | InputPurpose::NetworkPassword
                     | InputPurpose::PanelFilter(_)
                     | InputPurpose::MenuPrompt => unreachable!(),

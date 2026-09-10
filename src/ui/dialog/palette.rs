@@ -54,6 +54,7 @@ pub enum BoolSetting {
     InternalViewer,
     InternalEditor,
     ConfirmDelete,
+    UseTrash,
     ConfirmOverwrite,
     ConfirmExecute,
     ConfirmUnmount,
@@ -78,6 +79,12 @@ pub enum PaletteAction {
     JumpBookmark(String),
     /// Add or remove the active panel's directory from the bookmarks.
     ToggleBookmarkCurrent,
+    /// Open a new tab on the active panel.
+    NewTab,
+    /// Close the active panel's current tab.
+    CloseTab,
+    /// Move to the active panel's next tab.
+    NextTab,
     /// Open the connect form for `side`, prefilled from a stored remote server.
     ConnectRemote(usize, crate::config::RemoteHistoryEntry),
 }

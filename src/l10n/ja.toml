@@ -324,6 +324,13 @@ code = "ja"
 "Password" = "パスワード"
 "Remote path (blank = home)" = "リモートパス (空欄 = ホーム)"
 "Passive mode (PASV)" = "パッシブモード (PASV)"
+"Key file (blank = agent / default keys)" = "鍵ファイル (空欄 = エージェント / 既定の鍵)"
+"Use trash bin" = "ごみ箱を使う"
+"Go to Trash" = "ごみ箱へ移動"
+"New tab" = "新しいタブ"
+"Close tab" = "タブを閉じる"
+"Next tab" = "次のタブ"
+"Tabs" = "タブ"
 "&Background operations..." = "バックグラウンド処理…(&B)"
 
 # -- Tree view menu entry --

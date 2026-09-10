@@ -27,7 +27,15 @@ The installed executable is named **`rc`** for quick typing.
   directory tree.
 - **File operations** — copy / move / delete with a progress window and
   transfer-speed chart, rich overwrite handling, chmod / chown / symlink (with
-  recursion), and make-directory.
+  recursion), and make-directory. Copies keep the source's timestamp and
+  permissions, like `cp -p`. **F8** moves to the **trash** (the freedesktop one,
+  written natively — your desktop's trash can restore it), **Shift-F8** deletes
+  permanently; the command palette has a *Go to Trash* entry and a *Use trash
+  bin* toggle. When a file operation is refused for **lack of permissions**, it
+  pauses on that file and offers to retry it **as root** (asking for your sudo
+  password once, the same way the disk manager does), or to **skip** just that
+  file — or every later one — and carry on, instead of failing the whole
+  operation the way it used to.
 - **Built-in viewer (F3)** — text and hex modes, goto, line wrap, syntax
   highlighting, a **rendered Markdown** mode for `.md` files, and hex-color
   swatches. Pages huge files straight from disk. Opens **images** fullscreen —
@@ -69,6 +77,12 @@ The installed executable is named **`rc`** for quick typing.
   every setting (switch theme/language/graphics or flip a toggle in place), your
   directory **bookmarks**, the open remote connections, and your saved remote
   servers (reconnect); type a few letters and press Enter.
+- **Directory tabs** — each panel keeps as many open directories as you like:
+  **Ctrl-N** opens a tab, **Alt-K** closes one, **Ctrl-PageDown**/**Ctrl-PageUp**
+  cycle them and **Alt-J** lists them to pick from (**Ctrl-Tab** works too on
+  terminals that don't reserve it for their own tabs). A tab remembers its
+  directory, view format, sort, filter, marks and cursor, and local tabs come
+  back on the next run. The strip only appears once a panel has more than one.
 - **Directory navigation** — a per-panel **back/forward history** (`Alt-←`/`Alt-→`
   or MC's `Alt-y`/`Alt-u`, plus a clickable `◀` at each panel's top-left corner
   and `▶` at its top-right) that `Alt-H` also lists as a **pickable window** to
@@ -104,9 +118,14 @@ The installed executable is named **`rc`** for quick typing.
   replaced (after the usual prompt) rather than duplicated. `.rar` is read-only.
 - **Remote filesystems** — SFTP, SCP and FTP/FTPS, each mounted into a panel;
   copy/move/delete works transparently across local, remote and archive panels.
-  On an **SFTP/SCP** panel, the command line and **Ctrl-O** run a shell on the
-  **remote host** over the same SSH connection — its output on the same console
-  backdrop, no second login.
+  SSH authenticates the way `ssh` itself does: the **ssh-agent** first, then your
+  **key files** (`~/.ssh/id_ed25519`, `id_ecdsa`, `id_rsa`, or one you name in the
+  connect dialog), then the password — so hosts with `PasswordAuthentication no`
+  work, and an encrypted key just prompts for its passphrase. Unknown host keys
+  are recorded in `~/.ssh/known_hosts` on first use and a **changed** key is
+  refused. On an **SFTP/SCP** panel, the command line and **Ctrl-O** run a shell
+  on the **remote host** over the same SSH connection — its output on the same
+  console backdrop, no second login.
 - **Disk explorer** (treemap of disk usage), **process explorer** (btop-style
   system monitor), and a **disk manager** (Linux) to mount/unmount/format/sync
   drives and **flash or image** raw disk images.
@@ -303,6 +322,17 @@ cargo clippy --all-targets       # lints
 Release binaries are stripped and optimized via the `[profile.release]` settings
 in `Cargo.toml`.
 
+Every push to `main` and every pull request runs
+`.github/workflows/ci.yml`, which is exactly:
+
+```sh
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+```
+
+There is no `cargo fmt` gate — the source is hand-formatted and rustfmt would
+rewrite most of it.
+
 ### Cross-compiling and packages
 
 The `.github/workflows/release.yml` workflow builds every artifact. To reproduce
@@ -354,6 +384,31 @@ is gone), and the split direction, visibility, active side and listing filters
 are restored. When no external editor or viewer is configured, `rc` falls back to
 **`$VISUAL`** then **`$EDITOR`** for editing and **`$PAGER`** for viewing before
 using the built-in ones.
+
+**Changing directory on exit.** `rc` never changes its parent shell's directory
+on its own — no program can. Instead, `rc --print-last-dir <FILE>` writes the
+directory the active panel was showing when it quit, and a small shell function
+does the `cd`. The packages install one; source it and use `rcd` instead of `rc`:
+
+```sh
+source /usr/share/rat-commander/rc.sh          # bash / zsh
+source /usr/share/rat-commander/rc.fish        # fish
+```
+
+From a source checkout the same files live in `packaging/shell/`. On a remote or
+in-archive panel it falls back to that panel's last local directory (or the
+directory holding the archive), so you always land somewhere your shell can go.
+PowerShell has no wrapper shipped; the equivalent is:
+
+```powershell
+function rcd {
+    $f = New-TemporaryFile
+    rc --print-last-dir $f.FullName @args
+    $d = (Get-Content $f -Raw).Trim()
+    if ($d -and (Test-Path $d)) { Set-Location $d }
+    Remove-Item $f
+}
+```
 
 **The shell** the command line and `Ctrl-O` run is **`$SHELL`** on Unix. Windows
 has no such variable — and `%COMSPEC%` always says `cmd.exe` — so `rc` looks up

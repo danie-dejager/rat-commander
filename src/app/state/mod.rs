@@ -3,7 +3,7 @@
 use crate::app::event::{AppEvent, FetchKind};
 use crate::config::Config;
 use crate::editor::{EditorSignal, EditorState};
-use crate::ops::progress::{ProgressUpdate, TaskOutcome};
+use crate::ops::progress::{PrivDecision, ProgressUpdate, TaskOutcome, TaskReply};
 use crate::ops::CancelToken;
 use crate::ops::{ArchiveAdd, OpKind, OpRequest, TaskHandle, TaskId, spawn_op};
 use crate::diff::{DiffSignal, DiffView};
@@ -21,7 +21,7 @@ use crate::ui::dialog::{
     MultiRenameDialog, OverwriteDialog, PaletteAction, PaletteCategory, PaletteEntry, ProgressDialog,
     SaveAsDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, SendFileDialog, SpeedChart,
     SyncPreviewDialog,
-    ShellHistoryDialog, Submit, UserMenuDialog,
+    ShellHistoryDialog, Submit, TabPickerDialog, UserMenuDialog,
 };
 use crate::usermenu::{self, UserMenu};
 use crate::ui::layout::SplitDir;
@@ -204,6 +204,12 @@ pub struct AppState {
     pub theme_editor: Option<crate::ui::theme_editor::ThemeEditor>,
     /// A privileged command queued while prompting for a sudo password.
     pending_sudo: Option<PendingPriv>,
+    /// A connect waiting on an SSH key passphrase: the panel it is for and the
+    /// credentials to retry once the passphrase arrives.
+    pending_connect: Option<(usize, RemoteCreds)>,
+    /// A permission-denied answer waiting on a sudo password: the paused task
+    /// and what the user chose to do about it.
+    pending_priv_answer: Option<(TaskId, PrivDecision)>,
     /// A flash queued while prompting for a sudo password.
     pending_flash: Option<crate::flash::FlashSpec>,
     /// A device-imaging queued while prompting for a sudo password.
@@ -556,6 +562,7 @@ mod navigation;
 mod git;
 mod sendfile;
 mod syncdirs;
+mod tabs;
 
 /// Read a file fully into memory (capped just above the viewer limit).
 async fn load_file(backend: &std::sync::Arc<dyn Vfs>, path: &VfsPath) -> crate::util::Result<Vec<u8>> {

@@ -17,11 +17,13 @@ mod mount;
 mod net;
 mod ops;
 mod panel;
+mod priv_ops;
 mod proc;
 mod rename;
 mod send;
 mod shell;
 mod syntax;
+mod trash;
 mod ui;
 mod usermenu;
 mod util;
@@ -57,6 +59,11 @@ fn main() {
             };
             std::process::exit(code);
         }
+        Some(crate::priv_ops::PRIV_OP_FLAG) => {
+            // One privileged file primitive, then exit. Deliberately handled
+            // before the runtime and before any TUI setup.
+            std::process::exit(priv_ops::helper_main(&argv[2..]));
+        }
         _ => {}
     }
 
@@ -64,11 +71,7 @@ fn main() {
     // `--edit`), or through the `rcedit` shim — a symlink (Unix) or `.cmd`
     // (Windows) that points back at this binary. With no file, the editor
     // opens on a fresh, unnamed buffer whose first save prompts for a name.
-    let startup = editor_startup(
-        argv.first().map(|s| s.as_os_str()),
-        argv.get(1).map(|s| s.as_os_str()),
-        argv.get(2).map(|s| s.as_os_str()),
-    );
+    let (startup, last_dir_file) = parse_args(&argv);
 
     let rt = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
@@ -78,7 +81,7 @@ fn main() {
         }
     };
     rt.block_on(async {
-        if let Err(e) = app::run(startup).await {
+        if let Err(e) = app::run(startup, last_dir_file).await {
             // Terminal is already restored by `app::run` on its way out.
             eprintln!("Rat Commander error: {e}");
             std::process::exit(1);
@@ -96,6 +99,36 @@ pub enum Startup {
     /// Open the editor on a fresh, unnamed buffer (no file was given); its
     /// first save is routed through "Save as" so the user picks a filename.
     EditNew,
+}
+
+/// Split the command line into the start mode and the optional "write the
+/// directory I quit in here" file (`--print-last-dir <FILE>`, or `-P <FILE>`).
+///
+/// The flag is removed before the rest is handed to [`editor_startup`], so it
+/// can sit anywhere on the line and still leave `rc -P /tmp/x /edit notes.txt`
+/// working. A bare `-P` with nothing after it is ignored rather than fatal.
+fn parse_args(argv: &[std::ffi::OsString]) -> (Startup, Option<std::path::PathBuf>) {
+    let mut rest: Vec<&std::ffi::OsStr> = Vec::new();
+    let mut last_dir_file = None;
+    let mut i = 1;
+    while i < argv.len() {
+        match argv[i].to_str() {
+            Some("--print-last-dir" | "-P") => {
+                if let Some(file) = argv.get(i + 1) {
+                    last_dir_file = Some(std::path::PathBuf::from(file));
+                    i += 1;
+                }
+            }
+            _ => rest.push(argv[i].as_os_str()),
+        }
+        i += 1;
+    }
+    let startup = editor_startup(
+        argv.first().map(|s| s.as_os_str()),
+        rest.first().copied(),
+        rest.get(1).copied(),
+    );
+    (startup, last_dir_file)
 }
 
 /// Decide how to start from the program name (`argv0`) and the first two
@@ -128,12 +161,16 @@ fn editor_startup(
 
 #[cfg(test)]
 mod tests {
-    use super::{Startup, editor_startup};
-    use std::ffi::OsStr;
+    use super::{Startup, editor_startup, parse_args};
+    use std::ffi::{OsStr, OsString};
     use std::path::PathBuf;
 
     fn os(s: &str) -> &OsStr {
         OsStr::new(s)
+    }
+
+    fn argv(args: &[&str]) -> Vec<OsString> {
+        args.iter().map(OsString::from).collect()
     }
 
     #[test]
@@ -177,5 +214,48 @@ mod tests {
         }
         // `rcedit` with no file opens a blank buffer (like `rc /edit`).
         assert_eq!(editor_startup(Some(os("rcedit")), None, None), Startup::EditNew);
+    }
+
+    #[test]
+    fn print_last_dir_is_extracted_and_leaves_the_start_mode_intact() {
+        // Plain panels start, flag consumed with its argument.
+        let (startup, file) = parse_args(&argv(&["rc", "--print-last-dir", "/tmp/x"]));
+        assert_eq!(startup, Startup::Panels);
+        assert_eq!(file, Some(PathBuf::from("/tmp/x")));
+
+        // Short form, and the remaining args still select editor mode — so the
+        // flag can sit in front of `/edit` without breaking it.
+        let (startup, file) = parse_args(&argv(&["rc", "-P", "/tmp/x", "/edit", "notes.txt"]));
+        assert_eq!(startup, Startup::Edit(PathBuf::from("notes.txt")));
+        assert_eq!(file, Some(PathBuf::from("/tmp/x")));
+
+        // ...and behind it.
+        let (startup, file) = parse_args(&argv(&["rc", "/edit", "notes.txt", "-P", "/tmp/x"]));
+        assert_eq!(startup, Startup::Edit(PathBuf::from("notes.txt")));
+        assert_eq!(file, Some(PathBuf::from("/tmp/x")));
+    }
+
+    #[test]
+    fn without_the_flag_nothing_changes() {
+        let (startup, file) = parse_args(&argv(&["rc"]));
+        assert_eq!(startup, Startup::Panels);
+        assert_eq!(file, None);
+
+        // The `rcedit` shim keeps working through parse_args.
+        let (startup, file) = parse_args(&argv(&["rcedit", "file.txt"]));
+        assert_eq!(startup, Startup::Edit(PathBuf::from("file.txt")));
+        assert_eq!(file, None);
+    }
+
+    #[test]
+    fn a_bare_print_last_dir_is_ignored_not_fatal() {
+        // Trailing flag with nothing after it: no panic, no file, still starts.
+        let (startup, file) = parse_args(&argv(&["rc", "--print-last-dir"]));
+        assert_eq!(startup, Startup::Panels);
+        assert_eq!(file, None);
+
+        let (startup, file) = parse_args(&argv(&["rc", "-P"]));
+        assert_eq!(startup, Startup::Panels);
+        assert_eq!(file, None);
     }
 }

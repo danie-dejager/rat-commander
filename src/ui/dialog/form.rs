@@ -31,6 +31,12 @@ fn graphics_pref(label: &str) -> String {
 /// The Settings form's three visual groups: `(title, field count)`, in the
 /// order the fields are built in [`FormDialog::settings`]. The field counts must
 /// sum to the number of settings fields.
+///
+/// **This form is exactly 24 rows tall, which is the whole of a classic 80x24
+/// terminal.** Adding a field (or a group, which costs two rows more) overflows
+/// it, and `centered` then clips the OK/Cancel row off the bottom where it
+/// cannot be clicked. New booleans go in the command palette's toggle list
+/// instead — see `BoolSetting` — unless something here is removed first.
 const SETTINGS_GROUPS: &[(&str, usize)] = &[
     ("Language", 2),
     ("Edit/View", 4),
@@ -703,10 +709,13 @@ impl FormDialog {
             Field::password("Password"),
             Field::text("Remote path (blank = home)", ""),
         ];
-        // Passive mode (PASV) is a plain-FTP concept; SFTP/SCP tunnel their data
-        // over the single SSH connection, so the checkbox is FTP-only.
+        // Field 5 is protocol-specific, and the two uses are mutually exclusive:
+        // PASV is a plain-FTP concept, while a key file only means anything over
+        // SSH. Sharing the index keeps every other field's position fixed.
         if matches!(protocol, Protocol::Ftp) {
             fields.push(Field::check("Passive mode (PASV)", true));
+        } else {
+            fields.push(Field::text("Key file (blank = agent / default keys)", ""));
         }
         let form = Form::new(fields);
         // Only this protocol's recent connections.
@@ -766,11 +775,16 @@ impl FormDialog {
         if let Some(field) = self.form.fields.get_mut(4) {
             set_text_field(field, &entry.path);
         }
-        // Restore the remembered PASV choice (FTP forms only have this checkbox).
-        if let Some(Field::Check { value, .. }) = self.form.fields.get_mut(5) {
-            *value = entry.passive;
+        // Field 5 is the PASV checkbox on FTP forms and the key file on SSH
+        // ones; each arm matches its own variant, so the other is left alone.
+        match self.form.fields.get_mut(5) {
+            Some(Field::Check { value, .. }) => *value = entry.passive,
+            Some(field) => set_text_field(field, &entry.key_file),
+            None => {}
         }
-        self.form.focus = 3; // password
+        // Focus the password, except when a key file was restored — then the
+        // password is very likely not the thing that needs typing.
+        self.form.focus = if entry.key_file.is_empty() { 3 } else { 0 };
     }
 
     /// Move focus onto the OK (`primary`) or Cancel button slot. Used when the
@@ -1112,9 +1126,16 @@ impl FormDialog {
                         user: fields[2].as_text().trim().to_string(),
                         password: fields[3].as_text().to_string(),
                         path: fields[4].as_text().trim().to_string(),
-                        // The PASV checkbox exists only on FTP forms; SFTP/SCP
-                        // ignore the value, so a missing field is fine.
+                        // Field 5 is the PASV checkbox on FTP forms and the key
+                        // file on SSH ones. `as_bool` on a text field is false
+                        // and `as_text` on a checkbox is empty, so each protocol
+                        // reads its own and gets a harmless default for the other.
                         passive: fields.get(5).map(Field::as_bool).unwrap_or(false),
+                        key_file: fields
+                            .get(5)
+                            .map(|f| f.as_text().trim().to_string())
+                            .unwrap_or_default(),
+                        key_passphrase: String::new(),
                     },
                 )
             }
@@ -1148,6 +1169,13 @@ impl FormDialog {
 
     /// The titled groups this form's fields are laid out in, or `None` for the
     /// flat one-row-per-field forms.
+    /// Total fields the group table claims, for the test that keeps it in step
+    /// with the real field list. `None` when this form has no groups.
+    #[cfg(test)]
+    pub(crate) fn group_field_total(&self) -> Option<usize> {
+        self.groups().map(|g| g.iter().map(|(_, n)| *n).sum())
+    }
+
     fn groups(&self) -> Option<&'static [(&'static str, usize)]> {
         match self.purpose {
             FormPurpose::Settings => Some(SETTINGS_GROUPS),

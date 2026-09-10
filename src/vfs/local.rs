@@ -212,6 +212,35 @@ impl Vfs for LocalFs {
         Err(crate::util::Error::Unsupported)
     }
 
+    #[cfg(unix)]
+    async fn set_mtime(&self, path: &VfsPath, mtime: std::time::SystemTime) -> Result<()> {
+        // `utimensat` needs no file descriptor, so it also works on read-only
+        // files and on directories — unlike `File::set_modified`, which requires
+        // the file to be openable for *writing* and so silently failed to stamp
+        // a copy whose source mode was e.g. 0o444. `UTIME_OMIT` leaves the
+        // access time alone. Blocking syscall, so keep it off the async worker.
+        use nix::sys::stat::{UtimensatFlags, utimensat};
+        use nix::sys::time::TimeSpec;
+        let p = path.path.clone();
+        let since_epoch = mtime
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| Error::other(format!("mtime precedes the epoch: {e}")))?;
+        tokio::task::spawn_blocking(move || {
+            utimensat(
+                nix::fcntl::AT_FDCWD,
+                &p,
+                &TimeSpec::UTIME_OMIT,
+                &TimeSpec::from_duration(since_epoch),
+                UtimensatFlags::FollowSymlink,
+            )
+        })
+        .await
+        .map_err(|e| Error::other(format!("join error: {e}")))?
+        .map_err(|e| Error::other(format!("set mtime failed: {e}")))?;
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
     async fn set_mtime(&self, path: &VfsPath, mtime: std::time::SystemTime) -> Result<()> {
         // `File::set_modified` needs the file open for writing; it is a blocking
         // syscall, so keep it off the async worker.

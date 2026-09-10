@@ -1053,8 +1053,25 @@ most NAT/firewalls; untick it for **active** mode, where the server connects
 back. The choice is remembered per server. (SFTP and SCP tunnel their data over
 the single SSH connection, so they have no such option.)
 
-SSH host keys are checked against `~/.ssh/known_hosts` (trust-on-first-use; a
-changed key is rejected).
+**SSH authentication** follows the same order `ssh` itself uses, stopping at the
+first method the server accepts:
+
+1. **The ssh-agent**, if one is running (`SSH_AUTH_SOCK`; on Windows the OpenSSH
+   agent's named pipe). Every key it holds is offered.
+2. **Key files** — the one named in the dialog's **Key file** field, or, when that
+   is blank, `~/.ssh/id_ed25519`, `~/.ssh/id_ecdsa` and `~/.ssh/id_rsa` in that
+   order. A `~/` prefix is expanded, and the path is remembered per server.
+3. **The password** from the form.
+
+This means a server with `PasswordAuthentication no` — the default on most cloud
+images — connects normally. If a chosen key is **encrypted**, a passphrase prompt
+appears *before* the connection is attempted; the passphrase is used for that one
+attempt and never stored. When nothing works, the error names each method that
+was tried, so you can tell "wrong key" from "wrong password".
+
+SSH host keys are checked against `~/.ssh/known_hosts`: a matching key connects,
+an **unknown** host is trusted and **recorded** on first use, and a **changed**
+key is rejected as a possible machine-in-the-middle.
 
 **Connections behave like drives.** Every open connection stays alive as a
 button in the picker, so you can switch a panel between **Local** and any server
@@ -1143,6 +1160,156 @@ nothing while it is hidden. Everything that doesn't need the prompt still works:
 **Ctrl-O** drops to the subshell, **F2** user-menu entries run their commands, and
 `Enter` on a directory descends into it.
 
+
+### Changing directory on exit
+
+A program cannot change its parent shell's working directory, so `rc` does the
+next best thing: **`rc --print-last-dir <FILE>`** (short form **`-P <FILE>`**)
+writes the directory the active panel was showing when it quit into `<FILE>`,
+and a shell function reads it and does the `cd` itself. This is the same trick
+Midnight Commander's `mc -P` wrapper uses.
+
+The packages install ready-made wrappers, which define **`rcd`**:
+
+```sh
+source /usr/share/rat-commander/rc.sh          # bash / zsh
+source /usr/share/rat-commander/rc.fish        # fish
+```
+
+From a source checkout they are in `packaging/shell/`. Use `rcd` wherever you
+would have typed `rc`; it passes every argument straight through, so
+`rcd /edit notes.txt` still opens the editor, and it returns `rc`'s own exit
+status.
+
+The flag may appear anywhere on the command line and is removed before the rest
+is interpreted, so `rc -P /tmp/dir /edit notes.txt` works.
+
+Three cases can't hand back the panel's own path, and each falls back to
+something a shell can actually enter:
+
+| Active panel | What gets written |
+|---|---|
+| A local directory | that directory |
+| Inside an archive | the directory *holding* the archive |
+| A remote (SFTP/FTP/SCP) panel | that panel's last local directory |
+
+If even the fallback no longer exists, the directory `rc` itself was started in
+is written instead. The file is only written when the flag is given, so `rc`
+started without it behaves exactly as before.
+
+### When a file operation is refused
+
+If the filesystem refuses a step because of **permissions**, the operation does
+not fail outright — it stops on that one file and asks:
+
+| Answer | What happens |
+|---|---|
+| **As root** | Retry this one step with elevated privileges |
+| **Root all** | Retry this and every later refusal as root, without asking again |
+| **Skip** | Leave this file alone and carry on with the rest |
+| **Skip all** | Skip this and every later refusal |
+| **Abort** | Give up on the whole operation |
+
+The default is **Skip**, not the privileged answer. Everything the operation
+*can* do still gets done, so copying a directory that contains one unreadable
+file now copies everything else instead of stopping at it.
+
+Choosing a root option asks for your **sudo password** once, in the same masked
+prompt the disk manager uses. The password is used only to unlock `sudo`'s own
+credential cache and is then discarded — it is never stored, and never passed to
+the running operation. Each escalated step is performed by a small helper mode of
+`rc` itself, invoked through `sudo`, which does exactly one primitive (copy one
+file, delete one file, remove or create one directory) and exits; the directory
+walking stays unprivileged. Files it creates for you are handed back to your own
+user, so an escalated copy doesn't leave root-owned files behind.
+
+Escalation is offered only where it could actually help — real files on local
+disk. On a **remote panel** or inside an **archive**, `sudo` has no bearing on
+what the server or the container permits, so only Skip and Abort are offered.
+
+### Deleting and the trash
+
+**F8** deletes the selection. When the trash is enabled (it is by default) and
+everything selected is a real file on local disk, F8 **moves it to the trash**
+instead of unlinking it, and the prompt says so. **Shift-F8** — or **Ctrl-F8**,
+for terminals that don't report Shift-F8 — deletes **permanently**, and its
+prompt is drawn in the red "danger" style so the two are never confused.
+
+The trash is the freedesktop one your desktop environment already uses
+(`~/.local/share/Trash`), written directly rather than by calling out to `gio`.
+Files trashed by `rc` show up in GNOME Files, Dolphin, `gio trash --list` and
+anything else that follows the specification, and can be restored from there.
+Files on **another mount** (a USB stick, a separate `/home`) cannot be moved
+across filesystems by a rename, so they go to a trash directory on their own
+volume — `$topdir/.Trash/$uid` when the administrator has provided one, else
+`.Trash-$uid` — exactly as the specification requires. A cross-filesystem trash
+is a real copy, so it shows a progress window and can be aborted.
+
+Trashing never applies to **remote panels** or the **inside of an archive**:
+there is nowhere to move the file to, so F8 deletes outright there and says so.
+
+The trash is a plain directory, so restoring by hand needs no special UI — the
+command palette's **Go to Trash** entry points the panel at it, and **F6** moves
+anything back out. To turn the trash off entirely, use the palette's **Use trash
+bin** toggle or set `use_trash = false` in `config.toml`; F8 then deletes
+permanently as it always did.
+
+Trashing is a Linux/BSD feature. macOS's `~/.Trash` uses a different, undocumented
+format that Finder would not be able to restore from, and Windows needs the
+shell's recycle-bin API, so on both F8 keeps deleting permanently.
+
+### Directory tabs
+
+Each panel can hold several directories at once and switch between them, without
+giving up the two-panel layout.
+
+| Key | Action |
+|---|---|
+| **Ctrl-N** | Open a new tab, on the current directory |
+| **Alt-K** | Close the current tab |
+| **Alt-J** | List the panel's tabs and pick one |
+| **Ctrl-PageDown** / **Ctrl-PageUp** | Next / previous tab |
+| **Ctrl-Tab** / **Ctrl-Shift-Tab** | Next / previous tab, where the terminal allows it |
+| Click a tab | Switch to it |
+
+The command palette (**Ctrl-P**) has *New tab*, *Close tab* and *Next tab* too.
+
+A tab strip appears along the top of a panel **only once it has more than one
+tab**, so a single-tab panel looks exactly as it always did and gives up no room.
+Each tab remembers its own directory, view format, sort order, listing filter,
+marked files and cursor position — switching away and back puts you exactly where
+you were, and the cursor is restored by *file name*, so it still finds its place
+if the directory changed while you were elsewhere.
+
+Closing the last remaining tab does nothing: a panel always shows a directory,
+and quitting is **F10**'s job.
+
+Tabs on **local** directories are saved and restored between runs, the same way
+each panel's last directory is. A tab on a remote server or inside an archive is
+not saved — that would need credentials the program deliberately doesn't keep.
+
+The one-remote-panel rule applies to tabs as well: if one panel is already on a
+remote connection, switching the other panel to a tab that sits on a remote
+connection is refused, and says so.
+
+Why these keys: **Ctrl-T** is Midnight Commander's "tag file", **Ctrl-W** is the
+command line's delete-word-backwards, and **Alt-1**…**Alt-9** are the Esc-N
+function-key aliases — all long-standing bindings that tabs do not take over.
+
+**If Ctrl-Tab does nothing, that is your terminal, not `rc`.** Two separate
+things get in the way, and neither is something a program can work around:
+
+* Terminals without the **Kitty keyboard protocol** cannot express Ctrl-Tab at
+  all — they send the same byte for Tab and Ctrl-Tab, so the two are literally
+  indistinguishable by the time they arrive.
+* Several terminals that *can* send it — **Konsole**, **GNOME Terminal**,
+  **Tilix**, **Terminator** — bind Ctrl-Tab to switching their *own* tabs and
+  never pass it on. Unbinding it in the terminal's own keyboard settings hands
+  it back to `rc`.
+
+**Ctrl-PageDown / Ctrl-PageUp** are the reliable equivalent: no terminal claims
+them, and they are the same chord browsers and editors use. **Alt-J**'s picker
+always works, including on a terminal that reports no modified keys at all.
 
 ## The user menu (F2)
 

@@ -181,6 +181,11 @@ impl AppState {
                 // A click on the menu bar (top row) opens that menu.
                 if let Some(i) = MenuBarState::title_index_at(area, col, row) {
                     self.menu = Some(MenuBarState::new(i, &self.session_list(), self.side_remote()));
+                } else if let Some((side, index)) = self.tab_at(col, row) {
+                    // A click on the tab strip switches to that tab. Tested
+                    // before the listing, since the strip sits inside the panel.
+                    self.active = side;
+                    self.tab_select(side, index).await;
                 } else if let Some((side, back)) = self.history_arrow_at(col, row) {
                     // A click on a panel's ◀/▶ history arrow steps it back/forward.
                     self.active = side;

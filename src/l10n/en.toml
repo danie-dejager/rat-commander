@@ -333,6 +333,13 @@ code = "en"
 "Password" = "Password"
 "Remote path (blank = home)" = "Remote path (blank = home)"
 "Passive mode (PASV)" = "Passive mode (PASV)"
+"Key file (blank = agent / default keys)" = "Key file (blank = agent / default keys)"
+"Use trash bin" = "Use trash bin"
+"Go to Trash" = "Go to Trash"
+"New tab" = "New tab"
+"Close tab" = "Close tab"
+"Next tab" = "Next tab"
+"Tabs" = "Tabs"
 "&Background operations..." = "&Background operations..."
 
 # -- Tree view menu entry --

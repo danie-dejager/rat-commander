@@ -328,6 +328,13 @@ rtl = true
 "Password" = "كلمة المرور"
 "Remote path (blank = home)" = "المسار البعيد (فارغ = المجلد الرئيسي)"
 "Passive mode (PASV)" = "الوضع السلبي (PASV)"
+"Key file (blank = agent / default keys)" = "ملف المفتاح (فارغ = الوكيل / المفاتيح الافتراضية)"
+"Use trash bin" = "استخدام سلة المهملات"
+"Go to Trash" = "الانتقال إلى سلة المهملات"
+"New tab" = "علامة تبويب جديدة"
+"Close tab" = "إغلاق علامة التبويب"
+"Next tab" = "علامة التبويب التالية"
+"Tabs" = "علامات التبويب"
 "&Background operations..." = "عمليات الخلفية… (&B)"
 
 # -- Tree view menu entry --

@@ -5,7 +5,7 @@
 
 use crate::disk::DiskEntry;
 use crate::net::Scan;
-use crate::ops::progress::{ConflictInfo, ProgressUpdate, TaskId, TaskOutcome};
+use crate::ops::progress::{ConflictInfo, DeniedInfo, ProgressUpdate, TaskId, TaskOutcome};
 use crate::util::checksum::ChecksumReport;
 use crate::vfs::VfsPath;
 
@@ -36,6 +36,9 @@ pub enum AppEvent {
     /// A copy/move hit an existing destination; the engine is paused awaiting the
     /// user's overwrite decision (sent back via the task's reply channel).
     Conflict(ConflictInfo),
+    /// A step failed on filesystem permissions and the engine is paused waiting
+    /// to be told whether to escalate, skip, or give up.
+    PermissionDenied(DeniedInfo),
     /// A background task finished (success, cancel, or failure).
     TaskDone { id: TaskId, outcome: TaskOutcome },
     /// A pending archive add has finished scanning the destination archive for

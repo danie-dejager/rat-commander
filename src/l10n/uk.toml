@@ -324,6 +324,13 @@ code = "uk"
 "Password" = "Пароль"
 "Remote path (blank = home)" = "Віддалений шлях (порожньо = домашня тека)"
 "Passive mode (PASV)" = "Пасивний режим (PASV)"
+"Key file (blank = agent / default keys)" = "Файл ключа (порожньо = агент / типові ключі)"
+"Use trash bin" = "Використовувати смітник"
+"Go to Trash" = "Перейти до смітника"
+"New tab" = "Нова вкладка"
+"Close tab" = "Закрити вкладку"
+"Next tab" = "Наступна вкладка"
+"Tabs" = "Вкладки"
 "&Background operations..." = "Фонові операції… (&B)"
 
 # -- Tree view menu entry --

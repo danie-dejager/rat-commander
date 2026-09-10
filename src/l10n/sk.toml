@@ -324,6 +324,13 @@ code = "sk"
 "Password" = "Heslo"
 "Remote path (blank = home)" = "Vzdialená cesta (prázdne = domov)"
 "Passive mode (PASV)" = "Pasívny režim (PASV)"
+"Key file (blank = agent / default keys)" = "Súbor s kľúčom (prázdne = agent / predvolené kľúče)"
+"Use trash bin" = "Používať kôš"
+"Go to Trash" = "Prejsť do koša"
+"New tab" = "Nová karta"
+"Close tab" = "Zavrieť kartu"
+"Next tab" = "Ďalšia karta"
+"Tabs" = "Karty"
 "&Background operations..." = "Operácie na pozadí… (&B)"
 
 # -- Tree view menu entry --

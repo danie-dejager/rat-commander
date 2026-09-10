@@ -81,6 +81,32 @@ impl ConfirmDialog {
         Self::yes_no("Delete", message, Submit::Delete(targets), "Yes", "No", None)
     }
 
+    /// The *permanent* delete prompt, used when the trash is enabled and the
+    /// user asked for Shift-F8. Marked `danger` so it is visibly not the
+    /// ordinary, recoverable F8 — this one cannot be undone.
+    pub fn delete_permanently(targets: Vec<VfsPath>) -> Self {
+        let message = if targets.len() == 1 {
+            format!("Permanently delete \"{}\"?", targets[0].file_name())
+        } else {
+            format!("Permanently delete {} selected items?", targets.len())
+        };
+        let mut d = Self::yes_no("Delete", message, Submit::Delete(targets), "Delete", "Cancel", None);
+        d.danger = true;
+        d.focus = 1; // default to Cancel: this is the irreversible one
+        d
+    }
+
+    /// The everyday F8 prompt when the trash is on: recoverable, so it is not
+    /// marked `danger` and defaults to going ahead.
+    pub fn trash(targets: Vec<VfsPath>) -> Self {
+        let message = if targets.len() == 1 {
+            format!("Move \"{}\" to the Trash?", targets[0].file_name())
+        } else {
+            format!("Move {} selected items to the Trash?", targets.len())
+        };
+        Self::yes_no("Delete", message, Submit::Trash(targets), "Move", "Cancel", None)
+    }
+
     /// Copying into an archive rebuilds the whole container in one pass, so the
     /// overwrite question is asked once, up front, naming every member the copy
     /// would replace — rather than file by file the way a filesystem copy does.
@@ -197,6 +223,35 @@ impl ConfirmDialog {
             danger: false,
             width: None,
         }
+    }
+
+    /// A step was refused by the filesystem. Offers to retry it with elevated
+    /// privileges, to leave that one file alone, or to give up — and, because a
+    /// denied tree usually denies every file in it, "…all" forms of the first
+    /// two so the user answers once rather than hundreds of times.
+    ///
+    /// When `sudo` cannot help (a remote server, or inside an archive) the
+    /// escalate buttons are simply absent rather than present and useless.
+    pub fn permission_denied(info: &crate::ops::progress::DeniedInfo) -> Self {
+        use crate::ops::progress::PrivDecision;
+        let id = info.id;
+        let answer = |d: PrivDecision| Some(Submit::PrivilegeAnswer(id, d));
+        let message = format!("{} \"{}\" was refused: permission denied.", info.verb, info.path);
+
+        let mut buttons: Vec<(&str, Option<Submit>)> = Vec::new();
+        if info.escalatable {
+            buttons.push(("As root", answer(PrivDecision::Escalate)));
+            buttons.push(("Root all", answer(PrivDecision::EscalateAll)));
+        }
+        buttons.push(("Skip", answer(PrivDecision::Skip)));
+        buttons.push(("Skip all", answer(PrivDecision::SkipAll)));
+        buttons.push(("Abort", answer(PrivDecision::Abort)));
+
+        let mut d = Self::from_buttons("Permission denied", message, buttons);
+        d.width = Some(70);
+        // Default to the safe answer, not the privileged one.
+        d.focus = if info.escalatable { 2 } else { 0 };
+        d
     }
 
     /// Action menu for a block device: Mount/Format/Flash/Create image when free,

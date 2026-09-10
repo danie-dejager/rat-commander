@@ -324,6 +324,13 @@ code = "pt"
 "Password" = "Senha"
 "Remote path (blank = home)" = "Caminho remoto (vazio = pasta pessoal)"
 "Passive mode (PASV)" = "Modo passivo (PASV)"
+"Key file (blank = agent / default keys)" = "Ficheiro de chave (vazio = agente / chaves predefinidas)"
+"Use trash bin" = "Usar a reciclagem"
+"Go to Trash" = "Ir para a reciclagem"
+"New tab" = "Novo separador"
+"Close tab" = "Fechar separador"
+"Next tab" = "Separador seguinte"
+"Tabs" = "Separadores"
 "&Background operations..." = "Operações em segundo plano… (&B)"
 
 # -- Tree view menu entry --

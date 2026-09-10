@@ -135,7 +135,10 @@ impl Capabilities {
 /// Metadata hint passed to [`Vfs::open_write`]; some backends (archive writers)
 /// need the size up front.
 #[derive(Debug, Clone, Default)]
-// size_hint/mode/mtime are upload hints no backend consumes yet; `append` is used.
+// size_hint/mode/mtime are open-time hints no backend consumes yet; `append` is
+// used. Permissions and timestamps are *not* carried through here: `open_write`
+// has nowhere to put them on most backends, so the ops engine applies them after
+// the write with [`Vfs::set_permissions`] and [`Vfs::set_mtime`] instead.
 #[allow(dead_code)]
 pub struct WriteMeta {
     pub size_hint: Option<u64>,

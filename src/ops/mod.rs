@@ -9,7 +9,7 @@ pub use cancel::CancelToken;
 pub use progress::TaskId;
 
 use crate::app::event::AppEvent;
-use crate::ops::progress::OverwriteDecision;
+use crate::ops::progress::TaskReply;
 use crate::util::async_bridge::AppSender;
 use crate::vfs::{Vfs, VfsPath};
 use std::sync::Arc;
@@ -21,6 +21,9 @@ pub enum OpKind {
     Copy,
     Move,
     Delete,
+    /// Move to the freedesktop trash instead of unlinking. Local paths only —
+    /// see [`crate::trash`].
+    Trash,
     /// Execute a directory-sync plan ([`OpRequest::steps`]) rather than a
     /// sources → destination transfer.
     Sync,
@@ -67,7 +70,7 @@ pub struct TaskHandle {
     #[allow(dead_code)] // task identity, set by every spawner; not read back yet
     pub id: TaskId,
     pub cancel: CancelToken,
-    pub reply: mpsc::Sender<OverwriteDecision>,
+    pub reply: mpsc::Sender<TaskReply>,
 }
 
 /// Spawn the operation on the tokio runtime. The task reports progress and a

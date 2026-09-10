@@ -118,6 +118,7 @@ impl AppState {
             OpKind::Copy => "Copying",
             OpKind::Move => "Moving",
             OpKind::Delete => "Deleting",
+            OpKind::Trash => "Trashing",
             OpKind::Sync => "Synchronizing",
         };
         // Remote backend schemes this op touches, so a later "To background" can
@@ -174,6 +175,15 @@ impl AppState {
             .collect();
         rows.sort_by_key(|r| r.id);
         rows
+    }
+
+    /// Send the user's permission-denied answer back to the paused engine and
+    /// restore the operation's progress dialog.
+    pub(in crate::app::state) fn answer_privilege(&mut self, id: TaskId, decision: PrivDecision) {
+        if let Some(h) = self.tasks.get(&id) {
+            let _ = h.reply.try_send(TaskReply::Privilege(decision));
+        }
+        self.dialog = self.stashed_progress.take().map(Dialog::Progress);
     }
 
     /// Open the "Background operations" list of running transfers.

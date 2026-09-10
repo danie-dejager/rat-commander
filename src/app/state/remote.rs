@@ -39,7 +39,7 @@ impl AppState {
     /// is saved back into its session (so switching back returns to the same
     /// directory), while a local cwd is remembered in `last_local_cwd[side]`
     /// for the "Local" button.
-    fn snapshot_session_cwd(&mut self, side: usize) {
+    pub(in crate::app::state) fn snapshot_session_cwd(&mut self, side: usize) {
         let cwd = self.panels[side].cwd.clone();
         if cwd.is_remote() {
             if let Some(s) = self.sessions.iter_mut().find(|s| s.scheme == cwd.scheme) {
@@ -60,6 +60,20 @@ impl AppState {
                  Local first — one panel must stay local."
                     .to_string(),
             );
+            return;
+        }
+        // An encrypted private key cannot be loaded without its passphrase, and
+        // the connect below runs inline (it blocks the render loop), so there is
+        // no way to ask mid-flight. Collect it first and come back here.
+        if creds.key_passphrase.is_empty()
+            && let Some(name) = crate::vfs::remote::auth::first_encrypted_key(&creds)
+        {
+            self.pending_connect = Some((side, creds));
+            self.dialog = Some(Dialog::Input(InputDialog::password(
+                "SSH key",
+                format!("Enter passphrase for {name}:"),
+                InputPurpose::KeyPassphrase,
+            )));
             return;
         }
         match crate::vfs::remote::connect(&creds).await {
@@ -100,6 +114,8 @@ impl AppState {
                     user: creds.user,
                     path: creds.path,
                     passive: creds.passive,
+                    // The key path is worth remembering; its passphrase is not.
+                    key_file: creds.key_file,
                 });
                 let _ = self.config.save();
             }

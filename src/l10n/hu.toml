@@ -324,6 +324,13 @@ code = "hu"
 "Password" = "Jelszó"
 "Remote path (blank = home)" = "Távoli útvonal (üres = saját mappa)"
 "Passive mode (PASV)" = "Passzív mód (PASV)"
+"Key file (blank = agent / default keys)" = "Kulcsfájl (üres = ügynök / alapértelmezett kulcsok)"
+"Use trash bin" = "Kuka használata"
+"Go to Trash" = "Ugrás a kukába"
+"New tab" = "Új lap"
+"Close tab" = "Lap bezárása"
+"Next tab" = "Következő lap"
+"Tabs" = "Lapok"
 "&Background operations..." = "Háttérműveletek… (&B)"
 
 # -- Tree view menu entry --

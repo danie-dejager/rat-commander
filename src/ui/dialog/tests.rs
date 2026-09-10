@@ -672,6 +672,7 @@ fn connect_history_dropdown_fills_fields() {
             user: "alice".into(),
             path: "/srv".into(),
             passive: true,
+            key_file: String::new(),
         },
         // A different protocol must be filtered out of the dropdown.
         RemoteHistoryEntry {
@@ -681,6 +682,7 @@ fn connect_history_dropdown_fills_fields() {
             user: String::new(),
             path: String::new(),
             passive: false,
+            key_file: String::new(),
         },
     ];
     let mut d = FormDialog::connect(Protocol::Sftp, 1, history);
@@ -712,11 +714,59 @@ fn down_does_not_open_dropdown_without_history() {
 }
 
 #[test]
-fn ftp_connect_form_has_a_passive_checkbox_but_ssh_forms_do_not() {
-    // PASV is FTP-only: the FTP form adds a 6th field, SFTP/SCP keep five.
-    assert_eq!(FormDialog::connect(Protocol::Ftp, 0, vec![]).form.field_count(), 6);
-    assert_eq!(FormDialog::connect(Protocol::Sftp, 0, vec![]).form.field_count(), 5);
-    assert_eq!(FormDialog::connect(Protocol::Scp, 0, vec![]).form.field_count(), 5);
+fn connect_form_field_six_is_pasv_for_ftp_and_a_key_file_for_ssh() {
+    // Field 5 is protocol-specific but always present, so every other field
+    // keeps its index: PASV (a checkbox) on FTP, key file (text) on SFTP/SCP.
+    for proto in [Protocol::Ftp, Protocol::Sftp, Protocol::Scp] {
+        assert_eq!(FormDialog::connect(proto, 0, vec![]).form.field_count(), 6);
+    }
+
+    // A fresh SSH form yields no key file (meaning "agent / default keys") and,
+    // importantly, does not read the text field as a ticked PASV checkbox.
+    let mut d = FormDialog::connect(Protocol::Sftp, 0, vec![]);
+    for c in "h.example".chars() {
+        d.handle_key(key(KeyCode::Char(c)));
+    }
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Connect(_, creds)) => {
+            assert!(creds.key_file.is_empty(), "no key file by default");
+            assert!(!creds.passive, "a text field must not read as ticked PASV");
+        }
+        _ => panic!("expected a Connect submit"),
+    }
+
+    // Typing a key file on an SSH form carries it through to the credentials,
+    // and leaves `passive` alone.
+    let mut d = FormDialog::connect(Protocol::Sftp, 0, vec![]);
+    for c in "h.example".chars() {
+        d.handle_key(key(KeyCode::Char(c)));
+    }
+    for _ in 0..5 {
+        d.handle_key(key(KeyCode::Tab));
+    }
+    for c in "~/.ssh/id_work".chars() {
+        d.handle_key(key(KeyCode::Char(c)));
+    }
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Connect(_, creds)) => {
+            assert_eq!(creds.key_file, "~/.ssh/id_work");
+            assert!(creds.key_passphrase.is_empty(), "no passphrase collected yet");
+        }
+        _ => panic!("expected a Connect submit"),
+    }
+
+    // An FTP form still reads its checkbox, and reports no key file.
+    let mut d = FormDialog::connect(Protocol::Ftp, 0, vec![]);
+    for c in "h.example".chars() {
+        d.handle_key(key(KeyCode::Char(c)));
+    }
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Connect(_, creds)) => {
+            assert!(creds.passive, "PASV still defaults on for FTP");
+            assert!(creds.key_file.is_empty(), "a checkbox must not read as a key file");
+        }
+        _ => panic!("expected a Connect submit"),
+    }
 }
 
 #[test]
@@ -761,6 +811,7 @@ fn connect_history_restores_the_passive_choice() {
         user: "u".into(),
         path: "/pub".into(),
         passive: false,
+        key_file: String::new(),
     }];
     let mut d = FormDialog::connect(Protocol::Ftp, 0, history);
     d.handle_key(key(KeyCode::Down)); // open the recent-servers dropdown
@@ -769,6 +820,33 @@ fn connect_history_restores_the_passive_choice() {
         DialogResult::Submit(Submit::Connect(_, creds)) => {
             assert_eq!(creds.host, "ftp.example");
             assert!(!creds.passive, "the remembered active-mode choice is restored");
+        }
+        _ => panic!("expected a Connect submit"),
+    }
+}
+
+#[test]
+fn connect_history_restores_the_key_file() {
+    // A remembered SSH server reconnects with the same key, without retyping it.
+    let history = vec![RemoteHistoryEntry {
+        protocol: "sftp".into(),
+        host: "ssh.example".into(),
+        port: 22,
+        user: "u".into(),
+        path: "/srv".into(),
+        passive: true,
+        key_file: "~/.ssh/id_work".into(),
+    }];
+    let mut d = FormDialog::connect(Protocol::Sftp, 0, history);
+    d.handle_key(key(KeyCode::Down)); // open the recent-servers dropdown
+    d.handle_key(key(KeyCode::Enter)); // pick the only entry
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Connect(_, creds)) => {
+            assert_eq!(creds.host, "ssh.example");
+            assert_eq!(creds.key_file, "~/.ssh/id_work", "the key file came back");
+            // `passive` is meaningless for SSH and must not be picked up from
+            // the text field sharing index 5.
+            assert!(!creds.passive);
         }
         _ => panic!("expected a Connect submit"),
     }
@@ -785,6 +863,7 @@ fn connect_dialog_renders_chevron_and_dropdown() {
         user: "bob".into(),
         path: "/home".into(),
         passive: true,
+        key_file: String::new(),
     }];
     let mut d = FormDialog::connect(Protocol::Sftp, 0, history);
     let theme = crate::ui::theme::Theme::mc();
@@ -1386,4 +1465,46 @@ fn busy_dialog_is_only_cancellable_when_marked() {
     assert!(matches!(abortable.handle_key(key(KeyCode::Esc)), DialogResult::Cancel));
     assert!(matches!(abortable.handle_key(key(KeyCode::Enter)), DialogResult::None));
     assert!(matches!(abortable.handle_key(key(KeyCode::Char('q'))), DialogResult::None));
+}
+
+/// The Settings and editor-options forms draw their fields in titled groups
+/// whose sizes are declared separately from the fields themselves. Nothing in
+/// the type system ties the two together, so a row added to one and not the
+/// other mis-lays-out the dialog silently — this catches that.
+#[test]
+fn settings_group_counts_match_the_field_counts() {
+    let cfg = crate::config::Config::default();
+    let d = FormDialog::settings(&cfg, true);
+    assert_eq!(
+        d.group_field_total(),
+        Some(d.form.field_count()),
+        "SETTINGS_GROUPS counts must sum to the number of settings fields"
+    );
+
+    let d = FormDialog::editor_options(&crate::config::EditorOptions::default());
+    assert_eq!(
+        d.group_field_total(),
+        Some(d.form.field_count()),
+        "EDITOR_OPTION_GROUPS counts must sum to the number of editor-option fields"
+    );
+}
+
+/// The Settings box is exactly as tall as a classic 80x24 terminal. If a field
+/// or group is added it overflows, `centered` clips the bottom, and the
+/// OK/Cancel row silently becomes unclickable — so this pins the fit.
+#[test]
+fn the_settings_dialog_still_fits_an_80x24_terminal() {
+    use ratatui::layout::Rect;
+    let area = Rect::new(0, 0, 80, 24);
+    let cfg = crate::config::Config::default();
+    let rect = FormDialog::settings(&cfg, true).outer_rect(area);
+    assert!(
+        rect.height <= area.height,
+        "the Settings dialog needs {} rows but only {} are available — put new \
+         booleans in the command palette's toggle list instead",
+        rect.height,
+        area.height
+    );
+    // And the button row must land inside the box that actually gets drawn.
+    assert!(rect.y + rect.height <= area.y + area.height);
 }

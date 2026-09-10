@@ -4,7 +4,7 @@ use super::{Panel, ViewFormat};
 use crate::ui::theme::{GradRole, Theme};
 use crate::util::bytes::{format_time, human_size};
 use crate::util::text::{ellipsize, pad_left, pad_right};
-use crate::vfs::{VfsEntry, VfsKind};
+use crate::vfs::{VfsEntry, VfsKind, VfsPath};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -144,6 +144,12 @@ pub fn render_panel(
     // there's room, also reserve a separator rule above it dividing the listing
     // from the mini-status, like Midnight Commander.
     let reserve: u16 = if inner.height >= 3 { 2 } else { 1 };
+
+    // The tab strip takes the first interior row, but only when there is more
+    // than one tab — the single-tab case (which is almost everyone, almost all
+    // the time) costs nothing at all.
+    let inner = render_tab_strip(f, inner, panel, active, theme);
+
     let list_height = inner.height.saturating_sub(reserve);
     let list_area = Rect {
         height: list_height,
@@ -792,6 +798,67 @@ fn render_quick_search(
     panel.quick_caret = Some(ratatui::layout::Position::new(caret_x, area.y));
 }
 
+
+/// Draw the tab strip along the top of the panel interior, returning the area
+/// left for the listing. A single tab draws nothing and returns `inner` intact.
+///
+/// Records each label's rect on the panel for click hit-testing, the same way
+/// the history arrows do.
+fn render_tab_strip(
+    f: &mut Frame,
+    inner: Rect,
+    panel: &mut Panel,
+    active: bool,
+    theme: &Theme,
+) -> Rect {
+    panel.tab_hits.clear();
+    if panel.tabs.len() < 2 || inner.height < 2 {
+        return inner;
+    }
+    let row = Rect { height: 1, ..inner };
+    let rest = Rect {
+        y: inner.y + 1,
+        height: inner.height - 1,
+        ..inner
+    };
+
+    let base = theme.panel_base();
+    f.render_widget(Paragraph::new("").style(base), row);
+
+    // Share the width evenly, but never below a legible minimum; anything that
+    // doesn't fit is simply not drawn (the picker lists them all anyway).
+    let count = panel.tabs.len() as u16;
+    let width = (inner.width / count).max(6);
+    let mut x = inner.x;
+    for (i, tab) in panel.tabs.iter().enumerate() {
+        if x >= inner.x + inner.width {
+            break;
+        }
+        let w = width.min(inner.x + inner.width - x);
+        let cell = Rect { x, y: row.y, width: w, height: 1 };
+        let name = tab_label(&tab.cwd);
+        let text = pad_right(&ellipsize(&name, w as usize), w as usize);
+        let style = if i == panel.tab && active {
+            theme.cursor
+        } else if i == panel.tab {
+            theme.cursor_inactive
+        } else {
+            base.fg(theme.panel_border)
+        };
+        f.render_widget(Paragraph::new(Line::from(Span::styled(text, style))), cell);
+        panel.tab_hits.push((cell, i));
+        x += w;
+    }
+    rest
+}
+
+/// A tab's label: the directory's own name, which is what distinguishes tabs in
+/// practice. Falls back to the full path at a filesystem root.
+fn tab_label(cwd: &VfsPath) -> String {
+    let name = cwd.file_name();
+    if name.is_empty() { cwd.display() } else { name }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -887,6 +954,68 @@ mod tests {
         let bottom: String = (0..b.area.width).map(|x| b[(x, b.area.height - 1)].symbol()).collect();
         assert!(bottom.contains("main"), "branch on the border: {bottom:?}");
         assert!(bottom.contains("↑2"), "ahead count on the border: {bottom:?}");
+    }
+
+    #[test]
+    fn a_single_tab_draws_no_strip() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let theme = Theme::mc();
+        let backend = crate::vfs::registry::Registry::default().local();
+        let mut panel = Panel::new(backend, crate::vfs::VfsPath::local("/tmp/here"));
+        panel.entries = vec![entry("a.txt", VfsKind::File, 0o644, false)];
+
+        let mut t = Terminal::new(TestBackend::new(40, 8)).unwrap();
+        t.draw(|f| render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false))
+            .unwrap();
+        let b = t.backend().buffer();
+        // The first interior row is the Full view's column header, i.e. the
+        // listing starts immediately — no row was given up to a tab strip.
+        let first: String = (0..b.area.width).map(|x| b[(x, 1)].symbol()).collect();
+        assert!(first.contains("Name"), "the listing header is at the top: {first:?}");
+        let second: String = (0..b.area.width).map(|x| b[(x, 2)].symbol()).collect();
+        assert!(second.contains("a.txt"), "and the first entry right below: {second:?}");
+        assert!(panel.tab_hits.is_empty(), "and nothing is clickable as a tab");
+    }
+
+    #[test]
+    fn a_tab_strip_renders_and_records_click_targets() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        use crate::panel::tabs::TabState;
+        let theme = Theme::mc();
+        let backend = crate::vfs::registry::Registry::default().local();
+        let mut panel = Panel::new(backend, crate::vfs::VfsPath::local("/tmp/here"));
+        panel.entries = vec![entry("a.txt", VfsKind::File, 0o644, false)];
+        panel.tabs = vec![
+            TabState::new(crate::vfs::VfsPath::local("/tmp/here"), panel.format, panel.sort),
+            TabState::new(crate::vfs::VfsPath::local("/tmp/other"), panel.format, panel.sort),
+        ];
+        panel.tab = 0;
+
+        let mut t = Terminal::new(TestBackend::new(40, 8)).unwrap();
+        t.draw(|f| render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false))
+            .unwrap();
+        let b = t.backend().buffer();
+
+        // Row 1 (first interior row) is the strip, naming both directories.
+        let strip: String = (0..b.area.width).map(|x| b[(x, 1)].symbol()).collect();
+        assert!(strip.contains("here"), "the active tab is named: {strip:?}");
+        assert!(strip.contains("other"), "and so is the other: {strip:?}");
+        // The listing has moved down to make room (row 2 is the column header
+        // in Full view, so the entry itself lands below that).
+        let below: String = (2..b.area.height)
+            .map(|y| (0..b.area.width).map(|x| b[(x, y)].symbol()).collect::<String>())
+            .collect();
+        assert!(below.contains("a.txt"), "listing pushed below the strip: {below:?}");
+        let strip_row: String = (0..b.area.width).map(|x| b[(x, 1)].symbol()).collect();
+        assert!(!strip_row.contains("a.txt"), "the strip row is not the listing");
+
+        // Both labels are clickable, and their rects are on the strip row.
+        assert_eq!(panel.tab_hits.len(), 2);
+        assert!(panel.tab_hits.iter().all(|(r, _)| r.y == 1));
+        assert_eq!(panel.tab_hits[0].1, 0);
+        assert_eq!(panel.tab_hits[1].1, 1);
     }
 
     #[test]

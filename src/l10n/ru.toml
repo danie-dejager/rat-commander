@@ -324,6 +324,13 @@ code = "ru"
 "Password" = "Пароль"
 "Remote path (blank = home)" = "Удалённый путь (пусто = домашний каталог)"
 "Passive mode (PASV)" = "Пассивный режим (PASV)"
+"Key file (blank = agent / default keys)" = "Файл ключа (пусто = агент / ключи по умолчанию)"
+"Use trash bin" = "Использовать корзину"
+"Go to Trash" = "Перейти в корзину"
+"New tab" = "Новая вкладка"
+"Close tab" = "Закрыть вкладку"
+"Next tab" = "Следующая вкладка"
+"Tabs" = "Вкладки"
 "&Background operations..." = "Фоновые операции… (&B)"
 
 # -- Tree view menu entry --

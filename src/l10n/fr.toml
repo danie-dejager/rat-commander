@@ -324,6 +324,13 @@ code = "fr"
 "Password" = "Mot de passe"
 "Remote path (blank = home)" = "Chemin distant (vide = dossier personnel)"
 "Passive mode (PASV)" = "Mode passif (PASV)"
+"Key file (blank = agent / default keys)" = "Fichier de clé (vide = agent / clés par défaut)"
+"Use trash bin" = "Utiliser la corbeille"
+"Go to Trash" = "Aller à la corbeille"
+"New tab" = "Nouvel onglet"
+"Close tab" = "Fermer l'onglet"
+"Next tab" = "Onglet suivant"
+"Tabs" = "Onglets"
 "&Background operations..." = "Opérations en arrière-plan… (&B)"
 
 # -- Tree view menu entry --

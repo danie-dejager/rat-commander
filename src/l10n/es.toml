@@ -324,6 +324,13 @@ code = "es"
 "Password" = "Contraseña"
 "Remote path (blank = home)" = "Ruta remota (vacío = inicio)"
 "Passive mode (PASV)" = "Modo pasivo (PASV)"
+"Key file (blank = agent / default keys)" = "Archivo de clave (vacío = agente / claves predeterminadas)"
+"Use trash bin" = "Usar la papelera"
+"Go to Trash" = "Ir a la papelera"
+"New tab" = "Nueva pestaña"
+"Close tab" = "Cerrar pestaña"
+"Next tab" = "Pestaña siguiente"
+"Tabs" = "Pestañas"
 "&Background operations..." = "Operaciones en segundo plano… (&B)"
 
 # -- Tree view menu entry --

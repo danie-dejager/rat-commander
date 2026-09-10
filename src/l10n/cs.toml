@@ -324,6 +324,13 @@ code = "cs"
 "Password" = "Heslo"
 "Remote path (blank = home)" = "Vzdálená cesta (prázdné = domů)"
 "Passive mode (PASV)" = "Pasivní režim (PASV)"
+"Key file (blank = agent / default keys)" = "Soubor s klíčem (prázdné = agent / výchozí klíče)"
+"Use trash bin" = "Používat koš"
+"Go to Trash" = "Přejít do koše"
+"New tab" = "Nová karta"
+"Close tab" = "Zavřít kartu"
+"Next tab" = "Další karta"
+"Tabs" = "Karty"
 "&Background operations..." = "Operace na pozadí… (&B)"
 
 # -- Tree view menu entry --

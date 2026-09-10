@@ -32,6 +32,45 @@ pub enum TaskOutcome {
     Failed(String),
 }
 
+/// A file the engine could not touch because of filesystem permissions, sent to
+/// the UI so it can offer to retry the step with elevated privileges.
+#[derive(Debug, Clone)]
+pub struct DeniedInfo {
+    pub id: TaskId,
+    /// The path that was refused.
+    pub path: String,
+    /// What was being attempted ("Copying", "Deleting", …), for the prompt.
+    pub verb: &'static str,
+    /// Whether escalating could actually help. False for a remote server or the
+    /// inside of an archive, where `sudo` has no bearing on the permission —
+    /// there the prompt offers only Skip and Abort.
+    pub escalatable: bool,
+}
+
+/// The user's answer to a [`DeniedInfo`] prompt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrivDecision {
+    /// Retry this one step as root.
+    Escalate,
+    /// Retry this and every later denial as root, without asking again.
+    EscalateAll,
+    /// Leave this file alone and carry on with the rest.
+    Skip,
+    /// Skip this and every later denial.
+    SkipAll,
+    /// Give up on the whole operation.
+    Abort,
+}
+
+/// Whatever the UI sends back when the engine pauses to ask a question. The
+/// engine only ever has one question outstanding, so a single reply channel
+/// carries both kinds.
+#[derive(Debug, Clone)]
+pub enum TaskReply {
+    Overwrite(OverwriteDecision),
+    Privilege(PrivDecision),
+}
+
 /// Details of a copy/move destination that already exists, sent to the UI so it
 /// can show the overwrite-confirmation dialog.
 #[derive(Debug, Clone)]
