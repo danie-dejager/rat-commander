@@ -1829,6 +1829,50 @@ async fn mouse_click_on_menu_bar_opens_menu() {
 }
 
 #[tokio::test]
+async fn a_watched_directory_change_reloads_the_panel_after_the_debounce() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_watch_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("a.txt"), b"x").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.update_watches();
+    assert_eq!(st.watch_key[0], root.to_string_lossy(), "the local panel is watched");
+
+    // A file appears behind our back, and the watcher reports it.
+    std::fs::write(root.join("b.txt"), b"y").unwrap();
+    st.apply_event(AppEvent::DirChanged { path: root.join("b.txt") }).await;
+    assert!(st.watch_pending(), "the change is stamped, not acted on yet");
+    assert!(st.wants_ticks(), "and the loop keeps ticking so it can fire");
+    assert!(!st.panels[0].entries.iter().any(|e| e.name == "b.txt"), "not reloaded yet");
+
+    // Before the debounce expires nothing happens; after it, the panel re-reads.
+    st.flush_dir_changes().await;
+    assert!(st.watch_pending(), "still within the quiet window");
+    st.watch_dirty[0] = Some(Instant::now() - crate::app::state::watch::DEBOUNCE);
+    st.flush_dir_changes().await;
+    assert!(!st.watch_pending(), "the pending reload was consumed");
+    assert!(st.panels[0].entries.iter().any(|e| e.name == "b.txt"), "listing picked it up");
+
+    // A panelized listing is left alone: reloading would discard the results.
+    st.panels[0].set_results(Vec::new(), Vec::new());
+    st.update_watches();
+    assert_eq!(st.watch_key[0], "", "a panelized panel is not watched");
+    st.apply_event(AppEvent::DirChanged { path: root.join("b.txt") }).await;
+    assert!(!st.watch_pending(), "and an event for it is ignored");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[tokio::test]
 async fn clipboard_text_covers_name_path_and_selection() {
     use crate::ui::menu::ClipTarget;
     let nanos = std::time::SystemTime::now()
@@ -1868,6 +1912,70 @@ async fn clipboard_text_covers_name_path_and_selection() {
         st.clipboard_text(ClipTarget::Selection).lines().map(str::to_string).collect();
     assert_eq!(lines.len(), 2, "two marked files");
     assert!(lines[0].ends_with("a.txt") && lines[1].ends_with("c.txt"), "got {lines:?}");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// Find file end to end at the app level: the dialog's params go in, the search
+/// runs on its background task, and the results come back panelized with the
+/// content-hit lines recorded so F3 can open the viewer on the match.
+#[tokio::test]
+async fn find_file_content_search_panelizes_hits_and_records_their_lines() {
+    use crate::ui::dialog::Submit;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_finde2e_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    std::fs::write(root.join("one.txt"), b"alpha\nbeta needle here\ngamma\n").unwrap();
+    std::fs::write(root.join("two.txt"), b"nothing to see\n").unwrap();
+    std::fs::write(root.join("sub/three.txt"), b"deep needle\n").unwrap();
+    // A binary file that *does* contain the needle: it must be skipped.
+    let mut blob = vec![0u8; 32];
+    blob.extend_from_slice(b"needle");
+    std::fs::write(root.join("blob.bin"), &blob).unwrap();
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+
+    st.handle_submit(Submit::Find(FindParams {
+        start_at: root.to_string_lossy().into_owned(),
+        file_name: "*".into(),
+        content: "needle".into(),
+        recursive: true,
+        case_sensitive: false,
+        skip_hidden: true,
+        shell: true,
+        regex_content: false,
+    }))
+    .await;
+    // Drive the background search to completion.
+    loop {
+        let ev = rx.recv().await.unwrap();
+        let done = matches!(ev, AppEvent::FindDone { .. });
+        st.apply_event(ev).await;
+        if done {
+            break;
+        }
+    }
+
+    assert!(st.panels[0].is_panelized(), "results replaced the listing");
+    let names: Vec<String> =
+        st.panels[0].entries.iter().map(|e| e.name.clone()).collect();
+    let has = |n: &str| names.iter().any(|x| x.ends_with(n));
+    assert!(has("one.txt"), "matched on line 2: {names:?}");
+    assert!(has("three.txt"), "matched in a subdirectory: {names:?}");
+    assert!(!has("two.txt"), "does not contain the needle");
+    assert!(!has("blob.bin"), "binary files are skipped even when they match");
+
+    // The hit lines came back with the results, keyed for the viewer jump.
+    let one = VfsPath::local(root.join("one.txt")).display();
+    assert_eq!(st.find_hit_lines.get(&one), Some(&2), "'needle' is on line 2 of one.txt");
 
     std::fs::remove_dir_all(&root).ok();
 }

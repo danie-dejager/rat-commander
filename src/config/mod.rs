@@ -232,6 +232,12 @@ pub struct Config {
     /// installed in the terminal, so it is off unless asked for. (Missing from an
     /// old config → the struct default, `false`.)
     pub nerd_font: bool,
+    /// Re-read a panel automatically when something else changes the directory
+    /// it is showing, instead of waiting for `Ctrl-R`. Only plain local
+    /// directories are watched. Turn it off on sluggish network mounts or
+    /// enormous directories, where the re-listing costs more than it saves.
+    /// (Missing from an old config → the struct default, `true`.)
+    pub auto_refresh: bool,
     /// Number of columns in the Brief (multi-column names) view.
     /// (Missing from an old config → the struct default, `2`.)
     pub brief_columns: usize,
@@ -313,6 +319,7 @@ impl Default for Config {
             system_status: true,
             command_prompt: true,
             nerd_font: false,
+            auto_refresh: true,
             brief_columns: 2,
             command_history_max: 100,
             panels: [PanelView::default(); 2],

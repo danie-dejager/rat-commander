@@ -320,6 +320,16 @@ pub struct AppState {
     /// panelization, keyed by [`VfsPath::display`]. Lets F3 on a result open the
     /// viewer at the match. Replaced by each new search.
     pub(in crate::app::state) find_hit_lines: HashMap<String, u64>,
+    /// Filesystem watcher behind the panels' auto-refresh, created lazily the
+    /// first time a watchable directory is shown. `None` when auto-refresh is
+    /// off, or when the platform refused to give us one.
+    pub(in crate::app::state) watcher: Option<notify::RecommendedWatcher>,
+    /// The directory each panel is currently watching (`""` = not watching), so
+    /// `update_watches` can notice a change without asking the watcher.
+    pub(in crate::app::state) watch_key: [String; 2],
+    /// When each panel was last told its directory changed. The reload waits for
+    /// [`watch::DEBOUNCE`] of quiet so one command causes one re-listing.
+    pub(in crate::app::state) watch_dirty: [Option<Instant>; 2],
     /// Launched via `rc /edit <file>` (or the `rcedit` shim): the program opens
     /// straight into the editor and exits when it is closed.
     pub edit_only: bool,
@@ -567,6 +577,7 @@ mod git;
 mod sendfile;
 mod syncdirs;
 mod tabs;
+mod watch;
 
 /// Read a file fully into memory (capped just above the viewer limit).
 async fn load_file(backend: &std::sync::Arc<dyn Vfs>, path: &VfsPath) -> crate::util::Result<Vec<u8>> {

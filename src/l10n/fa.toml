@@ -334,6 +334,7 @@ rtl = true
 "Passive mode (PASV)" = "حالت غیرفعال (PASV)"
 "Key file (blank = agent / default keys)" = "فایل کلید (خالی = عامل / کلیدهای پیش‌فرض)"
 "Use trash bin" = "استفاده از زباله‌دان"
+"Auto-refresh panels" = "بازآوری خودکار پنجره‌ها"
 "Go to Trash" = "رفتن به زباله‌دان"
 "New tab" = "زبانه جدید"
 "Close tab" = "بستن زبانه"

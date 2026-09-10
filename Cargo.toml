@@ -61,6 +61,11 @@ futures = "0.3.34"
 globset = "0.4.20"
 md5 = "0.8.1"
 memchr = "2.8.3"
+# Filesystem change notification, so a panel refreshes itself when something
+# else writes into the directory it is showing. Pure Rust on Linux (inotify) and
+# Windows (ReadDirectoryChangesW); macOS goes through FSEvents, which only
+# matters for native macOS builds, so the ARM cross-compiles stay unaffected.
+notify = "8.2.0"
 portable-pty = "0.9.0"
 ratatui = "0.30.2"
 regex = "1.13.1"

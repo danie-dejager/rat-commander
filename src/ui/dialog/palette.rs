@@ -51,6 +51,8 @@ pub enum BoolSetting {
     SystemStatus,
     CommandPrompt,
     ReshapeRtl,
+    /// Re-read a panel when its directory changes on disk.
+    AutoRefresh,
     InternalViewer,
     InternalEditor,
     ConfirmDelete,

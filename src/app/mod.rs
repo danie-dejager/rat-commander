@@ -138,6 +138,9 @@ async fn run_loop(
         // Detect a panel directory change and (re)start its background git-status
         // scan; cheap when nothing changed.
         state.update_git();
+        // Arm/re-arm the filesystem watchers behind the panels' auto-refresh;
+        // cheap when neither panel has moved.
+        state.update_watches();
         // A repaint request (the editor's Ctrl-L) drops the diffing renderer's
         // idea of what is on screen, so the whole frame is rewritten — the point
         // of the key when another program has scribbled over the terminal.
@@ -223,6 +226,9 @@ async fn run_loop(
             }
             _ = ticker.tick(), if state.wants_ticks() => {
                 state.on_tick();
+                // Re-read any panel whose directory changed and has since gone
+                // quiet (see `state::watch`).
+                state.flush_dir_changes().await;
                 // Deliver a held Esc once its function-key window has elapsed.
                 if let Flow::Quit = state.flush_expired_esc().await {
                     break;

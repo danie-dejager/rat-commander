@@ -196,7 +196,8 @@ A quick **Alt** + digit does the same.
   version** (git) — see *Git-aware panels* below
 - `Ctrl-Ins` — Copy the **selected paths** (or, with nothing marked, the cursor's)
   to the **system clipboard** — see *The system clipboard* below
-- `Ctrl-R` — Re-read (refresh) the active panel
+- `Ctrl-R` — Re-read (refresh) the active panel — usually unnecessary now, see
+  *Auto-refreshing panels* below
 - `Ctrl-E` — Toggle reverse sort order (choose the sort key from the panel menu)
 - `Alt-T` — Cycle the view format (full → brief → details → tree)
 - `Ctrl-X` — Toggle vertical / horizontal split
@@ -1526,6 +1527,33 @@ Both are also on the *Command menu*, and both record the move on the other
 panel's history like any navigation.
 
 
+## Auto-refreshing panels
+
+A panel **re-reads itself** when something else changes the directory it is
+showing — a command in the subshell, a build running in another window, a file
+arriving over the network. `Ctrl-R` still forces a refresh, but you rarely need it.
+
+**Useful for** watching a directory fill up without hammering `Ctrl-R`.
+
+The refresh keeps its place: the cursor stays on the **same file by name**, and
+marks survive (a mark on a file that has since gone is simply dropped). Changes
+are **coalesced** — one `cp` or `git checkout` produces a burst of filesystem
+events but only one re-listing, about a third of a second after things go quiet.
+
+**What is not watched.** Only plain **local** directories. A **remote** (SFTP /
+FTP / SCP) panel and the inside of an **archive** have nothing the operating
+system can watch, and a panel showing **find-file results** is a list rather than
+a directory — re-reading it would throw the results away. Watching is
+non-recursive, so a change deep inside a subdirectory does not re-read the parent.
+
+**Turning it off.** Toggle *Auto-refresh panels* in the command palette
+(`Ctrl-P`), or set `auto_refresh = false` in `config.toml`. Worth doing on a
+sluggish network mount or a directory with very many files, where the re-listing
+costs more than it saves. On Linux each watched directory uses one inotify watch;
+if your `fs.inotify.max_user_watches` is exhausted, watching quietly fails and the
+panel simply behaves as it did before.
+
+
 ## The system clipboard
 
 **Ctrl-Ins** (the Norton Commander convention), *File → Copy path to clipboard*,
@@ -1813,7 +1841,9 @@ Configuration files live in your platform config directory
   servers (without passwords), and your directory **`bookmarks`** (used by the
   command palette, Ctrl-P). It also holds `command_history_max` (default
   `100`) — the maximum number of command-line entries kept in the persistent
-  history; set it to `0` to disable history, and `shell` (empty by default) — the
+  history; set it to `0` to disable history, `auto_refresh` (default `true`) —
+  whether a panel re-reads itself when its directory changes on disk (see
+  *Auto-refreshing panels*), and `shell` (empty by default) — the
   shell program the command line and `Ctrl-O` run, overriding the detection
   described under *Which shell runs*. Finally it remembers the **session
   layout** — each panel's last directory, listing filter, visibility and

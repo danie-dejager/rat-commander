@@ -111,6 +111,13 @@ The installed executable is named **`rc`** for quick typing.
   cell art as a fallback). Select several files or a directory and they are
   zipped first (with a progress bar); the box shows a live download count and the
   server stops when you close it.
+- **Auto-refreshing panels** — a panel re-reads itself when something else changes
+  the directory it is showing, so a build or a `git checkout` in another window
+  shows up without `Ctrl-R`. The cursor stays on the same file and marks survive;
+  the burst of events one command produces is coalesced into a single re-listing.
+  Local directories only (a remote, an archive or a find-results listing has
+  nothing to watch), and there is an *Auto-refresh panels* toggle in the palette
+  for slow network mounts.
 - **System clipboard (`Ctrl-Ins`)** — copy the cursor's path, its bare name, or every
   marked path (one per line) to the **system** clipboard; in the editor `Ctrl-C` /
   `Ctrl-X` put the marked block there too. It uses the terminal's **OSC 52**

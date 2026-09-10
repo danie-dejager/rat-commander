@@ -113,6 +113,7 @@ impl AppState {
             toggle("System status widget", BoolSetting::SystemStatus, self.config.system_status),
             toggle("Command prompt", BoolSetting::CommandPrompt, self.config.command_prompt),
             toggle("Reshape RTL text", BoolSetting::ReshapeRtl, self.config.reshape_rtl),
+            toggle("Auto-refresh panels", BoolSetting::AutoRefresh, self.config.auto_refresh),
             toggle("Use internal viewer", BoolSetting::InternalViewer, self.config.use_internal_viewer),
             toggle("Use internal editor", BoolSetting::InternalEditor, self.config.use_internal_editor),
             toggle("Confirm delete", BoolSetting::ConfirmDelete, self.config.confirm_delete),
@@ -318,6 +319,12 @@ impl AppState {
             }
             BoolSetting::InternalEditor => {
                 self.config.use_internal_editor = !self.config.use_internal_editor
+            }
+            BoolSetting::AutoRefresh => {
+                self.config.auto_refresh = !self.config.auto_refresh;
+                // Arm or drop the watchers straight away rather than waiting
+                // for the next directory change.
+                self.update_watches();
             }
             BoolSetting::ConfirmDelete => self.config.confirm_delete = !self.config.confirm_delete,
             BoolSetting::UseTrash => self.config.use_trash = !self.config.use_trash,

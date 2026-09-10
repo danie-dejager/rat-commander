@@ -145,6 +145,9 @@ impl AppState {
             pending_focus: None,
             search_memory: Default::default(),
             find_hit_lines: HashMap::new(),
+            watcher: None,
+            watch_key: [String::new(), String::new()],
+            watch_dirty: [None, None],
             edit_only: false,
             kbd_enhanced: false,
             subshell_disabled,
@@ -329,6 +332,8 @@ impl AppState {
             || !self.tasks.is_empty()
             || matches!(self.dialog, Some(Dialog::Busy(_)))
             || self.diskview.as_ref().is_some_and(|d| d.scanning)
+            // A debounced panel reload is still waiting to fire.
+            || self.watch_pending()
     }
 
     /// Load both panels' directories.
@@ -450,6 +455,7 @@ impl AppState {
             // Console output already landed in the shared emulator; receiving the
             // event is enough to trigger the next repaint (loop top redraws).
             AppEvent::ConsoleOutput => {}
+            AppEvent::DirChanged { path } => self.note_dir_changed(&path),
             AppEvent::Progress(u) => {
                 // Fold the speed sample into the *task's* history first. It records
                 // whether or not anyone is watching, so a transfer sent to the
