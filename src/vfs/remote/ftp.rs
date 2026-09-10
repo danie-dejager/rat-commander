@@ -151,7 +151,7 @@ impl Vfs for FtpFs {
             let mut guard = conn.lock().await;
             let mut stream = guard.retr_as_stream(&path).await.map_err(io_err)?;
             tokio::io::copy(&mut stream, &mut w).await?;
-            guard.finalize_retr_stream(stream).await.map_err(io_err)?;
+            stream.finish().await.map_err(io_err)?;
             Ok(())
         }))
     }
@@ -165,7 +165,7 @@ impl Vfs for FtpFs {
             let mut guard = conn.lock().await;
             let mut stream = guard.put_with_stream(&path).await.map_err(io_err)?;
             tokio::io::copy(&mut rx, &mut stream).await?;
-            guard.finalize_put_stream(stream).await.map_err(io_err)?;
+            stream.finish().await.map_err(io_err)?;
             Ok(())
         }))
     }

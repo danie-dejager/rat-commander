@@ -60,8 +60,8 @@ portable-pty = "0.9.0"
 ratatui = "0.30.2"
 regex = "1.13.1"
 ropey = "1.6.1"
-russh = "0.63.1"
-russh-sftp = "2.4.0"
+russh = "0.63.3"
+russh-sftp = "3.0.0"
 serde = { version = "1.0.229", features = ["derive"] }
 sevenz-rust2 = "0.22.2"
 sha1 = "0.11.0"
@@ -70,12 +70,12 @@ sha2 = "0.11.0"
 # cross-compile builds working; bundles Sublime syntaxes + themes, and more
 # `.sublime-syntax`/theme files can be loaded later to extend it.
 syntect = { version = "5.3.0", default-features = false, features = ["default-fancy"] }
-suppaftp = { version = "11.0.0", default-features = false, features = ["tokio"] }
+suppaftp = { version = "12.0.0", default-features = false, features = ["tokio"] }
 tar = "0.4.46"
 thiserror = "2.0.20"
 tokio = { version = "1.53.1", features = ["full"] }
 tokio-util = { version = "0.7.19", features = ["rt"] }
-toml = "1.1.4"
+toml = "1.1.5"
 unicode-width = "0.2.2"
 unrar = { version = "0.5.8", optional = true }
 # Headless terminal emulator for the command-line console backdrop: parses the
@@ -111,7 +111,7 @@ if-addrs = "0.15.0"
 # shipped separately. Baking (rather than overlaying cell text) is required
 # because graphics protocols draw pixels over the terminal cells.
 fontdue = "0.9.4"
-epaint_default_fonts = "0.36.1"
+epaint_default_fonts = "0.36.2"
 
 # nix (chmod/chown/uid lookups, process signals) is Unix-only.
 [target.'cfg(unix)'.dependencies]
