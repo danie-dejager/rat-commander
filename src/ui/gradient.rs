@@ -211,8 +211,10 @@ mod tests {
         Theme::from_spec(&spec, true)
     }
 
+    /// A preset with its gradients stripped, so each test adds only its own.
     fn ramp_spec() -> ThemeSpec {
-        crate::ui::theme::active_specs().into_iter().next().expect("a built-in theme")
+        let spec = crate::ui::theme::active_specs().into_iter().next().expect("a built-in theme");
+        ThemeSpec { gradients: Default::default(), ..spec }
     }
 
     /// Draw `paint` into a 20×6 test terminal, run the gradient pass, and hand

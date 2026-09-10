@@ -1702,9 +1702,7 @@ open with default app** (off), **unmount** (on) and **exit** (on).
 
 Rat Commander ships many themes — Dracula, Nord, Gruvbox, Solarized, Tokyo
 Night, Catppuccin, One Dark and more — plus a classic Midnight Commander look,
-Monochrome, Amber/Green CRT, and some playful ones. On a truecolor terminal the
-bars and cursor render as animated gradients, and **`Rat Commander Neon`** shows
-off the per-element gradients described below.
+Monochrome, Amber/Green CRT, and some playful ones.
 
 **Options → Edit themes…** opens a **visual theme editor**. It starts on the
 theme in use; pick any UI element from the color list and set its color with the
@@ -1727,7 +1725,9 @@ for regular files, plus `exec_fg` / `symlink_fg` / `archive_fg` / `doc_fg` /
 also edit the file directly — open it with **F4** in a panel, and saving
 live-reloads it. Delete the file to regenerate the presets. An older `themes.toml`
 is upgraded in place on start: newly-added fields (such as `file_fg`) are filled
-with sensible per-theme values, preserving each theme's appearance.
+with sensible per-theme values, and presets you have not touched pick up the
+gradients they now ship with. A preset you have recolored — and any theme of your
+own — is left exactly as it is.
 
 #### Per-element gradients
 
@@ -1743,8 +1743,9 @@ instead of painting one flat color:
 | Menus | `menu_bg`, `menu_selection_bg` |
 | Controls | `input_bg`, `button_bg`, `button_focused_bg` |
 
-Switch one on from the theme editor's indented **Gradient** rows, or add a table
-to the end of a `[[theme]]` block:
+The presets already use them. To change one, or to add a gradient to a theme of
+your own, use the theme editor's indented **Gradient** rows, or write the table
+yourself at the end of a `[[theme]]` block:
 
 ```toml
 [theme.gradients.panel_bg]
@@ -1759,6 +1760,9 @@ bar carries a whole gradient rather than a slice of one screen-wide one.
 `animated` makes a ramp drift back and forth; it is off by default (a moving
 background is distracting, a moving cursor or bar is not) and also follows the
 global **Animation** setting, so switching animations off stills everything.
+
+Removing a gradient (`Space` in the editor, or deleting its table) puts the
+element back to its flat color.
 
 Two caveats. Elements a theme paints in exactly the same color cannot be told
 apart on screen and therefore share a gradient — the stock themes give the

@@ -742,7 +742,7 @@ mod tests {
 
     #[test]
     fn space_switches_a_gradient_on_and_off() {
-        let mut ed = ThemeEditor::new("Midnight Commander", true);
+        let mut ed = ThemeEditor::new("Amber CRT", true);
         ed.item = gradient_item();
         let role = ed.role().expect("a gradient row");
         assert!(ed.spec.gradients.get(role).is_none(), "themes start flat");
@@ -760,7 +760,7 @@ mod tests {
     #[test]
     fn ctrl_keys_cycle_the_direction_and_the_animation() {
         use crate::ui::theme::GradientDir;
-        let mut ed = ThemeEditor::new("Midnight Commander", true);
+        let mut ed = ThemeEditor::new("Amber CRT", true);
         ed.item = gradient_item();
         let role = ed.role().unwrap();
         let ctrl = |c: char| KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL);
@@ -781,7 +781,7 @@ mod tests {
 
     #[test]
     fn a_gradient_row_edits_the_second_endpoint() {
-        let mut ed = ThemeEditor::new("Midnight Commander", true);
+        let mut ed = ThemeEditor::new("Amber CRT", true);
         ed.item = gradient_item();
         let role = ed.role().unwrap();
         // With the gradient off the row shows the color it would ramp from…
@@ -809,7 +809,7 @@ mod tests {
     #[test]
     fn a_gradient_row_shows_its_state_in_the_list() {
         let theme = Theme::mc();
-        let mut ed = ThemeEditor::new("Midnight Commander", true);
+        let mut ed = ThemeEditor::new("Amber CRT", true);
         ed.item = gradient_item();
         let mut t = Terminal::new(TestBackend::new(120, 32)).unwrap();
         let mut shown = |ed: &mut ThemeEditor| {

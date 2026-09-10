@@ -118,10 +118,11 @@ The installed executable is named **`rc`** for quick typing.
   and its direction, with clickable/navigable addresses and reverse-DNS lookups.
 - **Look & feel** — many color themes (fully customizable via `themes.toml` or
   the visual theme editor), truecolor gradients on **any element** — panel and
-  dialog backgrounds, frames, cursor bars, menus, inputs and buttons each get
-  their own two-color ramp, in one of four directions, animated or still — an
-  optional CPU/memory status widget, optional **Nerd Font file-type icons** in
-  the listings, and a configurable **F2 user menu**.
+  dialog backgrounds, frames, cursor bars, menus, inputs and buttons each take
+  their own two-color ramp, in one of four directions, animated or still, and
+  nearly every preset ships with a set — an optional CPU/memory status widget,
+  optional **Nerd Font file-type icons** in the listings, and a configurable
+  **F2 user menu**.
 - **Terminal graphics** — on terminals with a **Kitty**, **Sixel** or **iTerm2**
   graphics protocol, the progress bars, process-explorer graphs, transfer speed
   graph and the disk-explorer **treemap** (a nested "pillow" map of each folder's

@@ -913,6 +913,87 @@ fn rat_commander_neon_spec() -> ThemeSpec {
     }
 }
 
+/// The presets that stay flat: the CRT themes imitate a single-phosphor screen,
+/// and a ramp across the picture would give the illusion away. Matched with
+/// [`norm_name`], like every other theme lookup.
+const FLAT_PRESETS: [&str; 2] = ["Amber CRT", "Green CRT"];
+
+/// A visibly different shade of `c` for a gradient's far end: lighter on a dark
+/// color, darker on a light one, so the ramp shows on any theme.
+fn shade(c: Color, amount: f64) -> Color {
+    let target = if luma(c) > 140.0 { rgb(0x000000) } else { rgb(0xffffff) };
+    mix(c, target, amount)
+}
+
+/// How far apart two colors are, summed over the channels. Anything under ~24
+/// reads as the same color on screen — and a gradient between two of those is
+/// just a flat element with extra lines in `themes.toml`.
+fn spread(a: Color, b: Color) -> u32 {
+    let (a, b) = (to_rgb(a), to_rgb(b));
+    a.0.abs_diff(b.0) as u32 + a.1.abs_diff(b.1) as u32 + a.2.abs_diff(b.2) as u32
+}
+
+/// A far end for `base` that is actually distinguishable: `toward` when the two
+/// colors differ enough to read as a ramp, else a shade of `base` itself. (Some
+/// themes give an element the very color of the accent it would fade towards —
+/// the Commander cursor, menu bar and F-key bar are all the accent teal.)
+fn far_end(base: Color, toward: Color, amount: f64) -> Color {
+    if spread(base, toward) >= 60 { toward } else { shade(base, amount) }
+}
+
+/// A far end for a large surface: `base` tinted `amount` of the way towards the
+/// theme's accent, falling back to a plain shade when the surface already *is*
+/// that accent and the tint would be invisible.
+fn tint(base: Color, accent: Color, amount: f64, fallback: f64) -> Color {
+    let tinted = mix(base, accent, amount);
+    if spread(base, tinted) >= 24 { tinted } else { shade(base, fallback) }
+}
+
+/// The gradients a preset carries by default, derived from its own colors.
+///
+/// The chrome that marks *where you are* — the cursor and the two bars — sweeps
+/// towards the theme's accent and drifts, exactly as it did when one accent
+/// gradient drove all three. The large surfaces underneath take a still, lightly
+/// accent-tinted ramp for depth, and the focused frame and button get one to set
+/// them off. Everything else (the inactive frame, the selections, the unfocused
+/// buttons) stays flat, so the ramps mark something instead of coating the whole
+/// UI. A theme can of course say otherwise: this only fills in the presets.
+fn derive_gradients(s: &ThemeSpec) -> Gradients {
+    let accent = mix(s.gradient_from, s.gradient_to, 0.5);
+    let still = |to: Color, direction: GradientDir| {
+        Some(GradientSpec { from: None, to, direction, animated: false })
+    };
+    let sweep = |base: Color| {
+        Some(GradientSpec {
+            from: None,
+            to: far_end(base, s.gradient_to, 0.30),
+            direction: GradientDir::Horizontal,
+            animated: true,
+        })
+    };
+    Gradients {
+        // Surfaces: a tint of the theme's own accent, held still.
+        panel_bg: still(tint(s.panel_bg, accent, 0.14, 0.10), GradientDir::Vertical),
+        dialog_bg: still(tint(s.dialog_bg, accent, 0.10, 0.08), GradientDir::Diagonal),
+        menu_bg: still(tint(s.menu_bg, accent, 0.16, 0.12), GradientDir::Vertical),
+        input_bg: still(shade(s.input_bg, 0.18), GradientDir::Horizontal),
+        // The focused panel's frame fades towards the quieter border color, so
+        // it reads as lit from the top rather than as a second flat outline.
+        panel_border_active: still(
+            far_end(s.panel_border_active, s.panel_border, 0.35),
+            GradientDir::Vertical,
+        ),
+        dialog_border_fg: still(far_end(s.dialog_border_fg, accent, 0.35), GradientDir::Horizontal),
+        // Focus chrome sweeps and drifts.
+        cursor_bg: sweep(s.cursor_bg),
+        menubar_bg: sweep(s.menubar_bg),
+        fkey_label_bg: sweep(s.fkey_label_bg),
+        // A soft pill highlight on the button that has the keyboard.
+        button_focused_bg: still(shade(s.button_focused_bg, 0.32), GradientDir::Radial),
+        ..Gradients::default()
+    }
+}
+
 /// The built-in presets as component specs. The three Rat/Midnight Commander
 /// themes are defined explicitly (above); every other well-known scheme is
 /// derived once from its ANSI [`Palette`] via [`Theme::from_ansi`]. These seed
@@ -926,6 +1007,14 @@ fn builtin_specs() -> Vec<ThemeSpec> {
         rat_commander_neon_spec(),
     ];
     specs.extend(PALETTES.iter().map(|p| theme_to_spec(&Theme::from_ansi(p, true))));
+    // Give every preset its gradients, leaving the hand-written showcase with
+    // the ones it defines and the CRT themes deliberately flat.
+    for spec in specs.iter_mut() {
+        let flat = FLAT_PRESETS.iter().any(|n| norm_name(n) == norm_name(&spec.name));
+        if spec.gradients.is_empty() && !flat {
+            spec.gradients = derive_gradients(spec);
+        }
+    }
     specs
 }
 
@@ -964,6 +1053,36 @@ fn migrate_theme_toml(text: &str) -> Option<String> {
     changed.then(|| toml::to_string(&doc).ok()).flatten()
 }
 
+/// Give the stock presets in an older `themes.toml` the gradients they now ship
+/// with. A theme is only upgraded when it still matches the built-in of the same
+/// name color for color, so a preset the user has retouched — and any theme they
+/// wrote themselves — is left exactly as it is. Returns whether anything changed.
+fn adopt_preset_gradients(specs: &mut [ThemeSpec]) -> bool {
+    let mut changed = false;
+    for spec in specs.iter_mut() {
+        if !spec.gradients.is_empty() {
+            continue;
+        }
+        let key = norm_name(&spec.name);
+        let Some(builtin) = BUILTIN.iter().find(|b| norm_name(&b.name) == key) else {
+            continue;
+        };
+        if builtin.gradients.is_empty() {
+            continue;
+        }
+        // Compare against the preset under the user's own spelling of the name,
+        // with the gradients stripped: equal means untouched.
+        let mut upgraded = builtin.clone();
+        upgraded.name = spec.name.clone();
+        let flat = ThemeSpec { gradients: Gradients::default(), ..upgraded.clone() };
+        if flat == *spec {
+            *spec = upgraded;
+            changed = true;
+        }
+    }
+    changed
+}
+
 /// Load `themes.toml` (generating it from the presets if absent) and make those
 /// palettes active. Call once at startup, before deriving the initial theme.
 pub fn load_user_themes() {
@@ -982,12 +1101,13 @@ pub fn load_user_themes() {
     // error rather than overwriting the user's file.
     let migrated = migrate_theme_toml(&text);
     let src = migrated.as_deref().unwrap_or(&text);
-    if let Ok(tf) = toml::from_str::<ThemesFile>(src)
+    if let Ok(mut tf) = toml::from_str::<ThemesFile>(src)
         && !tf.theme.is_empty()
     {
+        let adopted = adopt_preset_gradients(&mut tf.theme);
         set_palettes(tf.theme.clone());
         // Persist the migration so the file now carries the new fields.
-        if migrated.is_some() {
+        if migrated.is_some() || adopted {
             let _ = write_themes(&path, &tf.theme);
         }
     }
@@ -1736,12 +1856,79 @@ mod tests {
 
     // -- Per-element gradients ------------------------------------------------
 
+    /// A preset that ships flat, for tests that add their own gradients.
+    fn flat_preset() -> ThemeSpec {
+        BUILTIN
+            .iter()
+            .find(|s| s.gradients.is_empty())
+            .cloned()
+            .expect("the CRT presets ship without gradients")
+    }
+
     /// A spec with `panel_bg` ramping black → white, for the gradient tests.
     fn ramp_spec() -> ThemeSpec {
-        let mut spec = BUILTIN[0].clone();
+        let mut spec = flat_preset();
         spec.panel_bg = rgb(0x000000);
         spec.gradients.panel_bg = Some(GradientSpec::new(rgb(0xffffff)));
         spec
+    }
+
+    #[test]
+    fn every_preset_but_the_crt_ones_ships_gradients() {
+        let specs = builtin_specs();
+        for spec in &specs {
+            let flat = FLAT_PRESETS.iter().any(|n| norm_name(n) == norm_name(&spec.name));
+            assert_eq!(
+                spec.gradients.is_empty(),
+                flat,
+                "{} should{} ship gradients",
+                spec.name,
+                if flat { " not" } else { "" }
+            );
+        }
+        // The CRT themes are the flat ones, and they are still in the set.
+        for name in FLAT_PRESETS {
+            assert!(specs.iter().any(|s| s.name == name), "{name} is still a preset");
+        }
+    }
+
+    #[test]
+    fn every_derived_gradient_is_actually_visible() {
+        // A ramp whose ends land on the same color is just a flat element with
+        // extra lines in themes.toml — every preset's must read as a gradient.
+        for spec in builtin_specs() {
+            for role in GradRole::ALL {
+                let Some(g) = spec.gradients.get(role) else { continue };
+                let from = g.from.unwrap_or_else(|| spec.gradient_base(role));
+                assert!(
+                    spread(from, g.to) >= 24,
+                    "{} {role:?}: {from:?} → {:?} is too close to see",
+                    spec.name,
+                    g.to
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_older_themes_file_gains_the_preset_gradients_but_keeps_edits() {
+        // Three themes as an older file held them: an untouched preset, one the
+        // user recolored, and one of their own.
+        let untouched = ThemeSpec { gradients: Gradients::default(), ..BUILTIN[0].clone() };
+        let mut tweaked = untouched.clone();
+        tweaked.panel_bg = rgb(0x123456);
+        tweaked.name = BUILTIN[1].name.clone();
+        let mine = ThemeSpec { name: "Mine".to_string(), ..untouched.clone() };
+        let mut specs = vec![untouched, tweaked.clone(), mine.clone()];
+
+        assert!(adopt_preset_gradients(&mut specs), "the untouched preset is upgraded");
+        assert_eq!(specs[0].gradients, BUILTIN[0].gradients, "it gains the shipped ramps");
+        assert_eq!(specs[0].panel_bg, BUILTIN[0].panel_bg, "and nothing else moves");
+        assert_eq!(specs[1], tweaked, "a recolored preset is left alone");
+        assert_eq!(specs[2], mine, "so is a theme of the user's own");
+
+        // Running again finds nothing left to do, so the file is not rewritten.
+        assert!(!adopt_preset_gradients(&mut specs));
     }
 
     #[test]
@@ -1840,7 +2027,7 @@ mod tests {
 
     #[test]
     fn a_theme_without_gradients_writes_no_table_and_still_loads() {
-        let spec = BUILTIN[1].clone(); // Midnight Commander: flat colors throughout
+        let spec = flat_preset(); // the CRT themes ship without gradients
         assert!(spec.gradients.is_empty());
         let text = toml::to_string_pretty(&ThemesFile { theme: vec![spec.clone()] }).unwrap();
         assert!(!text.contains("gradients"), "nothing is written for a flat theme:\n{text}");
@@ -1850,11 +2037,11 @@ mod tests {
 
     #[test]
     fn a_bar_falls_back_to_the_accent_gradient_until_it_has_its_own() {
-        // Stock themes: the menu bar keeps the accent ramp it always had.
-        let stock = Theme::from_spec(&BUILTIN[0], true);
+        // A theme with no gradient of its own keeps the accent ramp bars always had.
+        let stock = Theme::from_spec(&flat_preset(), true);
         assert_eq!(stock.bar_bg(GradRole::MenubarBg, 0, 10), Some(stock.gradient_at(0, 10)));
         // Given its own gradient, the bar uses that instead.
-        let mut spec = BUILTIN[0].clone();
+        let mut spec = flat_preset();
         spec.menubar_bg = rgb(0x000000);
         spec.gradients.menubar_bg = Some(GradientSpec::new(rgb(0xffffff)));
         let own = Theme::from_spec(&spec, true);
