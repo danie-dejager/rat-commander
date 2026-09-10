@@ -375,7 +375,7 @@ code = "pt"
 "Tab switch   ↑↓ move   Enter actions   u unmount   r refresh   Esc close" = "Tab alternar   ↑↓ mover   Enter ações   u desmontar   r atualizar   Esc fechar"
 "arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close" = "setas mover  ⏎ detalhes IP  k/K matar  / filtrar  p proto  e estabel.  h loopback  Tab visão  r atualizar  Esc fechar"
 "/ filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close" = "/ filtrar  s/S ordenar  p proto  e estabel.  h loopback  k/K matar  ⏎ detalhes  Tab visão  r atualizar  Esc fechar"
-"←↑↓→/click move   ↑↓ into files   Enter open   Del delete   g go to dir   Bksp up   Esc close" = "←↑↓→/clique mover   ↑↓ nos ficheiros   Enter abrir   Del apagar   g ir ao dir.   Bksp subir   Esc fechar"
+"←↑↓→/click move   Enter open   Tab files   Del delete   g go to dir   Bksp up   Esc back" = "←↑↓→/clique mover   Enter abrir   Tab ficheiros   Del apagar   g ir ao dir.   Bksp subir   Esc voltar"
 
 # -- Editor menu (F9) --
 "&Open file..." = "Abrir ficheiro… (&O)"

@@ -375,7 +375,7 @@ code = "hi"
 "Tab switch   ↑↓ move   Enter actions   u unmount   r refresh   Esc close" = "Tab बदलें   ↑↓ चलें   Enter क्रियाएँ   u अनमाउंट   r रीफ़्रेश   Esc बंद"
 "arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close" = "तीर चलें  ⏎ IP विवरण  k/K समाप्त  / फ़िल्टर  p प्रोटो  e स्थापित  h लूपबैक  Tab दृश्य  r रीफ़्रेश  Esc बंद"
 "/ filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close" = "/ फ़िल्टर  s/S क्रमबद्ध  p प्रोटो  e स्थापित  h लूपबैक  k/K समाप्त  ⏎ विवरण  Tab दृश्य  r रीफ़्रेश  Esc बंद"
-"←↑↓→/click move   ↑↓ into files   Enter open   Del delete   g go to dir   Bksp up   Esc close" = "←↑↓→/क्लिक चलें   ↑↓ फ़ाइलों में   Enter खोलें   Del मिटाएँ   g निर्देशिका   Bksp ऊपर   Esc बंद"
+"←↑↓→/click move   Enter open   Tab files   Del delete   g go to dir   Bksp up   Esc back" = "←↑↓→/क्लिक चलें   Enter खोलें   Tab फ़ाइलें   Del मिटाएँ   g निर्देशिका   Bksp ऊपर   Esc वापस"
 
 # -- Editor menu (F9) --
 "&Open file..." = "फ़ाइल खोलें… (&O)"

@@ -514,23 +514,17 @@ pub fn font_can_render(s: &str) -> bool {
     s.chars().all(|c| c.is_whitespace() || font.has_glyph(c))
 }
 
-/// A recessed sub-panel inside a [`pillow_box`]: a pixel rect and its fill color.
-pub struct SubBox {
-    pub x: f32,
-    pub y: f32,
-    pub w: f32,
-    pub h: f32,
-    pub color: Rgb,
-    /// A bright rim drawn just inside this sub-box, marking it as selected.
-    pub border: Option<Rgb>,
-}
+/// Thickness, in pixels, of the rim marking the selected box. It has to be
+/// spotted across a whole screen of boxes, so it is drawn thick, and as a bright
+/// line between two dark ones — a single-colour rim vanished
+/// whenever the box's own fill happened to be lighter than the accent, which is
+/// exactly what the bright-cyan selected fill did on the default theme.
+const BOX_RIM: u32 = 3;
 
 /// Draw one "pillow" box into `img` at `(ox, oy)` of size `w × h`: a cushion-
-/// shaded fill in `fill` (brighter in the middle so it reads as raised), each
-/// [`SubBox`] (box-local pixel coords) drawn as a semi-transparent, bevelled
-/// depression so it sits *below* the surface, and an optional bright selection
-/// `border`. A 1px "grout" gap is left around the box so adjacent boxes stay
-/// distinct when many are drawn into a single image.
+/// shaded fill in `fill` (brighter in the middle so it reads as raised) plus an
+/// optional bright selection `border`. A 1px "grout" gap is left around the box
+/// so adjacent boxes stay distinct when many are drawn into a single image.
 #[allow(clippy::too_many_arguments)]
 pub fn pillow_into(
     img: &mut RgbaImage,
@@ -539,7 +533,6 @@ pub fn pillow_into(
     w: u32,
     h: u32,
     fill: Rgb,
-    subs: &[SubBox],
     border: Option<Rgb>,
 ) {
     let (iw_max, ih_max) = (img.width(), img.height());
@@ -570,65 +563,32 @@ pub fn pillow_into(
             put(img, x, y, shade(fill, cushion));
         }
     }
-    // Recessed, semi-transparent sub-boxes (offset into the interior).
-    for s in subs {
-        let x0 = ix0 + s.x.round().max(0.0) as u32;
-        let y0 = iy0 + s.y.round().max(0.0) as u32;
-        let x1 = (ix0 + (s.x + s.w).round().max(0.0) as u32).min(ix1);
-        let y1 = (iy0 + (s.y + s.h).round().max(0.0) as u32).min(iy1);
-        if x1 < x0 + 3 || y1 < y0 + 3 {
-            continue; // too small to read as a box
-        }
-        let (jx0, jy0, jx1, jy1) = (x0 + 1, y0 + 1, x1 - 1, y1 - 1);
-        for y in jy0..jy1 {
-            for x in jx0..jx1 {
-                let p = img.get_pixel(x, y).0;
-                let under = (p[0], p[1], p[2]);
-                // A ~50%-transparent dark inset: the cushion still shows through,
-                // but the panel is clearly darker so it reads as recessed *inside*
-                // the pillow. A light per-box tint keeps neighbours distinct.
-                let mut c = over(under, (0, 0, 0), 0.5);
-                c = over(c, s.color, 0.16);
-                // 2px bevel: dark shadow on the top/left, bright rim on bottom/right.
-                if y <= jy0 + 1 || x <= jx0 + 1 {
-                    c = over(c, (0, 0, 0), 0.42);
-                } else if y + 2 >= jy1 || x + 2 >= jx1 {
-                    c = over(c, (255, 255, 255), 0.24);
-                }
-                put(img, x, y, c);
-            }
-        }
-        // Selected sub-box: a bright rim over the bevel, so a file picked out
-        // inside a box stands out the way the selected box itself does.
-        if let Some(bc) = s.border {
-            for x in jx0..jx1 {
-                put(img, x, jy0, bc);
-                put(img, x, jy1 - 1, bc);
-            }
-            for y in jy0..jy1 {
-                put(img, jx0, y, bc);
-                put(img, jx1 - 1, y, bc);
-            }
-        }
-    }
-    // Selection border: a bright 1px rectangle just inside the grout.
+    // Selection border: a bright rim just inside the grout, outlined in shadow so
+    // it stays legible over any fill. Clamped so it can't swallow a small box.
     if let Some(bc) = border {
-        for x in ix0..ix1 {
-            put(img, x, iy0, bc);
-            put(img, x, iy1 - 1, bc);
-        }
-        for y in iy0..iy1 {
-            put(img, ix0, y, bc);
-            put(img, ix1 - 1, y, bc);
+        let t = BOX_RIM.min((ix1 - ix0) / 2).min((iy1 - iy0) / 2).max(1);
+        let shadow = over(bc, (0, 0, 0), 0.72);
+        for d in 0..t {
+            // Outermost and innermost rings are the shadow; the accent runs
+            // between them (and alone when there is only room for one ring).
+            let c = if t >= 3 && (d == 0 || d + 1 == t) { shadow } else { bc };
+            for x in (ix0 + d)..(ix1 - d) {
+                put(img, x, iy0 + d, c);
+                put(img, x, iy1 - 1 - d, c);
+            }
+            for y in (iy0 + d)..(iy1 - d) {
+                put(img, ix0 + d, y, c);
+                put(img, ix1 - 1 - d, y, c);
+            }
         }
     }
 }
 
 /// A standalone "pillow" box image (see [`pillow_into`]).
 #[allow(dead_code)] // exercised by raster tests
-pub fn pillow_box(w: u32, h: u32, fill: Rgb, subs: &[SubBox], bg: Rgb) -> RgbaImage {
+pub fn pillow_box(w: u32, h: u32, fill: Rgb, border: Option<Rgb>, bg: Rgb) -> RgbaImage {
     let mut img = RgbaImage::from_pixel(w.max(1), h.max(1), Rgba([bg.0, bg.1, bg.2, 255]));
-    pillow_into(&mut img, 0, 0, w.max(1), h.max(1), fill, subs, None);
+    pillow_into(&mut img, 0, 0, w.max(1), h.max(1), fill, border);
     img
 }
 
@@ -702,22 +662,41 @@ mod tests {
     }
 
     #[test]
-    fn pillow_box_cushions_and_recesses_subboxes() {
-        let fill = (120, 120, 120);
-        let bg = (0, 0, 0);
-        // One sub-box in the middle of a 40x40 pillow.
-        let subs =
-            vec![SubBox { x: 10.0, y: 10.0, w: 20.0, h: 20.0, color: (60, 60, 60), border: None }];
-        let img = pillow_box(40, 40, fill, &subs, bg);
+    fn pillow_box_is_cushion_shaded() {
+        let img = pillow_box(40, 40, (120, 120, 120), None, (0, 0, 0));
         let lum = |x: u32, y: u32| {
             let p = img.get_pixel(x, y).0;
             p[0] as u32 + p[1] as u32 + p[2] as u32
         };
         // Cushion: the centre is brighter than a corner (raised look).
         assert!(lum(20, 20) > lum(1, 1), "cushion centre should be brighter than the edge");
-        // The sub-box interior is drawn (its top/left bevel is darker than its
-        // own centre → a recessed, bevelled look).
-        assert!(lum(12, 12) < lum(20, 20), "sub-box shadow edge darker than pillow centre");
+    }
+
+    /// The selected box's rim has to survive whatever fill sits under it, so it
+    /// is drawn thick and sandwiched between shadow lines. A plain single-colour
+    /// rim vanished on the default theme, where the accent is darker than the
+    /// bright-cyan fill of the very box it was marking.
+    #[test]
+    fn selected_box_rim_is_thick_and_outlined() {
+        let fill = (85, 255, 255); // the default theme's selected-box fill
+        let rim = (0, 163, 163); // ...and its cursor accent, darker than the fill
+        let plain = pillow_box(40, 40, fill, None, (0, 0, 0));
+        let picked = pillow_box(40, 40, fill, Some(rim), (0, 0, 0));
+        let px = |img: &RgbaImage, x: u32, y: u32| {
+            let p = img.get_pixel(x, y).0;
+            (p[0], p[1], p[2])
+        };
+        // The rim is BOX_RIM pixels deep, and none of it is the bare fill.
+        for d in 0..BOX_RIM {
+            assert_ne!(px(&picked, 20, 1 + d), px(&plain, 20, 1 + d), "rim ring {d} is drawn");
+        }
+        // Its middle ring carries the accent, with shadow on either side.
+        assert_eq!(px(&picked, 20, 2), rim, "the accent runs down the middle of the rim");
+        let lum = |c: Rgb| c.0 as u32 + c.1 as u32 + c.2 as u32;
+        assert!(
+            lum(px(&picked, 20, 1)) < lum(rim),
+            "outlined in shadow so it reads even against a lighter fill"
+        );
     }
 
     #[test]

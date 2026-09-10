@@ -15,7 +15,7 @@ pub struct DiskEntry {
     /// Total on-disk size of the subtree (bytes), excluding symlinks.
     pub size: u64,
     /// The largest files in this subtree (largest first), each with its path
-    /// relative to this box's directory. Shown inside sufficiently large boxes.
+    /// relative to this box's directory. Shown as a list inside the box.
     pub files: Vec<FileEntry>,
 }
 
@@ -25,6 +25,22 @@ pub struct FileEntry {
     /// Path relative to the box's directory (e.g. `cache/blobs/ab12`).
     pub rel: String,
     pub size: u64,
+}
+
+/// Which half of the explorer the cursor is working in. `Tab` toggles it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Focus {
+    /// The treemap: arrows move between boxes and `Enter` descends into one.
+    Boxes,
+    /// The selected box's file list: arrows walk the rows and `Del` removes one.
+    Files,
+}
+
+/// The axis a remembered travel line runs along — see [`DiskView::nav`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Axis {
+    Horizontal,
+    Vertical,
 }
 
 /// What handling a key in the disk explorer asks the app to do.
@@ -52,14 +68,22 @@ pub struct DiskView {
     pub generation: u64,
     /// Box rectangles from the last render, for spatial arrow navigation.
     pub rects: Vec<Rect>,
-    /// Which of the selected box's largest files the cursor is on, if the
-    /// cursor has stepped inside the box; `None` when the box itself is
-    /// selected. Entering a box with `Enter` still dives into the directory —
-    /// this only picks out one of the files the box lists.
-    pub file_sel: Option<usize>,
-    /// File rectangles from the last render as `(entry, file, rect)`: every
-    /// file cell/sub-box actually drawn. Drives mouse hit-testing and bounds
-    /// the cursor, so it can only step onto files that are really on screen.
+    /// Which half of the explorer has the cursor.
+    pub focus: Focus,
+    /// Which row of the selected box's file list the cursor is on. Only
+    /// meaningful while [`Focus::Files`]; use [`DiskView::on_file`] to read it.
+    pub file_sel: usize,
+    /// The line the cursor is travelling along, and the axis it runs on: moving
+    /// left/right keeps the row the run started from, up/down keeps the column —
+    /// the way an editor remembers your column while you move through lines of
+    /// different lengths. Re-derived from the current box whenever the axis
+    /// changes or the selection moves by other means. Without it each hop picks
+    /// its line afresh from whatever box it just landed on, so travelling right
+    /// and then back left walks a different set of boxes.
+    nav: Option<(Axis, f32)>,
+    /// File-row rectangles from the last render as `(entry, file, rect)`: every
+    /// file row actually drawn. Drives mouse hit-testing and bounds the cursor,
+    /// so it can only step onto files that are really on screen.
     pub file_rects: Vec<(usize, usize, Rect)>,
 }
 
@@ -74,7 +98,9 @@ impl DiskView {
             scan_total: 0,
             generation: 0,
             rects: Vec::new(),
-            file_sel: None,
+            focus: Focus::Boxes,
+            file_sel: 0,
+            nav: None,
             file_rects: Vec::new(),
         }
     }
@@ -90,44 +116,101 @@ impl DiskView {
             .modifiers
             .intersects(KeyModifiers::SHIFT | KeyModifiers::CONTROL);
         match key.code {
-            KeyCode::Esc | KeyCode::F(10) | KeyCode::Char('q') | KeyCode::Char('Q') => {
-                DiskSignal::Close
+            // Esc backs out of the file list first, and only closes once the
+            // cursor is back on the treemap. q/F10 always close outright.
+            KeyCode::F(10) | KeyCode::Char('q') | KeyCode::Char('Q') => DiskSignal::Close,
+            KeyCode::Esc => {
+                if self.focus == Focus::Files {
+                    self.focus = Focus::Boxes;
+                    DiskSignal::Stay
+                } else {
+                    DiskSignal::Close
+                }
             }
             KeyCode::Backspace => {
                 if let Some(parent) = self.cwd.parent().map(Path::to_path_buf) {
                     self.cwd = parent;
-                    self.selected = 0;
-                    self.file_sel = None;
+                    self.reset_cursor();
                     DiskSignal::Rescan
                 } else {
                     DiskSignal::Stay
                 }
             }
+            // Tab moves the cursor between the treemap and the selected box's
+            // file list — the only way in or out of the list, so the arrows stay
+            // purely spatial in the treemap.
+            KeyCode::Tab | KeyCode::BackTab => {
+                self.toggle_focus();
+                DiskSignal::Stay
+            }
             // Ctrl/Shift-Enter (when the terminal reports the modifier) or 'g' as
             // a reliable fallback: leave the explorer at the selected directory.
             KeyCode::Enter if go_mod => self.go_to(),
             KeyCode::Char('g') | KeyCode::Char('G') => self.go_to(),
-            KeyCode::Enter => self.enter_selected(),
-            // Delete the file the cursor is on. Boxes are directories, so this
-            // only fires once the cursor has stepped inside one.
+            // Enter dives into the selected box's directory, making it the new
+            // root. The file list holds no directories, so it stays put.
+            KeyCode::Enter => match self.focus {
+                Focus::Boxes => self.descend(),
+                Focus::Files => DiskSignal::Stay,
+            },
+            // Del removes the highlighted file, which only exists while the file
+            // list has the cursor.
             KeyCode::Delete | KeyCode::F(8) => self.delete_request(),
-            // ↑/↓ walk into and through the selected box's file list before
-            // moving on to the next box; ←/→ always move between boxes.
-            KeyCode::Down => {
-                self.step_files(1);
-                DiskSignal::Stay
-            }
-            KeyCode::Up => {
-                self.step_files(-1);
-                DiskSignal::Stay
-            }
-            KeyCode::Left | KeyCode::Right => {
-                self.file_sel = None;
-                self.move_selection(key.code);
+            // Arrows walk whichever half has the cursor: rows in the file list,
+            // boxes (or one box's nested boxes) in the treemap.
+            KeyCode::Down | KeyCode::Up | KeyCode::Left | KeyCode::Right => {
+                match self.focus {
+                    Focus::Files => match key.code {
+                        KeyCode::Down => self.step_file(1),
+                        KeyCode::Up => self.step_file(-1),
+                        _ => {} // ←/→ keep the cursor in the list
+                    },
+                    Focus::Boxes => self.move_selection(key.code),
+                }
                 DiskSignal::Stay
             }
             _ => DiskSignal::Stay,
         }
+    }
+
+    /// Put the cursor back on the first box, as after a directory change or a
+    /// rescan — the entries it pointed into are gone, so every part of it (the
+    /// box, the nested box, the file row and which half has focus) must reset
+    /// together or it ends up pointing at the wrong thing.
+    pub fn reset_cursor(&mut self) {
+        self.selected = 0;
+        self.focus = Focus::Boxes;
+        self.file_sel = 0;
+        self.nav = None;
+    }
+
+    /// Tab: swap the cursor between the treemap and the file list. Moving into
+    /// the list is refused when the selected box has no files to show, so the
+    /// cursor never lands somewhere invisible.
+    fn toggle_focus(&mut self) {
+        match self.focus {
+            Focus::Boxes if self.files_shown() > 0 => {
+                self.focus = Focus::Files;
+                self.file_sel = self.file_sel.min(self.files_shown() - 1);
+            }
+            Focus::Boxes => {}
+            Focus::Files => self.focus = Focus::Boxes,
+        }
+    }
+
+    /// The file row the cursor is on, or `None` when the treemap has the cursor.
+    pub fn on_file(&self) -> Option<usize> {
+        (self.focus == Focus::Files).then_some(self.file_sel)
+    }
+
+    /// ↑/↓ within the selected box's file list, clamped to the rows on screen.
+    fn step_file(&mut self, delta: isize) {
+        let shown = self.files_shown();
+        if shown == 0 {
+            return;
+        }
+        let next = (self.file_sel as isize + delta).clamp(0, shown as isize - 1);
+        self.file_sel = next as usize;
     }
 
     /// How many of the selected box's files the last frame actually drew — the
@@ -139,35 +222,19 @@ impl DiskView {
         drawn.min(self.entries.get(self.selected).map_or(0, |e| e.files.len()))
     }
 
-    /// ↑/↓: walk the selected box's file list, entering it from the box and
-    /// leaving it again at either end (where the move continues to the box
-    /// above/below, as before).
-    fn step_files(&mut self, delta: isize) {
-        let shown = self.files_shown();
-        let next = match (self.file_sel, delta) {
-            // Stepping down out of the box header and into its file list.
-            (None, 1) if shown > 0 => Some(Some(0)),
-            (Some(i), 1) if i + 1 < shown => Some(Some(i + 1)),
-            (Some(0), -1) => Some(None), // back onto the box itself
-            (Some(i), -1) => Some(Some(i - 1)),
-            _ => None, // at either end: fall through to the box move
-        };
-        match next {
-            Some(sel) => self.file_sel = sel,
-            None => {
-                self.file_sel = None;
-                self.move_selection(if delta > 0 { KeyCode::Down } else { KeyCode::Up });
-            }
-        }
-    }
-
     /// The selected file's absolute path and its `dir/relative/path` label.
     pub fn selected_file(&self) -> Option<(PathBuf, String)> {
-        let k = self.file_sel?;
+        let k = self.on_file()?;
         let entry = self.entries.get(self.selected)?;
         let file = entry.files.get(k)?;
         let path = self.cwd.join(&entry.name).join(&file.rel);
         Some((path, format!("{}/{}", entry.name, file.rel)))
+    }
+
+    /// The directory the cursor points at: the selected box.
+    pub fn selected_dir(&self) -> Option<PathBuf> {
+        let entry = self.entries.get(self.selected)?;
+        Some(self.cwd.join(&entry.name))
     }
 
     fn delete_request(&self) -> DiskSignal {
@@ -188,21 +255,22 @@ impl DiskView {
             };
             let gone = entry.files.remove(k);
             entry.size = entry.size.saturating_sub(gone.size);
-            // Keep the cursor where the deleted row was, or step back to the
-            // box once its list has run out.
-            if i == self.selected && let Some(sel) = self.file_sel {
-                self.file_sel = match sel {
-                    s if s >= entry.files.len() => entry.files.len().checked_sub(1),
-                    s => Some(s),
-                };
+            // Keep the cursor where the deleted row was, clamping onto the last
+            // row when the list has shrunk past it; once the list is empty the
+            // cursor falls back to the treemap, since there is no row to be on.
+            if i == self.selected {
+                self.file_sel = self.file_sel.min(entry.files.len().saturating_sub(1));
+                if entry.files.is_empty() {
+                    self.focus = Focus::Boxes;
+                }
             }
             return;
         }
     }
 
     fn go_to(&self) -> DiskSignal {
-        match self.entries.get(self.selected) {
-            Some(e) => DiskSignal::GoTo(self.cwd.join(&e.name)),
+        match self.selected_dir() {
+            Some(path) => DiskSignal::GoTo(path),
             None => DiskSignal::Stay,
         }
     }
@@ -215,67 +283,123 @@ impl DiskView {
         })
     }
 
-    /// The `(entry, file)` whose drawn file cell/sub-box contains `(col, row)`,
-    /// using the rectangles recorded at the last render.
+    /// The `(entry, file)` whose drawn file row contains `(col, row)`, using the
+    /// rectangles recorded at the last render.
     pub fn file_at(&self, col: u16, row: u16) -> Option<(usize, usize)> {
-        self.file_rects.iter().rev().find_map(|(e, k, r)| {
-            (col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height)
-                .then_some((*e, *k))
-        })
+        hit(&self.file_rects, col, row)
     }
 
-    /// Enter the currently-selected box (dive into that subdirectory). Used by the
-    /// mouse (double-click) to mirror the Enter key.
-    pub fn enter_selected(&mut self) -> DiskSignal {
-        if let Some(e) = self.entries.get(self.selected) {
-            self.cwd = self.cwd.join(&e.name);
-            self.selected = 0;
-            self.file_sel = None;
-            DiskSignal::Rescan
-        } else {
-            DiskSignal::Stay
+    /// Point the cursor at what the mouse clicked: a file row focuses the list,
+    /// bare box space selects the box. A click re-aims the cursor, so it also
+    /// forgets the travel line the arrows were following.
+    pub fn click(&mut self, i: usize, col: u16, row: u16) {
+        self.selected = i;
+        self.nav = None;
+        match self.file_at(col, row).filter(|(e, _)| *e == i) {
+            Some((_, k)) => {
+                self.focus = Focus::Files;
+                self.file_sel = k;
+            }
+            None => self.focus = Focus::Boxes,
         }
     }
 
-    /// Move the selection to the nearest box in the given direction, using the
-    /// box centers from the last render.
+    /// Dive into the selected box's directory, making it the new root and
+    /// rescanning. Used by `Enter` and by the mouse's double-click.
+    pub fn descend(&mut self) -> DiskSignal {
+        match self.selected_dir() {
+            Some(path) => {
+                self.cwd = path;
+                self.reset_cursor();
+                DiskSignal::Rescan
+            }
+            None => DiskSignal::Stay,
+        }
+    }
+
+    /// Move the cursor to the neighbouring box in the given direction, along the
+    /// line the current run of arrow presses is travelling on (see [`Self::nav`]).
     fn move_selection(&mut self, dir: KeyCode) {
         if self.rects.len() != self.entries.len() || self.entries.is_empty() {
             return;
         }
-        let cur = center(self.rects[self.selected.min(self.rects.len() - 1)]);
-        let mut best: Option<(f32, usize)> = None;
-        for (i, r) in self.rects.iter().enumerate() {
-            if i == self.selected {
-                continue;
-            }
-            let c = center(*r);
-            let (dx, dy) = (c.0 - cur.0, c.1 - cur.1);
-            let in_dir = match dir {
-                KeyCode::Left => dx < -0.5,
-                KeyCode::Right => dx > 0.5,
-                KeyCode::Up => dy < -0.5,
-                KeyCode::Down => dy > 0.5,
-                _ => false,
-            };
-            if !in_dir {
-                continue;
-            }
-            // Distance along the travel axis, plus a penalty for drifting off it.
-            let (primary, perp) = match dir {
-                KeyCode::Left | KeyCode::Right => (dx.abs(), dy.abs()),
-                _ => (dy.abs(), dx.abs()),
-            };
-            let score = primary + perp * 2.0;
-            if best.is_none_or(|(b, _)| score < b) {
-                best = Some((score, i));
-            }
-        }
-        if let Some((_, i)) = best {
-            self.selected = i;
-            self.file_sel = None;
+        let axis = match dir {
+            KeyCode::Left | KeyCode::Right => Axis::Horizontal,
+            _ => Axis::Vertical,
+        };
+        let from = self.rects[self.selected.min(self.rects.len() - 1)];
+        // Keep the line while the run stays on one axis; re-derive it from the
+        // current box the moment the axis changes.
+        let line = match self.nav {
+            Some((a, v)) if a == axis => v,
+            _ => match axis {
+                Axis::Horizontal => center(from).1,
+                Axis::Vertical => center(from).0,
+            },
+        };
+        self.nav = Some((axis, line));
+        if let Some(next) = neighbour(&self.rects, from, dir, line) {
+            self.selected = next;
+            self.file_sel = 0;
         }
     }
+}
+
+/// The box to step to from `from` in direction `dir`, travelling along `line`
+/// (a row for horizontal moves, a column for vertical ones).
+///
+/// Boxes are ranked by whether `line` actually crosses them, then by how far the
+/// line falls outside them, then by distance along the travel axis — measured
+/// between facing *edges*, not centres. Centre-to-centre scoring made the move
+/// depend on the size of the box you happened to be standing on, so stepping
+/// right and then left again walked a different set of boxes.
+fn neighbour(rects: &[Rect], from: Rect, dir: KeyCode, line: f32) -> Option<usize> {
+    let mut best: Option<(f32, f32, usize)> = None;
+    for (i, r) in rects.iter().enumerate() {
+        if *r == from || r.width == 0 || r.height == 0 {
+            continue;
+        }
+        // Gap between the box we're leaving and this one, along the travel axis.
+        // Negative means it isn't past our edge, so it isn't in that direction.
+        let along = match dir {
+            KeyCode::Left => from.x as f32 - (r.x + r.width) as f32,
+            KeyCode::Right => r.x as f32 - (from.x + from.width) as f32,
+            KeyCode::Up => from.y as f32 - (r.y + r.height) as f32,
+            KeyCode::Down => r.y as f32 - (from.y + from.height) as f32,
+            _ => return None,
+        };
+        if along < -0.5 {
+            continue;
+        }
+        // How far the travel line sits outside this box's span; 0 when it crosses.
+        let (lo, hi) = match dir {
+            KeyCode::Left | KeyCode::Right => (r.y as f32, (r.y + r.height) as f32),
+            _ => (r.x as f32, (r.x + r.width) as f32),
+        };
+        let off = if line < lo {
+            lo - line
+        } else if line > hi {
+            line - hi
+        } else {
+            0.0
+        };
+        let better = best.is_none_or(|(bo, ba, _)| {
+            off.total_cmp(&bo).then(along.total_cmp(&ba)).is_lt()
+        });
+        if better {
+            best = Some((off, along, i));
+        }
+    }
+    best.map(|(_, _, i)| i)
+}
+
+/// The last `(entry, index)` whose recorded rectangle covers `(col, row)`.
+/// Searched in reverse so a nested rectangle drawn over another one wins.
+fn hit(rects: &[(usize, usize, Rect)], col: u16, row: u16) -> Option<(usize, usize)> {
+    rects.iter().rev().find_map(|(e, k, r)| {
+        (col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height)
+            .then_some((*e, *k))
+    })
 }
 
 fn center(r: Rect) -> (f32, f32) {
@@ -307,6 +431,7 @@ pub fn human_gb(bytes: u64) -> String {
 
 /// How many of the largest files to remember per box, for the in-box listing.
 const TOP_FILES: usize = 32;
+
 
 /// Scan the immediate subdirectories of `dir`, computing each one's total
 /// on-disk size and its largest files (symlinks are skipped, never followed).
@@ -408,16 +533,17 @@ mod tests {
         assert_eq!(human_gb(2_252_341_248), "2.1 GB");
     }
 
+    /// A box with no files.
+    fn e(name: &str, size: u64) -> DiskEntry {
+        DiskEntry { name: name.into(), size, files: vec![] }
+    }
+
     #[test]
     fn arrow_moves_to_spatial_neighbor() {
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let mut dv = DiskView::new(PathBuf::from("/tmp"));
         dv.scanning = false;
-        dv.entries = vec![
-            DiskEntry { name: "a".into(), size: 1, files: vec![] },
-            DiskEntry { name: "b".into(), size: 1, files: vec![] },
-            DiskEntry { name: "c".into(), size: 1, files: vec![] },
-        ];
+        dv.entries = vec![e("a", 1), e("b", 1), e("c", 1)];
         // Two side-by-side boxes plus one below the first.
         dv.rects = vec![
             Rect { x: 0, y: 0, width: 10, height: 5 },
@@ -437,7 +563,7 @@ mod tests {
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let mut dv = DiskView::new(PathBuf::from("/tmp/work"));
         dv.scanning = false;
-        dv.entries = vec![DiskEntry { name: "sub".into(), size: 1, files: vec![] }];
+        dv.entries = vec![e("sub", 1)];
         dv.selected = 0;
         assert!(matches!(
             dv.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
@@ -450,7 +576,7 @@ mod tests {
         ));
         assert_eq!(dv.cwd, PathBuf::from("/tmp/work"));
         // Shift-Enter, Ctrl-Enter and 'g' all ask the app to go to the dir.
-        dv.entries = vec![DiskEntry { name: "sub".into(), size: 1, files: vec![] }];
+        dv.entries = vec![e("sub", 1)];
         for key in [
             KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT),
             KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL),
@@ -463,11 +589,11 @@ mod tests {
         }
     }
 
-    /// The cursor steps into the selected box's file list with ↓, walks it, and
-    /// steps back out at either end — Enter still dives into the directory, and
-    /// Del asks to remove the file the cursor is on. Issue #14.
+    /// Arrows stay in the treemap: they move between boxes and never fall into
+    /// the file list, which `Tab` is the only way into. Issue: ↓ hijacking the
+    /// cursor made the directories hard to navigate.
     #[test]
-    fn cursor_walks_the_files_listed_inside_a_box() {
+    fn arrows_stay_in_the_treemap_and_tab_reaches_the_files() {
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let press = |dv: &mut DiskView, c| dv.handle_key(KeyEvent::new(c, KeyModifiers::NONE));
 
@@ -482,53 +608,98 @@ mod tests {
                     FileEntry { rel: "small".into(), size: 100 },
                 ],
             },
-            DiskEntry { name: "docs".into(), size: 10, files: vec![] },
+            e("docs", 10),
         ];
         dv.rects = vec![
             Rect { x: 0, y: 0, width: 20, height: 6 },
             Rect { x: 0, y: 6, width: 20, height: 6 },
         ];
-        // Two file rows drawn inside the first box (as the renderer would record).
         dv.file_rects = vec![
-            (0, 0, Rect { x: 1, y: 3, width: 18, height: 1 }),
-            (0, 1, Rect { x: 1, y: 4, width: 18, height: 1 }),
+            (0, 0, Rect { x: 1, y: 4, width: 18, height: 1 }),
+            (0, 1, Rect { x: 1, y: 5, width: 18, height: 1 }),
         ];
 
-        // ↓ steps into the box's file list, then down it.
-        assert_eq!(dv.file_sel, None, "the box itself starts selected");
+        // ↓ moves to the box below rather than into the first box's file list.
+        assert_eq!(dv.on_file(), None, "the cursor starts on the box itself");
         press(&mut dv, KeyCode::Down);
-        assert_eq!(dv.file_sel, Some(0), "first ↓ steps onto the biggest file");
-        press(&mut dv, KeyCode::Down);
-        assert_eq!(dv.file_sel, Some(1));
-        // Past the last file, ↓ leaves the box for the one below.
-        press(&mut dv, KeyCode::Down);
-        assert_eq!((dv.selected, dv.file_sel), (1, None), "moved on to the next box");
-
-        // ↑ comes back, and walks the list in reverse before leaving it.
+        assert_eq!((dv.selected, dv.on_file()), (1, None), "↓ moved on to the next box");
         press(&mut dv, KeyCode::Up);
-        assert_eq!((dv.selected, dv.file_sel), (0, None), "back on the box itself");
-        press(&mut dv, KeyCode::Down);
-        press(&mut dv, KeyCode::Down);
-        press(&mut dv, KeyCode::Up);
-        assert_eq!(dv.file_sel, Some(0));
-        press(&mut dv, KeyCode::Up);
-        assert_eq!(dv.file_sel, None, "↑ off the top of the list re-selects the box");
+        assert_eq!(dv.selected, 0, "and ↑ comes back");
 
-        // ←/→ always move between boxes, dropping any file selection.
+        // Tab is what reaches the list; arrows then walk it and stop at its ends.
+        press(&mut dv, KeyCode::Tab);
+        assert_eq!(dv.on_file(), Some(0), "Tab lands on the biggest file");
         press(&mut dv, KeyCode::Down);
-        assert_eq!(dv.file_sel, Some(0));
-        press(&mut dv, KeyCode::Right);
-        assert_eq!(dv.file_sel, None, "sideways moves leave the file list");
+        assert_eq!(dv.on_file(), Some(1));
+        press(&mut dv, KeyCode::Down);
+        assert_eq!((dv.selected, dv.on_file()), (0, Some(1)), "↓ stops at the last row");
+        press(&mut dv, KeyCode::Up);
+        assert_eq!(dv.on_file(), Some(0));
+        press(&mut dv, KeyCode::Up);
+        assert_eq!((dv.selected, dv.on_file()), (0, Some(0)), "↑ stops at the first row");
 
-        // Enter still dives into the directory, even with a file selected.
-        dv.selected = 0;
-        press(&mut dv, KeyCode::Down);
-        assert!(matches!(press(&mut dv, KeyCode::Enter), DiskSignal::Rescan));
-        assert_eq!(dv.cwd, PathBuf::from("/tmp/work/cache"));
+        // Tab (or Esc) hands the cursor back to the treemap.
+        press(&mut dv, KeyCode::Tab);
+        assert_eq!(dv.on_file(), None, "Tab returns to the boxes");
+        press(&mut dv, KeyCode::Tab);
+        assert!(matches!(press(&mut dv, KeyCode::Esc), DiskSignal::Stay));
+        assert_eq!(dv.on_file(), None, "Esc backs out of the list without closing");
+
+        // A box with no files to show refuses the cursor rather than hiding it.
+        dv.selected = 1;
+        press(&mut dv, KeyCode::Tab);
+        assert_eq!(dv.on_file(), None, "nothing to focus in an empty list");
     }
 
-    /// Del asks to delete the file under the cursor (and nothing when the box
-    /// itself is selected); the box shrinks and drops the row straight away.
+    /// Travelling one way and back again must retrace the same boxes. The move
+    /// keeps the row (or column) the run started on, so a wide box passed on the
+    /// way out can't redirect the way back — centre-to-centre scoring used to let
+    /// exactly that happen, and →→←← landed somewhere else entirely.
+    #[test]
+    fn arrow_travel_is_reversible() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let press = |dv: &mut DiskView, c| dv.handle_key(KeyEvent::new(c, KeyModifiers::NONE));
+
+        let mut dv = DiskView::new(PathBuf::from("/tmp"));
+        dv.scanning = false;
+        dv.entries = (0..5).map(|i| e(&format!("b{i}"), 1)).collect();
+        // A row of boxes of differing heights: the tall one in the middle is what
+        // centre-based scoring used to snag the return trip on.
+        dv.rects = vec![
+            Rect { x: 0, y: 4, width: 10, height: 4 },
+            Rect { x: 10, y: 0, width: 10, height: 12 },
+            Rect { x: 20, y: 4, width: 10, height: 4 },
+            Rect { x: 30, y: 4, width: 10, height: 4 },
+            Rect { x: 0, y: 12, width: 40, height: 6 },
+        ];
+        dv.selected = 0;
+
+        // Walk right to the end, remembering the path.
+        let mut out = vec![dv.selected];
+        for _ in 0..3 {
+            press(&mut dv, KeyCode::Right);
+            out.push(dv.selected);
+        }
+        assert_eq!(out, vec![0, 1, 2, 3], "→ steps through the row in order");
+
+        // Walking back left must retrace it exactly.
+        let mut back = vec![dv.selected];
+        for _ in 0..3 {
+            press(&mut dv, KeyCode::Left);
+            back.push(dv.selected);
+        }
+        out.reverse();
+        assert_eq!(back, out, "← retraces the same boxes it came through");
+
+        // Changing axis re-aims the line, and the vertical trip reverses too.
+        press(&mut dv, KeyCode::Down);
+        assert_eq!(dv.selected, 4, "↓ drops to the box below");
+        press(&mut dv, KeyCode::Up);
+        assert_eq!(dv.selected, 0, "↑ comes straight back");
+    }
+
+    /// Del asks to delete the file under the cursor (and nothing while the
+    /// treemap has it); the box shrinks and drops the row straight away.
     #[test]
     fn delete_targets_the_file_under_the_cursor() {
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -550,9 +721,9 @@ mod tests {
             (0, 1, Rect { x: 1, y: 4, width: 18, height: 1 }),
         ];
 
-        // A box is a directory, so Del does nothing until the cursor is on a file.
+        // A box is a directory, so Del does nothing until the list has the cursor.
         assert!(matches!(press(&mut dv, KeyCode::Delete), DiskSignal::Stay));
-        press(&mut dv, KeyCode::Down);
+        press(&mut dv, KeyCode::Tab);
         let (path, label) = match press(&mut dv, KeyCode::Delete) {
             DiskSignal::DeleteFile { path, label } => (path, label),
             _ => panic!("Del on a file should ask to delete it"),
@@ -564,12 +735,12 @@ mod tests {
         dv.note_file_deleted(&path);
         assert_eq!(dv.entries[0].size, 100, "the box lost the deleted file's bytes");
         assert_eq!(dv.entries[0].files.len(), 1);
-        assert_eq!(dv.file_sel, Some(0), "the cursor holds the row the file vacated");
+        assert_eq!(dv.on_file(), Some(0), "the cursor holds the row the file vacated");
         // Deleting the last one leaves nothing to point at.
         let last = dv.cwd.join("cache").join("small");
         dv.note_file_deleted(&last);
         assert!(dv.entries[0].files.is_empty());
-        assert_eq!(dv.file_sel, None, "the cursor falls back onto the box");
+        assert_eq!(dv.on_file(), None, "the cursor falls back onto the treemap");
     }
 
     /// A click inside a box picks the file row it landed on, not just the box.
@@ -589,10 +760,7 @@ mod tests {
     fn box_at_hit_tests_and_click_enters() {
         let mut dv = DiskView::new(PathBuf::from("/tmp/work"));
         dv.scanning = false;
-        dv.entries = vec![
-            DiskEntry { name: "a".into(), size: 1, files: vec![] },
-            DiskEntry { name: "b".into(), size: 1, files: vec![] },
-        ];
+        dv.entries = vec![e("a", 1), e("b", 1)];
         // Two side-by-side boxes.
         dv.rects = vec![
             Rect { x: 0, y: 0, width: 10, height: 5 },
@@ -603,7 +771,7 @@ mod tests {
         assert_eq!(dv.box_at(25, 2), None, "a miss returns None");
         // Selecting a box (as a mouse click does) then entering it dives in.
         dv.selected = 1;
-        assert!(matches!(dv.enter_selected(), DiskSignal::Rescan));
+        assert!(matches!(dv.descend(), DiskSignal::Rescan));
         assert_eq!(dv.cwd, PathBuf::from("/tmp/work/b"));
         assert_eq!(dv.selected, 0, "selection resets after diving");
     }

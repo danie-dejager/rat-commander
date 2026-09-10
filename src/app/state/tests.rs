@@ -4367,9 +4367,9 @@ async fn disk_explorer_deletes_the_file_under_the_cursor() {
     let before = st.diskview.as_ref().unwrap().entries[0].size;
     assert!(!st.diskview.as_ref().unwrap().file_rects.is_empty(), "file rows drawn");
 
-    // ↓ steps onto the file, Del raises the confirmation.
-    st.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).await;
-    assert_eq!(st.diskview.as_ref().unwrap().file_sel, Some(0));
+    // Tab moves the cursor into the file list, then Del raises the confirmation.
+    st.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).await;
+    assert_eq!(st.diskview.as_ref().unwrap().on_file(), Some(0));
     let sig = st.diskview.as_mut().unwrap().handle_key(key_del());
     assert!(matches!(sig, DiskSignal::DeleteFile { .. }));
     st.apply_disk_signal(sig).await;

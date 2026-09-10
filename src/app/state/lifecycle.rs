@@ -537,7 +537,7 @@ impl AppState {
                 {
                     dv.entries = entries;
                     dv.scanning = false;
-                    dv.selected = 0;
+                    dv.reset_cursor();
                 }
             }
             AppEvent::SendPrepared { name, result } => {

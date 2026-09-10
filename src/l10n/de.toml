@@ -380,7 +380,7 @@ code = "de"
 "Tab switch   ↑↓ move   Enter actions   u unmount   r refresh   Esc close" = "Tab Wechsel   ↑↓ Bewegen   Enter Aktionen   u Aushängen   r Aktual.   Esc Schließen"
 "arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close" = "Pfeile Bewegen  ⏎ IP-Details  k/K Beenden  / Filter  p Proto  e Herg.  h Loopback  Tab Ansicht  r Aktual.  Esc Schließen"
 "/ filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close" = "/ Filter  s/S Sortieren  p Proto  e Herg.  h Loopback  k/K Beenden  ⏎ Details  Tab Ansicht  r Aktual.  Esc Schließen"
-"←↑↓→/click move   ↑↓ into files   Enter open   Del delete   g go to dir   Bksp up   Esc close" = "←↑↓→/Klick Bewegen   ↑↓ In Dateien   Enter Öffnen   Entf Löschen   g Zum Verz.   Bksp Hoch   Esc Schließen"
+"←↑↓→/click move   Enter open   Tab files   Del delete   g go to dir   Bksp up   Esc back" = "←↑↓→/Klick Bewegen   Enter Öffnen   Tab Dateien   Entf Löschen   g Zum Verz.   Bksp Hoch   Esc Zurück"
 
 # -- Editor menu (F9) --
 "&Open file..." = "&Öffnen..."

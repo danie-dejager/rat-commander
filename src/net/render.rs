@@ -759,7 +759,7 @@ fn draw_overview_graphics(
             let oy = vr.y as u32 * ch;
             let bw = vr.width as u32 * cw;
             let bh = vr.height as u32 * ch;
-            raster::pillow_into(&mut full, ox, oy, bw, bh, raster::over(bg, color, 0.18), &[], Some(color));
+            raster::pillow_into(&mut full, ox, oy, bw, bh, raster::over(bg, color, 0.18), Some(color));
             let title = format!("{} :{} {}", card.proto.label(), card.port, card.name);
             let tpx = (ch as f32 * 0.62).clamp(11.0, 20.0);
             raster::draw_text(&mut full, ox as i32 + 6, oy as i32 + 2, &title, color, None, tpx);
