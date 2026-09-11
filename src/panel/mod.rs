@@ -338,13 +338,23 @@ impl Panel {
     }
 
     /// Reload, then try to place the cursor on `focus_name` (e.g. the directory
-    /// we just came up out of).
+    /// we just came up out of), falling back to whatever the cursor sits on now
+    /// so an in-place refresh does not move it.
     pub async fn reload_keeping(&mut self, focus_name: Option<&str>) -> Result<()> {
-        // Reloading leaves any find-file panelization.
-        self.result_paths = None;
         let prev_name = focus_name
             .map(str::to_string)
             .or_else(|| self.current_entry().map(|e| e.name.clone()));
+        self.reload_focusing(prev_name.as_deref()).await
+    }
+
+    /// Reload, placing the cursor on `focus_name` if that entry exists and at the
+    /// top of the listing otherwise. Unlike [`Panel::reload_keeping`] there is no
+    /// fallback to the current cursor: when the panel changes directory, the name
+    /// it was sitting on says nothing about where the cursor belongs in the new
+    /// listing (a file that happens to share the directory's name would steal it).
+    async fn reload_focusing(&mut self, focus_name: Option<&str>) -> Result<()> {
+        // Reloading leaves any find-file panelization.
+        self.result_paths = None;
 
         match self.backend.read_dir(&self.cwd).await {
             Ok(mut entries) => {
@@ -373,7 +383,7 @@ impl Panel {
         self.disk = self.backend.disk_usage(&self.cwd).await.ok().flatten();
 
         // Restore cursor.
-        self.cursor = prev_name
+        self.cursor = focus_name
             .and_then(|n| self.entries.iter().position(|e| e.name == n))
             .unwrap_or(0);
         self.clamp_cursor();
@@ -396,7 +406,7 @@ impl Panel {
         let prev_backend = std::mem::replace(&mut self.backend, backend);
         let prev_selection = std::mem::replace(&mut self.selection, Selection::new());
 
-        let _ = self.reload_keeping(focus_name).await;
+        let _ = self.reload_focusing(focus_name).await;
         let ok = if self.error.is_some() {
             // Couldn't list the target: undo the move and stay put.
             self.cwd = prev_cwd;
@@ -626,5 +636,66 @@ fn parent_entry() -> VfsEntry {
         gid: None,
         symlink_target: None,
         symlink_broken: false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Entering a directory starts at the top of its listing: a file inside that
+    /// happens to share the directory's name must not inherit the cursor.
+    #[tokio::test]
+    async fn entering_a_directory_does_not_land_on_a_same_named_file() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("rc-enter-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(root.join("foo")).unwrap();
+        std::fs::write(root.join("foo").join("aaa"), b"").unwrap();
+        std::fs::write(root.join("foo").join("foo"), b"").unwrap();
+
+        let backend = crate::vfs::registry::Registry::default().local();
+        let mut panel = Panel::new(backend.clone(), VfsPath::local(&root));
+        panel.reload().await.unwrap();
+        // Put the cursor on the "foo" directory, as pressing Enter would.
+        panel.cursor = panel.entries.iter().position(|e| e.name == "foo").unwrap();
+
+        let (target, focus) = panel.target_dir_under_cursor().unwrap();
+        assert!(panel.try_enter(target, backend, focus.as_deref()).await);
+        assert_eq!(panel.cursor, 0, "cursor starts at the top of the new listing");
+        assert_ne!(
+            panel.current_entry().map(|e| e.name.as_str()),
+            Some("foo"),
+            "the same-named file did not steal the cursor"
+        );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Stepping out of a directory still focuses the directory just left.
+    #[tokio::test]
+    async fn leaving_a_directory_focuses_the_directory_just_left() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("rc-leave-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(root.join("aaa")).unwrap();
+        std::fs::create_dir_all(root.join("zzz")).unwrap();
+
+        let backend = crate::vfs::registry::Registry::default().local();
+        let mut panel = Panel::new(backend.clone(), VfsPath::local(root.join("zzz")));
+        panel.reload().await.unwrap();
+        panel.cursor = panel.entries.iter().position(|e| e.name == "..").unwrap();
+
+        let (target, focus) = panel.target_dir_under_cursor().unwrap();
+        assert!(panel.try_enter(target, backend, focus.as_deref()).await);
+        assert_eq!(panel.current_entry().map(|e| e.name.as_str()), Some("zzz"));
+
+        std::fs::remove_dir_all(&root).ok();
     }
 }
