@@ -497,6 +497,8 @@ fn render_full(
             );
             if theme.truecolor {
                 let fg = if marked { theme.marked_fg } else { theme.cursor_fg };
+                // The row already carries the cursor's own ramp, cell by cell.
+                crate::ui::gradient::mark_painted(Rect { y: body_area.y + i as u16, height: 1, ..body_area });
                 lines.push(gradient_line(&text, width, fg, theme));
             } else {
                 lines.push(Line::from(Span::styled(
@@ -631,6 +633,8 @@ fn render_tree(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
         let is_cursor = idx == tree.cursor;
         if is_cursor && active {
             if theme.truecolor {
+                // The row already carries the cursor's own ramp, cell by cell.
+                crate::ui::gradient::mark_painted(Rect { y: area.y + i as u16, height: 1, ..area });
                 lines.push(gradient_line(&text, width, theme.cursor_fg, theme));
             } else {
                 lines.push(Line::from(Span::styled(text, cursor_style(true, false, theme))));

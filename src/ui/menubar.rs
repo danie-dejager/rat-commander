@@ -44,8 +44,10 @@ pub fn render_titles(
 ) {
     let width = area.width as usize;
     // Claim the row, so a body gradient can't repaint the bar (and the bar's own
-    // can't reach past it) when the two share a color.
+    // can't reach past it) when the two share a color. The cells below carry the
+    // bar's ramp already, so the screen pass leaves them be.
     crate::ui::gradient::mark_bar(GradZone::Menubar, area);
+    crate::ui::gradient::mark_painted(area);
     // In RTL the reshaped title reads right-to-left, so the first-letter hotkey
     // accent no longer lines up — skip it (the accelerator key still works).
     let rtl = crate::l10n::active_is_rtl();

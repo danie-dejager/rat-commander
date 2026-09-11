@@ -377,6 +377,8 @@ fn render_preview(f: &mut Frame, area: Rect, ed: &ThemeEditor, chrome: &Theme) {
 /// gradient, else the theme's accent one, else the flat style.
 fn bar_row(f: &mut Frame, row: Rect, text: &str, role: GradRole, flat: Style, fg: Color, pt: &Theme) {
     let width = row.width as usize;
+    // Painted cell by cell below, so the gradient pass leaves the row alone.
+    crate::ui::gradient::mark_painted(row);
     let mut chars: Vec<char> = text.chars().take(width).collect();
     chars.resize(width, ' ');
     for (i, ch) in chars.iter().enumerate() {
@@ -456,22 +458,28 @@ fn preview_panels(f: &mut Frame, area: Rect, ed: &ThemeEditor, pt: &Theme) {
         }
     }
 
-    // Function-key bar along the bottom.
+    // Function-key bar along the bottom: one ramp across the whole row, as the
+    // real bar draws it, with the key-cap numbers written back over it.
     let fy = area.bottom().saturating_sub(1);
     let labels = ["Help", "Menu", "View", "Edit", "Copy", "RenMov", "Mkdir", "Delete", "PullDn", "Quit"];
     let total = area.width as usize;
     let seg = total / labels.len().max(1);
-    let mut x = area.x as usize;
-    crate::ui::gradient::mark_bar(GradZone::Fkeys, Rect { y: fy, height: 1, ..area });
-    put(f, area, area.x, fy, &" ".repeat(total), pt.fkey_label);
+    let fkey_row = Rect { y: fy, height: 1, ..area };
+    crate::ui::gradient::mark_bar(GradZone::Fkeys, fkey_row);
+    let mut text = String::new();
     for (i, label) in labels.iter().enumerate() {
         let num = (i + 1).to_string();
-        put(f, area, x as u16, fy, &num, pt.fkey_num);
-        let lstyle = match pt.bar_bg(GradRole::FkeyLabelBg, x, total) {
-            Some(bg) => Style::default().bg(bg).fg(pt.bar_fg),
-            None => pt.fkey_label,
-        };
-        put(f, area, (x + num.len()) as u16, fy, label, lstyle);
+        // Each label fills what its key-cap number leaves of the segment, cut
+        // short when the segment is narrower than the word (as the real bar is).
+        let w = seg.saturating_sub(num.chars().count());
+        let cut: String = label.chars().take(w).collect();
+        text.push_str(&num);
+        text.push_str(&format!("{cut:<w$}"));
+    }
+    bar_row(f, fkey_row, &text, GradRole::FkeyLabelBg, pt.fkey_label, pt.bar_fg, pt);
+    let mut x = area.x as usize;
+    for i in 0..labels.len() {
+        put(f, area, x as u16, fy, &(i + 1).to_string(), pt.fkey_num);
         x += seg;
     }
 

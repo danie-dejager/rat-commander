@@ -12,10 +12,13 @@
 //! than a slice of one screen-wide ramp.
 //!
 //! Identifying an element by the color it painted is what keeps this cheap, and
-//! three rules keep it honest:
+//! four rules keep it honest:
 //!
 //! * the bars claim only the rows they were drawn on ([`mark_bar`]), so a
 //!   cursor gradient can't spill onto a menu bar that shares its teal;
+//! * cells a renderer already ramped itself are claimed ([`mark_painted`]) and
+//!   left alone, so a moving shade that happens to land exactly on the
+//!   element's flat color is not mistaken for an unpainted one;
 //! * a foreground (frame) gradient only repaints box-drawing glyphs, never text
 //!   that happens to use the border color;
 //! * elements a theme paints in *the same* color are indistinguishable on
@@ -23,8 +26,8 @@
 //!   them.
 //!
 //! The bars and the panel cursor bar paint their own gradient directly (they
-//! already build a style per cell), so for them this pass usually finds nothing
-//! left to do; it still covers the same elements everywhere else they appear.
+//! already build a style per cell) and claim the cells they painted, so this
+//! pass skips them and covers the same elements only where they are drawn flat.
 
 use super::theme::{GRAD_ROLES, GradPaint, GradRole, GradZone, Theme};
 use ratatui::Frame;
@@ -36,12 +39,15 @@ use std::cell::RefCell;
 thread_local! {
     /// The bar rows drawn so far this frame (see [`mark_bar`]).
     static BARS: RefCell<Vec<(GradZone, Rect)>> = const { RefCell::new(Vec::new()) };
+    /// The areas already ramped by their own renderer (see [`mark_painted`]).
+    static PAINTED: RefCell<Vec<Rect>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Forget the bars of the previous frame. Called once at the top of the root
+/// Forget the claims of the previous frame. Called once at the top of the root
 /// [`draw`](super::draw).
 pub fn reset() {
     BARS.with(|b| b.borrow_mut().clear());
+    PAINTED.with(|p| p.borrow_mut().clear());
 }
 
 /// Record where a bar was drawn, so [`apply`] can tell that row apart from the
@@ -50,6 +56,20 @@ pub fn reset() {
 pub fn mark_bar(zone: GradZone, area: Rect) {
     if area.width > 0 && area.height > 0 {
         BARS.with(|b| b.borrow_mut().push((zone, area)));
+    }
+}
+
+/// Claim `area` as already carrying its element's gradient, painted cell by
+/// cell by the renderer itself — the two bars and the panel cursor bar all build
+/// a style per cell anyway, so they ramp themselves.
+///
+/// Skipping those cells is not just saved work. An animated ramp bounces
+/// *through* the element's flat color, so a cell whose current shade lands
+/// exactly on it reads as unpainted to [`apply`], which then spreads a whole
+/// ramp over that one cell — a bright speck flickering across the bar.
+pub fn mark_painted(area: Rect) {
+    if area.width > 0 && area.height > 0 {
+        PAINTED.with(|p| p.borrow_mut().push(area));
     }
 }
 
@@ -99,6 +119,7 @@ pub fn apply(f: &mut Frame, area: Rect, theme: &Theme) {
         })
         .collect();
     let bars = BARS.with(|b| b.borrow().clone());
+    let painted = PAINTED.with(|p| p.borrow().clone());
 
     // 1. Tag every cell with the element whose flat color it still carries.
     //    `NONE` means the cell belongs to no gradient and is left alone.
@@ -116,6 +137,10 @@ pub fn apply(f: &mut Frame, area: Rect, theme: &Theme) {
                 else {
                     continue;
                 };
+                // Cells their own renderer already ramped are finished.
+                if painted.iter().any(|r| r.contains((px, py).into())) {
+                    continue;
+                }
                 let zone = zone_at(&bars, px, py);
                 let frame_glyph = is_frame_glyph(cell.symbol());
                 for (i, t) in targets.iter().enumerate() {
@@ -220,7 +245,12 @@ mod tests {
     /// Draw `paint` into a 20×6 test terminal, run the gradient pass, and hand
     /// back the finished buffer.
     fn painted(theme: &Theme, paint: impl FnOnce(&mut Frame)) -> ratatui::buffer::Buffer {
-        let mut t = Terminal::new(TestBackend::new(20, 6)).unwrap();
+        painted_in(20, 6, theme, paint)
+    }
+
+    /// [`painted`], on a terminal of the given size.
+    fn painted_in(w: u16, h: u16, theme: &Theme, paint: impl FnOnce(&mut Frame)) -> ratatui::buffer::Buffer {
+        let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
         t.draw(|f| {
             reset();
             paint(f);
@@ -313,6 +343,106 @@ mod tests {
         });
         assert_eq!(bg_at(&buf, 19, 0), Color::Rgb(0, 160, 160), "the menu bar keeps its color");
         assert_eq!(bg_at(&buf, 19, 3), Color::Rgb(255, 255, 255), "the cursor bar ramps");
+    }
+
+    /// A bar 21 cells wide, on animation phase 10: `t * 1.5 + 10 * 0.04` lands
+    /// on a whole turn of the wave at column 8, so that cell is painted in
+    /// exactly the element's flat color. Everything the bars and the panel
+    /// cursor bar draw themselves is keyed to this — the shades they drew must
+    /// survive the pass.
+    const WAVE_BAR: Rect = Rect { x: 0, y: 0, width: 21, height: 1 };
+    const WAVE_PHASE: usize = 10;
+    const WAVE_HIT: u16 = 8;
+
+    /// A theme whose `role` ramps `base` → `to`, animated, with the animation on.
+    fn moving(role: GradRole, base: Color, to: Color) -> Theme {
+        let mut spec = ramp_spec();
+        *spec.gradients.slot(role) = Some(GradientSpec { animated: true, ..GradientSpec::new(to) });
+        match role {
+            GradRole::MenubarBg => spec.menubar_bg = base,
+            GradRole::CursorBg => spec.cursor_bg = base,
+            _ => unreachable!("only the self-painting roles are exercised here"),
+        }
+        let mut theme = Theme::from_spec(&spec, true);
+        theme.animated = true;
+        theme.anim = WAVE_PHASE;
+        theme
+    }
+
+    /// Paint `bar` cell by cell with `role`'s own ramp, the way the menu bar,
+    /// the F-key bar and the panel cursor bar all do, and claim it.
+    fn self_paint(f: &mut Frame, bar: Rect, role: GradRole, theme: &Theme) -> Vec<Color> {
+        let width = bar.width as usize;
+        (0..bar.width)
+            .map(|x| {
+                let bg = theme.bar_bg(role, x as usize, width).expect("a truecolor ramp");
+                f.buffer_mut().set_string(bar.x + x, bar.y, " ", Style::default().bg(bg));
+                bg
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_self_painted_bar_keeps_the_shades_it_drew() {
+        // An animated ramp bounces *through* the element's flat color, so every
+        // so often one cell of a moving bar carries exactly that color. Such a
+        // cell read as unpainted, and got a whole ramp spread over its own
+        // single cell — a bright speck flickering across the bar.
+        let theme = moving(GradRole::MenubarBg, Color::Rgb(122, 31, 255), Color::Rgb(34, 224, 255));
+        let base = theme.grad(GradRole::MenubarBg).unwrap().base;
+        let mut drawn = Vec::new();
+        let buf = painted_in(WAVE_BAR.width, 2, &theme, |f| {
+            mark_bar(GradZone::Menubar, WAVE_BAR);
+            mark_painted(WAVE_BAR);
+            drawn = self_paint(f, WAVE_BAR, GradRole::MenubarBg, &theme);
+        });
+        assert_eq!(drawn[WAVE_HIT as usize], base, "the case guarded here: a moving shade on the flat color");
+        for x in 0..WAVE_BAR.width {
+            assert_eq!(bg_at(&buf, x, 0), drawn[x as usize], "column {x} keeps the shade the bar drew");
+        }
+    }
+
+    #[test]
+    fn a_claimed_row_is_not_claimed_by_another_element_of_the_same_color() {
+        // The cursor bar ramps itself in the *body* zone, where a theme may well
+        // give another element the very same color (Neon paints the cursor, the
+        // bars and the focused button one purple). A cell landing on that shared
+        // color must not be picked up as that other element either — hence a
+        // claimed cell is skipped outright rather than just for its own role.
+        let purple = Color::Rgb(122, 31, 255);
+        let mut spec = ramp_spec();
+        spec.cursor_bg = purple;
+        spec.button_focused_bg = purple;
+        spec.gradients.cursor_bg =
+            Some(GradientSpec { animated: true, ..GradientSpec::new(Color::Rgb(34, 224, 255)) });
+        spec.gradients.button_focused_bg = Some(GradientSpec {
+            direction: GradientDir::Radial,
+            animated: true,
+            ..GradientSpec::new(Color::Rgb(255, 60, 170))
+        });
+        let mut theme = Theme::from_spec(&spec, true);
+        theme.animated = true;
+        theme.anim = WAVE_PHASE;
+
+        let mut drawn = Vec::new();
+        let buf = painted_in(WAVE_BAR.width, 2, &theme, |f| {
+            mark_painted(WAVE_BAR);
+            drawn = self_paint(f, WAVE_BAR, GradRole::CursorBg, &theme);
+        });
+        assert_eq!(drawn[WAVE_HIT as usize], purple, "the case guarded here: a moving shade on the flat color");
+        for x in 0..WAVE_BAR.width {
+            assert_eq!(bg_at(&buf, x, 0), drawn[x as usize], "column {x} keeps the shade the cursor bar drew");
+        }
+    }
+
+    #[test]
+    fn an_unclaimed_cell_of_the_flat_color_still_gets_its_ramp() {
+        // The other side of the coin: a cell the renderer left flat (a dialog, a
+        // button, the inactive panel's cursor) is still found and repainted.
+        let theme = moving(GradRole::CursorBg, Color::Rgb(122, 31, 255), Color::Rgb(34, 224, 255));
+        let row = Rect::new(0, 0, 20, 1);
+        let buf = painted(&theme, |f| fill(f, row, Style::default().bg(Color::Rgb(122, 31, 255))));
+        assert_ne!(bg_at(&buf, 19, 0), Color::Rgb(122, 31, 255), "a flat cursor bar takes the ramp");
     }
 
     #[test]

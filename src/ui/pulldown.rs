@@ -323,38 +323,33 @@ impl<A: Action> PulldownState<A> {
         self.title_rects.clear();
         self.item_rects.clear();
         self.sub_rects.clear();
-        // Top bar with the active title highlighted.
-        let bar = Rect { height: 1, ..area };
-        let mut spans: Vec<Span> = vec![Span::styled(" ", theme.menubar)];
+        // Where each title sits on the bar, for the dropdown and for clicks.
         let rtl = crate::l10n::active_is_rtl();
         let mut title_x = vec![];
         let mut x = area.x + 1;
-        for (i, title) in self.titles.iter().enumerate() {
-            let text = format!(" {} ", crate::l10n::display(title));
+        for title in &self.titles {
+            let w = format!(" {} ", crate::l10n::display(title)).chars().count() as u16;
             title_x.push(x);
-            self.title_rects.push(Rect {
-                x,
-                y: area.y,
-                width: text.chars().count() as u16,
-                height: 1,
-            });
-            let style = if i == self.active {
-                Style::default()
-                    .bg(theme.dialog_bg)
-                    .fg(theme.dialog_fg)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                theme.menubar
-            };
-            x += text.chars().count() as u16;
-            // The title's first letter (after the leading space) is its hotkey
-            // (skipped in RTL, where the reshaped title reads right-to-left).
-            let hk = if rtl { None } else { Some(1) };
-            spans.extend(label_spans(&text, hk, style, theme).spans);
+            self.title_rects.push(Rect { x, y: area.y, width: w, height: 1 });
+            x += w;
         }
-        // Only the titles are painted: the full-width bar underneath (drawn by
-        // `menubar::render_titles`, gradient and all) shows through the rest.
-        f.render_widget(Paragraph::new(Line::from(spans)), bar);
+        // Only the highlighted title is painted: the full-width bar underneath
+        // (drawn by `menubar::render_titles`, gradient and all) already carries
+        // every title, and repainting the rest in the bar's flat color would
+        // break its ramp — the gradient pass cannot restore it, because the bar
+        // ramps itself and so is left alone.
+        // The title's first letter (after the leading space) is its hotkey
+        // (skipped in RTL, where the reshaped title reads right-to-left).
+        let hk = if rtl { None } else { Some(1) };
+        let style = Style::default()
+            .bg(theme.dialog_bg)
+            .fg(theme.dialog_fg)
+            .add_modifier(Modifier::BOLD);
+        let text = format!(" {} ", crate::l10n::display(&self.titles[self.active]));
+        f.render_widget(
+            Paragraph::new(label_spans(&text, hk, style, theme)),
+            self.title_rects[self.active],
+        );
 
         // Dropdown under the active title.
         let items = &self.menus[self.active].items;
