@@ -1677,11 +1677,9 @@ branches, and where the weight sits — without leaving the panel you are workin
 in.
 
 **This view shows the contents of the *other* panel.** Like the Details and Tree formats, the 3D view
-does not show its own directory: it shows wherever the **opposite** panel is. Walk
-around over there and the tree re-forms around your new location while the camera
-**flies to it** — it never cuts, so it stays clear which box became which.
+does not show its own directory: it shows wherever the **opposite** panel is.
 
-**Boxes reflect their size on disk**. 
+**Boxes reflect their size on disk**.
 
 **Operation.** The **arrows** move the selection between neighbouring boxes as
 they appear on screen, and **Enter** points the *other* panel at the selected

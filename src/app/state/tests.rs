@@ -4458,6 +4458,8 @@ async fn enter_and_backspace_in_the_3d_view_walk_the_other_panel() {
             path: target.clone(),
             size: 0,
             parent: Some(0),
+            depth: 1,
+            scale: 0.5,
             target: crate::space3d::vec3::v3(0.0, -1.0, 0.0),
             target_half: 0.1,
             partial: false,

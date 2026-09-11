@@ -84,37 +84,72 @@ fn node<'a>(sp: &'a Space3d, name: &str) -> &'a SceneNode {
 // -- tree structure ---------------------------------------------------------
 
 #[test]
-fn the_tree_grows_downward_from_the_current_directory() {
+fn the_current_directory_is_drawn_in_the_tree_around_it() {
     let t = cache(&[("a", 900), ("b", 500), ("c", 100)], &[("a", "deep", 300)]);
     let sp = view_on("/r/a", &t);
     let names: Vec<&str> = sp.nodes.iter().map(|n| n.name.as_str()).collect();
     // What is *inside* the current directory is the subject…
     assert!(names.contains(&"a"), "the current directory");
     assert!(names.contains(&"deep"), "and what is inside it");
-    // …and its siblings are not drawn at all: they are not what the view is for.
-    assert!(!names.contains(&"b") && !names.contains(&"c"), "no siblings in {names:?}");
+    // …but it is drawn where it belongs, among the things it belongs among:
+    // the directory above and the siblings it shares it with. That is the
+    // structure the camera moves through, so it has to be there to move through.
+    assert!(names.contains(&"r"), "the directory above, which the world hangs from");
+    assert!(names.contains(&"b") && names.contains(&"c"), "no siblings in {names:?}");
     assert_eq!(sp.nodes.iter().filter(|n| n.is_focus).count(), 1);
     assert!(node(&sp, "a").is_focus);
 }
 
 #[test]
-fn the_directory_above_is_a_signpost_not_the_subject() {
-    // A sibling the view will not draw, so that the directory above genuinely
-    // holds more than the one we are in.
+fn the_world_is_anchored_above_the_current_directory_as_far_as_the_crawl_reaches() {
+    // Two levels up when they have been walked…
+    let mut t = cache(&[("a", 900)], &[("a", "deep", 300)]);
+    let below = PathBuf::from("/r/a/deep/further");
+    let id = t.ensure(&below);
+    t.mark_listed(id);
+    t.add_file(id, &below.join("f"), 10);
+    let sp = view_on("/r/a/deep", &t);
+    assert_eq!(sp.nodes[0].name, "r", "anchored two levels above the current directory");
+    assert_eq!(sp.nodes[0].depth, 0);
+
+    // …and no further than the crawler has actually enumerated. "/" was never
+    // walked, so there is nothing above "/r" to hang the world from.
+    let sp = view_on("/r/a", &t);
+    assert_eq!(sp.nodes[0].name, "r", "one level up is all there is");
+}
+
+#[test]
+fn everything_outside_the_current_directory_is_drawn_as_context() {
     let t = cache(&[("a", 900_000), ("elsewhere", 5_000_000)], &[("a", "deep", 300)]);
     let sp = view_on("/r/a", &t);
     let up = node(&sp, "r");
-    assert!(up.context, "the directory above is marked as context");
-    assert_eq!(up.parent, None, "it sits at the top");
-    assert_eq!(sp.nodes.iter().filter(|n| n.context).count(), 1, "exactly one");
-    // It holds far more than anything below it, yet must not be the biggest box
-    // on screen — that is what made the structure above look dominant.
-    assert!(up.size > node(&sp, "a").size);
+    assert!(up.context, "the directory above");
+    assert!(node(&sp, "elsewhere").context, "and what else is up there with it");
+    assert_eq!(up.parent, None, "the anchor sits at the top");
+    assert!(!node(&sp, "a").context, "the current directory is the subject");
+    assert!(!node(&sp, "deep").context, "and so is what is inside it");
+    // Context is drawn *larger*, not smaller: which way is up is exactly what
+    // the size of a level says now that the tree no longer re-roots itself.
     assert!(
-        up.target_half < node(&sp, "a").target_half,
-        "the signpost is smaller than the directory it points at"
+        up.target_half > node(&sp, "a").target_half,
+        "the level above is the bigger one, {} vs {}",
+        up.target_half,
+        node(&sp, "a").target_half
     );
-    assert!(sp.boxes(&pal())[0].dim, "and it is drawn faded back");
+    // Being larger must not make it read as the subject, so it is faded back.
+    assert!(sp.boxes(&pal())[0].dim, "the anchor is drawn faded back");
+}
+
+#[test]
+fn each_level_down_is_drawn_smaller_than_the_one_above_it() {
+    let t = cache(&[("a", 900)], &[("a", "deep", 300)]);
+    let sp = view_on("/r/a", &t);
+    let (r, a, deep) = (node(&sp, "r"), node(&sp, "a"), node(&sp, "deep"));
+    assert_eq!((r.depth, a.depth, deep.depth), (0, 1, 2));
+    assert!(r.scale > a.scale && a.scale > deep.scale, "the level scale falls with depth");
+    assert!((a.scale - r.scale * LEVEL_SCALE).abs() < 1e-6, "by a fixed factor each time");
+    // And the boxes follow it, whatever the directories happen to hold.
+    assert!(r.target_half > a.target_half && a.target_half > deep.target_half);
 }
 
 #[test]
@@ -239,7 +274,7 @@ fn a_huge_directory_shows_its_biggest_children_not_all_of_them() {
     let refs: Vec<(&str, u64)> = kids.iter().map(|(n, s)| (n.as_str(), *s)).collect();
     let t = cache(&refs, &[]);
     let sp = view_on("/r", &t);
-    assert!(sp.nodes.len() <= child_cap(0) + 2, "got {} nodes", sp.nodes.len());
+    assert!(sp.nodes.len() <= SPINE_CAP + 2, "got {} nodes", sp.nodes.len());
     assert!(sp.nodes.len() > 5, "but it still shows a useful number of them");
     // The ones kept are the big ones: d399 is the largest, d000 the smallest.
     assert!(sp.nodes.iter().any(|n| n.name == "d399"), "the largest is kept");
@@ -261,22 +296,41 @@ fn the_focused_directory_survives_the_cap_however_small_it_is() {
 }
 
 #[test]
-fn the_focused_directory_sits_dead_centre_under_its_parent() {
-    // It has no children of its own here, so nothing but the focus rule puts it
-    // in the middle — and without that it would be scattered among its siblings
-    // and impossible to pick out.
+fn the_camera_goes_to_the_current_directory_rather_than_the_tree_coming_to_it() {
+    // The focus used to be dragged to the middle of its level so it could be
+    // found at a glance, which is what made stepping between siblings swap two
+    // subtrees over. Now it stays where the tree put it and the camera does the
+    // travelling.
     let t = cache(&[("aaa", 900), ("bbb", 800), ("mid", 5), ("zzz", 700)], &[]);
-    let sp = view_on("/r/mid", &t);
+    let mut sp = view_on("/r/mid", &t);
+    settle(&mut sp);
     let f = node(&sp, "mid");
     assert!(f.is_focus);
     assert!(
-        f.target.x.abs() < 1e-5 && f.target.z.abs() < 1e-5,
-        "the focus is directly below the root, at {:?}",
+        f.target.x.hypot(f.target.z) > 1e-3,
+        "a small directory is left out on the ring, at {:?}",
         f.target
     );
-    for n in sp.nodes.iter().filter(|n| n.parent.is_some() && !n.is_focus) {
-        let flat = n.target.x.hypot(n.target.z);
-        assert!(flat > 1e-3, "{} is ringed around it, not on top of it", n.name);
+    let off = sp.cam.target.sub(f.target).len();
+    assert!(off < f.target_half, "the camera is looking straight at it, {off} away");
+}
+
+#[test]
+fn which_child_takes_the_middle_does_not_depend_on_where_the_user_is() {
+    // The middle goes to the largest directory — a fact about the tree. Whoever
+    // is standing where must not change it, or every step sideways would swap
+    // two subtrees over.
+    let t = cache(&[("aaa", 900), ("bbb", 800), ("mid", 5), ("zzz", 700)], &[]);
+    let middle_when_on = |focus: &str| {
+        let sp = view_on(focus, &t);
+        sp.nodes
+            .iter()
+            .find(|n| n.parent == Some(0) && n.target.x.hypot(n.target.z) < 1e-5)
+            .map(|n| n.name.clone())
+    };
+    assert_eq!(middle_when_on("/r"), Some("aaa".into()), "the biggest child");
+    for focus in ["/r/mid", "/r/zzz", "/r/bbb"] {
+        assert_eq!(middle_when_on(focus), Some("aaa".into()), "still, standing on {focus}");
     }
 }
 
@@ -284,15 +338,17 @@ fn the_focused_directory_sits_dead_centre_under_its_parent() {
 
 #[test]
 fn box_sizes_are_clamped_between_a_minimum_and_a_maximum() {
-    // Six orders of magnitude: without clamping the small ones vanish.
+    // Six orders of magnitude: without clamping the small ones vanish. The
+    // clamp is on the size a level's own scale is then applied to, so divide
+    // that back out to see it.
     let t = cache(&[("tiny", 1), ("mid", 50_000), ("huge", 40_000_000_000)], &[]);
     let sp = view_on("/r", &t);
     for n in &sp.nodes {
+        let unit = n.target_half / n.scale;
         assert!(
-            (BOX_MIN..=BOX_MAX).contains(&n.target_half),
-            "{} has half-extent {} outside {BOX_MIN}..{BOX_MAX}",
-            n.name,
-            n.target_half
+            (BOX_MIN..=BOX_MAX).contains(&unit),
+            "{} has half-extent {unit} of its level, outside {BOX_MIN}..{BOX_MAX}",
+            n.name
         );
     }
     assert!(node(&sp, "huge").target_half > node(&sp, "mid").target_half);
@@ -300,10 +356,25 @@ fn box_sizes_are_clamped_between_a_minimum_and_a_maximum() {
 }
 
 #[test]
+fn a_directory_is_measured_against_its_siblings_not_against_the_whole_scene() {
+    // One level of the tree contains the next by construction, so a single
+    // scale over the lot would peg its top to a container and flatten its
+    // contents. Sizing within a set of siblings also means a box cannot change
+    // because something in another branch came into view.
+    let t = cache(&[("a", 1_000_000), ("b", 10)], &[("b", "x", 9), ("b", "y", 1)]);
+    let sp = view_on("/r/b", &t);
+    // "x" dwarfs "y" inside "b", even though both are specks next to "a".
+    let (x, y) = (node(&sp, "x"), node(&sp, "y"));
+    assert_eq!(x.depth, y.depth, "same level, so the scale is the only difference");
+    assert!(x.target_half > y.target_half * 1.2, "{} vs {}", x.target_half, y.target_half);
+}
+
+#[test]
 fn an_empty_directory_still_gets_a_box_worth_clicking() {
     let t = cache(&[("full", 5_000_000), ("empty", 0)], &[]);
     let sp = view_on("/r", &t);
-    assert!(node(&sp, "empty").target_half >= BOX_MIN);
+    let empty = node(&sp, "empty");
+    assert!(empty.target_half >= BOX_MIN * empty.scale);
 }
 
 #[test]
@@ -405,19 +476,94 @@ fn re_focusing_the_same_directory_changes_nothing() {
 }
 
 #[test]
-fn the_focus_lands_in_the_same_place_wherever_you_move() {
-    // The tree re-forms as you walk around, so the one thing that has to stay
-    // put is the directory you are in: always dead centre under its parent.
+fn stepping_between_siblings_moves_the_camera_and_leaves_them_where_they_are() {
+    // The headline of the fixed layout: a directory keeps its place in the
+    // world whoever is standing in it, so walking about is the camera's job.
+    // (A level can still breathe as the branch under it opens and closes; what
+    // it may never do is put anything somewhere else. Here "a" reserves room
+    // for its own box either way, so the positions are identical outright.)
     let t = cache(&[("a", 900), ("b", 500), ("c", 100)], &[("a", "inner", 300)]);
-    for focus in ["/r/a", "/r/b", "/r/c", "/r/a/inner"] {
-        let sp = view_on(focus, &t);
-        let f = sp.nodes.iter().find(|n| n.is_focus).expect(focus);
-        assert!(
-            f.target.x.abs() < 1e-5 && f.target.z.abs() < 1e-5,
-            "{focus} should be centred, was at {:?}",
-            f.target
-        );
+    let mut sp = view_on("/r/a", &t);
+    settle(&mut sp);
+    let where_it_was = |sp: &Space3d, name: &str| (node(sp, name).target, node(sp, name).scale);
+    let before: Vec<((V3, f32), &str)> =
+        ["r", "a", "b", "c"].iter().map(|n| (where_it_was(&sp, n), *n)).collect();
+    let cam_before = sp.cam.target;
+
+    sp.set_focus(Path::new("/r/b"));
+    sp.sync_from(&t);
+    settle(&mut sp);
+
+    for ((pos, scale), name) in &before {
+        let (now, now_scale) = where_it_was(&sp, name);
+        assert!(now.sub(*pos).len() < 1e-5, "{name} moved from {pos:?} to {now:?}");
+        assert!((now_scale - scale).abs() < 1e-6, "{name} changed level");
     }
+    assert!(
+        sp.cam.target.sub(cam_before).len() > node(&sp, "b").target_half,
+        "the camera is what moved"
+    );
+}
+
+#[test]
+fn the_anchor_only_ever_moves_by_a_transform_nothing_can_see() {
+    // Walking down far enough has to re-hang the world lower, or a long descent
+    // would run the scene into the floating-point floor. That is a change of
+    // coordinates and nothing else: the camera and every box move with it, so
+    // the picture is identical on both sides of the step.
+    let mut t = cache(&[("a", 900), ("b", 100)], &[("a", "inner", 300)]);
+    for name in ["one", "two"] {
+        let p = PathBuf::from("/r/a/inner").join(name);
+        let id = t.ensure(&p);
+        t.mark_listed(id);
+        t.add_file(id, &p.join("f"), 50);
+    }
+    let mut sp = view_on("/r/a/inner", &t);
+    settle(&mut sp);
+    assert_eq!(sp.nodes[0].name, "r", "two levels above, as far as the crawl reaches");
+
+    // Where "one" is on screen, before: as a direction from the eye, which is
+    // the one thing a change of coordinates must not touch.
+    let bearing = |sp: &Space3d, name: &str| {
+        let (pos, _) = sp.drawn(node_index(sp, name));
+        pos.sub(sp.cam.eye()).norm()
+    };
+    let before = bearing(&sp, "one");
+    let framing = sp.drawn(node_index(&sp, "one")).1 / sp.cam.dist;
+
+    sp.set_focus(Path::new("/r/a/inner/one"));
+    sp.sync_from(&t);
+    // Deliberately *not* settled: this is about the frame drawn immediately
+    // after the re-anchor, before anything has had a chance to animate.
+    assert_eq!(sp.nodes[0].name, "a", "the world re-hung one level lower");
+    assert!(bearing(&sp, "one").sub(before).len() < 1e-4, "it is in the same place on screen");
+    let after = sp.drawn(node_index(&sp, "one")).1 / sp.cam.dist;
+    assert!((after - framing).abs() < 1e-4, "and drawn at the same size, {framing} vs {after}");
+}
+
+#[test]
+fn the_camera_closes_in_as_the_tree_goes_deeper() {
+    // Each level is smaller than the last, so the same framing at a deeper one
+    // means a nearer camera. Nothing decides that separately — it falls out of
+    // the fit.
+    let mut t = cache(&[("a", 900)], &[("a", "inner", 300)]);
+    for name in ["one", "two"] {
+        let p = PathBuf::from("/r/a/inner").join(name);
+        let id = t.ensure(&p);
+        t.mark_listed(id);
+        t.add_file(id, &p.join("f"), 50);
+    }
+    let dist_on = |focus: &str| {
+        let mut sp = view_on(focus, &t);
+        sp.set_viewport(400, 300);
+        settle(&mut sp);
+        sp.cam.dist
+    };
+    let shallow = dist_on("/r");
+    let deeper = dist_on("/r/a");
+    let deepest = dist_on("/r/a/inner");
+    assert!(deeper < shallow, "one level in: {deeper} vs {shallow}");
+    assert!(deepest < deeper, "two levels in: {deepest} vs {deeper}");
 }
 
 #[test]
@@ -905,6 +1051,23 @@ fn depth_of(sp: &Space3d, n: &SceneNode) -> u8 {
 }
 
 // -- edge cases -------------------------------------------------------------
+
+#[test]
+fn a_directory_the_crawler_has_not_noticed_yet_is_still_the_subject() {
+    // Its parent was listed before it existed, so the way down to it from the
+    // anchor is broken. Losing the context around it is fine; losing the
+    // directory the whole view is about is not.
+    let t = cache(&[("a", 100)], &[]);
+    // "/r" has been walked, so it is a perfectly good anchor — it just has
+    // never heard of the directory the other panel is standing in.
+    assert!(t.get(Path::new("/r")).is_some_and(|n| n.listed));
+    assert!(t.get(Path::new("/r/brand-new")).is_none());
+
+    let sp = view_on("/r/brand-new", &t);
+    let f = sp.nodes.iter().find(|n| n.is_focus).expect("the current directory is drawn");
+    assert_eq!(f.name, "brand-new");
+    assert_eq!(f.depth, 0, "the world hangs from it rather than from anything above");
+}
 
 #[test]
 fn an_unknown_directory_is_harmless() {

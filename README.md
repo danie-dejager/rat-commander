@@ -151,12 +151,7 @@ The installed executable is named **`rc`** for quick typing.
   refused. On an **SFTP/SCP** panel, the command line and **Ctrl-O** run a shell
   on the **remote host** over the same SSH connection — its output on the same
   console backdrop, no second login.
-- **3D view** — a panel format that draws the directory the *other* panel is in
-  and two levels of its **contents**, each box sized (log-scaled and clamped, so
-  nothing vanishes) by what that directory holds, with a single faded box above
-  as a signpost to where you are. Navigate on the other panel and the camera
-  **flies** to the new location; move that panel's cursor over a subdirectory and
-  its box **lights up**, so you can see where you are about to go. Two styles,
+- **3D view** — a panel format that draws the directory the *other* panel is in. Two styles,
   chosen in Settings → Visual: **Cubes**, a tree of boxes joined by lines, and
   **Spare no expense**, an homage to IRIX's *fsn* — pale platforms standing on a
   ground plane under a sky gradient, joined by lines running over the ground,
