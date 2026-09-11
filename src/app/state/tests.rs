@@ -2223,6 +2223,82 @@ async fn edit_startup_opens_file_in_editor() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// Shift-F4 asks for a name and opens the editor on it in the active panel's
+/// directory: the buffer starts empty and the first save creates the file. A
+/// name that is already taken opens that file instead of shadowing it.
+#[tokio::test]
+async fn shift_f4_edits_a_new_file_in_the_panel_directory() {
+    let dir = crate::util::temp::rc_temp_path("test-newfile");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("taken.txt"), b"already here").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.panels[0].cwd = VfsPath::local(&dir);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.active = 0;
+
+    // The key opens the name prompt (plain F4 still edits the cursor file).
+    st.handle_key(KeyEvent::new(KeyCode::F(4), KeyModifiers::SHIFT)).await;
+    match &st.dialog {
+        Some(Dialog::Input(d)) => assert!(matches!(d.purpose, InputPurpose::EditNewFile)),
+        _ => panic!("Shift-F4 opens the file-name prompt"),
+    }
+    assert!(st.editor.is_none(), "nothing is opened until a name is entered");
+
+    let flow = st
+        .handle_dialog_result(DialogResult::Submit(Submit::EditNewFile("fresh.txt".into())))
+        .await;
+    assert!(matches!(flow, Flow::Continue));
+    assert!(st.dialog.is_none(), "no error dialog");
+    let ed = st.editor.as_ref().expect("the editor opens on the new name");
+    assert_eq!(ed.name, "fresh.txt");
+    assert_eq!(ed.path, VfsPath::local(dir.join("fresh.txt")), "aimed at the panel's directory");
+    assert!(ed.contents().is_empty(), "a new file starts empty");
+    assert!(!dir.join("fresh.txt").exists(), "the file itself waits for the first save");
+
+    st.save_editor(false).await;
+    assert!(dir.join("fresh.txt").exists(), "saving creates it");
+
+    // An existing name opens that file rather than an empty buffer over it.
+    st.editor = None;
+    st.open_new_file_editor("taken.txt".into()).await;
+    let ed = st.editor.as_ref().expect("an existing name still opens the editor");
+    assert!(ed.contents().starts_with("already here"), "loaded: {:?}", ed.contents());
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A directory name is refused (there is nothing to edit), and a name with a
+/// subdirectory in it lands in that subdirectory.
+#[tokio::test]
+async fn shift_f4_refuses_a_directory_and_honours_a_subpath() {
+    let dir = crate::util::temp::rc_temp_path("test-newfile-dir");
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.panels[0].cwd = VfsPath::local(&dir);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.active = 0;
+
+    st.open_new_file_editor("sub".into()).await;
+    assert!(st.editor.is_none(), "a directory is not opened in the editor");
+    assert!(matches!(&st.dialog, Some(Dialog::Message(m)) if m.is_error), "it says why");
+    st.dialog = None;
+
+    st.open_new_file_editor("sub/notes.txt".into()).await;
+    let ed = st.editor.as_ref().expect("a sub-path opens too");
+    assert_eq!(ed.name, "notes.txt", "named by the last component");
+    assert_eq!(ed.path, VfsPath::local(dir.join("sub/notes.txt")));
+    st.save_editor(false).await;
+    assert!(dir.join("sub/notes.txt").exists(), "saved into the subdirectory");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 #[tokio::test]
 async fn editor_save_as_writes_and_retargets() {
     let nanos = std::time::SystemTime::now()
@@ -4164,6 +4240,23 @@ async fn f7_makes_a_directory_inside_an_archive() {
     assert!(st.dialog.is_none(), "no error dialog");
     assert_eq!(entry_names(&st, 0), ["data", "fresh", "notes.txt"], "the panel shows it");
     assert!(fx.members().contains(&"/fresh".to_string()), "{:?}", fx.members());
+}
+
+/// Shift-F4 inside an archive writes the new file into the archive on save,
+/// the way F7 creates a directory there.
+#[tokio::test]
+async fn shift_f4_creates_a_file_inside_an_archive() {
+    let fx = ArchiveFixture::new("newfile");
+    let (mut st, _rx) = archive_state(&fx, "/", VfsPath::local(fx.out())).await;
+
+    st.open_new_file_editor("fresh.txt".into()).await;
+    assert!(st.dialog.is_none(), "no error dialog");
+    let ed = st.editor.as_ref().expect("the editor opens on the new archive member");
+    assert_eq!(ed.path, fx.inner("/fresh.txt"));
+
+    st.editor.as_mut().unwrap().insert_at_cursor("hello");
+    st.save_editor(false).await;
+    assert!(fx.members().contains(&"/fresh.txt".to_string()), "{:?}", fx.members());
 }
 
 /// F8 on a directory inside an archive deletes it and everything under it.

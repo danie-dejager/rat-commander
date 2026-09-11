@@ -476,3 +476,6 @@ code = "en"
 "Save file as" = "Save file as"
 "InsFil" = "InsFil"
 "Again" = "Again"
+
+# -- New-file editor prompt (Shift-F4) --
+"Edit new file" = "Edit new file"

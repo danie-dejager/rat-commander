@@ -471,3 +471,6 @@ rtl = true
 "Save file as" = "ذخیره با نام"
 "InsFil" = "درجپر"
 "Again" = "بعدی"
+
+# -- New-file editor prompt (Shift-F4) --
+"Edit new file" = "ویرایش پرونده جدید"

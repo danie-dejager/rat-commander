@@ -10,6 +10,9 @@ use super::{DialogResult, Submit};
 /// What an input dialog's submitted text should be used for.
 pub enum InputPurpose {
     MkDir,
+    /// Enter the name of a file to open in the editor, relative to the active
+    /// panel's directory (Shift-F4).
+    EditNewFile,
     CopyDest(Vec<VfsPath>),
     MoveDest(Vec<VfsPath>),
     Compress(Vec<VfsPath>),
@@ -133,6 +136,7 @@ impl InputDialog {
                     InputPurpose::EditorGotoLine => Submit::EditorGotoLine(text),
                     InputPurpose::EditorPasteOutput => Submit::EditorPasteOutput(text),
                     InputPurpose::MkDir => Submit::MkDir(text),
+                    InputPurpose::EditNewFile => Submit::EditNewFile(text),
                     InputPurpose::CopyDest(s) => Submit::Copy(s.clone(), text),
                     InputPurpose::MoveDest(s) => Submit::Move(s.clone(), text),
                     InputPurpose::Compress(s) => Submit::Compress(s.clone(), text),

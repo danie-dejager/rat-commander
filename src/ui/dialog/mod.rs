@@ -153,6 +153,9 @@ pub enum DialogResult {
 #[allow(clippy::large_enum_variant)]
 pub enum Submit {
     MkDir(String),
+    /// Shift-F4: open the editor on this file name, taken relative to the active
+    /// panel's directory (the file need not exist yet).
+    EditNewFile(String),
     Copy(Vec<VfsPath>, String),
     Move(Vec<VfsPath>, String),
     Delete(Vec<VfsPath>),

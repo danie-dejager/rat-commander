@@ -358,6 +358,20 @@ impl AppState {
             };
         }
 
+        self.edit_existing_file(name, path, backend, size).await;
+        Flow::Continue
+    }
+
+    /// Load an existing file into the internal editor: in-place hex when it is
+    /// too big to hold as text, straight off the disk when it is local, and via
+    /// a cancellable fetch-to-temp when it lives on a remote or in an archive.
+    async fn edit_existing_file(
+        &mut self,
+        name: String,
+        path: VfsPath,
+        backend: std::sync::Arc<dyn Vfs>,
+        size: u64,
+    ) {
         let local = path.scheme == "file";
         // Local files too big to load as text open directly in (in-place) hex mode.
         if local && size > crate::editor::MAX_TEXT_EDIT {
@@ -368,7 +382,7 @@ impl AppState {
                 }
                 Err(e) => self.show_error(format!("Cannot open file: {e}")),
             }
-            return Flow::Continue;
+            return;
         }
         if local {
             match load_file(&backend, &path).await {
@@ -381,16 +395,62 @@ impl AppState {
                 }
                 Err(e) => self.show_error(format!("Cannot open file: {e}")),
             }
-            return Flow::Continue;
+            return;
         }
         // Remote/archive: in-place hex editing isn't possible (no random write),
         // so editing requires loading into memory — cap the size and stream the
         // download with a cancellable progress bar.
         if size > crate::editor::MAX_TEXT_EDIT {
             self.show_error("File too large to edit over this connection");
-            return Flow::Continue;
+            return;
         }
         self.start_fetch(FetchKind::Edit, name, path, backend, size);
+    }
+
+    /// Shift-F4: open the editor on `name`, resolved against the active panel's
+    /// directory. The file usually does not exist yet — the buffer starts empty
+    /// and the file is created by the first save — but a name that is already
+    /// taken opens that file with its contents, exactly as F4 would.
+    ///
+    /// Unlike F4 this consults no `rc.ext` `Edit` rule: those expand macros from
+    /// the *cursor* entry, which is not the file being opened here.
+    pub(in crate::app::state) async fn open_new_file_editor(&mut self, name: String) -> Flow {
+        let p = &self.panels[self.active];
+        let path = p.cwd.join(&name);
+        let backend = p.backend.clone();
+        if self.refuse_lossy(std::slice::from_ref(&path)) {
+            return Flow::Continue;
+        }
+        // A backend that cannot be written to would only fail at save time, with
+        // the typing already done — say so before the editor opens instead.
+        if !backend.capabilities().writable {
+            self.show_error("This filesystem is read-only");
+            return Flow::Continue;
+        }
+        let file_name = path.file_name();
+        // An existing name is opened rather than shadowed by an empty buffer that
+        // would overwrite it on save; a directory cannot be edited at all.
+        let existing = backend.stat(&path).await.ok();
+        if existing.as_ref().is_some_and(|e| e.kind.is_dir()) {
+            self.show_error(format!("{file_name} is a directory"));
+            return Flow::Continue;
+        }
+
+        if !self.config.wants_internal_editor() {
+            return Flow::RunExternal {
+                program: self.config.external_editor().unwrap_or_default(),
+                path: path.path,
+            };
+        }
+        if let Some(e) = existing {
+            self.edit_existing_file(file_name, path, backend, e.size).await;
+            return Flow::Continue;
+        }
+        // Nothing there yet: an empty buffer aimed at the new path, so the first
+        // save creates the file (wherever the panel is — disk, archive, remote).
+        let mut ed = EditorState::new(file_name, path, "");
+        self.prepare_editor(&mut ed);
+        self.editor = Some(ed);
         Flow::Continue
     }
 

@@ -467,3 +467,6 @@ code = "ja"
 "Save file as" = "名前を付けて保存"
 "InsFil" = "挿入"
 "Again" = "次へ"
+
+# -- New-file editor prompt (Shift-F4) --
+"Edit new file" = "新規ファイルを編集"

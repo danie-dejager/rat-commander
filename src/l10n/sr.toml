@@ -467,3 +467,6 @@ code = "sr"
 "Save file as" = "Сачувај као"
 "InsFil" = "УбаДат"
 "Again" = "Даље"
+
+# -- New-file editor prompt (Shift-F4) --
+"Edit new file" = "Уреди нову датотеку"

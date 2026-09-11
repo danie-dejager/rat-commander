@@ -472,3 +472,6 @@ code = "de"
 "Save file as" = "Speichern unter"
 "InsFil" = "DatEin"
 "Again" = "Weiter"
+
+# -- New-file editor prompt (Shift-F4) --
+"Edit new file" = "Neue Datei bearbeiten"

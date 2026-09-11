@@ -134,6 +134,8 @@ A quick **Alt** + digit does the same.
 - `F2` — User menu (configurable)
 - `F3` — View file
 - `F4` — Edit file
+- `Shift-F4` — Edit a new file: asks for a name, then opens the editor on that
+  file in the active panel's directory
 - `F5` — Copy
 - `F6` — Rename / move
 - `Shift-F6` / `Ctrl-F6` — Multi rename (the selected files)
@@ -888,6 +890,13 @@ and replace, undo/redo, syntax highlighting, a pulldown menu on **F9**, and an
 in-place hex editor.
 
 **Useful for** quick edits without leaving the file manager.
+
+**Starting a new file.** **Shift-F4** in the panels asks for a file name and
+opens the editor on it, in the active panel's directory — the file itself is
+created by the first save (**F2**). A name that already exists there simply
+opens that file, and the name may point into a subdirectory of the panel's
+directory (`notes/todo.txt`). It works wherever the panel is pointed: on disk,
+inside a writable archive, or on a remote server.
 
 **Launching straight into the editor.** Open a file in the editor without going
 through the panels by starting the program as **`rc /edit <file>`** (a missing

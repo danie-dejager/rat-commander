@@ -471,3 +471,6 @@ rtl = true
 "Save file as" = "حفظ باسم"
 "InsFil" = "إدرملف"
 "Again" = "التالي"
+
+# -- New-file editor prompt (Shift-F4) --
+"Edit new file" = "تحرير ملف جديد"

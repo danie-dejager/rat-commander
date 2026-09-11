@@ -97,6 +97,11 @@ impl AppState {
                 if let Submit::Palette(action) = s {
                     return self.run_palette_action(action).await;
                 }
+                // Likewise Shift-F4: opening the named file can hand over to an
+                // external editor, which is a Flow of its own.
+                if let Submit::EditNewFile(name) = s {
+                    return self.open_new_file_editor(name).await;
+                }
                 self.handle_submit(s).await;
                 if self.pending_quit {
                     Flow::Quit
@@ -475,9 +480,9 @@ impl AppState {
             Submit::DisconnectSession(id) => self.disconnect_session(id).await,
             Submit::Hotlist(outcome) => self.apply_hotlist_outcome(outcome).await,
             Submit::PanelFilter { side, pattern } => self.apply_panel_filter(side, pattern).await,
-            // Palette actions are dispatched in `handle_dialog_result` (which can
-            // return their Flow), so they never reach here.
-            Submit::Palette(_) => {}
+            // Palette actions and Shift-F4 are dispatched in `handle_dialog_result`
+            // (which can return their Flow), so they never reach here.
+            Submit::Palette(_) | Submit::EditNewFile(_) => {}
         }
     }
 
@@ -690,6 +695,17 @@ impl AppState {
             "Enter directory name:",
             "",
             InputPurpose::MkDir,
+        )));
+    }
+
+    /// Shift-F4: ask for a file name, then open the editor on it in the active
+    /// panel's directory (see [`AppState::open_new_file_editor`]).
+    pub(in crate::app::state) fn open_edit_new_file(&mut self) {
+        self.dialog = Some(Dialog::Input(InputDialog::new(
+            "Edit new file",
+            "File name",
+            "",
+            InputPurpose::EditNewFile,
         )));
     }
 

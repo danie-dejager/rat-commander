@@ -369,6 +369,12 @@ impl AppState {
             KeyCode::F(1) => self.open_help(),
             KeyCode::F(2) => self.open_user_menu(),
             KeyCode::F(3) => return self.open_view().await,
+            // Shift-F4 asks for a name and edits that file in the panel's
+            // directory (MC's "Edit new file", with the name typed up front). It
+            // has to precede the plain F4 arm, which matches any modifier.
+            KeyCode::F(4) if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.open_edit_new_file()
+            }
             KeyCode::F(4) => return self.open_edit().await,
             KeyCode::F(5) => self.open_transfer_dialog(OpKind::Copy),
             // Shift-F6 / Ctrl-F6 open the multi-rename tool; plain F6 is move.

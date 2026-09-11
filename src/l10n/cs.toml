@@ -467,3 +467,6 @@ code = "cs"
 "Save file as" = "Uložit jako"
 "InsFil" = "VloSou"
 "Again" = "Další"
+
+# -- New-file editor prompt (Shift-F4) --
+"Edit new file" = "Upravit nový soubor"

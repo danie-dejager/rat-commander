@@ -220,6 +220,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `F2` | User menu (configurable) |
 | `F3` | View file |
 | `F4` | Edit file |
+| `Shift-F4` | Edit a new file (asks for the name) |
 | `F5` | Copy |
 | `F6` | Rename / move |
 | `Shift-F6` / `Ctrl-F6` | Multi rename (selected files) |

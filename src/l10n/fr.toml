@@ -467,3 +467,6 @@ code = "fr"
 "Save file as" = "Enregistrer sous"
 "InsFil" = "InsFic"
 "Again" = "Suivant"
+
+# -- New-file editor prompt (Shift-F4) --
+"Edit new file" = "Éditer un nouveau fichier"
