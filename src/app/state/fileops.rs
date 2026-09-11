@@ -3,7 +3,12 @@
 use super::*;
 
 impl AppState {
-    pub(in crate::app::state) async fn begin_transfer(&mut self, kind: OpKind, sources: Vec<VfsPath>, dest: &str) {
+    pub(in crate::app::state) async fn begin_transfer(
+        &mut self,
+        kind: OpKind,
+        sources: Vec<VfsPath>,
+        dest: &str,
+    ) {
         // The destination defaults to the *other* panel's backend, but a typed
         // `scheme://` prefix (or its absence on a remote panel) can redirect it
         // to any registered backend — letting a local path override a remote one.
@@ -147,7 +152,8 @@ impl AppState {
         let handle = spawn_op(id, req, self.tx.clone());
         self.tasks.insert(id, handle);
         // Track it as a backgroundable transfer (drives the mini bar / list).
-        self.task_progress.insert(id, BgTransfer { verb, update: None, schemes, chart: SpeedChart::default() });
+        self.task_progress
+            .insert(id, BgTransfer { verb, update: None, schemes, chart: SpeedChart::default() });
         let mut pd = ProgressDialog::new(id, verb);
         pd.backgroundable = true;
         self.dialog = Some(Dialog::Progress(pd));
@@ -238,7 +244,9 @@ impl AppState {
             return self.show_error("Multi rename is not available on search results");
         }
         if p.selection.is_empty() {
-            return self.show_error("No files selected. Select files first (Insert, or + to select a group).");
+            return self.show_error(
+                "No files selected. Select files first (Insert, or + to select a group).",
+            );
         }
         let sources = p.operation_targets();
         if sources.is_empty() {
@@ -259,10 +267,8 @@ impl AppState {
             return;
         }
         // Drop no-ops (unchanged names).
-        let jobs: Vec<(VfsPath, String)> = plan
-            .into_iter()
-            .filter(|(src, name)| *name != src.file_name())
-            .collect();
+        let jobs: Vec<(VfsPath, String)> =
+            plan.into_iter().filter(|(src, name)| *name != src.file_name()).collect();
         if jobs.is_empty() {
             return;
         }
@@ -284,7 +290,8 @@ impl AppState {
         let dir = self.panels[self.active].cwd.clone();
         let backend = self.panels[self.active].backend.clone();
         let targets: Vec<VfsPath> = jobs.iter().map(|(_, name)| dir.join(name)).collect();
-        let temps: Vec<VfsPath> = (0..jobs.len()).map(|i| dir.join(format!(".rc-rename-tmp-{i}"))).collect();
+        let temps: Vec<VfsPath> =
+            (0..jobs.len()).map(|i| dir.join(format!(".rc-rename-tmp-{i}"))).collect();
 
         // Refuse to overwrite an existing file that isn't itself being renamed
         // away (a final name that matches a source is safe — phase 2 handles it).
@@ -363,8 +370,7 @@ impl AppState {
             Some(ArchiveFormat::Rar) => return self.show_error("Cannot create RAR archives"),
             Some(f) => f,
             None => {
-                return self
-                    .show_error("Unknown type (use .zip .7z .tar.gz .tar.bz2 .tar.xz)");
+                return self.show_error("Unknown type (use .zip .7z .tar.gz .tar.bz2 .tar.xz)");
             }
         };
         let dest = self.panels[self.active].cwd.path.join(&name);
@@ -405,9 +411,8 @@ impl AppState {
                 Ok(Err(e)) => Err(e.to_string()),
                 Err(e) => Err(e.to_string()),
             };
-            let _ = tx
-                .send(AppEvent::ArchiveAddChecked { conflicts, request: Box::new(req) })
-                .await;
+            let _ =
+                tx.send(AppEvent::ArchiveAddChecked { conflicts, request: Box::new(req) }).await;
         });
     }
 
@@ -434,10 +439,8 @@ impl AppState {
         let Some(container) = targets.first().and_then(|t| t.container.clone()) else {
             return;
         };
-        let set: HashSet<String> = targets
-            .iter()
-            .map(|t| t.path.to_string_lossy().into_owned())
-            .collect();
+        let set: HashSet<String> =
+            targets.iter().map(|t| t.path.to_string_lossy().into_owned()).collect();
         self.spawn_archive_op("Updating archive", move || {
             archive::remove_from_archive(&container, &set)
         });

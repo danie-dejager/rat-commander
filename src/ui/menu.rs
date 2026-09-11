@@ -2,8 +2,8 @@
 //! they are laid out in. The bar itself is the shared widget in
 //! [`crate::ui::pulldown`], which the editor's menu is built on too.
 
-use crate::panel::sort::SortKey;
 use crate::panel::ViewFormat;
+use crate::panel::sort::SortKey;
 use crate::ui::menubar::titles;
 use crate::ui::pulldown::{self, Action, Menu, MenuItem, PulldownState};
 use crate::vfs::remote::Protocol;
@@ -229,11 +229,8 @@ impl MenuBarState {
             // (right) are the matching shortcuts.
             #[cfg(windows)]
             {
-                let label = if side == 0 {
-                    "&Drive...      Alt-F1"
-                } else {
-                    "&Drive...      Alt-F2"
-                };
+                let label =
+                    if side == 0 { "&Drive...      Alt-F1" } else { "&Drive...      Alt-F2" };
                 items.insert(0, sep());
                 items.insert(0, item(label, MenuAction::Drive(side)));
             }
@@ -322,10 +319,7 @@ impl MenuBarState {
     /// Open the bar straight into the File menu's **Git** submenu (Alt-G).
     pub fn new_git(sessions: &[(usize, String)], side_remote: [bool; 2]) -> Self {
         let mut m = Self::new(1, sessions, side_remote);
-        let git = m.menus()[1]
-            .items
-            .iter()
-            .position(|it| matches!(it.action, MenuAction::GitMenu));
+        let git = m.menus()[1].items.iter().position(|it| matches!(it.action, MenuAction::GitMenu));
         if let Some(idx) = git {
             m.item = idx;
             m.open_sub();
@@ -500,18 +494,15 @@ mod tests {
                 "menu {mi} should offer switching side {side} to session 7"
             );
             assert!(
-                items
-                    .iter()
-                    .any(|it| matches!(it.action, MenuAction::DisconnectSession(7))),
+                items.iter().any(|it| matches!(it.action, MenuAction::DisconnectSession(7))),
                 "menu {mi} should offer disconnecting session 7"
             );
         }
         // With no sessions, no such items appear.
         let m = MenuBarState::new(0, &[], [true, true]);
-        assert!(!m.menus[0]
-            .items
-            .iter()
-            .any(|it| matches!(it.action, MenuAction::SwitchSession(..))));
+        assert!(
+            !m.menus[0].items.iter().any(|it| matches!(it.action, MenuAction::SwitchSession(..)))
+        );
     }
 
     #[test]
@@ -579,12 +570,18 @@ mod tests {
 
         // Enter activates the highlighted row.
         let mut m = MenuBarState::new_git(&[], [false, false]);
-        assert!(matches!(m.handle_key(key_code(KeyCode::Enter)), MenuSignal::Activate(MenuAction::GitStatus)));
+        assert!(matches!(
+            m.handle_key(key_code(KeyCode::Enter)),
+            MenuSignal::Activate(MenuAction::GitStatus)
+        ));
 
         // ↓ moves within the submenu, skipping separators.
         let mut m = MenuBarState::new_git(&[], [false, false]);
         m.handle_key(key_code(KeyCode::Down));
-        assert!(matches!(m.handle_key(key_code(KeyCode::Enter)), MenuSignal::Activate(MenuAction::GitLog)));
+        assert!(matches!(
+            m.handle_key(key_code(KeyCode::Enter)),
+            MenuSignal::Activate(MenuAction::GitLog)
+        ));
 
         // Esc / ← close only the submenu, leaving the File menu open.
         for back in [KeyCode::Esc, KeyCode::Left] {
@@ -632,4 +629,3 @@ mod tests {
         assert!(matches!(m.handle_key(key('c')), MenuSignal::Activate(MenuAction::Confirmations)));
     }
 }
-

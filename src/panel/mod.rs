@@ -341,9 +341,8 @@ impl Panel {
     /// we just came up out of), falling back to whatever the cursor sits on now
     /// so an in-place refresh does not move it.
     pub async fn reload_keeping(&mut self, focus_name: Option<&str>) -> Result<()> {
-        let prev_name = focus_name
-            .map(str::to_string)
-            .or_else(|| self.current_entry().map(|e| e.name.clone()));
+        let prev_name =
+            focus_name.map(str::to_string).or_else(|| self.current_entry().map(|e| e.name.clone()));
         self.reload_focusing(prev_name.as_deref()).await
     }
 
@@ -383,9 +382,8 @@ impl Panel {
         self.disk = self.backend.disk_usage(&self.cwd).await.ok().flatten();
 
         // Restore cursor.
-        self.cursor = focus_name
-            .and_then(|n| self.entries.iter().position(|e| e.name == n))
-            .unwrap_or(0);
+        self.cursor =
+            focus_name.and_then(|n| self.entries.iter().position(|e| e.name == n)).unwrap_or(0);
         self.clamp_cursor();
         Ok(())
     }
@@ -501,9 +499,7 @@ impl Panel {
     pub fn resort(&mut self) {
         let name = self.current_entry().map(|e| e.name.clone());
         self.sort.apply(&mut self.entries);
-        self.cursor = name
-            .and_then(|n| self.entries.iter().position(|e| e.name == n))
-            .unwrap_or(0);
+        self.cursor = name.and_then(|n| self.entries.iter().position(|e| e.name == n)).unwrap_or(0);
         self.clamp_cursor();
     }
 
@@ -544,11 +540,7 @@ impl Panel {
                 .map(|n| self.cwd.join(n))
                 .collect()
         } else if let Some(e) = self.current_entry() {
-            if e.name != ".." {
-                vec![self.cwd.join(&e.name)]
-            } else {
-                Vec::new()
-            }
+            if e.name != ".." { vec![self.cwd.join(&e.name)] } else { Vec::new() }
         } else {
             Vec::new()
         }
@@ -598,15 +590,8 @@ impl FilterMatch {
         let has_meta = pattern.contains(['*', '?', '[']);
         // A plain word is matched anywhere in the name (`*word*`); a pattern with
         // metacharacters is used as written.
-        let candidate = if has_meta {
-            pattern.to_string()
-        } else {
-            format!("*{pattern}*")
-        };
-        match globset::GlobBuilder::new(&candidate)
-            .case_insensitive(true)
-            .build()
-        {
+        let candidate = if has_meta { pattern.to_string() } else { format!("*{pattern}*") };
+        match globset::GlobBuilder::new(&candidate).case_insensitive(true).build() {
             Ok(g) => FilterMatch::Glob(g.compile_matcher()),
             // A malformed glob (e.g. an unclosed `[`) falls back to substring.
             Err(_) => FilterMatch::Substr(pattern.to_lowercase()),
@@ -647,12 +632,9 @@ mod tests {
     /// happens to share the directory's name must not inherit the cursor.
     #[tokio::test]
     async fn entering_a_directory_does_not_land_on_a_same_named_file() {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root =
-            std::env::temp_dir().join(format!("rc-enter-{}-{nanos}", std::process::id()));
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("rc-enter-{}-{nanos}", std::process::id()));
         std::fs::create_dir_all(root.join("foo")).unwrap();
         std::fs::write(root.join("foo").join("aaa"), b"").unwrap();
         std::fs::write(root.join("foo").join("foo"), b"").unwrap();
@@ -678,12 +660,9 @@ mod tests {
     /// Stepping out of a directory still focuses the directory just left.
     #[tokio::test]
     async fn leaving_a_directory_focuses_the_directory_just_left() {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root =
-            std::env::temp_dir().join(format!("rc-leave-{}-{nanos}", std::process::id()));
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("rc-leave-{}-{nanos}", std::process::id()));
         std::fs::create_dir_all(root.join("aaa")).unwrap();
         std::fs::create_dir_all(root.join("zzz")).unwrap();
 

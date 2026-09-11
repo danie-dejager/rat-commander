@@ -76,11 +76,7 @@ fn source_tree(s: &Scratch) -> Vec<PathBuf> {
     s.file("tree/data/b.txt", b"beta");
     s.file("tree/data/deep/c.txt", b"gamma");
     s.dir("tree/empty");
-    vec![
-        s.path("tree/notes.txt"),
-        s.path("tree/data"),
-        s.path("tree/empty"),
-    ]
+    vec![s.path("tree/notes.txt"), s.path("tree/data"), s.path("tree/empty")]
 }
 
 /// Build `<scratch>/archive.<ext>` from [`source_tree`].
@@ -131,11 +127,7 @@ async fn write_into(fs: &ArchiveFs, container: &Path, inner: &str, data: &[u8]) 
 /// catches a "successful" write that quietly left two members of one name.
 fn members(container: &Path) -> Vec<String> {
     let format = ArchiveFormat::from_path(container).unwrap();
-    formats::list_entries(format, container)
-        .unwrap()
-        .into_iter()
-        .map(|e| e.path)
-        .collect()
+    formats::list_entries(format, container).unwrap().into_iter().map(|e| e.path).collect()
 }
 
 fn err_of<T>(r: Result<T>) -> String {
@@ -226,7 +218,10 @@ async fn clamps_member_names_that_climb_out_of_the_archive() {
 
     let fs = ArchiveFs::new();
     let root = names(&fs, &c, "/").await;
-    assert!(!root.contains(&"..".to_string()), "no `..` entry to collide with the parent link: {root:?}");
+    assert!(
+        !root.contains(&"..".to_string()),
+        "no `..` entry to collide with the parent link: {root:?}"
+    );
     assert_eq!(root, ["escape.txt", "etc", "ok.txt"], "everything landed under the root");
     assert_eq!(read(&fs, &c, "/escape.txt").await, b"pwned", "still readable, just contained");
 }
@@ -241,10 +236,7 @@ async fn a_name_stored_as_both_file_and_directory_reads_as_one_kind() {
     formats::write_all(
         ArchiveFormat::Zip,
         &c,
-        &[
-            FullEntry::file("x", Vec::new()),
-            FullEntry::file("x/inner.txt", b"i".to_vec()),
-        ],
+        &[FullEntry::file("x", Vec::new()), FullEntry::file("x/inner.txt", b"i".to_vec())],
     )
     .unwrap();
 
@@ -328,12 +320,8 @@ async fn removes_a_directory_that_only_ever_existed_implicitly() {
     let s = Scratch::new("implicit-dir");
     let c = s.path("implicit.zip");
     // Only file members: nothing names `sub/` itself.
-    formats::write_all(
-        ArchiveFormat::Zip,
-        &c,
-        &[FullEntry::file("sub/only.txt", b"x".to_vec())],
-    )
-    .unwrap();
+    formats::write_all(ArchiveFormat::Zip, &c, &[FullEntry::file("sub/only.txt", b"x".to_vec())])
+        .unwrap();
     let fs = ArchiveFs::new();
     assert!(fs.stat(&at(&c, "/sub")).await.unwrap().kind.is_dir());
 
@@ -353,10 +341,15 @@ async fn bulk_delete_takes_subtrees_but_not_name_prefixes() {
     add_to_archive(&c, "/", &[s.path("extra/notes.txt.bak")]).unwrap();
 
     let fs = ArchiveFs::new();
-    remove_from_archive(&c, &HashSet::from(["/data".to_string(), "/notes.txt".to_string()])).unwrap();
+    remove_from_archive(&c, &HashSet::from(["/data".to_string(), "/notes.txt".to_string()]))
+        .unwrap();
 
     assert_eq!(names(&fs, &c, "/").await, ["empty", "notes.txt.bak"]);
-    assert!(!members(&c).iter().any(|m| m.starts_with("/data")), "the subtree is gone: {:?}", members(&c));
+    assert!(
+        !members(&c).iter().any(|m| m.starts_with("/data")),
+        "the subtree is gone: {:?}",
+        members(&c)
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -406,12 +399,23 @@ async fn rename_refuses_impossible_targets() {
     create_archive(ArchiveFormat::Zip, &other, &[s.path("tree/notes.txt")]).unwrap();
     let fs = ArchiveFs::new();
 
-    assert!(err_of(fs.rename(&at(&c, "/data/a.txt"), &at(&c, "/data/b.txt")).await).contains("already exists"));
-    assert!(err_of(fs.rename(&at(&c, "/gone.txt"), &at(&c, "/x.txt")).await).contains("not found"));
-    assert!(err_of(fs.rename(&at(&c, "/data"), &at(&c, "/data/inner")).await).contains("into itself"));
-    assert!(err_of(fs.rename(&at(&c, "/notes.txt"), &at(&c, "/nowhere/n.txt")).await).contains("not found"));
     assert!(
-        matches!(fs.rename(&at(&c, "/notes.txt"), &at(&other, "/notes.txt")).await, Err(Error::Unsupported)),
+        err_of(fs.rename(&at(&c, "/data/a.txt"), &at(&c, "/data/b.txt")).await)
+            .contains("already exists")
+    );
+    assert!(err_of(fs.rename(&at(&c, "/gone.txt"), &at(&c, "/x.txt")).await).contains("not found"));
+    assert!(
+        err_of(fs.rename(&at(&c, "/data"), &at(&c, "/data/inner")).await).contains("into itself")
+    );
+    assert!(
+        err_of(fs.rename(&at(&c, "/notes.txt"), &at(&c, "/nowhere/n.txt")).await)
+            .contains("not found")
+    );
+    assert!(
+        matches!(
+            fs.rename(&at(&c, "/notes.txt"), &at(&other, "/notes.txt")).await,
+            Err(Error::Unsupported)
+        ),
         "a cross-archive rename is not a rename"
     );
     assert_eq!(names(&fs, &c, "/data").await, ["a.txt", "b.txt", "deep"], "nothing moved");
@@ -460,7 +464,11 @@ async fn overwriting_a_member_replaces_it_rather_than_duplicating_it() {
         let stored = members(&c);
         let dupes = stored.iter().filter(|m| *m == "/data/a.txt").count();
         assert_eq!(dupes, 1, ".{ext} stores one member, not two: {stored:?}");
-        assert_eq!(fs.stat(&at(&c, "/data/a.txt")).await.unwrap().size, 8, ".{ext} size is the new one");
+        assert_eq!(
+            fs.stat(&at(&c, "/data/a.txt")).await.unwrap().size,
+            8,
+            ".{ext} size is the new one"
+        );
     }
 }
 
@@ -476,10 +484,15 @@ async fn bulk_add_replaces_matching_members_and_merges_the_rest() {
         s.file("incoming/data/a.txt", b"NEWER");
         s.file("incoming/data/z.txt", b"zulu");
 
-        add_to_archive(&c, "/", &[s.path("incoming/data")]).unwrap_or_else(|e| panic!(".{ext}: {e}"));
+        add_to_archive(&c, "/", &[s.path("incoming/data")])
+            .unwrap_or_else(|e| panic!(".{ext}: {e}"));
 
         let fs = ArchiveFs::new();
-        assert_eq!(names(&fs, &c, "/data").await, ["a.txt", "b.txt", "deep", "z.txt"], ".{ext} merged");
+        assert_eq!(
+            names(&fs, &c, "/data").await,
+            ["a.txt", "b.txt", "deep", "z.txt"],
+            ".{ext} merged"
+        );
         assert_eq!(read(&fs, &c, "/data/a.txt").await, b"NEWER", ".{ext} replaced");
         assert_eq!(read(&fs, &c, "/data/b.txt").await, b"beta", ".{ext} untouched");
         let stored = members(&c);
@@ -646,10 +659,7 @@ async fn a_rebuild_preserves_the_other_members_metadata() {
         let e = ArchiveFs::new().stat(&at(&c, "/run.sh")).await.unwrap();
         assert_eq!(e.mode.map(|m| m & 0o777), Some(0o755), ".{ext} kept the executable bit");
         let secs = |t: SystemTime| t.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-        assert!(
-            secs(e.mtime.unwrap()).abs_diff(secs(stamp)) <= 2,
-            ".{ext} kept the timestamp"
-        );
+        assert!(secs(e.mtime.unwrap()).abs_diff(secs(stamp)) <= 2, ".{ext} kept the timestamp");
     }
 }
 
@@ -778,8 +788,5 @@ async fn a_read_only_format_refuses_every_mutation() {
 #[tokio::test]
 async fn rejects_paths_that_are_not_inside_an_archive() {
     let fs = ArchiveFs::new();
-    assert!(matches!(
-        fs.read_dir(&VfsPath::local("/tmp")).await,
-        Err(Error::InvalidPath(_))
-    ));
+    assert!(matches!(fs.read_dir(&VfsPath::local("/tmp")).await, Err(Error::InvalidPath(_))));
 }

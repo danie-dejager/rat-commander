@@ -50,9 +50,7 @@ impl ArchiveFormat {
     }
 
     pub fn from_path(path: &Path) -> Option<ArchiveFormat> {
-        path.file_name()
-            .and_then(|n| n.to_str())
-            .and_then(ArchiveFormat::from_name)
+        path.file_name().and_then(|n| n.to_str()).and_then(ArchiveFormat::from_name)
     }
 
     /// Whether files can be added to / removed from this format (via rebuild).
@@ -137,11 +135,7 @@ pub fn normalize(name: &str) -> String {
             c => comps.push(c),
         }
     }
-    if comps.is_empty() {
-        "/".to_string()
-    } else {
-        format!("/{}", comps.join("/"))
-    }
+    if comps.is_empty() { "/".to_string() } else { format!("/{}", comps.join("/")) }
 }
 
 fn io<E: std::fmt::Display>(e: E) -> Error {
@@ -246,9 +240,10 @@ fn unix_secs(t: SystemTime) -> Option<u64> {
 pub fn list_entries(format: ArchiveFormat, container: &Path) -> Result<Vec<RawEntry>> {
     match format {
         ArchiveFormat::Zip => list_zip(container),
-        ArchiveFormat::Tar | ArchiveFormat::TarGz | ArchiveFormat::TarBz2 | ArchiveFormat::TarXz => {
-            list_tar(format, container)
-        }
+        ArchiveFormat::Tar
+        | ArchiveFormat::TarGz
+        | ArchiveFormat::TarBz2
+        | ArchiveFormat::TarXz => list_tar(format, container),
         ArchiveFormat::SevenZ => list_7z(container),
         ArchiveFormat::Rar => list_rar(container),
     }
@@ -312,9 +307,7 @@ fn list_rar(_container: &Path) -> Result<Vec<RawEntry>> {
 
 #[cfg(feature = "rar")]
 fn list_rar(container: &Path) -> Result<Vec<RawEntry>> {
-    let archive = unrar::Archive::new(container)
-        .open_for_listing()
-        .map_err(io)?;
+    let archive = unrar::Archive::new(container).open_for_listing().map_err(io)?;
     let mut out = Vec::new();
     for entry in archive {
         let e = entry.map_err(io)?;
@@ -333,10 +326,7 @@ fn list_rar(container: &Path) -> Result<Vec<RawEntry>> {
 /// A tar header's mtime as a `SystemTime` (the header stores whole seconds
 /// since the Unix epoch).
 fn tar_mtime(header: &tar::Header) -> Option<SystemTime> {
-    header
-        .mtime()
-        .ok()
-        .and_then(|s| SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(s)))
+    header.mtime().ok().and_then(|s| SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(s)))
 }
 
 /// A 7z member's mtime, when it recorded one.
@@ -364,7 +354,10 @@ pub fn read_entry(format: ArchiveFormat, container: &Path, inner: &str) -> Resul
             }
             Err(Error::NotFound(target))
         }
-        ArchiveFormat::Tar | ArchiveFormat::TarGz | ArchiveFormat::TarBz2 | ArchiveFormat::TarXz => {
+        ArchiveFormat::Tar
+        | ArchiveFormat::TarGz
+        | ArchiveFormat::TarBz2
+        | ArchiveFormat::TarXz => {
             let reader = tar_reader(format, File::open(container)?)?;
             let mut ar = tar::Archive::new(reader);
             for e in ar.entries().map_err(io)? {
@@ -402,9 +395,7 @@ fn read_rar_entry(_container: &Path, _target: &str) -> Result<Vec<u8>> {
 
 #[cfg(feature = "rar")]
 fn read_rar_entry(container: &Path, target: &str) -> Result<Vec<u8>> {
-    let mut ar = unrar::Archive::new(container)
-        .open_for_processing()
-        .map_err(io)?;
+    let mut ar = unrar::Archive::new(container).open_for_processing().map_err(io)?;
     while let Some(header) = ar.read_header().map_err(io)? {
         let name = normalize(&header.entry().filename.to_string_lossy());
         if name == target {
@@ -439,7 +430,10 @@ pub fn read_all(format: ArchiveFormat, container: &Path) -> Result<Vec<FullEntry
             }
             Ok(out)
         }
-        ArchiveFormat::Tar | ArchiveFormat::TarGz | ArchiveFormat::TarBz2 | ArchiveFormat::TarXz => {
+        ArchiveFormat::Tar
+        | ArchiveFormat::TarGz
+        | ArchiveFormat::TarBz2
+        | ArchiveFormat::TarXz => {
             let reader = tar_reader(format, File::open(container)?)?;
             let mut ar = tar::Archive::new(reader);
             let mut out = Vec::new();
@@ -465,11 +459,8 @@ pub fn read_all(format: ArchiveFormat, container: &Path) -> Result<Vec<FullEntry
             let mut out = Vec::new();
             for f in &archive.files {
                 let is_dir = f.is_directory();
-                let data = if is_dir {
-                    Vec::new()
-                } else {
-                    reader.read_file(f.name()).map_err(io)?
-                };
+                let data =
+                    if is_dir { Vec::new() } else { reader.read_file(f.name()).map_err(io)? };
                 out.push(FullEntry {
                     path: normalize(f.name()),
                     is_dir,
@@ -491,9 +482,7 @@ fn read_rar_all(_container: &Path) -> Result<Vec<FullEntry>> {
 
 #[cfg(feature = "rar")]
 fn read_rar_all(container: &Path) -> Result<Vec<FullEntry>> {
-    let mut ar = unrar::Archive::new(container)
-        .open_for_processing()
-        .map_err(io)?;
+    let mut ar = unrar::Archive::new(container).open_for_processing().map_err(io)?;
     let mut out = Vec::new();
     while let Some(header) = ar.read_header().map_err(io)? {
         let e = header.entry();
@@ -555,12 +544,14 @@ pub fn write_all(format: ArchiveFormat, dest: &Path, entries: &[FullEntry]) -> R
             Ok(())
         }
         ArchiveFormat::TarGz => {
-            let enc = flate2::write::GzEncoder::new(File::create(dest)?, flate2::Compression::default());
+            let enc =
+                flate2::write::GzEncoder::new(File::create(dest)?, flate2::Compression::default());
             build_tar(enc, &members)?.finish().map_err(io)?;
             Ok(())
         }
         ArchiveFormat::TarBz2 => {
-            let enc = bzip2::write::BzEncoder::new(File::create(dest)?, bzip2::Compression::default());
+            let enc =
+                bzip2::write::BzEncoder::new(File::create(dest)?, bzip2::Compression::default());
             build_tar(enc, &members)?.finish().map_err(io)?;
             Ok(())
         }
@@ -608,8 +599,7 @@ fn build_tar<W: Write>(w: W, members: &[(String, &FullEntry)]) -> Result<W> {
             header.set_mode(e.mode.unwrap_or(0o755) & 0o7777);
             let dir_name = format!("{name}/");
             header.set_cksum();
-            b.append_data(&mut header, dir_name, std::io::empty())
-                .map_err(io)?;
+            b.append_data(&mut header, dir_name, std::io::empty()).map_err(io)?;
         } else {
             header.set_size(e.data.len() as u64);
             header.set_mode(e.mode.unwrap_or(0o644) & 0o7777);

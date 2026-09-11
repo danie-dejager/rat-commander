@@ -4,21 +4,15 @@ use crate::util::async_bridge;
 #[tokio::test]
 async fn enters_zip_archive_and_lists_contents() {
     // Build a temp dir with a zip to browse.
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_nav_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(root.join("sub")).unwrap();
     std::fs::write(root.join("sub/file.txt"), b"hi").unwrap();
     std::fs::write(root.join("top.txt"), b"top").unwrap();
     let zip = root.join("test.zip");
-    archive::create_archive(
-        ArchiveFormat::Zip,
-        &zip,
-        &[root.join("sub"), root.join("top.txt")],
-    )
-    .unwrap();
+    archive::create_archive(ArchiveFormat::Zip, &zip, &[root.join("sub"), root.join("top.txt")])
+        .unwrap();
 
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
@@ -27,11 +21,7 @@ async fn enters_zip_archive_and_lists_contents() {
     st.panels[0].reload().await.unwrap();
 
     // Put the cursor on the zip and "enter" it.
-    let idx = st.panels[0]
-        .entries
-        .iter()
-        .position(|e| e.name == "test.zip")
-        .unwrap();
+    let idx = st.panels[0].entries.iter().position(|e| e.name == "test.zip").unwrap();
     st.panels[0].cursor = idx;
     st.active = 0;
     st.enter_dir().await;
@@ -63,24 +53,24 @@ async fn enter_dir_mounts_extfs_via_rc_ext() {
         return;
     }
 
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_ext_nav_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(root.join("sub")).unwrap();
     std::fs::write(root.join("sub/file.txt"), b"hi").unwrap();
     std::fs::write(root.join("top.txt"), b"top").unwrap();
-    assert!(std::process::Command::new("zip")
-        .current_dir(&root)
-        .arg("-r")
-        .arg("bundle.pk3")
-        .arg("sub")
-        .arg("top.txt")
-        .output()
-        .unwrap()
-        .status
-        .success());
+    assert!(
+        std::process::Command::new("zip")
+            .current_dir(&root)
+            .arg("-r")
+            .arg("bundle.pk3")
+            .arg("sub")
+            .arg("top.txt")
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
 
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
@@ -90,11 +80,7 @@ async fn enter_dir_mounts_extfs_via_rc_ext() {
     st.panels[0].backend = st.registry.local();
     st.panels[0].reload().await.unwrap();
 
-    let idx = st.panels[0]
-        .entries
-        .iter()
-        .position(|e| e.name == "bundle.pk3")
-        .unwrap();
+    let idx = st.panels[0].entries.iter().position(|e| e.name == "bundle.pk3").unwrap();
     st.panels[0].cursor = idx;
     st.active = 0;
     st.enter_dir().await;
@@ -115,10 +101,8 @@ async fn enter_dir_mounts_extfs_via_rc_ext() {
 async fn cannot_enter_unreadable_directory() {
     use std::os::unix::fs::PermissionsExt;
 
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_perm_{}_{nanos}", std::process::id()));
     let secret = root.join("secret");
     std::fs::create_dir_all(&secret).unwrap();
@@ -137,19 +121,12 @@ async fn cannot_enter_unreadable_directory() {
     st.panels[0].reload().await.unwrap();
     st.active = 0;
 
-    let idx = st.panels[0]
-        .entries
-        .iter()
-        .position(|e| e.name == "secret")
-        .unwrap();
+    let idx = st.panels[0].entries.iter().position(|e| e.name == "secret").unwrap();
     st.panels[0].cursor = idx;
     st.enter_dir().await;
 
     if denied {
-        assert_eq!(
-            st.panels[0].cwd.path, root,
-            "should not have entered the unreadable directory"
-        );
+        assert_eq!(st.panels[0].cwd.path, root, "should not have entered the unreadable directory");
         assert!(st.panels[0].error.is_none(), "no error should be left behind");
         // The listing is intact so the user can keep navigating.
         assert!(
@@ -166,11 +143,8 @@ async fn cannot_enter_unreadable_directory() {
 #[test]
 fn resolve_dest_preserves_remote_backend() {
     use std::path::PathBuf;
-    let remote = VfsPath {
-        scheme: "scp-0".to_string(),
-        path: PathBuf::from("/home/user"),
-        container: None,
-    };
+    let remote =
+        VfsPath { scheme: "scp-0".to_string(), path: PathBuf::from("/home/user"), container: None };
     // The unchanged (absolute) remote path stays on the remote backend.
     let d = resolve_dest_on("/home/user", &remote);
     assert_eq!(d.scheme, "scp-0");
@@ -328,8 +302,7 @@ async fn one_remote_guard_blocks_second_remote_panel() {
 async fn disconnect_session_tears_down_and_frees_panel() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
-    let remote_path =
-        VfsPath { scheme: "sftp-0".into(), path: "/srv".into(), container: None };
+    let remote_path = VfsPath { scheme: "sftp-0".into(), path: "/srv".into(), container: None };
     let id = setup_remote_panel(&mut st, 0, "sftp-0", "/srv");
 
     st.disconnect_session(id).await;
@@ -341,10 +314,8 @@ async fn disconnect_session_tears_down_and_frees_panel() {
 #[tokio::test]
 async fn go_local_restores_remembered_dir_not_process_cwd() {
     // Create a real, readable directory distinct from the process cwd.
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("rc_local_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
 
@@ -385,7 +356,8 @@ fn other_panel_is_remote_treats_archive_as_local() {
 #[test]
 fn dest_override_remote_to_local() {
     use std::path::PathBuf;
-    let remote = VfsPath { scheme: "scp-0".into(), path: PathBuf::from("/home/user"), container: None };
+    let remote =
+        VfsPath { scheme: "scp-0".into(), path: PathBuf::from("/home/user"), container: None };
     let local_src = VfsPath::local("/data");
 
     // Keeping the scheme prefix stays on the remote backend.
@@ -417,10 +389,8 @@ fn dest_override_remote_to_local() {
 #[tokio::test]
 async fn symlink_dialog_prefilled_from_cursor_and_other_panel() {
     use crate::ui::dialog::{DialogResult, Submit};
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_sym_{}_{nanos}", std::process::id()));
     let src = root.join("src");
     let dest = root.join("dest");
@@ -455,10 +425,8 @@ async fn symlink_dialog_prefilled_from_cursor_and_other_panel() {
 #[tokio::test]
 async fn compare_dirs_marks_by_mode() {
     use std::collections::HashSet;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_cmp_{}_{nanos}", std::process::id()));
     let da = root.join("a");
     let db = root.join("b");
@@ -489,9 +457,7 @@ async fn compare_dirs_marks_by_mode() {
             .map(|e| e.name.clone())
             .collect()
     };
-    let set = |names: &[&str]| -> HashSet<String> {
-        names.iter().map(|s| s.to_string()).collect()
-    };
+    let set = |names: &[&str]| -> HashSet<String> { names.iter().map(|s| s.to_string()).collect() };
 
     st.compare_dirs(CompareMode::Quick).await;
     assert_eq!(marked(&st.panels[0]), set(&["onlyA.txt"]));
@@ -550,10 +516,8 @@ async fn drain_taskdone(st: &mut AppState, rx: &mut crate::util::async_bridge::A
 #[tokio::test]
 async fn f6_moves_selected_files_and_removes_originals() {
     use crate::ui::dialog::Submit;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_moveN_{}_{nanos}", std::process::id()));
     let left = root.join("left");
     let right = root.join("right");
@@ -600,10 +564,8 @@ async fn f6_moves_selected_files_and_removes_originals() {
 #[tokio::test]
 async fn move_over_existing_file_still_removes_source() {
     use crate::ui::dialog::Submit;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_moveover_{}_{nanos}", std::process::id()));
     let left = root.join("left");
     let right = root.join("right");
@@ -640,10 +602,8 @@ async fn move_over_existing_file_still_removes_source() {
 async fn move_skipping_overwrite_conflict_keeps_source() {
     use crate::ops::progress::OverwriteDecision;
     use crate::ui::dialog::Submit;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_moveskip_{}_{nanos}", std::process::id()));
     let left = root.join("left");
     let right = root.join("right");
@@ -693,10 +653,8 @@ async fn move_skipping_overwrite_conflict_keeps_source() {
 /// prefilled other-panel destination — moves the selected files (not copies).
 #[tokio::test]
 async fn f6_key_flow_moves_selected_files() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_f6key_{}_{nanos}", std::process::id()));
     let left = root.join("left");
     let right = root.join("right");
@@ -726,7 +684,10 @@ async fn f6_key_flow_moves_selected_files() {
     drain_taskdone(&mut st, &mut rx).await;
 
     assert!(right.join("a.txt").is_file() && right.join("b.txt").is_file(), "files copied to dest");
-    assert!(!left.join("a.txt").exists() && !left.join("b.txt").exists(), "originals removed (moved)");
+    assert!(
+        !left.join("a.txt").exists() && !left.join("b.txt").exists(),
+        "originals removed (moved)"
+    );
 
     std::fs::remove_dir_all(&root).ok();
 }
@@ -736,10 +697,8 @@ async fn f6_key_flow_moves_selected_files() {
 #[tokio::test]
 async fn f6_bare_name_renames_in_place_and_focuses() {
     use crate::ui::dialog::Submit;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_rename_{}_{nanos}", std::process::id()));
     let left = root.join("left");
     let right = root.join("right");
@@ -780,10 +739,8 @@ async fn f6_bare_name_renames_in_place_and_focuses() {
 #[tokio::test]
 async fn rename_focuses_active_panel_when_both_show_same_dir() {
     use crate::ui::dialog::Submit;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_rn_same_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(root.join("a")).unwrap();
 
@@ -813,10 +770,8 @@ async fn rename_focuses_active_panel_when_both_show_same_dir() {
 /// column's Right to the very bottom.
 #[tokio::test]
 async fn brief_view_column_major_arrow_navigation() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_brief_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     // 8 files + ".." = 9 entries → columns of height 3: col0=0,1,2  col1=3,4,5
@@ -898,10 +853,8 @@ async fn editor_search_terms_persist_app_wide() {
 #[tokio::test]
 async fn mkdir_mirrors_into_other_panel_showing_same_dir() {
     use crate::ui::dialog::Submit;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_mkdir_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
 
@@ -927,10 +880,8 @@ async fn mkdir_mirrors_into_other_panel_showing_same_dir() {
 async fn details_view_files_dirs_and_selection() {
     use crate::details::DetailsKind;
     use crate::panel::ViewFormat;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_details_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(root.join("sub/deep")).unwrap();
     std::fs::write(root.join("a.txt"), vec![0u8; 100]).unwrap();
@@ -1005,10 +956,8 @@ async fn details_view_files_dirs_and_selection() {
 #[tokio::test]
 async fn tree_view_enter_navigates_inactive_panel() {
     use crate::panel::ViewFormat;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_tree_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(root.join("alpha/inner")).unwrap();
     std::fs::create_dir_all(root.join("beta")).unwrap();
@@ -1036,11 +985,8 @@ async fn tree_view_enter_navigates_inactive_panel() {
     // Move the cursor onto the `alpha` child. Merely browsing must NOT change the
     // console line or the other panel — only Enter commits.
     let tree = st.panels[0].tree.as_ref().unwrap();
-    let alpha_row = tree
-        .rows
-        .iter()
-        .position(|n| n.label == "alpha")
-        .expect("alpha listed under root");
+    let alpha_row =
+        tree.rows.iter().position(|n| n.label == "alpha").expect("alpha listed under root");
     st.panels[0].tree.as_mut().unwrap().cursor = alpha_row;
     assert_eq!(st.console_cwd().path, root, "moving the cursor alone doesn't change the console");
     assert_eq!(st.panels[1].cwd, start_right, "moving the cursor alone doesn't move the panel");
@@ -1056,10 +1002,7 @@ async fn tree_view_enter_navigates_inactive_panel() {
     // …and alpha's branch opened, revealing its subdirectory.
     let tree = st.panels[0].tree.as_ref().unwrap();
     assert!(tree.rows[alpha_row].expanded, "alpha's branch is open");
-    assert!(
-        tree.rows.iter().any(|n| n.label == "inner"),
-        "alpha's subdirectory is now visible"
-    );
+    assert!(tree.rows.iter().any(|n| n.label == "inner"), "alpha's subdirectory is now visible");
     // The active (tree) panel did not itself navigate.
     assert_eq!(st.panels[0].cwd, VfsPath::local(&root), "tree panel stays put");
 
@@ -1086,10 +1029,8 @@ async fn tree_view_title_and_mouse() {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_treemouse_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(root.join("alpha/inner")).unwrap();
     std::fs::create_dir_all(root.join("beta")).unwrap();
@@ -1121,15 +1062,8 @@ async fn tree_view_title_and_mouse() {
     let mut term = Terminal::new(TestBackend::new(120, 30)).unwrap();
     term.draw(|f| crate::ui::draw(f, &mut st)).unwrap();
     let hit = st.panels[0].hit.expect("tree records hit geometry");
-    let alpha_idx = st
-        .panels[0]
-        .tree
-        .as_ref()
-        .unwrap()
-        .rows
-        .iter()
-        .position(|n| n.label == "alpha")
-        .unwrap();
+    let alpha_idx =
+        st.panels[0].tree.as_ref().unwrap().rows.iter().position(|n| n.label == "alpha").unwrap();
     // Map that tree index back to a screen row within the body.
     let arow = hit.body.y + (alpha_idx - hit.offset) as u16;
     let acol = hit.body.x + 1;
@@ -1149,10 +1083,7 @@ async fn tree_view_title_and_mouse() {
     // A second click on the same row enters: the other panel + title follow.
     st.handle_mouse(click(acol, arow)).await;
     assert_eq!(st.panels[1].cwd.path, root.join("alpha"), "double click enters the directory");
-    assert!(
-        title_text(&mut st).contains("alpha"),
-        "the title now shows the committed directory"
-    );
+    assert!(title_text(&mut st).contains("alpha"), "the title now shows the committed directory");
 
     std::fs::remove_dir_all(&root).ok();
 }
@@ -1161,10 +1092,8 @@ async fn tree_view_title_and_mouse() {
 async fn find_duplicates_marks_by_criteria() {
     use crate::ui::dialog::DupCriteria;
     use std::collections::HashSet;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_dups_{}_{nanos}", std::process::id()));
     let da = root.join("a");
     let db = root.join("b");
@@ -1191,7 +1120,11 @@ async fn find_duplicates_marks_by_criteria() {
     st.panels[1].reload().await.unwrap();
 
     let marked = |p: &Panel| -> HashSet<String> {
-        p.entries.iter().filter(|e| p.selection.is_marked(&e.name)).map(|e| e.name.clone()).collect()
+        p.entries
+            .iter()
+            .filter(|e| p.selection.is_marked(&e.name))
+            .map(|e| e.name.clone())
+            .collect()
     };
     let set = |names: &[&str]| -> HashSet<String> { names.iter().map(|s| s.to_string()).collect() };
     let crit = |size, date, content, cs| DupCriteria { size, date, content, case_sensitive: cs };
@@ -1241,10 +1174,8 @@ fn normalize_path_resolves_dotdot() {
 
 #[tokio::test]
 async fn cd_changes_active_panel_directory() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_cd_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(root.join("child")).unwrap();
 
@@ -1273,10 +1204,8 @@ async fn mouse_clicks_move_cursor_and_mark_in_panel() {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_mouse_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     for n in ["a.txt", "b.txt", "c.txt", "d.txt"] {
@@ -1331,10 +1260,8 @@ async fn double_click_enters_directory() {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_dblclick_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(root.join("sub")).unwrap();
     std::fs::write(root.join("sub/inside.txt"), b"x").unwrap();
@@ -1386,20 +1313,13 @@ async fn double_click_enters_directory() {
 #[tokio::test]
 async fn chmod_recursive_applies_into_directories() {
     use std::os::unix::fs::PermissionsExt;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_chmodrec_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(root.join("sub")).unwrap();
     std::fs::write(root.join("top.txt"), b"a").unwrap();
     std::fs::write(root.join("sub/deep.txt"), b"b").unwrap();
-    let all = [
-        root.clone(),
-        root.join("top.txt"),
-        root.join("sub"),
-        root.join("sub/deep.txt"),
-    ];
+    let all = [root.clone(), root.join("top.txt"), root.join("sub"), root.join("sub/deep.txt")];
     // Dirs keep the execute bit so the recursive walk can traverse them; files
     // start at 0o644. Everything differs from the 0o700 we'll apply.
     for p in &all {
@@ -1431,10 +1351,8 @@ async fn chmod_recursive_applies_into_directories() {
 
 #[tokio::test]
 async fn multi_rename_swaps_and_renumbers_safely() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_mrename_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("a.txt"), b"A").unwrap();
@@ -1476,10 +1394,8 @@ async fn multi_rename_swaps_and_renumbers_safely() {
 
 #[tokio::test]
 async fn shift_f6_opens_multi_rename_for_selection() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_mrshortcut_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("a.txt"), b"a").unwrap();
@@ -1494,10 +1410,7 @@ async fn shift_f6_opens_multi_rename_for_selection() {
 
     // With nothing selected, the shortcut shows an error instead of the tool.
     st.handle_key(KeyEvent::new(KeyCode::F(6), KeyModifiers::SHIFT)).await;
-    assert!(
-        matches!(st.dialog, Some(Dialog::Message(_))),
-        "no selection → error message"
-    );
+    assert!(matches!(st.dialog, Some(Dialog::Message(_))), "no selection → error message");
     st.dialog = None;
 
     // Select a file; now Shift-F6 (and Ctrl-F6) open the multi-rename dialog.
@@ -1513,10 +1426,8 @@ async fn shift_f6_opens_multi_rename_for_selection() {
 
 #[tokio::test]
 async fn multi_rename_refuses_to_clobber_existing_file() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_mrclobber_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("a.txt"), b"A").unwrap();
@@ -1542,10 +1453,8 @@ async fn multi_rename_refuses_to_clobber_existing_file() {
 
 #[tokio::test]
 async fn delete_anchor_targets_next_file() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_del_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     for n in ["a.txt", "b.txt", "c.txt", "d.txt"] {
@@ -1573,10 +1482,8 @@ async fn delete_anchor_targets_next_file() {
 
     // Deleting a block running to the end also falls back above the block.
     st.panels[0].cursor = at(&st, "c.txt");
-    let anchor = st.delete_anchor(&[
-        VfsPath::local(root.join("c.txt")),
-        VfsPath::local(root.join("d.txt")),
-    ]);
+    let anchor =
+        st.delete_anchor(&[VfsPath::local(root.join("c.txt")), VfsPath::local(root.join("d.txt"))]);
     assert_eq!(anchor.as_deref(), Some("b.txt"));
 
     std::fs::remove_dir_all(&root).ok();
@@ -1588,10 +1495,8 @@ async fn delete_anchor_targets_next_file() {
 #[tokio::test]
 async fn delete_on_active_panel_leaves_inactive_selection_and_cursor() {
     use crate::ui::dialog::Submit;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_delkeep_{}_{nanos}", std::process::id()));
     let left = root.join("left");
     let right = root.join("right");
@@ -1619,8 +1524,7 @@ async fn delete_on_active_panel_leaves_inactive_selection_and_cursor() {
     st.panels[1].selection.mark("y.txt");
     st.panels[1].selection.mark("z.txt");
     let cursor_name = "y.txt";
-    st.panels[1].cursor =
-        st.panels[1].entries.iter().position(|e| e.name == cursor_name).unwrap();
+    st.panels[1].cursor = st.panels[1].entries.iter().position(|e| e.name == cursor_name).unwrap();
 
     // The active panel (0) marks its own files and deletes them.
     st.panels[0].selection.mark("a.txt");
@@ -1652,10 +1556,8 @@ async fn right_drag_inverts_selection_across_files() {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_drag_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     for n in ["a.txt", "b.txt", "c.txt", "d.txt"] {
@@ -1687,8 +1589,7 @@ async fn right_drag_inverts_selection_across_files() {
     ] {
         let idx = st.panels[0].entries.iter().position(|e| e.name == name).unwrap();
         let row = hit.body.y + (idx - hit.offset) as u16;
-        st.handle_mouse(MouseEvent { kind, column: col, row, modifiers: KeyModifiers::NONE })
-            .await;
+        st.handle_mouse(MouseEvent { kind, column: col, row, modifiers: KeyModifiers::NONE }).await;
     }
 
     let sel = &st.panels[0].selection;
@@ -1705,10 +1606,8 @@ async fn page_keys_move_by_visible_page() {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_page_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     for i in 0..100 {
@@ -1742,10 +1641,8 @@ async fn wheel_pages_then_steps_at_the_listing_ends() {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_wheel_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     for i in 0..100 {
@@ -1835,10 +1732,8 @@ async fn mouse_click_on_menu_bar_opens_menu() {
 
 #[tokio::test]
 async fn a_watched_directory_change_reloads_the_panel_after_the_debounce() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_watch_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("a.txt"), b"x").unwrap();
@@ -1880,10 +1775,8 @@ async fn a_watched_directory_change_reloads_the_panel_after_the_debounce() {
 #[tokio::test]
 async fn clipboard_text_covers_name_path_and_selection() {
     use crate::ui::menu::ClipTarget;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_clip_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     for n in ["a.txt", "b.txt", "c.txt"] {
@@ -1927,10 +1820,8 @@ async fn clipboard_text_covers_name_path_and_selection() {
 #[tokio::test]
 async fn find_file_content_search_panelizes_hits_and_records_their_lines() {
     use crate::ui::dialog::Submit;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_finde2e_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(root.join("sub")).unwrap();
     std::fs::write(root.join("one.txt"), b"alpha\nbeta needle here\ngamma\n").unwrap();
@@ -1970,8 +1861,7 @@ async fn find_file_content_search_panelizes_hits_and_records_their_lines() {
     }
 
     assert!(st.panels[0].is_panelized(), "results replaced the listing");
-    let names: Vec<String> =
-        st.panels[0].entries.iter().map(|e| e.name.clone()).collect();
+    let names: Vec<String> = st.panels[0].entries.iter().map(|e| e.name.clone()).collect();
     let has = |n: &str| names.iter().any(|x| x.ends_with(n));
     assert!(has("one.txt"), "matched on line 2: {names:?}");
     assert!(has("three.txt"), "matched in a subdirectory: {names:?}");
@@ -1988,10 +1878,8 @@ async fn find_file_content_search_panelizes_hits_and_records_their_lines() {
 #[test]
 fn grep_file_streams_and_reports_line_numbers() {
     use crate::viewer::search::Needle;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_grep_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     let lit = |s: &str| Needle::build(s, false, true, false, false).unwrap();
@@ -2005,7 +1893,10 @@ fn grep_file_streams_and_reports_line_numbers() {
 
     // Case sensitivity follows the needle, not the file.
     assert_eq!(grep_file(&p, &lit("ALPHA")), None);
-    assert_eq!(grep_file(&p, &Needle::build("ALPHA", false, false, false, false).unwrap()), Some(1));
+    assert_eq!(
+        grep_file(&p, &Needle::build("ALPHA", false, false, false, false).unwrap()),
+        Some(1)
+    );
 
     // A NUL byte marks the file binary, even though the needle is present.
     let bin = root.join("blob.bin");
@@ -2036,10 +1927,8 @@ fn grep_file_streams_and_reports_line_numbers() {
 
 #[test]
 fn find_files_by_name_and_content() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_find_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(root.join("sub")).unwrap();
     std::fs::write(root.join("a.txt"), b"hello there").unwrap();
@@ -2047,8 +1936,9 @@ fn find_files_by_name_and_content() {
     std::fs::write(root.join("c.log"), b"hello again").unwrap();
 
     let run = |p: &FindParams| {
-        let m = crate::panel::selection::NameMatcher::build(&p.file_name, p.case_sensitive, p.shell)
-            .unwrap();
+        let m =
+            crate::panel::selection::NameMatcher::build(&p.file_name, p.case_sensitive, p.shell)
+                .unwrap();
         let c = crate::ops::CancelToken::new();
         find_files(&root, p, &m, &c, |_, _| {})
     };
@@ -2066,11 +1956,8 @@ fn find_files_by_name_and_content() {
     assert_eq!(run(&by_name).len(), 2, "two .txt files");
     assert!(run(&by_name).iter().all(|(_, l)| l.is_none()), "a name match has no hit line");
 
-    let by_content = FindParams {
-        file_name: "*".into(),
-        content: "HELLO".into(),
-        ..by_name.clone()
-    };
+    let by_content =
+        FindParams { file_name: "*".into(), content: "HELLO".into(), ..by_name.clone() };
     assert_eq!(run(&by_content).len(), 2, "two files contain 'hello'");
     assert!(run(&by_content).iter().all(|(_, l)| *l == Some(1)), "both match on line 1");
 
@@ -2097,10 +1984,8 @@ fn find_files_by_name_and_content() {
 #[tokio::test]
 async fn find_files_vfs_matches_names_recursively() {
     use std::sync::Arc;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_vfind_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(root.join("sub")).unwrap();
     std::fs::write(root.join("a.txt"), b"x").unwrap();
@@ -2197,10 +2082,8 @@ async fn f1_opens_help_in_viewer() {
 
 #[tokio::test]
 async fn edit_startup_opens_file_in_editor() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("rc_edit_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("hello.txt");
@@ -2301,10 +2184,8 @@ async fn shift_f4_refuses_a_directory_and_honours_a_subpath() {
 
 #[tokio::test]
 async fn editor_save_as_writes_and_retargets() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("rc_sa_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let orig = dir.join("orig.txt");
@@ -2329,10 +2210,8 @@ async fn editor_save_as_writes_and_retargets() {
 
 #[tokio::test]
 async fn edit_with_no_file_opens_unnamed_buffer_that_saves_via_save_as() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("rc_new_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
 
@@ -2469,17 +2348,16 @@ async fn flash_abort_prompts_then_resumes_or_aborts() {
 async fn create_image_browse_overwrite_and_done() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
-    let target = crate::flash::FlashTarget { dev: "/dev/sdb".into(), size: 1000, ..Default::default() };
+    let target =
+        crate::flash::FlashTarget { dev: "/dev/sdb".into(), size: 1000, ..Default::default() };
 
     // "Create image" opens the save browser.
     st.handle_submit(Submit::ImageBrowse(target.clone())).await;
     assert!(matches!(st.dialog, Some(Dialog::ImageSave(_))), "image save browser opens");
 
     // Saving onto an existing file raises an overwrite confirmation.
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let dest = std::env::temp_dir().join(format!("rc_imgov_{}_{nanos}.img", std::process::id()));
     std::fs::write(&dest, b"old").unwrap();
     let spec = crate::flash::ImageSpec {
@@ -2554,7 +2432,8 @@ async fn alt_s_or_ctrl_s_starts_empty_quick_search_then_letters_extend() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     st.init().await;
-    st.panels[0].entries = vec![mk_entry("yo"), mk_entry("hello"), mk_entry("hi"), mk_entry("high")];
+    st.panels[0].entries =
+        vec![mk_entry("yo"), mk_entry("hello"), mk_entry("hi"), mk_entry("high")];
     st.panels[0].resort(); // stable: hello, hi, high, yo
     st.panels[0].cursor = 3; // start off the 'h' entries (on "yo")
 
@@ -2716,7 +2595,8 @@ async fn quick_search_extends_while_alt_is_held() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     st.init().await;
-    st.panels[0].entries = vec![mk_entry("yo"), mk_entry("hello"), mk_entry("hi"), mk_entry("high")];
+    st.panels[0].entries =
+        vec![mk_entry("yo"), mk_entry("hello"), mk_entry("hi"), mk_entry("high")];
     st.panels[0].resort();
     st.panels[0].cursor = 3;
 
@@ -2869,8 +2749,7 @@ async fn esc_then_digit_acts_as_function_key() {
     st.handle_key(esc_key()).await;
     assert!(st.pending_esc.is_some(), "lone Esc should be held");
     // The following '1' completes Esc-1 => F1 => help viewer.
-    st.handle_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE))
-        .await;
+    st.handle_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE)).await;
     assert!(st.viewer.is_some(), "Esc-1 should act as F1 (help)");
     assert!(st.pending_esc.is_none(), "the sequence is resolved");
 }
@@ -2881,8 +2760,7 @@ async fn alt_digit_acts_as_function_key() {
     let mut st = AppState::new(tx);
     assert!(st.viewer.is_none());
     // Terminals deliver a fast Esc+digit as Alt+digit; that is an F-key too.
-    st.handle_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::ALT))
-        .await;
+    st.handle_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::ALT)).await;
     assert!(st.viewer.is_some(), "Alt-1 should act as F1 (help)");
     assert!(st.pending_esc.is_none());
 }
@@ -2898,8 +2776,7 @@ async fn esc_then_nondigit_delivers_plain_esc() {
     assert!(st.pending_esc.is_some());
     // A non-digit resolves the held Esc as a plain Esc (clears the cmd line)
     // and then delivers the key itself.
-    st.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE))
-        .await;
+    st.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).await;
     assert!(st.pending_esc.is_none());
     assert_eq!(st.cmd.buffer, "x", "Esc cleared the line, then 'x' was typed");
 }
@@ -2967,10 +2844,8 @@ fn background_ops_list_keys() {
 /// the task alive (and tracked for the mini bar / list).
 #[tokio::test]
 async fn to_background_keeps_task_and_lists_it() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_bg_{}_{nanos}", std::process::id()));
     let left = root.join("left");
     let right = root.join("right");
@@ -2988,7 +2863,11 @@ async fn to_background_keeps_task_and_lists_it() {
     st.panels[1].backend = st.registry.local();
     st.panels[1].reload().await.unwrap();
 
-    st.handle_submit(Submit::Copy(vec![VfsPath::local(left.join("big.bin"))], right.to_string_lossy().into_owned())).await;
+    st.handle_submit(Submit::Copy(
+        vec![VfsPath::local(left.join("big.bin"))],
+        right.to_string_lossy().into_owned(),
+    ))
+    .await;
     let id = match &st.dialog {
         Some(Dialog::Progress(p)) => p.id,
         _ => panic!("a transfer progress dialog should be showing"),
@@ -3019,7 +2898,12 @@ async fn conflict_foregrounds_a_background_transfer() {
     // A backgrounded transfer with no foreground dialog.
     st.task_progress.insert(
         7,
-        BgTransfer { verb: "Copying", update: Some(progress_update(7, "Copying", 10, 100)), schemes: vec![] , chart: Default::default() },
+        BgTransfer {
+            verb: "Copying",
+            update: Some(progress_update(7, "Copying", 10, 100)),
+            schemes: vec![],
+            chart: Default::default(),
+        },
     );
     assert!(st.dialog.is_none());
 
@@ -3048,13 +2932,16 @@ async fn foreground_task_reopens_progress_dialog() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     let (reply, _r) = tokio::sync::mpsc::channel(1);
-    st.tasks.insert(
-        5,
-        crate::ops::TaskHandle { id: 5, cancel: crate::ops::CancelToken::new(), reply },
-    );
+    st.tasks
+        .insert(5, crate::ops::TaskHandle { id: 5, cancel: crate::ops::CancelToken::new(), reply });
     st.task_progress.insert(
         5,
-        BgTransfer { verb: "Moving", update: Some(progress_update(5, "Moving", 40, 80)), schemes: vec![] , chart: Default::default() },
+        BgTransfer {
+            verb: "Moving",
+            update: Some(progress_update(5, "Moving", 40, 80)),
+            schemes: vec![],
+            chart: Default::default(),
+        },
     );
 
     st.handle_submit(Submit::ForegroundTask(5)).await;
@@ -3073,12 +2960,27 @@ fn background_summary_aggregates() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     assert!(st.background_summary().is_none(), "nothing running");
-    st.task_progress.insert(1, BgTransfer { verb: "Copying", update: Some(progress_update(1, "Copying", 30, 100)), schemes: vec![] , chart: Default::default() });
-    st.task_progress.insert(2, BgTransfer { verb: "Moving", update: Some(progress_update(2, "Moving", 20, 100)), schemes: vec![] , chart: Default::default() });
+    st.task_progress.insert(
+        1,
+        BgTransfer {
+            verb: "Copying",
+            update: Some(progress_update(1, "Copying", 30, 100)),
+            schemes: vec![],
+            chart: Default::default(),
+        },
+    );
+    st.task_progress.insert(
+        2,
+        BgTransfer {
+            verb: "Moving",
+            update: Some(progress_update(2, "Moving", 20, 100)),
+            schemes: vec![],
+            chart: Default::default(),
+        },
+    );
     let (done, total, count) = st.background_summary().unwrap();
     assert_eq!((done, total, count), (50, 200, 2));
 }
-
 
 /// The open Background operations list advances live as progress arrives, and
 /// closes once the last transfer finishes.
@@ -3087,8 +2989,17 @@ async fn background_ops_list_updates_live() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     let (reply, _r) = tokio::sync::mpsc::channel(1);
-    st.tasks.insert(1, crate::ops::TaskHandle { id: 1, cancel: crate::ops::CancelToken::new(), reply });
-    st.task_progress.insert(1, BgTransfer { verb: "Copying", update: Some(progress_update(1, "Copying", 10, 100)), schemes: vec![] , chart: Default::default() });
+    st.tasks
+        .insert(1, crate::ops::TaskHandle { id: 1, cancel: crate::ops::CancelToken::new(), reply });
+    st.task_progress.insert(
+        1,
+        BgTransfer {
+            verb: "Copying",
+            update: Some(progress_update(1, "Copying", 10, 100)),
+            schemes: vec![],
+            chart: Default::default(),
+        },
+    );
 
     st.open_background_ops();
     let ratio0 = match &st.dialog {
@@ -3106,7 +3017,8 @@ async fn background_ops_list_updates_live() {
     assert!((ratio1 - 0.70).abs() < 1e-9, "row advanced to 70%");
 
     // Completing the last transfer closes the (now empty) list.
-    st.apply_event(AppEvent::TaskDone { id: 1, outcome: crate::ops::progress::TaskOutcome::Done }).await;
+    st.apply_event(AppEvent::TaskDone { id: 1, outcome: crate::ops::progress::TaskOutcome::Done })
+        .await;
     assert!(st.dialog.is_none(), "list closes when the last op finishes");
 }
 
@@ -3126,9 +3038,8 @@ async fn run_program_submit_executes_in_foreground() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     let path = std::path::PathBuf::from("/usr/local/bin/tool");
-    let flow = st
-        .handle_dialog_result(DialogResult::Submit(Submit::RunProgram(path.clone())))
-        .await;
+    let flow =
+        st.handle_dialog_result(DialogResult::Submit(Submit::RunProgram(path.clone()))).await;
     match flow {
         Flow::RunCommand(cmd) => assert!(cmd.contains("tool"), "runs the program: {cmd}"),
         _ => panic!("RunProgram should run the executable in the foreground"),
@@ -3148,7 +3059,10 @@ async fn user_menu_command_runs_in_the_foreground_on_a_local_panel() {
         .await;
     match flow {
         Flow::RunCommandForeground(cmd) => {
-            assert!(cmd.contains("echo hi in ") && !cmd.contains("%d"), "expanded + foreground: {cmd}");
+            assert!(
+                cmd.contains("echo hi in ") && !cmd.contains("%d"),
+                "expanded + foreground: {cmd}"
+            );
         }
         _ => panic!("a local F2 menu command should run in the foreground"),
     }
@@ -3185,9 +3099,8 @@ async fn user_menu_prompt_asks_then_runs_with_the_answer() {
         Some(Dialog::Input(d)) => assert_eq!(d.prompt, "Enter command", "prompt label shown"),
         _ => panic!("a %{{…}} prompt should open an input dialog"),
     }
-    let flow = st
-        .handle_dialog_result(DialogResult::Submit(Submit::MenuPrompt("ls -la".into())))
-        .await;
+    let flow =
+        st.handle_dialog_result(DialogResult::Submit(Submit::MenuPrompt("ls -la".into()))).await;
     match flow {
         Flow::RunCommandForeground(cmd) => {
             assert!(cmd.contains("CMD=ls -la"), "answer substituted verbatim: {cmd}");
@@ -3205,24 +3118,22 @@ async fn user_menu_multiple_prompts_are_asked_in_sequence() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     let flow = st
-        .handle_dialog_result(DialogResult::Submit(Submit::UserCommand("echo %{One} %{Two}".into())))
+        .handle_dialog_result(DialogResult::Submit(Submit::UserCommand(
+            "echo %{One} %{Two}".into(),
+        )))
         .await;
     assert!(matches!(flow, Flow::Continue));
     match &st.dialog {
         Some(Dialog::Input(d)) => assert_eq!(d.prompt, "One"),
         _ => panic!("first prompt"),
     }
-    let flow = st
-        .handle_dialog_result(DialogResult::Submit(Submit::MenuPrompt("a".into())))
-        .await;
+    let flow = st.handle_dialog_result(DialogResult::Submit(Submit::MenuPrompt("a".into()))).await;
     assert!(matches!(flow, Flow::Continue), "still asking the second prompt");
     match &st.dialog {
         Some(Dialog::Input(d)) => assert_eq!(d.prompt, "Two"),
         _ => panic!("second prompt"),
     }
-    let flow = st
-        .handle_dialog_result(DialogResult::Submit(Submit::MenuPrompt("b".into())))
-        .await;
+    let flow = st.handle_dialog_result(DialogResult::Submit(Submit::MenuPrompt("b".into()))).await;
     match flow {
         Flow::RunCommandForeground(cmd) => assert_eq!(cmd, "echo a b"),
         _ => panic!("runs once both answers are in"),
@@ -3235,8 +3146,7 @@ async fn cancelling_a_menu_prompt_abandons_the_command() {
     use crate::ui::dialog::{DialogResult, Submit};
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
-    st.handle_dialog_result(DialogResult::Submit(Submit::UserCommand("echo %{Ask}".into())))
-        .await;
+    st.handle_dialog_result(DialogResult::Submit(Submit::UserCommand("echo %{Ask}".into()))).await;
     assert!(st.pending_menu.is_some(), "a prompt is pending");
     let flow = st.handle_dialog_result(DialogResult::Cancel).await;
     assert!(matches!(flow, Flow::Continue));
@@ -3300,10 +3210,8 @@ async fn user_menu_macros_quote_and_strip_view() {
 #[tokio::test]
 async fn enter_on_executable_binary_runs_it() {
     use std::os::unix::fs::PermissionsExt;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_exec_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     // A tiny ELF-looking binary with no extension: no desktop MIME handler.
@@ -3345,10 +3253,8 @@ async fn enter_on_executable_binary_runs_it() {
 #[tokio::test]
 async fn enter_on_executable_asks_when_confirm_enabled() {
     use std::os::unix::fs::PermissionsExt;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_execc_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     let bin = root.join("runme");
@@ -3396,10 +3302,8 @@ async fn ctrl_o_is_disabled_for_a_nested_instance() {
 /// history; Alt-H opens the Shell History window and selecting recalls a command.
 #[tokio::test]
 async fn command_line_history_and_alt_enter() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_hist_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("report.txt"), b"x").unwrap();
@@ -3586,10 +3490,8 @@ async fn ctrl_p_opens_command_palette_and_runs_a_command() {
 
 #[tokio::test]
 async fn directory_history_filter_and_hotlist() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_hist_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(root.join("sub")).unwrap();
     std::fs::write(root.join("a.txt"), b"a").unwrap();
@@ -3656,10 +3558,7 @@ async fn directory_history_filter_and_hotlist() {
 
     // -- Alt-Shift-I opens the filter prompt (plain Alt-I syncs the panels) --
     st.handle_key(alt('I')).await;
-    assert!(
-        matches!(st.dialog, Some(Dialog::Input(_))),
-        "Alt-Shift-I opens the filter input"
-    );
+    assert!(matches!(st.dialog, Some(Dialog::Input(_))), "Alt-Shift-I opens the filter input");
     st.dialog = None;
 
     let _ = std::fs::remove_dir_all(&root);
@@ -3686,10 +3585,8 @@ async fn drain_until_preview(st: &mut AppState, rx: &mut crate::util::async_brid
 
 #[tokio::test]
 async fn details_preview_loads_text_head_and_dir_tree() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_prev_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(root.join("sub")).unwrap();
     std::fs::write(root.join("sub/inner.rs"), b"pub fn inner() {}\n").unwrap();
@@ -3750,10 +3647,8 @@ async fn details_preview_loads_text_head_and_dir_tree() {
 
 #[tokio::test]
 async fn f3_opens_image_viewer_and_falls_back_to_text() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_imgview_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     image::RgbaImage::from_pixel(12, 8, image::Rgba([200, 30, 60, 255]))
@@ -3799,9 +3694,18 @@ fn git_shortcuts_are_not_swallowed_by_the_command_line() {
     // The Git panel bindings must reach the panel handler on an empty *and* a
     // non-empty command line.
     for empty in [true, false] {
-        assert!(!super::keys::cmdline_edit_wanted(ctrl('g'), empty), "Ctrl-G (stage) must reach the panel");
-        assert!(!super::keys::cmdline_edit_wanted(alt('g'), empty), "Alt-G (git menu) must reach the panel");
-        assert!(!super::keys::cmdline_edit_wanted(alt('d'), empty), "Alt-D (diff) must reach the panel");
+        assert!(
+            !super::keys::cmdline_edit_wanted(ctrl('g'), empty),
+            "Ctrl-G (stage) must reach the panel"
+        );
+        assert!(
+            !super::keys::cmdline_edit_wanted(alt('g'), empty),
+            "Alt-G (git menu) must reach the panel"
+        );
+        assert!(
+            !super::keys::cmdline_edit_wanted(alt('d'), empty),
+            "Alt-D (diff) must reach the panel"
+        );
     }
     // ...and the chord we deliberately avoided really is claimed by readline.
     assert!(
@@ -3839,10 +3743,8 @@ fn panel_alt_chords_do_not_collide_with_the_menu_bar() {
 async fn sync_plans_previews_and_executes_a_mirror() {
     use crate::app::event::AppEvent;
     use crate::ui::dialog::Submit;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_syncflow_{}_{nanos}", std::process::id()));
     let (da, db) = (root.join("a"), root.join("b"));
     std::fs::create_dir_all(&da).unwrap();
@@ -3908,10 +3810,8 @@ async fn sync_plans_previews_and_executes_a_mirror() {
 /// cursor's directory there and step on), and Alt-H (the directory history list).
 #[tokio::test]
 async fn alt_panel_navigation_shortcuts() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("rc_altnav_{}_{nanos}", std::process::id()));
     let sub = root.join("alpha");
     std::fs::create_dir_all(&sub).unwrap();
@@ -4177,11 +4077,12 @@ impl ArchiveFixture {
 
     /// Every member the archive stores, sorted.
     fn members(&self) -> Vec<String> {
-        let mut v: Vec<String> = archive::formats::list_entries(ArchiveFormat::Zip, &self.container)
-            .unwrap()
-            .into_iter()
-            .map(|e| e.path)
-            .collect();
+        let mut v: Vec<String> =
+            archive::formats::list_entries(ArchiveFormat::Zip, &self.container)
+                .unwrap()
+                .into_iter()
+                .map(|e| e.path)
+                .collect();
         v.sort();
         v
     }
@@ -4215,15 +4116,14 @@ async fn archive_state(
 /// Put the cursor on the named entry of the active panel.
 fn point_at(st: &mut AppState, name: &str) {
     let p = &mut st.panels[st.active];
-    p.cursor = p
-        .entries
-        .iter()
-        .position(|e| e.name == name)
-        .unwrap_or_else(|| panic!("{name} is not listed: {:?}", p.entries.iter().map(|e| &e.name).collect::<Vec<_>>()));
+    p.cursor = p.entries.iter().position(|e| e.name == name).unwrap_or_else(|| {
+        panic!("{name} is not listed: {:?}", p.entries.iter().map(|e| &e.name).collect::<Vec<_>>())
+    });
 }
 
 fn entry_names(st: &AppState, side: usize) -> Vec<String> {
-    let mut v: Vec<String> = st.panels[side].entries.iter().map(|e| e.name.clone()).filter(|n| n != "..").collect();
+    let mut v: Vec<String> =
+        st.panels[side].entries.iter().map(|e| e.name.clone()).filter(|n| n != "..").collect();
     v.sort();
     v
 }
@@ -4304,7 +4204,11 @@ async fn f6_moves_a_file_out_of_an_archive() {
 
     assert!(!matches!(st.dialog, Some(Dialog::Message(_))), "no error");
     assert_eq!(std::fs::read(fx.out().join("a.txt")).unwrap(), b"alpha");
-    assert!(!fx.members().contains(&"/data/a.txt".to_string()), "gone from the archive: {:?}", fx.members());
+    assert!(
+        !fx.members().contains(&"/data/a.txt".to_string()),
+        "gone from the archive: {:?}",
+        fx.members()
+    );
 }
 
 /// F6 with a bare name renames a member in place, the same gesture that renames
@@ -4334,7 +4238,9 @@ async fn f6_moves_a_file_between_directories_of_one_archive() {
 
     st.handle_key(KeyEvent::new(KeyCode::F(6), KeyModifiers::NONE)).await;
     match &st.dialog {
-        Some(Dialog::Input(d)) => assert_eq!(d.buffer, "/data", "prefilled with the path inside the archive"),
+        Some(Dialog::Input(d)) => {
+            assert_eq!(d.buffer, "/data", "prefilled with the path inside the archive")
+        }
         _ => panic!("F6 into the same archive should open the destination prompt"),
     }
     st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
@@ -4364,7 +4270,9 @@ async fn f5_into_an_archive_confirms_before_replacing_a_member() {
     assert!(matches!(ev, AppEvent::ArchiveAddChecked { .. }), "the destination was checked");
     st.apply_event(ev).await;
     match &st.dialog {
-        Some(Dialog::Confirm(d)) => assert!(d.message.contains("notes.txt"), "names it: {}", d.message),
+        Some(Dialog::Confirm(d)) => {
+            assert!(d.message.contains("notes.txt"), "names it: {}", d.message)
+        }
         _ => panic!("an existing member must be confirmed before it is replaced"),
     }
 
@@ -4463,17 +4371,17 @@ async fn sync_refuses_an_archive_destination() {
     st.open_sync();
 
     match &st.dialog {
-        Some(Dialog::Message(m)) => assert!(m.message.contains("F5"), "points at F5: {}", m.message),
+        Some(Dialog::Message(m)) => {
+            assert!(m.message.contains("F5"), "points at F5: {}", m.message)
+        }
         _ => panic!("an archive sync destination should be refused"),
     }
 }
 
 /// A temp directory named after the calling test, unique per process/run.
 fn temp_dir(tag: &str) -> std::path::PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("rc_{tag}_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -4940,10 +4848,8 @@ fn key_del() -> KeyEvent {
 /// Temp directory unique to this test run, matching the inline idiom used
 /// throughout this file.
 fn lastdir_tmp(tag: &str) -> std::path::PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("rc_{tag}_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -4970,11 +4876,8 @@ async fn last_dir_for_shell_falls_back_from_archive_and_remote() {
 
     // Inside an archive: the directory *holding* the archive, not the archive
     // path and not a path inside it.
-    st.panels[0].cwd = VfsPath {
-        scheme: "archive".into(),
-        path: "/sub".into(),
-        container: Some(zip.clone()),
-    };
+    st.panels[0].cwd =
+        VfsPath { scheme: "archive".into(), path: "/sub".into(), container: Some(zip.clone()) };
     assert_eq!(st.last_dir_for_shell(), inner);
 
     // Remote: the local directory that panel last showed.
@@ -5050,11 +4953,7 @@ async fn f8_trashes_but_shift_f8_deletes_permanently() {
     st.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::SHIFT)).await;
     match &st.dialog {
         Some(Dialog::Confirm(c)) => {
-            assert!(
-                c.message.contains("Permanently"),
-                "permanent wording: {}",
-                c.message
-            );
+            assert!(c.message.contains("Permanently"), "permanent wording: {}", c.message);
             assert!(c.danger, "an irreversible delete is a danger prompt");
         }
         _ => panic!("expected a confirm dialog"),
@@ -5225,10 +5124,7 @@ async fn switching_to_a_remote_tab_respects_the_one_remote_rule() {
     setup_remote_panel(&mut st, 1, "sftp-tabs2", "/srv");
 
     st.tab_select(0, 1).await;
-    assert!(
-        !st.panels[0].cwd.is_remote(),
-        "the switch was refused, so panel 0 stayed local"
-    );
+    assert!(!st.panels[0].cwd.is_remote(), "the switch was refused, so panel 0 stayed local");
     assert!(st.dialog.is_some(), "and it said why");
 
     std::fs::remove_dir_all(&root).ok();
@@ -5269,11 +5165,8 @@ async fn ctrl_tab_and_ctrl_pageup_down_cycle_tabs() {
     assert_eq!(st.panels[0].tab, 1, "and wrapped round again");
 
     // Ctrl-Shift-Tab goes the other way.
-    st.handle_key(KeyEvent::new(
-        KeyCode::BackTab,
-        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
-    ))
-    .await;
+    st.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::CONTROL | KeyModifiers::SHIFT))
+        .await;
     assert_eq!(st.panels[0].tab, 0, "Ctrl-Shift-Tab moved back");
 
     // Ctrl-PageDown / Ctrl-PageUp do the same job, and are the reliable route:

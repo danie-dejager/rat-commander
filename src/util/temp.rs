@@ -31,10 +31,8 @@ pub fn rc_temp_path(tag: &str) -> PathBuf {
     // the same nanosecond, and across concurrent instances.
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let nanos = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
+    let nanos =
+        SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
     std::env::temp_dir().join(format!("{PREFIX}{tag}-{}-{nanos}-{n}", std::process::id()))
 }
 
@@ -105,7 +103,12 @@ mod tests {
             let p = dir.join(name);
             std::fs::write(&p, b"x").unwrap();
             if backdate {
-                std::fs::OpenOptions::new().write(true).open(&p).unwrap().set_modified(old).unwrap();
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&p)
+                    .unwrap()
+                    .set_modified(old)
+                    .unwrap();
             }
             p
         };

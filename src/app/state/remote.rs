@@ -26,12 +26,8 @@ impl AppState {
 
     /// Open the Yes/No confirmation for disconnecting a remote session.
     pub(in crate::app::state) fn ask_disconnect_session(&mut self, id: usize) {
-        let label = self
-            .sessions
-            .iter()
-            .find(|s| s.id == id)
-            .map(|s| s.label.clone())
-            .unwrap_or_default();
+        let label =
+            self.sessions.iter().find(|s| s.id == id).map(|s| s.label.clone()).unwrap_or_default();
         self.dialog = Some(Dialog::Confirm(ConfirmDialog::disconnect_session(id, &label)));
     }
 
@@ -155,8 +151,7 @@ impl AppState {
                     // Safe: the transfer holds its own Arc, not the registry entry.
                     self.registry.unregister(&scheme);
                     let path = self.panels[side].cwd.path.clone();
-                    let new_cwd =
-                        VfsPath { scheme: new_scheme.clone(), path, container: None };
+                    let new_cwd = VfsPath { scheme: new_scheme.clone(), path, container: None };
                     self.panels[side].cwd = new_cwd.clone();
                     self.panels[side].backend = conn.backend;
                     let _ = self.panels[side].reload().await;
@@ -164,9 +159,7 @@ impl AppState {
                     self.sessions[sess_idx].scheme = new_scheme;
                     self.sessions[sess_idx].cwd = new_cwd;
                 }
-                Err(e) => {
-                    self.show_error(format!("Could not open a browsing connection: {e}"))
-                }
+                Err(e) => self.show_error(format!("Could not open a browsing connection: {e}")),
             }
         }
     }
@@ -215,9 +208,7 @@ impl AppState {
         let backend = self.registry.local();
         let ok = self.panels[side].try_enter(target, backend.clone(), None).await;
         if !ok {
-            let _ = self.panels[side]
-                .try_enter(VfsPath::local_cwd(), backend, None)
-                .await;
+            let _ = self.panels[side].try_enter(VfsPath::local_cwd(), backend, None).await;
         }
     }
 
@@ -244,11 +235,7 @@ impl AppState {
         let drives = crate::drive::available_drives();
         let current_drive = crate::drive::drive_of(&self.panels[side].cwd.path);
         let cur_scheme = self.panels[side].cwd.scheme.clone();
-        let current_session = self
-            .sessions
-            .iter()
-            .find(|s| s.scheme == cur_scheme)
-            .map(|s| s.id);
+        let current_session = self.sessions.iter().find(|s| s.scheme == cur_scheme).map(|s| s.id);
         // Hide the session + connect buttons when the other panel is remote, so
         // a second remote panel can't be opened (one-remote rule).
         let show_remote = !self.other_panel_is_remote(side);

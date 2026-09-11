@@ -55,7 +55,11 @@ impl ShellHistoryDialog {
             width: rect.width.saturating_sub(2),
             height: rect.height.saturating_sub(2),
         };
-        if col < inner.x || col >= inner.x + inner.width || row < inner.y || row >= inner.y + inner.height {
+        if col < inner.x
+            || col >= inner.x + inner.width
+            || row < inner.y
+            || row >= inner.y + inner.height
+        {
             return DialogResult::None;
         }
         let idx = self.offset + (row - inner.y) as usize;
@@ -157,17 +161,27 @@ mod tests {
     fn starts_on_newest_and_navigates() {
         // history is oldest→newest; cursor starts on the newest ("three").
         let mut d = ShellHistoryDialog::new(&["one".into(), "two".into(), "three".into()]);
-        assert!(matches!(d.submit_current(), DialogResult::Submit(Submit::RecallCommand(ref c)) if c == "three"));
+        assert!(
+            matches!(d.submit_current(), DialogResult::Submit(Submit::RecallCommand(ref c)) if c == "three")
+        );
         // Up / Ctrl-P go to older entries.
         d.handle_key(key(KeyCode::Up));
-        assert!(matches!(d.submit_current(), DialogResult::Submit(Submit::RecallCommand(ref c)) if c == "two"));
+        assert!(
+            matches!(d.submit_current(), DialogResult::Submit(Submit::RecallCommand(ref c)) if c == "two")
+        );
         d.handle_key(ctrl('p'));
-        assert!(matches!(d.submit_current(), DialogResult::Submit(Submit::RecallCommand(ref c)) if c == "one"));
+        assert!(
+            matches!(d.submit_current(), DialogResult::Submit(Submit::RecallCommand(ref c)) if c == "one")
+        );
         d.handle_key(key(KeyCode::Up)); // clamped at oldest
-        assert!(matches!(d.submit_current(), DialogResult::Submit(Submit::RecallCommand(ref c)) if c == "one"));
+        assert!(
+            matches!(d.submit_current(), DialogResult::Submit(Submit::RecallCommand(ref c)) if c == "one")
+        );
         // Down / Ctrl-N go back toward the newest.
         d.handle_key(ctrl('n'));
-        assert!(matches!(d.submit_current(), DialogResult::Submit(Submit::RecallCommand(ref c)) if c == "two"));
+        assert!(
+            matches!(d.submit_current(), DialogResult::Submit(Submit::RecallCommand(ref c)) if c == "two")
+        );
     }
 
     #[test]

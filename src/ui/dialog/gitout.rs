@@ -5,8 +5,8 @@
 //! results and for failures, so the text is presented verbatim — never wrapped
 //! (that would mangle `log --graph`) but horizontally scrollable instead.
 
-use super::widgets::*;
 use super::DialogResult;
+use super::widgets::*;
 
 pub struct GitOutputDialog {
     /// The command this reports on, e.g. `"status"` — shown in the title.
@@ -94,11 +94,18 @@ impl GitOutputDialog {
     /// a stray click can't lose the output.
     pub(crate) fn handle_click(&mut self, col: u16, row: u16) -> DialogResult {
         let r = self.close_rect;
-        let hit = r.width > 0 && col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height;
+        let hit =
+            r.width > 0 && col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height;
         if hit { DialogResult::Cancel } else { DialogResult::None }
     }
 
-    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
+    pub(crate) fn render(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        theme: &Theme,
+        gfx: Option<&mut Gfx>,
+    ) {
         // A large box: git output is the point of this dialog, so give it room.
         let w = area.width.saturating_sub(6).clamp(1, 110);
         let h = area.height.saturating_sub(4).max(6);

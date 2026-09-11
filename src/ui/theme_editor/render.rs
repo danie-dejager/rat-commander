@@ -6,10 +6,10 @@
 //! live from the working [`ThemeSpec`], so the user sees exactly what the theme
 //! will look like.
 
-use super::{Focus, Overlay, ThemeEditor, SWATCHES, rgb_of};
+use super::{Focus, Overlay, SWATCHES, ThemeEditor, rgb_of};
 use crate::l10n::trd;
 use crate::ui::dialog::widgets::centered;
-use crate::ui::theme::{GradRole, GradZone, PreviewKind, Theme, THEME_FIELDS};
+use crate::ui::theme::{GradRole, GradZone, PreviewKind, THEME_FIELDS, Theme};
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -93,7 +93,8 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &Theme) {
 fn render_title(f: &mut Frame, area: Rect, ed: &ThemeEditor, theme: &Theme) {
     let star = if ed.dirty() { " *" } else { "" };
     let left = format!(" {} — {}{star} ", trd("Theme Editor"), ed.spec.name);
-    let style = Style::default().bg(theme.dialog_title).fg(theme.dialog_bg).add_modifier(Modifier::BOLD);
+    let style =
+        Style::default().bg(theme.dialog_title).fg(theme.dialog_bg).add_modifier(Modifier::BOLD);
     fill(f, area, style);
     put(f, area, area.x, area.y, &left, style);
     // The gradient keys only exist on a gradient row, so advertise them there.
@@ -135,7 +136,10 @@ fn boxed(title: &str, focused: bool, theme: &Theme) -> Block<'static> {
         .border_style(Style::default().fg(border).bg(theme.dialog_bg))
         .title(Span::styled(
             format!(" {title} "),
-            Style::default().fg(theme.dialog_title).bg(theme.dialog_bg).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.dialog_title)
+                .bg(theme.dialog_bg)
+                .add_modifier(Modifier::BOLD),
         ))
         .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg))
 }
@@ -198,7 +202,9 @@ fn render_item_list(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &The
         let label = match meta.role {
             Some(_) => {
                 let state = match grad {
-                    Some(g) => format!("{}{}", g.direction.glyph(), if g.animated { " *" } else { "" }),
+                    Some(g) => {
+                        format!("{}{}", g.direction.glyph(), if g.animated { " *" } else { "" })
+                    }
                     None => trd("off"),
                 };
                 format!("{marker}  ↳ {} {state}", trd("Gradient"))
@@ -252,7 +258,9 @@ fn render_color_picker(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &
     // Header: the hex code — editable, type six digits as an alternative to the
     // sliders — plus a swatch of the current color.
     let (htext, caret) = match &ed.hex_input {
-        Some(buf) => (format!("#{}{}", buf, "_".repeat(6usize.saturating_sub(buf.len()))), Some(buf.len())),
+        Some(buf) => {
+            (format!("#{}{}", buf, "_".repeat(6usize.saturating_sub(buf.len()))), Some(buf.len()))
+        }
         None => (hex(color), None),
     };
     let hstyle = if caret.is_some() {
@@ -271,7 +279,11 @@ fn render_color_picker(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &
     }
     if ed.truecolor {
         // R/G/B gauges.
-        let chans = [("R", r, Color::Rgb(255, 60, 60)), ("G", g, Color::Rgb(60, 255, 60)), ("B", b, Color::Rgb(80, 120, 255))];
+        let chans = [
+            ("R", r, Color::Rgb(255, 60, 60)),
+            ("G", g, Color::Rgb(60, 255, 60)),
+            ("B", b, Color::Rgb(80, 120, 255)),
+        ];
         for (idx, (name, val, accent)) in chans.iter().enumerate() {
             let y = inner.y + 1 + idx as u16;
             if y >= inner.bottom() {
@@ -283,14 +295,35 @@ fn render_color_picker(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &
             } else {
                 Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg)
             };
-            put(f, inner, inner.x, y, &format!("{}{} {:>3} ", if active { "▶" } else { " " }, name, val), lstyle);
+            put(
+                f,
+                inner,
+                inner.x,
+                y,
+                &format!("{}{} {:>3} ", if active { "▶" } else { " " }, name, val),
+                lstyle,
+            );
             // Gauge bar.
             let bx = inner.x + 7;
             let bw = inner.right().saturating_sub(bx) as usize;
             if bw > 0 {
                 let filled = (*val as usize * bw) / 255;
-                put(f, inner, bx, y, &"█".repeat(filled), Style::default().fg(*accent).bg(theme.dialog_bg));
-                put(f, inner, bx + filled as u16, y, &"░".repeat(bw - filled), Style::default().fg(theme.panel_border).bg(theme.dialog_bg));
+                put(
+                    f,
+                    inner,
+                    bx,
+                    y,
+                    &"█".repeat(filled),
+                    Style::default().fg(*accent).bg(theme.dialog_bg),
+                );
+                put(
+                    f,
+                    inner,
+                    bx + filled as u16,
+                    y,
+                    &"░".repeat(bw - filled),
+                    Style::default().fg(theme.panel_border).bg(theme.dialog_bg),
+                );
             }
         }
     } else {
@@ -375,7 +408,15 @@ fn render_preview(f: &mut Frame, area: Rect, ed: &ThemeEditor, chrome: &Theme) {
 /// Draw one row of gradient chrome (the menu bar, the cursor bar) cell by cell,
 /// so the preview shows the same ramp the real thing does: the element's own
 /// gradient, else the theme's accent one, else the flat style.
-fn bar_row(f: &mut Frame, row: Rect, text: &str, role: GradRole, flat: Style, fg: Color, pt: &Theme) {
+fn bar_row(
+    f: &mut Frame,
+    row: Rect,
+    text: &str,
+    role: GradRole,
+    flat: Style,
+    fg: Color,
+    pt: &Theme,
+) {
     let width = row.width as usize;
     // Painted cell by cell below, so the gradient pass leaves the row alone.
     crate::ui::gradient::mark_painted(row);
@@ -399,7 +440,8 @@ fn preview_panels(f: &mut Frame, area: Rect, ed: &ThemeEditor, pt: &Theme) {
     let titles = "  Left   File   Command   Options   Right";
     bar_row(f, bar, titles, GradRole::MenubarBg, pt.menubar, pt.bar_fg, pt);
 
-    let body = Rect { x: area.x, y: area.y + 1, width: area.width, height: area.height.saturating_sub(2) };
+    let body =
+        Rect { x: area.x, y: area.y + 1, width: area.width, height: area.height.saturating_sub(2) };
     let halves = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -416,7 +458,14 @@ fn preview_panels(f: &mut Frame, area: Rect, ed: &ThemeEditor, pt: &Theme) {
         if pi.height == 0 {
             continue;
         }
-        put(f, pi, pi.x, pi.y, "Name        Size", Style::default().fg(pt.header_fg).bg(pt.panel_bg).add_modifier(Modifier::BOLD));
+        put(
+            f,
+            pi,
+            pi.x,
+            pi.y,
+            "Name        Size",
+            Style::default().fg(pt.header_fg).bg(pt.panel_bg).add_modifier(Modifier::BOLD),
+        );
         // A representative spread so every file-type color is visible: several
         // directories, plain files, and each special type. `bold` marks the
         // entries the real panel draws bold (executables and tagged files).
@@ -461,7 +510,8 @@ fn preview_panels(f: &mut Frame, area: Rect, ed: &ThemeEditor, pt: &Theme) {
     // Function-key bar along the bottom: one ramp across the whole row, as the
     // real bar draws it, with the key-cap numbers written back over it.
     let fy = area.bottom().saturating_sub(1);
-    let labels = ["Help", "Menu", "View", "Edit", "Copy", "RenMov", "Mkdir", "Delete", "PullDn", "Quit"];
+    let labels =
+        ["Help", "Menu", "View", "Edit", "Copy", "RenMov", "Mkdir", "Delete", "PullDn", "Quit"];
     let total = area.width as usize;
     let seg = total / labels.len().max(1);
     let fkey_row = Rect { y: fy, height: 1, ..area };
@@ -486,7 +536,12 @@ fn preview_panels(f: &mut Frame, area: Rect, ed: &ThemeEditor, pt: &Theme) {
     // A little pulldown menu when a menu color is selected.
     if THEME_FIELDS[ed.item].group == "Pulldown menu" {
         let mw = 20u16.min(area.width.saturating_sub(2));
-        let menu = Rect { x: area.x + 8, y: area.y + 1, width: mw, height: 5.min(area.height.saturating_sub(2)) };
+        let menu = Rect {
+            x: area.x + 8,
+            y: area.y + 1,
+            width: mw,
+            height: 5.min(area.height.saturating_sub(2)),
+        };
         let blk = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(pt.menu_fg).bg(pt.menu_bg))
@@ -507,8 +562,21 @@ fn preview_panels(f: &mut Frame, area: Rect, ed: &ThemeEditor, pt: &Theme) {
                 put(f, mi, mi.x, y, it, Style::default().fg(pt.menu_fg).bg(pt.menu_bg));
             }
             // Underlined hotkey letter.
-            put(f, mi, mi.x, y, &it.chars().next().map(|c| c.to_string()).unwrap_or_default(),
-                Style::default().fg(pt.hotkey_fg).bg(if row == 1 { pt.menu_selection.bg.unwrap_or(pt.menu_bg) } else { pt.menu_bg }).add_modifier(Modifier::UNDERLINED));
+            put(
+                f,
+                mi,
+                mi.x,
+                y,
+                &it.chars().next().map(|c| c.to_string()).unwrap_or_default(),
+                Style::default()
+                    .fg(pt.hotkey_fg)
+                    .bg(if row == 1 {
+                        pt.menu_selection.bg.unwrap_or(pt.menu_bg)
+                    } else {
+                        pt.menu_bg
+                    })
+                    .add_modifier(Modifier::UNDERLINED),
+            );
         }
     }
     let _ = mb;
@@ -523,7 +591,13 @@ fn preview_dialog(f: &mut Frame, area: Rect, pt: &Theme) {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(pt.dialog_border_fg).bg(pt.dialog_border_bg))
-        .title(Span::styled(" Rename ", Style::default().fg(pt.dialog_title).bg(pt.dialog_border_bg).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            " Rename ",
+            Style::default()
+                .fg(pt.dialog_title)
+                .bg(pt.dialog_border_bg)
+                .add_modifier(Modifier::BOLD),
+        ))
         .title_alignment(Alignment::Center)
         .style(Style::default().fg(pt.dialog_fg).bg(pt.dialog_bg));
     let di = blk.inner(d);
@@ -535,15 +609,36 @@ fn preview_dialog(f: &mut Frame, area: Rect, pt: &Theme) {
     put(f, di, di.x + 1, di.y, "New name:", Style::default().fg(pt.dialog_fg).bg(pt.dialog_bg));
     // Input field.
     let iy = di.y + 1;
-    put(f, di, di.x + 1, iy, &" ".repeat(di.width.saturating_sub(2) as usize), Style::default().bg(pt.input_bg).fg(pt.input_fg));
+    put(
+        f,
+        di,
+        di.x + 1,
+        iy,
+        &" ".repeat(di.width.saturating_sub(2) as usize),
+        Style::default().bg(pt.input_bg).fg(pt.input_fg),
+    );
     put(f, di, di.x + 1, iy, "document.txt", Style::default().bg(pt.input_bg).fg(pt.input_fg));
     // Selected option row.
     let sy = di.y + 3;
     put(f, di, di.x + 1, sy, &" ".repeat(di.width.saturating_sub(2) as usize), pt.dialog_selection);
     put(f, di, di.x + 1, sy, "(•) Selected option", pt.dialog_selection);
-    put(f, di, di.x + 1, sy + 1, "( ) Another option", Style::default().fg(pt.dialog_fg).bg(pt.dialog_bg));
+    put(
+        f,
+        di,
+        di.x + 1,
+        sy + 1,
+        "( ) Another option",
+        Style::default().fg(pt.dialog_fg).bg(pt.dialog_bg),
+    );
     // Error line.
-    put(f, di, di.x + 1, sy + 2, "! name already exists", Style::default().fg(pt.error_fg).bg(pt.dialog_bg).add_modifier(Modifier::BOLD));
+    put(
+        f,
+        di,
+        di.x + 1,
+        sy + 2,
+        "! name already exists",
+        Style::default().fg(pt.error_fg).bg(pt.dialog_bg).add_modifier(Modifier::BOLD),
+    );
     // Buttons.
     let by = di.bottom().saturating_sub(1);
     let ok = "[ OK ]";
@@ -557,7 +652,10 @@ fn preview_editor(f: &mut Frame, area: Rect, pt: &Theme) {
     let blk = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(pt.panel_border_active).bg(pt.panel_bg))
-        .title(Span::styled(" editor.rs ", Style::default().fg(pt.header_fg).bg(pt.panel_bg).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            " editor.rs ",
+            Style::default().fg(pt.header_fg).bg(pt.panel_bg).add_modifier(Modifier::BOLD),
+        ))
         .style(Style::default().bg(pt.panel_bg).fg(pt.text_fg));
     let ei = blk.inner(area);
     f.render_widget(blk, area);
@@ -565,12 +663,8 @@ fn preview_editor(f: &mut Frame, area: Rect, pt: &Theme) {
         return;
     }
     let text = Style::default().fg(pt.text_fg).bg(pt.panel_bg);
-    let lines = [
-        "fn main() {",
-        "    let accent = \"#ff8800\";",
-        "    println!(\"hello, world\");",
-        "}",
-    ];
+    let lines =
+        ["fn main() {", "    let accent = \"#ff8800\";", "    println!(\"hello, world\");", "}"];
     for (row, ln) in lines.iter().enumerate() {
         let y = ei.y + row as u16;
         if y >= ei.bottom().saturating_sub(1) {
@@ -580,8 +674,16 @@ fn preview_editor(f: &mut Frame, area: Rect, pt: &Theme) {
         // Tint any #rrggbb token with the color it denotes (like the real editor).
         let chars: Vec<char> = ln.chars().collect();
         for (idx, color) in crate::ui::hexcolor::hex_color_hashes(&chars) {
-            let token: String = chars[idx..].iter().take_while(|c| **c == '#' || c.is_ascii_hexdigit()).collect();
-            put(f, ei, ei.x + idx as u16, y, &token, Style::default().fg(color).bg(pt.panel_bg).add_modifier(Modifier::BOLD));
+            let token: String =
+                chars[idx..].iter().take_while(|c| **c == '#' || c.is_ascii_hexdigit()).collect();
+            put(
+                f,
+                ei,
+                ei.x + idx as u16,
+                y,
+                &token,
+                Style::default().fg(color).bg(pt.panel_bg).add_modifier(Modifier::BOLD),
+            );
         }
     }
     // Status line.
@@ -594,11 +696,23 @@ fn preview_editor(f: &mut Frame, area: Rect, pt: &Theme) {
 // Overlays
 // ---------------------------------------------------------------------------
 
-fn render_confirm_switch(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, button: usize, theme: &Theme) {
+fn render_confirm_switch(
+    f: &mut Frame,
+    area: Rect,
+    ed: &mut ThemeEditor,
+    button: usize,
+    theme: &Theme,
+) {
     render_confirm(f, area, &mut ed.z_overlay, button, theme);
 }
 
-fn render_confirm_exit(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, button: usize, theme: &Theme) {
+fn render_confirm_exit(
+    f: &mut Frame,
+    area: Rect,
+    ed: &mut ThemeEditor,
+    button: usize,
+    theme: &Theme,
+) {
     render_confirm(f, area, &mut ed.z_overlay, button, theme);
 }
 
@@ -638,7 +752,13 @@ fn confirm_block(title: &str, theme: &Theme) -> Block<'static> {
         .borders(Borders::ALL)
         .border_type(BorderType::Double)
         .border_style(Style::default().fg(theme.dialog_border_fg).bg(theme.dialog_border_bg))
-        .title(Span::styled(format!(" {title} "), Style::default().fg(theme.dialog_title).bg(theme.dialog_border_bg).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            format!(" {title} "),
+            Style::default()
+                .fg(theme.dialog_title)
+                .bg(theme.dialog_border_bg)
+                .add_modifier(Modifier::BOLD),
+        ))
         .title_alignment(Alignment::Center)
         .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg))
 }
@@ -650,7 +770,13 @@ fn render_save_as(f: &mut Frame, area: Rect, name: &str, cursor: usize, theme: &
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.dialog_border_fg).bg(theme.dialog_border_bg))
-        .title(Span::styled(format!(" {} ", trd("Save theme as")), Style::default().fg(theme.dialog_title).bg(theme.dialog_border_bg).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            format!(" {} ", trd("Save theme as")),
+            Style::default()
+                .fg(theme.dialog_title)
+                .bg(theme.dialog_border_bg)
+                .add_modifier(Modifier::BOLD),
+        ))
         .title_alignment(Alignment::Center)
         .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg));
     let di = blk.inner(d);
@@ -659,18 +785,48 @@ fn render_save_as(f: &mut Frame, area: Rect, name: &str, cursor: usize, theme: &
     if di.height < 3 {
         return;
     }
-    put(f, di, di.x + 1, di.y, &trd("Theme name:"), Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg));
+    put(
+        f,
+        di,
+        di.x + 1,
+        di.y,
+        &trd("Theme name:"),
+        Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg),
+    );
     let iy = di.y + 1;
-    put(f, di, di.x + 1, iy, &" ".repeat(di.width.saturating_sub(2) as usize), Style::default().bg(theme.input_bg).fg(theme.input_fg));
+    put(
+        f,
+        di,
+        di.x + 1,
+        iy,
+        &" ".repeat(di.width.saturating_sub(2) as usize),
+        Style::default().bg(theme.input_bg).fg(theme.input_fg),
+    );
     put(f, di, di.x + 1, iy, name, Style::default().bg(theme.input_bg).fg(theme.input_fg));
-    put(f, di, di.x + 3, di.bottom().saturating_sub(1), "Enter Save   Esc Cancel", Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg));
+    put(
+        f,
+        di,
+        di.x + 3,
+        di.bottom().saturating_sub(1),
+        "Enter Save   Esc Cancel",
+        Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg),
+    );
     let cx = di.x + 1 + (cursor.min(di.width.saturating_sub(3) as usize)) as u16;
     f.set_cursor_position((cx, iy));
 }
 
-fn render_button_row(f: &mut Frame, area: Rect, y: u16, labels: &[&str], sel: usize, theme: &Theme, zones: &mut [Rect; 3]) {
+fn render_button_row(
+    f: &mut Frame,
+    area: Rect,
+    y: u16,
+    labels: &[&str],
+    sel: usize,
+    theme: &Theme,
+    zones: &mut [Rect; 3],
+) {
     let gap = 2usize;
-    let total: usize = labels.iter().map(|l| l.chars().count()).sum::<usize>() + gap * labels.len().saturating_sub(1);
+    let total: usize = labels.iter().map(|l| l.chars().count()).sum::<usize>()
+        + gap * labels.len().saturating_sub(1);
     let mut x = area.x + (area.width.saturating_sub(total as u16)) / 2;
     for (i, label) in labels.iter().enumerate() {
         let style = if i == sel { theme.button_focused } else { theme.button };

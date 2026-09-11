@@ -68,8 +68,7 @@ impl AppState {
     /// same history `Alt-Y` / `Alt-U` step through, but jumpable.
     pub(in crate::app::state) fn open_dir_history(&mut self) {
         let p = &self.panels[self.active];
-        self.dialog =
-            Some(Dialog::DirHistory(DirHistoryDialog::new(&p.back, &p.cwd, &p.forward)));
+        self.dialog = Some(Dialog::DirHistory(DirHistoryDialog::new(&p.back, &p.cwd, &p.forward)));
     }
 
     /// Jump the active panel to a directory picked from the history list. The
@@ -130,8 +129,16 @@ impl AppState {
 
     /// If `(col, row)` falls on a panel's `◀`/`▶` history arrow, return
     /// `(side, is_back)`. Used by the mouse handler to run back/forward.
-    pub(in crate::app::state) fn history_arrow_at(&self, col: u16, row: u16) -> Option<(usize, bool)> {
-        let on = |r: Option<Rect>| r.is_some_and(|r| col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height);
+    pub(in crate::app::state) fn history_arrow_at(
+        &self,
+        col: u16,
+        row: u16,
+    ) -> Option<(usize, bool)> {
+        let on = |r: Option<Rect>| {
+            r.is_some_and(|r| {
+                col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height
+            })
+        };
         for side in 0..2 {
             if self.panel_hidden[side] {
                 continue;
@@ -154,10 +161,8 @@ impl AppState {
             let p = &self.panels[self.active];
             (p.cwd.scheme == "file").then(|| p.cwd.path.to_string_lossy().to_string())
         };
-        self.dialog = Some(Dialog::Hotlist(HotlistDialog::new(
-            self.config.bookmarks.clone(),
-            current,
-        )));
+        self.dialog =
+            Some(Dialog::Hotlist(HotlistDialog::new(self.config.bookmarks.clone(), current)));
     }
 
     /// Apply the hotlist's result: persist any edited bookmark list, and jump the
@@ -194,11 +199,7 @@ impl AppState {
     /// Set (or clear) panel `side`'s persistent listing filter and reload so it
     /// takes effect.
     pub(in crate::app::state) async fn apply_panel_filter(&mut self, side: usize, pattern: String) {
-        self.panels[side].filter = if pattern.trim().is_empty() {
-            None
-        } else {
-            Some(pattern)
-        };
+        self.panels[side].filter = if pattern.trim().is_empty() { None } else { Some(pattern) };
         let _ = self.panels[side].reload().await;
     }
 }

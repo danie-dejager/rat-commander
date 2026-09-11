@@ -10,7 +10,7 @@
 
 pub mod render;
 
-use crate::ui::theme::{self, GradRole, GradientSpec, PreviewKind, ThemeSpec, THEME_FIELDS};
+use crate::ui::theme::{self, GradRole, GradientSpec, PreviewKind, THEME_FIELDS, ThemeSpec};
 use ratatui::crossterm::event::{
     KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
@@ -20,10 +20,22 @@ use ratatui::style::Color;
 /// The 16 palette swatches offered on non-truecolor terminals (classic ANSI
 /// colors as explicit RGB, since specs always store `#rrggbb`).
 pub(crate) const SWATCHES: [(u8, u8, u8); 16] = [
-    (0x00, 0x00, 0x00), (0xaa, 0x00, 0x00), (0x00, 0xaa, 0x00), (0xaa, 0x55, 0x00),
-    (0x00, 0x00, 0xaa), (0xaa, 0x00, 0xaa), (0x00, 0xaa, 0xaa), (0xaa, 0xaa, 0xaa),
-    (0x55, 0x55, 0x55), (0xff, 0x55, 0x55), (0x55, 0xff, 0x55), (0xff, 0xff, 0x55),
-    (0x55, 0x55, 0xff), (0xff, 0x55, 0xff), (0x55, 0xff, 0xff), (0xff, 0xff, 0xff),
+    (0x00, 0x00, 0x00),
+    (0xaa, 0x00, 0x00),
+    (0x00, 0xaa, 0x00),
+    (0xaa, 0x55, 0x00),
+    (0x00, 0x00, 0xaa),
+    (0xaa, 0x00, 0xaa),
+    (0x00, 0xaa, 0xaa),
+    (0xaa, 0xaa, 0xaa),
+    (0x55, 0x55, 0x55),
+    (0xff, 0x55, 0x55),
+    (0x55, 0xff, 0x55),
+    (0xff, 0xff, 0x55),
+    (0x55, 0x55, 0xff),
+    (0xff, 0x55, 0xff),
+    (0x55, 0xff, 0xff),
+    (0xff, 0xff, 0xff),
 ];
 
 /// What [`ThemeEditor::handle_key`] asks the app to do.
@@ -58,12 +70,20 @@ pub(crate) enum Overlay {
     None,
     /// Unsaved changes while switching the picker to `target`. Buttons: 0 = Save,
     /// 1 = Discard, 2 = Cancel.
-    ConfirmSwitch { target: usize, button: usize },
+    ConfirmSwitch {
+        target: usize,
+        button: usize,
+    },
     /// Unsaved changes while trying to close the editor. Buttons: 0 = Save,
     /// 1 = Discard, 2 = Cancel.
-    ConfirmExit { button: usize },
+    ConfirmExit {
+        button: usize,
+    },
     /// "Save as" — enter a new theme name.
-    SaveAs { name: String, cursor: usize },
+    SaveAs {
+        name: String,
+        cursor: usize,
+    },
 }
 
 pub struct ThemeEditor {
@@ -127,17 +147,15 @@ fn nearest_swatch(c: Color) -> usize {
         let db = s.2 as i32 - b as i32;
         dr * dr + dg * dg + db * db
     };
-    SWATCHES
-        .iter()
-        .enumerate()
-        .min_by_key(|(_, s)| dist(s))
-        .map(|(i, _)| i)
-        .unwrap_or(0)
+    SWATCHES.iter().enumerate().min_by_key(|(_, s)| dist(s)).map(|(i, _)| i).unwrap_or(0)
 }
 
 /// Whether `(col, row)` falls inside `r`.
 fn within(r: Rect, col: u16, row: u16) -> bool {
-    col >= r.x && col < r.x.saturating_add(r.width) && row >= r.y && row < r.y.saturating_add(r.height)
+    col >= r.x
+        && col < r.x.saturating_add(r.width)
+        && row >= r.y
+        && row < r.y.saturating_add(r.height)
 }
 
 /// The index of the first of `rects` containing `(col, row)`.
@@ -257,8 +275,7 @@ impl ThemeEditor {
             KeyCode::Char(' ') => {
                 let on = self.spec.gradients.get(role).is_some();
                 let base = self.spec.gradient_base(role);
-                *self.spec.gradients.slot(role) =
-                    (!on).then(|| GradientSpec::default_for(base));
+                *self.spec.gradients.slot(role) = (!on).then(|| GradientSpec::default_for(base));
             }
             KeyCode::Char('d') if ctrl => {
                 if let Some(g) = self.spec.gradients.slot(role) {
@@ -1068,7 +1085,10 @@ mod tests {
         ed.handle_key(k(KeyCode::End)); // dirty
         let _t = rendered(&mut ed);
         let b = ed.z_buttons[0]; // Save
-        assert!(matches!(ed.handle_mouse(mouse_down(b.x + 1, b.y)), ThemeEditorSignal::SaveAndClose(_)));
+        assert!(matches!(
+            ed.handle_mouse(mouse_down(b.x + 1, b.y)),
+            ThemeEditorSignal::SaveAndClose(_)
+        ));
     }
 
     #[test]

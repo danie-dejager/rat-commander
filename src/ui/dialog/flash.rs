@@ -30,9 +30,8 @@ impl FlashTargetDialog {
         devices: Vec<crate::mount::BlockDevice>,
         preselect: Option<&str>,
     ) -> Self {
-        let cursor = preselect
-            .and_then(|dev| devices.iter().position(|d| d.dev == dev))
-            .unwrap_or(0);
+        let cursor =
+            preselect.and_then(|dev| devices.iter().position(|d| d.dev == dev)).unwrap_or(0);
         FlashTargetDialog {
             image_path,
             image_name,
@@ -96,17 +95,20 @@ impl FlashTargetDialog {
                 self.cursor = self.devices.len().saturating_sub(1);
                 DialogResult::None
             }
-            KeyCode::Enter => match self.fits(self.cursor).then(|| self.spec(self.cursor)).flatten() {
-                Some(s) => DialogResult::Submit(s),
-                None => DialogResult::None, // too small / empty: refuse
-            },
+            KeyCode::Enter => {
+                match self.fits(self.cursor).then(|| self.spec(self.cursor)).flatten() {
+                    Some(s) => DialogResult::Submit(s),
+                    None => DialogResult::None, // too small / empty: refuse
+                }
+            }
             _ => DialogResult::None,
         }
     }
 
     pub(crate) fn handle_click(&mut self, _area: Rect, col: u16, row: u16) -> DialogResult {
         let a = self.list_area;
-        if a.height == 0 || col < a.x || col >= a.x + a.width || row < a.y || row >= a.y + a.height {
+        if a.height == 0 || col < a.x || col >= a.x + a.width || row < a.y || row >= a.y + a.height
+        {
             return DialogResult::None;
         }
         let idx = self.top + (row - a.y) as usize;
@@ -226,7 +228,8 @@ impl FlashTargetDialog {
 
         let footer = pad_right(" ↑↓ select   Enter flash   Esc cancel", inner.width as usize);
         f.render_widget(
-            Paragraph::new(Line::from(Span::styled(footer, theme.fkey_label))).style(theme.fkey_label),
+            Paragraph::new(Line::from(Span::styled(footer, theme.fkey_label)))
+                .style(theme.fkey_label),
             rows[4],
         );
     }
@@ -411,7 +414,8 @@ impl FileBrowserDialog {
             return DialogResult::None;
         }
         let a = self.list_area;
-        if a.height == 0 || col < a.x || col >= a.x + a.width || row < a.y || row >= a.y + a.height {
+        if a.height == 0 || col < a.x || col >= a.x + a.width || row < a.y || row >= a.y + a.height
+        {
             return DialogResult::None;
         }
         let idx = self.top + (row - a.y) as usize;
@@ -447,7 +451,13 @@ impl FileBrowserDialog {
         let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                format!(" {}", ellipsize(&self.cwd.display().to_string(), inner.width.saturating_sub(1) as usize)),
+                format!(
+                    " {}",
+                    ellipsize(
+                        &self.cwd.display().to_string(),
+                        inner.width.saturating_sub(1) as usize
+                    )
+                ),
                 base,
             ))),
             rows[0],
@@ -498,7 +508,8 @@ impl FileBrowserDialog {
             inner.width as usize,
         );
         f.render_widget(
-            Paragraph::new(Line::from(Span::styled(footer, theme.fkey_label))).style(theme.fkey_label),
+            Paragraph::new(Line::from(Span::styled(footer, theme.fkey_label)))
+                .style(theme.fkey_label),
             rows[4],
         );
         if let Some(p) = caret {
@@ -536,12 +547,7 @@ pub struct ImageSaveDialog {
 
 impl ImageSaveDialog {
     pub fn new(source: crate::flash::FlashTarget, start_dir: std::path::PathBuf) -> Self {
-        let base = source
-            .dev
-            .rsplit('/')
-            .next()
-            .filter(|s| !s.is_empty())
-            .unwrap_or("disk");
+        let base = source.dev.rsplit('/').next().filter(|s| !s.is_empty()).unwrap_or("disk");
         let filename = format!("{base}.img");
         let mut d = ImageSaveDialog {
             source,
@@ -636,11 +642,8 @@ impl ImageSaveDialog {
 
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
         if key.code == KeyCode::Tab {
-            self.focus = if self.focus == SaveFocus::List {
-                SaveFocus::Name
-            } else {
-                SaveFocus::List
-            };
+            self.focus =
+                if self.focus == SaveFocus::List { SaveFocus::Name } else { SaveFocus::List };
             return DialogResult::None;
         }
         if self.focus == SaveFocus::Name {
@@ -691,7 +694,8 @@ impl ImageSaveDialog {
             return DialogResult::None;
         }
         let a = self.list_area;
-        if a.height == 0 || col < a.x || col >= a.x + a.width || row < a.y || row >= a.y + a.height {
+        if a.height == 0 || col < a.x || col >= a.x + a.width || row < a.y || row >= a.y + a.height
+        {
             return DialogResult::None;
         }
         let idx = self.top + (row - a.y) as usize;
@@ -738,7 +742,13 @@ impl ImageSaveDialog {
         );
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                format!(" {}", ellipsize(&self.cwd.display().to_string(), inner.width.saturating_sub(1) as usize)),
+                format!(
+                    " {}",
+                    ellipsize(
+                        &self.cwd.display().to_string(),
+                        inner.width.saturating_sub(1) as usize
+                    )
+                ),
                 base,
             ))),
             rows[1],
@@ -787,7 +797,8 @@ impl ImageSaveDialog {
             inner.width as usize,
         );
         f.render_widget(
-            Paragraph::new(Line::from(Span::styled(footer, theme.fkey_label))).style(theme.fkey_label),
+            Paragraph::new(Line::from(Span::styled(footer, theme.fkey_label)))
+                .style(theme.fkey_label),
             rows[5],
         );
         if let Some(p) = caret {
@@ -795,4 +806,3 @@ impl ImageSaveDialog {
         }
     }
 }
-

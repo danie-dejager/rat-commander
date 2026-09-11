@@ -82,11 +82,7 @@ where
     tokio::spawn(async move {
         let _ = done_tx.send(upload(rx).await);
     });
-    Box::new(PipeWriter {
-        tx: Some(tx),
-        done: Some(done_rx),
-        fut: None,
-    })
+    Box::new(PipeWriter { tx: Some(tx), done: Some(done_rx), fut: None })
 }
 
 struct PipeWriter {

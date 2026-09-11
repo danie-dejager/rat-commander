@@ -29,10 +29,7 @@ pub fn drive_root(letter: char) -> PathBuf {
 #[cfg(windows)]
 pub fn available_drives() -> Vec<char> {
     let mask = unsafe { GetLogicalDrives() };
-    (0u32..26)
-        .filter(|i| mask & (1 << i) != 0)
-        .map(|i| (b'A' + i as u8) as char)
-        .collect()
+    (0u32..26).filter(|i| mask & (1 << i) != 0).map(|i| (b'A' + i as u8) as char).collect()
 }
 
 #[cfg(not(windows))]

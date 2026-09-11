@@ -51,11 +51,7 @@ pub fn render_panel(
     graphics: bool,
     nerd: bool,
 ) {
-    let border_color = if active {
-        theme.panel_border_active
-    } else {
-        theme.panel_border
-    };
+    let border_color = if active { theme.panel_border_active } else { theme.panel_border };
     // The Details and 3D views have no listing of their own (they describe the
     // *other* panel), so their titles are fixed labels rather than a path — the
     // panel's own directory is not what is on screen, and showing it just names
@@ -82,10 +78,8 @@ pub fn render_panel(
     // panel is wide enough for them).
     let arrows = area.width >= 12;
     let (lpad, reserve) = if arrows { ("  ", 6usize) } else { (" ", 4usize) };
-    let title = format!(
-        "{lpad}{} ",
-        ellipsize(&title_path, (area.width as usize).saturating_sub(reserve))
-    );
+    let title =
+        format!("{lpad}{} ", ellipsize(&title_path, (area.width as usize).saturating_sub(reserve)));
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Plain)
@@ -154,10 +148,7 @@ pub fn render_panel(
     let inner = render_tab_strip(f, inner, panel, active, theme);
 
     let list_height = inner.height.saturating_sub(reserve);
-    let list_area = Rect {
-        height: list_height,
-        ..inner
-    };
+    let list_area = Rect { height: list_height, ..inner };
 
     match panel.format {
         ViewFormat::Full => render_full(f, list_area, panel, active, theme, nerd),
@@ -171,11 +162,7 @@ pub fn render_panel(
     let (body, brief, columns, rows, cell_w) = match panel.format {
         ViewFormat::Details => unreachable!("Details is rendered earlier and returns"),
         ViewFormat::Full => (
-            Rect {
-                y: list_area.y + 1,
-                height: list_area.height.saturating_sub(1),
-                ..list_area
-            },
+            Rect { y: list_area.y + 1, height: list_area.height.saturating_sub(1), ..list_area },
             false,
             1usize,
             1usize,
@@ -199,15 +186,7 @@ pub fn render_panel(
         (ViewFormat::Tree, Some(t)) => t.offset,
         _ => panel.offset,
     };
-    panel.hit = Some(crate::panel::PanelHit {
-        area,
-        body,
-        brief,
-        offset,
-        columns,
-        rows,
-        cell_w,
-    });
+    panel.hit = Some(crate::panel::PanelHit { area, body, brief, offset, columns, rows, cell_w });
 
     let status_y = if reserve == 2 {
         let sep_y = inner.y + list_height;
@@ -216,11 +195,7 @@ pub fn render_panel(
     } else {
         inner.y + list_height
     };
-    let status_area = Rect {
-        y: status_y,
-        height: 1,
-        ..inner
-    };
+    let status_area = Rect { y: status_y, height: 1, ..inner };
     if let Some(query) = quick_search {
         render_quick_search(f, status_area, query, panel, theme);
     } else {
@@ -243,7 +218,13 @@ fn render_panel_separator(f: &mut Frame, area: Rect, y: u16, border_color: Color
 /// Draw the `◀` back arrow at the top-left and the `▶` forward arrow at the
 /// top-right of the border, and record their screen rects on the panel for mouse
 /// hit-testing. A dim arrow means there is nowhere to go in that direction.
-fn render_history_arrows(f: &mut Frame, area: Rect, panel: &mut Panel, enabled: bool, theme: &Theme) {
+fn render_history_arrows(
+    f: &mut Frame,
+    area: Rect,
+    panel: &mut Panel,
+    enabled: bool,
+    theme: &Theme,
+) {
     panel.back_arrow = None;
     panel.fwd_arrow = None;
     if !enabled || area.width < 12 {
@@ -278,10 +259,7 @@ fn render_git_branch(f: &mut Frame, area: Rect, panel: &Panel, theme: &Theme) {
     let maxw = (area.width as usize / 2).max(8);
     let label = ellipsize(&label, maxw);
     let y = area.y + area.height - 1;
-    let style = Style::default()
-        .fg(theme.exec_fg)
-        .bg(theme.panel_bg)
-        .add_modifier(Modifier::BOLD);
+    let style = Style::default().fg(theme.exec_fg).bg(theme.panel_bg).add_modifier(Modifier::BOLD);
     f.buffer_mut().set_string(area.x + 1, y, label, style);
 }
 
@@ -293,12 +271,8 @@ fn render_disk_usage(f: &mut Frame, area: Rect, panel: &Panel, border_color: Col
     if area.height == 0 || area.width < 24 {
         return;
     }
-    let text = format!(
-        " {} / {} ({}%) ",
-        human_size(du.used()),
-        human_size(du.total),
-        du.percent_used()
-    );
+    let text =
+        format!(" {} / {} ({}%) ", human_size(du.used()), human_size(du.total), du.percent_used());
     let w = text.chars().count() as u16;
     // Keep a column of border on each side of the label.
     if w + 4 > area.width {
@@ -306,10 +280,7 @@ fn render_disk_usage(f: &mut Frame, area: Rect, panel: &Panel, border_color: Col
     }
     let y = area.y + area.height - 1;
     let x = area.x + area.width - 1 - w - 1;
-    let style = Style::default()
-        .fg(border_color)
-        .bg(theme.panel_bg)
-        .add_modifier(Modifier::BOLD);
+    let style = Style::default().fg(border_color).bg(theme.panel_bg).add_modifier(Modifier::BOLD);
     f.buffer_mut().set_string(x, y, text, style);
 }
 
@@ -368,16 +339,8 @@ fn classify_prefix(e: &VfsEntry) -> char {
 /// cursor is also marked, the foreground is forced to the marked color so the
 /// selection remains discernible beneath the cursor highlight.
 fn cursor_style(active: bool, marked: bool, theme: &Theme) -> Style {
-    let base = if active {
-        theme.cursor
-    } else {
-        theme.cursor_inactive
-    };
-    if marked {
-        base.fg(theme.marked_fg).add_modifier(Modifier::BOLD)
-    } else {
-        base
-    }
+    let base = if active { theme.cursor } else { theme.cursor_inactive };
+    if marked { base.fg(theme.marked_fg).add_modifier(Modifier::BOLD) } else { base }
 }
 
 fn ensure_visible(cursor: usize, offset: &mut usize, height: usize) {
@@ -420,10 +383,8 @@ fn render_full(
     let (name_w, size_w, time_w) = full_columns(width);
 
     // Header row, with vertical separators matching the data rows.
-    let header_style = Style::default()
-        .fg(theme.header_fg)
-        .bg(theme.panel_bg)
-        .add_modifier(Modifier::BOLD);
+    let header_style =
+        Style::default().fg(theme.header_fg).bg(theme.panel_bg).add_modifier(Modifier::BOLD);
     let sep_style = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
     let header_line = Line::from(vec![
         Span::styled(pad_right("Name", name_w), header_style),
@@ -435,11 +396,7 @@ fn render_full(
     let header_area = Rect { height: 1, ..area };
     f.render_widget(Paragraph::new(header_line), header_area);
 
-    let body_area = Rect {
-        y: area.y + 1,
-        height: area.height.saturating_sub(1),
-        ..area
-    };
+    let body_area = Rect { y: area.y + 1, height: area.height.saturating_sub(1), ..area };
     let rows = body_area.height as usize;
     panel.page = rows.max(1);
     ensure_visible(panel.cursor, &mut panel.offset, rows);
@@ -479,21 +436,19 @@ fn render_full(
             if theme.truecolor {
                 let fg = if marked { theme.marked_fg } else { theme.cursor_fg };
                 // The row already carries the cursor's own ramp, cell by cell.
-                crate::ui::gradient::mark_painted(Rect { y: body_area.y + i as u16, height: 1, ..body_area });
+                crate::ui::gradient::mark_painted(Rect {
+                    y: body_area.y + i as u16,
+                    height: 1,
+                    ..body_area
+                });
                 lines.push(gradient_line(&text, width, fg, theme));
             } else {
-                lines.push(Line::from(Span::styled(
-                    text,
-                    cursor_style(true, marked, theme),
-                )));
+                lines.push(Line::from(Span::styled(text, cursor_style(true, marked, theme))));
             }
         } else {
             // Marked rows are highlighted across all columns, not just the name.
             let data_style = if marked {
-                Style::default()
-                    .fg(theme.marked_fg)
-                    .bg(theme.panel_bg)
-                    .add_modifier(Modifier::BOLD)
+                Style::default().fg(theme.marked_fg).bg(theme.panel_bg).add_modifier(Modifier::BOLD)
             } else {
                 normal
             };
@@ -568,10 +523,8 @@ fn render_brief(
                     };
                     spans.push(Span::styled(text, style));
                 }
-                None => spans.push(Span::styled(
-                    " ".repeat(name_w),
-                    Style::default().bg(theme.panel_bg),
-                )),
+                None => spans
+                    .push(Span::styled(" ".repeat(name_w), Style::default().bg(theme.panel_bg))),
             }
             // Separator after every column except the last.
             if c + 1 < columns {
@@ -646,11 +599,7 @@ fn render_tree(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
 /// prefix (see [`classify_prefix`]), or — with Nerd Font symbols on — the
 /// entry's type glyph followed by a space, so names stay aligned either way.
 fn entry_marker(e: &VfsEntry, nerd: bool) -> String {
-    if nerd {
-        format!("{} ", crate::panel::icons::icon(e))
-    } else {
-        classify_prefix(e).to_string()
-    }
+    if nerd { format!("{} ", crate::panel::icons::icon(e)) } else { classify_prefix(e).to_string() }
 }
 
 /// Name as shown in the list: the type marker (see [`entry_marker`]) followed by
@@ -714,7 +663,10 @@ fn render_mini_status(f: &mut Frame, area: Rect, panel: &Panel, theme: &Theme, n
             .map(|p| p.display())
             .unwrap_or_default();
         f.render_widget(
-            Paragraph::new(Line::from(Span::styled(pad_right(&ellipsize(&text, width), width), style))),
+            Paragraph::new(Line::from(Span::styled(
+                pad_right(&ellipsize(&text, width), width),
+                style,
+            ))),
             area,
         );
         return;
@@ -748,7 +700,10 @@ fn render_mini_status(f: &mut Frame, area: Rect, panel: &Panel, theme: &Theme, n
             })
             .unwrap_or_default();
         f.render_widget(
-            Paragraph::new(Line::from(Span::styled(pad_right(&ellipsize(&text, width), width), style))),
+            Paragraph::new(Line::from(Span::styled(
+                pad_right(&ellipsize(&text, width), width),
+                style,
+            ))),
             area,
         );
         return;
@@ -800,20 +755,12 @@ fn render_mini_status(f: &mut Frame, area: Rect, panel: &Panel, theme: &Theme, n
 /// followed by the live query, styled like a dialog input field. Also records
 /// the caret screen position on `panel.quick_caret` so the root draw can place
 /// the terminal cursor there.
-fn render_quick_search(
-    f: &mut Frame,
-    area: Rect,
-    query: &str,
-    panel: &mut Panel,
-    theme: &Theme,
-) {
+fn render_quick_search(f: &mut Frame, area: Rect, query: &str, panel: &mut Panel, theme: &Theme) {
     let prompt = ">";
     let prompt_style = Style::default().fg(theme.cursor_fg).bg(theme.input_bg);
     let text_style = Style::default().fg(theme.input_fg).bg(theme.input_bg);
-    let line = Line::from(vec![
-        Span::styled(prompt, prompt_style),
-        Span::styled(query, text_style),
-    ]);
+    let line =
+        Line::from(vec![Span::styled(prompt, prompt_style), Span::styled(query, text_style)]);
     f.render_widget(Paragraph::new(line), area);
     // Fill the remainder of the row with the input background so the field
     // reads as a single solid bar (mirroring dialog input fields).
@@ -821,17 +768,12 @@ fn render_quick_search(
     let width = area.width as usize;
     if width > taken {
         let fill = Span::styled(" ".repeat(width - taken), text_style);
-        let fill_area = Rect {
-            x: area.x + taken as u16,
-            width: (width - taken) as u16,
-            ..area
-        };
+        let fill_area = Rect { x: area.x + taken as u16, width: (width - taken) as u16, ..area };
         f.render_widget(Paragraph::new(Line::from(fill)), fill_area);
     }
     let caret_x = area.x + taken as u16;
     panel.quick_caret = Some(ratatui::layout::Position::new(caret_x, area.y));
 }
-
 
 /// Draw the tab strip along the top of the panel interior, returning the area
 /// left for the listing. A single tab draws nothing and returns `inner` intact.
@@ -850,11 +792,7 @@ fn render_tab_strip(
         return inner;
     }
     let row = Rect { height: 1, ..inner };
-    let rest = Rect {
-        y: inner.y + 1,
-        height: inner.height - 1,
-        ..inner
-    };
+    let rest = Rect { y: inner.y + 1, height: inner.height - 1, ..inner };
 
     let base = theme.panel_base();
     f.render_widget(Paragraph::new("").style(base), row);
@@ -930,8 +868,21 @@ mod tests {
             panel.format = fmt;
             panel.cursor = 1; // the archive is the current entry
             let mut term = Terminal::new(TestBackend::new(44, 8)).unwrap();
-            term.draw(|t| render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false))
-                .unwrap();
+            term.draw(|t| {
+                render_panel(
+                    t,
+                    t.area(),
+                    &mut panel,
+                    true,
+                    &Default::default(),
+                    &theme,
+                    2,
+                    None,
+                    false,
+                    false,
+                )
+            })
+            .unwrap();
             let b = term.backend().buffer();
             let seps = |row: u16| -> Vec<u16> {
                 (1..b.area.width - 1).filter(|&x| b[(x, row)].symbol() == "│").collect()
@@ -942,7 +893,11 @@ mod tests {
             let (name_w, size_w, _) = full_columns((b.area.width - 2) as usize);
             let x0 = 1 + name_w as u16;
             let x1 = x0 + 1 + size_w as u16;
-            assert_eq!(mini_seps, vec![x0, x1], "{fmt:?}: mini-status columns align with the listing");
+            assert_eq!(
+                mini_seps,
+                vec![x0, x1],
+                "{fmt:?}: mini-status columns align with the listing"
+            );
             // Size and modify date are both shown.
             let text: String = (0..b.area.width).map(|x| b[(x, mini_row)].symbol()).collect();
             assert!(text.contains("9.4M"), "{fmt:?}: size shown in the mini-status");
@@ -974,8 +929,21 @@ mod tests {
         });
 
         let mut t = Terminal::new(TestBackend::new(44, 8)).unwrap();
-        t.draw(|f| render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false))
-            .unwrap();
+        t.draw(|f| {
+            render_panel(
+                f,
+                f.area(),
+                &mut panel,
+                true,
+                &Default::default(),
+                &theme,
+                2,
+                None,
+                false,
+                false,
+            )
+        })
+        .unwrap();
         let b = t.backend().buffer();
         let all: String = (0..b.area.height)
             .flat_map(|y| (0..b.area.width).map(move |x| (x, y)))
@@ -985,7 +953,8 @@ mod tests {
         assert!(all.contains("?new.rs"), "untracked file shows the ? glyph");
         assert!(all.contains(" clean.rs"), "a clean file keeps its plain marker");
         // The branch + ahead count is on the bottom border.
-        let bottom: String = (0..b.area.width).map(|x| b[(x, b.area.height - 1)].symbol()).collect();
+        let bottom: String =
+            (0..b.area.width).map(|x| b[(x, b.area.height - 1)].symbol()).collect();
         assert!(bottom.contains("main"), "branch on the border: {bottom:?}");
         assert!(bottom.contains("↑2"), "ahead count on the border: {bottom:?}");
     }
@@ -1000,8 +969,21 @@ mod tests {
         panel.entries = vec![entry("a.txt", VfsKind::File, 0o644, false)];
 
         let mut t = Terminal::new(TestBackend::new(40, 8)).unwrap();
-        t.draw(|f| render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false))
-            .unwrap();
+        t.draw(|f| {
+            render_panel(
+                f,
+                f.area(),
+                &mut panel,
+                true,
+                &Default::default(),
+                &theme,
+                2,
+                None,
+                false,
+                false,
+            )
+        })
+        .unwrap();
         let b = t.backend().buffer();
         // The first interior row is the Full view's column header, i.e. the
         // listing starts immediately — no row was given up to a tab strip.
@@ -1014,9 +996,9 @@ mod tests {
 
     #[test]
     fn a_tab_strip_renders_and_records_click_targets() {
+        use crate::panel::tabs::TabState;
         use ratatui::Terminal;
         use ratatui::backend::TestBackend;
-        use crate::panel::tabs::TabState;
         let theme = Theme::mc();
         let backend = crate::vfs::registry::Registry::default().local();
         let mut panel = Panel::new(backend, crate::vfs::VfsPath::local("/tmp/here"));
@@ -1028,8 +1010,21 @@ mod tests {
         panel.tab = 0;
 
         let mut t = Terminal::new(TestBackend::new(40, 8)).unwrap();
-        t.draw(|f| render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false))
-            .unwrap();
+        t.draw(|f| {
+            render_panel(
+                f,
+                f.area(),
+                &mut panel,
+                true,
+                &Default::default(),
+                &theme,
+                2,
+                None,
+                false,
+                false,
+            )
+        })
+        .unwrap();
         let b = t.backend().buffer();
 
         // Row 1 (first interior row) is the strip, naming both directories.
@@ -1065,18 +1060,27 @@ mod tests {
         panel.filter = Some("*.rs".to_string());
 
         let mut t = Terminal::new(TestBackend::new(40, 8)).unwrap();
-        t.draw(|f| render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false))
-            .unwrap();
+        t.draw(|f| {
+            render_panel(
+                f,
+                f.area(),
+                &mut panel,
+                true,
+                &Default::default(),
+                &theme,
+                2,
+                None,
+                false,
+                false,
+            )
+        })
+        .unwrap();
         let b = t.backend().buffer();
         let top: String = (0..b.area.width).map(|x| b[(x, 0)].symbol()).collect();
         assert!(top.contains('◀') && top.contains('▶'), "history arrows drawn: {top:?}");
         // ◀ sits at the top-left, ▶ at the top-right (before the corner).
         assert_eq!(panel.back_arrow.unwrap().x, 1, "back arrow at the top-left");
-        assert_eq!(
-            panel.fwd_arrow.unwrap().x,
-            b.area.width - 2,
-            "forward arrow at the top-right"
-        );
+        assert_eq!(panel.fwd_arrow.unwrap().x, b.area.width - 2, "forward arrow at the top-right");
         assert_eq!(b[(1, 0)].symbol(), "◀");
         assert_eq!(b[(b.area.width - 2, 0)].symbol(), "▶");
         assert!(top.contains("[*.rs]"), "active filter surfaced in the title: {top:?}");
@@ -1130,7 +1134,18 @@ mod tests {
         let (mut panel, theme) = space3d_panel(true);
         let mut t = Terminal::new(TestBackend::new(70, 22)).unwrap();
         t.draw(|f| {
-            render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false)
+            render_panel(
+                f,
+                f.area(),
+                &mut panel,
+                true,
+                &Default::default(),
+                &theme,
+                2,
+                None,
+                false,
+                false,
+            )
         })
         .unwrap();
         let s = screen(&t);
@@ -1152,7 +1167,18 @@ mod tests {
             let (mut panel, theme) = space3d_panel(truecolor);
             let mut t = Terminal::new(TestBackend::new(90, 30)).unwrap();
             t.draw(|f| {
-                render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false)
+                render_panel(
+                    f,
+                    f.area(),
+                    &mut panel,
+                    true,
+                    &Default::default(),
+                    &theme,
+                    2,
+                    None,
+                    false,
+                    false,
+                )
             })
             .unwrap();
             let s = screen(&t);
@@ -1192,7 +1218,18 @@ mod tests {
 
         let mut t = Terminal::new(TestBackend::new(120, 34)).unwrap();
         t.draw(|f| {
-            render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false)
+            render_panel(
+                f,
+                f.area(),
+                &mut panel,
+                true,
+                &Default::default(),
+                &theme,
+                2,
+                None,
+                false,
+                false,
+            )
         })
         .unwrap();
         let s = screen(&t);
@@ -1208,7 +1245,18 @@ mod tests {
         let (mut panel, theme) = space3d_panel(true);
         let mut t = Terminal::new(TestBackend::new(90, 30)).unwrap();
         t.draw(|f| {
-            render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, true, false)
+            render_panel(
+                f,
+                f.area(),
+                &mut panel,
+                true,
+                &Default::default(),
+                &theme,
+                2,
+                None,
+                true,
+                false,
+            )
         })
         .unwrap();
         let s = screen(&t);
@@ -1239,7 +1287,18 @@ mod tests {
         panel.filter = Some("*.rs".into());
         let mut t = Terminal::new(TestBackend::new(70, 22)).unwrap();
         t.draw(|f| {
-            render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false)
+            render_panel(
+                f,
+                f.area(),
+                &mut panel,
+                true,
+                &Default::default(),
+                &theme,
+                2,
+                None,
+                false,
+                false,
+            )
         })
         .unwrap();
         let b = t.backend().buffer();
@@ -1258,7 +1317,18 @@ mod tests {
         let (mut panel, theme) = space3d_panel(true);
         let mut t = Terminal::new(TestBackend::new(70, 22)).unwrap();
         t.draw(|f| {
-            render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, true, false)
+            render_panel(
+                f,
+                f.area(),
+                &mut panel,
+                true,
+                &Default::default(),
+                &theme,
+                2,
+                None,
+                true,
+                false,
+            )
         })
         .unwrap();
         assert!(panel.scene_area.is_some(), "the target rect is handed to the root layer");
@@ -1274,7 +1344,18 @@ mod tests {
         let (mut panel, theme) = space3d_panel(false);
         let mut t = Terminal::new(TestBackend::new(70, 22)).unwrap();
         t.draw(|f| {
-            render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false)
+            render_panel(
+                f,
+                f.area(),
+                &mut panel,
+                true,
+                &Default::default(),
+                &theme,
+                2,
+                None,
+                false,
+                false,
+            )
         })
         .unwrap();
         let s = screen(&t);
@@ -1294,14 +1375,36 @@ mod tests {
         for (w, h) in [(14u16, 6u16), (5, 3), (3, 3)] {
             let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
             t.draw(|f| {
-                render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false)
+                render_panel(
+                    f,
+                    f.area(),
+                    &mut panel,
+                    true,
+                    &Default::default(),
+                    &theme,
+                    2,
+                    None,
+                    false,
+                    false,
+                )
             })
             .unwrap();
         }
         // At a size that still has room for the message, it is shown.
         let mut t = Terminal::new(TestBackend::new(20, 8)).unwrap();
         t.draw(|f| {
-            render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false)
+            render_panel(
+                f,
+                f.area(),
+                &mut panel,
+                true,
+                &Default::default(),
+                &theme,
+                2,
+                None,
+                false,
+                false,
+            )
         })
         .unwrap();
         assert!(screen(&t).contains("too small"), "the panel explains itself");
@@ -1317,7 +1420,18 @@ mod tests {
         panel.space3d = None; // as `build_space3d` leaves it for a remote cwd
         let mut t = Terminal::new(TestBackend::new(70, 22)).unwrap();
         t.draw(|f| {
-            render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false)
+            render_panel(
+                f,
+                f.area(),
+                &mut panel,
+                true,
+                &Default::default(),
+                &theme,
+                2,
+                None,
+                false,
+                false,
+            )
         })
         .unwrap();
         assert!(screen(&t).contains("local directory"), "says why there is nothing to draw");
@@ -1346,10 +1460,8 @@ mod tests {
     async fn tree_view_renders_markers_and_selected_path() {
         use ratatui::Terminal;
         use ratatui::backend::TestBackend;
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let root =
             std::env::temp_dir().join(format!("rc-tree-render-{}-{nanos}", std::process::id()));
         std::fs::create_dir_all(root.join("alpha")).unwrap();
@@ -1363,8 +1475,21 @@ mod tests {
 
         // Wide enough that the mini-status path isn't ellipsized.
         let mut term = Terminal::new(TestBackend::new(90, 12)).unwrap();
-        term.draw(|t| render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false))
-            .unwrap();
+        term.draw(|t| {
+            render_panel(
+                t,
+                t.area(),
+                &mut panel,
+                true,
+                &Default::default(),
+                &theme,
+                2,
+                None,
+                false,
+                false,
+            )
+        })
+        .unwrap();
         let buf = term.backend().buffer();
         let text: String = (0..buf.area.height)
             .flat_map(|y| (0..buf.area.width).map(move |x| (x, y)))
@@ -1434,7 +1559,18 @@ mod tests {
 
         let mut t = Terminal::new(TestBackend::new(44, 8)).unwrap();
         t.draw(|f| {
-            render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, true)
+            render_panel(
+                f,
+                f.area(),
+                &mut panel,
+                true,
+                &Default::default(),
+                &theme,
+                2,
+                None,
+                false,
+                true,
+            )
         })
         .unwrap();
         let b = t.backend().buffer();
@@ -1503,7 +1639,18 @@ mod tests {
 
         let mut term = Terminal::new(TestBackend::new(40, 8)).unwrap();
         term.draw(|t| {
-            render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2, Some("hi"), false, false)
+            render_panel(
+                t,
+                t.area(),
+                &mut panel,
+                true,
+                &Default::default(),
+                &theme,
+                2,
+                Some("hi"),
+                false,
+                false,
+            )
         })
         .unwrap();
         let b = term.backend().buffer();

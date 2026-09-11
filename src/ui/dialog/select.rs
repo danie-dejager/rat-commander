@@ -108,7 +108,11 @@ impl SelectDialog {
         }
         // OK / Cancel on the last interior row (left half OK, right half Cancel).
         if row == inner.y + inner.height.saturating_sub(1) && in_x {
-            return if col < inner.x + inner.width / 2 { self.submit() } else { DialogResult::Cancel };
+            return if col < inner.x + inner.width / 2 {
+                self.submit()
+            } else {
+                DialogResult::Cancel
+            };
         }
         DialogResult::None
     }
@@ -133,8 +137,13 @@ impl SelectDialog {
         let half = inner.width / 2;
         let r1 = Rect { y: inner.y + 2, height: 1, ..inner };
         f.render_widget(
-            Paragraph::new(Line::from(check_span(&crate::l10n::trd("Files only"), self.files_only, self.focus == 1, theme)))
-                .style(Style::default().bg(theme.dialog_bg)),
+            Paragraph::new(Line::from(check_span(
+                &crate::l10n::trd("Files only"),
+                self.files_only,
+                self.focus == 1,
+                theme,
+            )))
+            .style(Style::default().bg(theme.dialog_bg)),
             Rect { width: half, ..r1 },
         );
         f.render_widget(
@@ -176,4 +185,3 @@ impl SelectDialog {
         }
     }
 }
-

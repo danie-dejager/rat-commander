@@ -283,10 +283,8 @@ mod tests {
     use std::path::PathBuf;
 
     fn tmp(bytes: &[u8]) -> PathBuf {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let p = std::env::temp_dir().join(format!("rc_hex_{}_{nanos}", std::process::id()));
         std::fs::write(&p, bytes).unwrap();
         p

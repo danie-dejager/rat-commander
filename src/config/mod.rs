@@ -50,16 +50,8 @@ pub(crate) fn default_true() -> bool {
 impl RemoteHistoryEntry {
     /// One-line label for the dropdown, e.g. `user@host:22  /remote/path`.
     pub fn label(&self) -> String {
-        let user = if self.user.is_empty() {
-            String::new()
-        } else {
-            format!("{}@", self.user)
-        };
-        let path = if self.path.is_empty() {
-            String::new()
-        } else {
-            format!("  {}", self.path)
-        };
+        let user = if self.user.is_empty() { String::new() } else { format!("{}@", self.user) };
+        let path = if self.path.is_empty() { String::new() } else { format!("  {}", self.path) };
         format!("{user}{}:{}{path}", self.host, self.port)
     }
 }
@@ -439,9 +431,7 @@ impl Config {
     /// empty — the `$VISUAL` then `$EDITOR` environment variables (the Unix
     /// convention). `None` when none is set, meaning the internal editor is used.
     pub fn external_editor(&self) -> Option<String> {
-        non_empty(&self.editor)
-            .or_else(|| env_command("VISUAL"))
-            .or_else(|| env_command("EDITOR"))
+        non_empty(&self.editor).or_else(|| env_command("VISUAL")).or_else(|| env_command("EDITOR"))
     }
 
     /// The external viewer/pager command: the configured `viewer`, or `$PAGER`.
@@ -511,10 +501,8 @@ fn load_history_from(path: &std::path::Path, max: usize) -> Vec<String> {
 fn save_history_to(path: &std::path::Path, history: &[String], max: usize) {
     // One command per line, so skip entries with embedded newlines (a pasted
     // multi-line command) and blank entries.
-    let clean: Vec<&String> = history
-        .iter()
-        .filter(|e| !e.trim().is_empty() && !e.contains(['\n', '\r']))
-        .collect();
+    let clean: Vec<&String> =
+        history.iter().filter(|e| !e.trim().is_empty() && !e.contains(['\n', '\r'])).collect();
     let start = clean.len().saturating_sub(max);
     let body: String = clean[start..].iter().map(|e| format!("{e}\n")).collect();
     if let Some(parent) = path.parent() {
@@ -566,10 +554,7 @@ pub fn save_editor_position(key: &str, line: usize, col: usize) {
 }
 
 fn read_editor_positions(path: &std::path::Path) -> EditorPositions {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|s| toml::from_str(&s).ok())
-        .unwrap_or_default()
+    std::fs::read_to_string(path).ok().and_then(|s| toml::from_str(&s).ok()).unwrap_or_default()
 }
 
 fn position_from(path: &std::path::Path, key: &str) -> Option<(usize, usize)> {
@@ -714,11 +699,7 @@ mod tests {
         c.add_recent_remote(entry("h10", "/new"));
         assert_eq!(c.recent_remotes[0].host, "h10");
         assert_eq!(c.recent_remotes[0].path, "/new");
-        assert_eq!(
-            c.recent_remotes.iter().filter(|e| e.host == "h10").count(),
-            1,
-            "no duplicate"
-        );
+        assert_eq!(c.recent_remotes.iter().filter(|e| e.host == "h10").count(), 1, "no duplicate");
     }
 
     #[test]
@@ -728,7 +709,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("history");
 
-        let hist: Vec<String> = ["one", "two", "three", "four"].iter().map(|s| s.to_string()).collect();
+        let hist: Vec<String> =
+            ["one", "two", "three", "four"].iter().map(|s| s.to_string()).collect();
         // Save keeps only the most-recent `max` entries…
         save_history_to(&path, &hist, 2);
         assert_eq!(load_history_from(&path, 10), vec!["three".to_string(), "four".to_string()]);
@@ -788,7 +770,8 @@ mod tests {
         assert!(e.passive);
         // A stored value is honoured either way.
         let e: RemoteHistoryEntry =
-            toml::from_str("protocol = \"ftp\"\nhost = \"h\"\nport = 21\npassive = false\n").unwrap();
+            toml::from_str("protocol = \"ftp\"\nhost = \"h\"\nport = 21\npassive = false\n")
+                .unwrap();
         assert!(!e.passive);
     }
 
@@ -866,11 +849,8 @@ mod env_fallback_tests {
     fn external_program_falls_back_to_visual_editor_pager_env() {
         // editor/viewer empty; internal toggles off so `wants_internal_*` reflects
         // purely whether an external command resolved (config or env).
-        let c = Config {
-            use_internal_editor: false,
-            use_internal_viewer: false,
-            ..Config::default()
-        };
+        let c =
+            Config { use_internal_editor: false, use_internal_viewer: false, ..Config::default() };
         // Save and clear the vars this test drives, restore them afterward.
         let vars = ["VISUAL", "EDITOR", "PAGER"];
         let saved: Vec<Option<String>> = vars.iter().map(|k| std::env::var(k).ok()).collect();
@@ -879,7 +859,10 @@ mod env_fallback_tests {
 
         vars.iter().for_each(|k| clear(k));
         assert_eq!(c.external_editor(), None, "no config, no env → the internal editor");
-        assert!(c.wants_internal_editor() && c.wants_internal_viewer(), "nothing external → internal");
+        assert!(
+            c.wants_internal_editor() && c.wants_internal_viewer(),
+            "nothing external → internal"
+        );
 
         set("EDITOR", "vi");
         assert_eq!(c.external_editor().as_deref(), Some("vi"));

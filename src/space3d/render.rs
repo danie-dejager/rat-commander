@@ -135,9 +135,8 @@ fn draw_cell_labels(f: &mut Frame, area: Rect, slots: &[raster3d::LabelSlot], th
         }
         let bg = raster::rgb(theme.panel_bg);
         let fg = raster::over(bg, raster::rgb(theme.panel_fg), s.fade.clamp(0.0, 1.0) as f64);
-        let mut style = Style::default()
-            .fg(ratatui::style::Color::Rgb(fg.0, fg.1, fg.2))
-            .bg(theme.panel_bg);
+        let mut style =
+            Style::default().fg(ratatui::style::Color::Rgb(fg.0, fg.1, fg.2)).bg(theme.panel_bg);
         if s.important {
             style = style.add_modifier(ratatui::style::Modifier::BOLD);
         }
@@ -286,13 +285,7 @@ fn to_hsv(c: raster::Rgb) -> (f64, f64, f64) {
 
 /// A cheap signature of everything the image depends on, so a settled camera
 /// over a quiet cache neither rebuilds nor re-encodes it.
-pub fn signature(
-    sp: &Space3d,
-    boxes: &[raster3d::SceneBox],
-    w: u32,
-    h: u32,
-    theme: &Theme,
-) -> u64 {
+pub fn signature(sp: &Space3d, boxes: &[raster3d::SceneBox], w: u32, h: u32, theme: &Theme) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hsh = std::collections::hash_map::DefaultHasher::new();
     (w, h).hash(&mut hsh);

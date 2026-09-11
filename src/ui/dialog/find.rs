@@ -112,13 +112,15 @@ impl FindDialog {
     /// layout in [`Self::render`]. Clicks outside the box do nothing.
     pub(crate) fn handle_click(&mut self, area: Rect, col: u16, row: u16) -> DialogResult {
         let rect = self.box_rect(area);
-        if col < rect.x || col >= rect.x + rect.width || row < rect.y || row >= rect.y + rect.height {
+        if col < rect.x || col >= rect.x + rect.width || row < rect.y || row >= rect.y + rect.height
+        {
             return DialogResult::None;
         }
         let inner_x = rect.x + 1;
         let half = (rect.width - 2) / 2;
         // Place the caret at the clicked character within a text field.
-        let caret_at = |value: &str| (col.saturating_sub(inner_x) as usize).min(value.chars().count());
+        let caret_at =
+            |value: &str| (col.saturating_sub(inner_x) as usize).min(value.chars().count());
         // Row offset within the interior (see `render`: fields at 1/4/6, the three
         // checkbox rows at 8/9/10, a blank spacer at 11, and the OK/Cancel row at 12).
         match row as i32 - (rect.y + 1) as i32 {
@@ -191,7 +193,13 @@ impl FindDialog {
         );
         y += 1;
         if let Some(p) = draw_input_field(
-            f, line_at(y), &self.start_at, self.start_cursor, self.focus == 0, false, theme,
+            f,
+            line_at(y),
+            &self.start_at,
+            self.start_cursor,
+            self.focus == 0,
+            false,
+            theme,
         ) {
             caret = Some(p);
         }
@@ -203,7 +211,13 @@ impl FindDialog {
         );
         y += 1;
         if let Some(p) = draw_input_field(
-            f, line_at(y), &self.file_name, self.name_cursor, self.focus == 1, false, theme,
+            f,
+            line_at(y),
+            &self.file_name,
+            self.name_cursor,
+            self.focus == 1,
+            false,
+            theme,
         ) {
             caret = Some(p);
         }
@@ -214,7 +228,13 @@ impl FindDialog {
         );
         y += 1;
         if let Some(p) = draw_input_field(
-            f, line_at(y), &self.content, self.content_cursor, self.focus == 2, false, theme,
+            f,
+            line_at(y),
+            &self.content,
+            self.content_cursor,
+            self.focus == 2,
+            false,
+            theme,
         ) {
             caret = Some(p);
         }
@@ -223,25 +243,55 @@ impl FindDialog {
         // Checkboxes in two columns.
         let half = inner.width / 2;
         f.render_widget(
-            Paragraph::new(Line::from(check_span(&crate::l10n::trd("Find recursively"), self.recursive, self.focus == 3, theme))).style(base),
+            Paragraph::new(Line::from(check_span(
+                &crate::l10n::trd("Find recursively"),
+                self.recursive,
+                self.focus == 3,
+                theme,
+            )))
+            .style(base),
             Rect { x: inner.x, y, width: half, height: 1 },
         );
         f.render_widget(
-            Paragraph::new(Line::from(check_span(&crate::l10n::trd("Case sensitive"), self.case_sensitive, self.focus == 4, theme))).style(base),
+            Paragraph::new(Line::from(check_span(
+                &crate::l10n::trd("Case sensitive"),
+                self.case_sensitive,
+                self.focus == 4,
+                theme,
+            )))
+            .style(base),
             Rect { x: inner.x + half, y, width: inner.width - half, height: 1 },
         );
         f.render_widget(
-            Paragraph::new(Line::from(check_span(&crate::l10n::trd("Skip hidden"), self.skip_hidden, self.focus == 5, theme))).style(base),
+            Paragraph::new(Line::from(check_span(
+                &crate::l10n::trd("Skip hidden"),
+                self.skip_hidden,
+                self.focus == 5,
+                theme,
+            )))
+            .style(base),
             Rect { x: inner.x, y: y + 1, width: half, height: 1 },
         );
         f.render_widget(
-            Paragraph::new(Line::from(check_span(&crate::l10n::trd("Using shell patterns"), self.shell, self.focus == 6, theme))).style(base),
+            Paragraph::new(Line::from(check_span(
+                &crate::l10n::trd("Using shell patterns"),
+                self.shell,
+                self.focus == 6,
+                theme,
+            )))
+            .style(base),
             Rect { x: inner.x + half, y: y + 1, width: inner.width - half, height: 1 },
         );
         // The content-mode checkbox sits alone on a third row: it qualifies the
         // Content field above, not the file-name pattern the others govern.
         f.render_widget(
-            Paragraph::new(Line::from(check_span(&crate::l10n::trd("Content is a regular expression"), self.regex_content, self.focus == 7, theme))).style(base),
+            Paragraph::new(Line::from(check_span(
+                &crate::l10n::trd("Content is a regular expression"),
+                self.regex_content,
+                self.focus == 7,
+                theme,
+            )))
+            .style(base),
             Rect { x: inner.x, y: y + 2, width: half, height: 1 },
         );
 

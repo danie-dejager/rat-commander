@@ -44,13 +44,10 @@ pub fn image_sig(img: &RgbaImage) -> u64 {
 /// The JPEG thumbnail embedded in EXIF metadata, if any (JPEG/TIFF photos carry
 /// these). Using it avoids decoding the full-resolution image.
 fn embedded_thumbnail(bytes: &[u8]) -> Option<Vec<u8>> {
-    let exif = exif::Reader::new()
-        .read_from_container(&mut std::io::Cursor::new(bytes))
-        .ok()?;
-    let off = exif
-        .get_field(exif::Tag::JPEGInterchangeFormat, exif::In::THUMBNAIL)?
-        .value
-        .get_uint(0)? as usize;
+    let exif = exif::Reader::new().read_from_container(&mut std::io::Cursor::new(bytes)).ok()?;
+    let off =
+        exif.get_field(exif::Tag::JPEGInterchangeFormat, exif::In::THUMBNAIL)?.value.get_uint(0)?
+            as usize;
     let len = exif
         .get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::THUMBNAIL)?
         .value
@@ -175,7 +172,12 @@ pub fn render_halfblocks(f: &mut Frame, area: Rect, img: &RgbaImage, bg: Color) 
 /// The darkest character is `'.'` rather than a space on purpose: a run of
 /// spaces at the end of a row is erased by the trailing-space trimmer, which
 /// would punch holes in a dark part of the scene.
-pub fn render_ascii_ramp(f: &mut Frame, area: Rect, img: &RgbaImage, theme: &crate::ui::theme::Theme) {
+pub fn render_ascii_ramp(
+    f: &mut Frame,
+    area: Rect,
+    img: &RgbaImage,
+    theme: &crate::ui::theme::Theme,
+) {
     use image::imageops::FilterType;
     const RAMP: [char; 10] = ['.', ':', '-', '=', '+', '*', '#', '%', '@', '█'];
     let (cols, rows) = (area.width as u32, area.height as u32);
@@ -208,7 +210,9 @@ mod tests {
     #[test]
     fn is_image_name_by_extension() {
         assert!(is_image_name("photo.JPG") && is_image_name("a.png") && is_image_name("x.webp"));
-        assert!(!is_image_name("notes.txt") && !is_image_name("archive.zip") && !is_image_name("noext"));
+        assert!(
+            !is_image_name("notes.txt") && !is_image_name("archive.zip") && !is_image_name("noext")
+        );
     }
 
     #[test]

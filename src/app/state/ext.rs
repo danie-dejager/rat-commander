@@ -3,7 +3,7 @@
 //! format and [`crate::vfs::extfs`] for the extfs backend.
 
 use super::*;
-use crate::vfs::extfs::{find_extfs_script, ExtfsFs};
+use crate::vfs::extfs::{ExtfsFs, find_extfs_script};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -82,8 +82,7 @@ impl AppState {
                      ~/.local/share/mc/extfs.d or /usr/lib/mc/extfs.d)"
                 ));
             };
-            self.registry
-                .register(prefix.clone(), Arc::new(ExtfsFs::new(prefix, script)));
+            self.registry.register(prefix.clone(), Arc::new(ExtfsFs::new(prefix, script)));
         }
         let backend = match self.registry.resolve(&probe) {
             Ok(b) => b,
@@ -101,22 +100,11 @@ impl AppState {
         self.next_task_id += 1;
         let cancel = CancelToken::new();
         let (reply, _reply_rx) = tokio::sync::mpsc::channel(1);
-        self.tasks.insert(
-            id,
-            TaskHandle {
-                id,
-                cancel: cancel.clone(),
-                reply,
-            },
-        );
+        self.tasks.insert(id, TaskHandle { id, cancel: cancel.clone(), reply });
         self.dialog = Some(Dialog::Progress(ProgressDialog::new(id, "Running")));
 
         let cwd = self.console_cwd();
-        let dir = if cwd.scheme == "file" {
-            cwd.path.clone()
-        } else {
-            std::env::temp_dir()
-        };
+        let dir = if cwd.scheme == "file" { cwd.path.clone() } else { std::env::temp_dir() };
         let temp = crate::util::temp::rc_temp_path("extview");
         let tx = self.tx.clone();
         tokio::spawn(async move {
@@ -134,21 +122,13 @@ impl AppState {
                 }
                 Ok(false) => {
                     let _ = tokio::fs::remove_file(&temp).await;
-                    let _ = tx
-                        .send(AppEvent::TaskDone {
-                            id,
-                            outcome: TaskOutcome::Cancelled,
-                        })
-                        .await;
+                    let _ =
+                        tx.send(AppEvent::TaskDone { id, outcome: TaskOutcome::Cancelled }).await;
                 }
                 Err(e) => {
                     let _ = tokio::fs::remove_file(&temp).await;
-                    let _ = tx
-                        .send(AppEvent::TaskDone {
-                            id,
-                            outcome: TaskOutcome::Failed(e),
-                        })
-                        .await;
+                    let _ =
+                        tx.send(AppEvent::TaskDone { id, outcome: TaskOutcome::Failed(e) }).await;
                 }
             }
         });
@@ -162,11 +142,7 @@ pub(in crate::app::state) fn parse_cd_extfs(open: &str) -> Option<&str> {
     let rest = open.trim().strip_prefix("%cd ")?.trim();
     let head = rest.strip_suffix("://")?;
     let prefix = head.rsplit('/').next()?;
-    if prefix.is_empty() {
-        None
-    } else {
-        Some(prefix)
-    }
+    if prefix.is_empty() { None } else { Some(prefix) }
 }
 
 /// Parse a `View=%view{ascii|hex} cmd` action, returning the command to run and
@@ -181,11 +157,7 @@ pub(in crate::app::state) fn parse_view(view: &str) -> Option<&str> {
         None => rest,
     };
     let cmd = rest.trim();
-    if cmd.is_empty() {
-        None
-    } else {
-        Some(cmd)
-    }
+    if cmd.is_empty() { None } else { Some(cmd) }
 }
 
 /// Run `cmd` via the shell in `dir`, writing its output to `temp`. Returns
@@ -203,22 +175,14 @@ async fn run_capture(
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    let child = command
-        .spawn()
-        .map_err(|e| format!("cannot run command: {e}"))?;
+    let child = command.spawn().map_err(|e| format!("cannot run command: {e}"))?;
 
     let out = tokio::select! {
         r = child.wait_with_output() => r.map_err(|e| e.to_string())?,
         _ = cancel.cancelled() => return Ok(false),
     };
-    let data = if out.stdout.is_empty() {
-        out.stderr
-    } else {
-        out.stdout
-    };
-    tokio::fs::write(temp, &data)
-        .await
-        .map_err(|e| e.to_string())?;
+    let data = if out.stdout.is_empty() { out.stderr } else { out.stdout };
+    tokio::fs::write(temp, &data).await.map_err(|e| e.to_string())?;
     Ok(true)
 }
 

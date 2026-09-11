@@ -123,11 +123,7 @@ impl DiffView {
 
         match key.code {
             KeyCode::Esc | KeyCode::F(10) | KeyCode::Char('q') | KeyCode::Char('Q') => {
-                if self.dirty() {
-                    DiffSignal::ConfirmQuit
-                } else {
-                    DiffSignal::Close
-                }
+                if self.dirty() { DiffSignal::ConfirmQuit } else { DiffSignal::Close }
             }
             KeyCode::F(2) => DiffSignal::Save,
             KeyCode::Left if ctrl => {
@@ -216,10 +212,7 @@ impl DiffView {
                         .position(|d| d.rows.start > self.cursor)
                         .unwrap_or(self.deltas.len() - 1)
                 } else {
-                    self.deltas
-                        .iter()
-                        .rposition(|d| d.rows.start < self.cursor)
-                        .unwrap_or(0)
+                    self.deltas.iter().rposition(|d| d.rows.start < self.cursor).unwrap_or(0)
                 }
             }
         };
@@ -322,10 +315,8 @@ fn split_lines(data: &[u8]) -> (Vec<String>, bool) {
     }
     let s = String::from_utf8_lossy(data);
     let trailing = s.ends_with('\n');
-    let mut lines: Vec<String> = s
-        .split('\n')
-        .map(|l| l.strip_suffix('\r').unwrap_or(l).to_string())
-        .collect();
+    let mut lines: Vec<String> =
+        s.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l).to_string()).collect();
     if trailing {
         lines.pop(); // drop the empty element produced by the final '\n'
     }

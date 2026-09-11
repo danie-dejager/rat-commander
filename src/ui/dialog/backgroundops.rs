@@ -86,7 +86,11 @@ impl BackgroundOpsDialog {
 
     pub(crate) fn handle_click(&mut self, _area: Rect, col: u16, row: u16) -> DialogResult {
         for (rect, i) in &self.zones {
-            if col >= rect.x && col < rect.x + rect.width && row >= rect.y && row < rect.y + rect.height {
+            if col >= rect.x
+                && col < rect.x + rect.width
+                && row >= rect.y
+                && row < rect.y + rect.height
+            {
                 self.cursor = *i;
                 if let Some(r) = self.rows.get(*i) {
                     return DialogResult::Submit(Submit::ForegroundTask(r.id));

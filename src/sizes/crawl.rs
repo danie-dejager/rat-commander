@@ -235,10 +235,7 @@ fn visit(tree: &Mutex<SizeTree>, item: Item, queue: &mut VecDeque<Item>) {
 /// matters far more now that crawling goes wide.
 #[cfg(unix)]
 fn is_excluded(path: &Path) -> bool {
-    matches!(
-        path.as_os_str().as_encoded_bytes(),
-        b"/proc" | b"/sys" | b"/dev" | b"/run"
-    )
+    matches!(path.as_os_str().as_encoded_bytes(), b"/proc" | b"/sys" | b"/dev" | b"/run")
 }
 
 #[cfg(not(unix))]

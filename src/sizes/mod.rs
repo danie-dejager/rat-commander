@@ -153,10 +153,10 @@ impl SizeTree {
             if accepts(&n.top_files, size)
                 && let Ok(rel) = full.strip_prefix(&n.path)
             {
-                insert_top(&mut n.top_files, FileEntry {
-                    rel: rel.to_string_lossy().into_owned(),
-                    size,
-                });
+                insert_top(
+                    &mut n.top_files,
+                    FileEntry { rel: rel.to_string_lossy().into_owned(), size },
+                );
             }
             cur = n.parent;
         }

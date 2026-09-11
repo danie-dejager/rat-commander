@@ -21,16 +21,8 @@ pub fn render(
         return;
     }
     let header = Rect { height: 1, ..area };
-    let content = Rect {
-        y: area.y + 1,
-        height: area.height - 2,
-        ..area
-    };
-    let footer = Rect {
-        y: area.y + area.height - 1,
-        height: 1,
-        ..area
-    };
+    let content = Rect { y: area.y + 1, height: area.height - 2, ..area };
+    let footer = Rect { y: area.y + area.height - 1, height: 1, ..area };
 
     v.view_rows = content.height as usize;
     v.view_cols = content.width as usize;
@@ -142,7 +134,13 @@ fn render_outline(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme)
 
 /// Build a styled line from `chars`, coloring each by `fg[base + j]` (falling
 /// back to `default`), merging adjacent same-color runs.
-fn build_spans(chars: &[char], base: usize, fg: &[Color], default: Color, bg: Color) -> Line<'static> {
+fn build_spans(
+    chars: &[char],
+    base: usize,
+    fg: &[Color],
+    default: Color,
+    bg: Color,
+) -> Line<'static> {
     let mut spans: Vec<Span> = Vec::new();
     let mut run = String::new();
     let mut cur = default;
@@ -240,11 +238,8 @@ fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
         ViewMode::Text => crate::l10n::trd("Text"),
     };
     let wrap = if v.wrap { crate::l10n::trd("Wrap") } else { crate::l10n::trd("Unwrap") };
-    let trunc = if v.truncated {
-        format!(" [{}]", crate::l10n::trd("TRUNCATED"))
-    } else {
-        String::new()
-    };
+    let trunc =
+        if v.truncated { format!(" [{}]", crate::l10n::trd("TRUNCATED")) } else { String::new() };
     let total = match v.mode {
         ViewMode::Text => v.line_count(),
         ViewMode::Hex => v.hex_rows(),
@@ -252,11 +247,8 @@ fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
     // While the line index is still being built, the total is a lower bound, so
     // flag it with a trailing '+'.
     let more = if v.mode == ViewMode::Text && !v.fully_indexed() { "+" } else { "" };
-    let unit = if v.mode == ViewMode::Hex {
-        crate::l10n::trd("rows")
-    } else {
-        crate::l10n::trd("lines")
-    };
+    let unit =
+        if v.mode == ViewMode::Hex { crate::l10n::trd("rows") } else { crate::l10n::trd("lines") };
     let text = format!(
         " {}: {}  [{mode}/{wrap}]  {}/{}{more} {unit}{trunc}",
         crate::l10n::trd("View"),
@@ -336,10 +328,7 @@ fn render_text(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
         }
         line_idx += 1;
     }
-    f.render_widget(
-        Paragraph::new(lines).style(Style::default().bg(theme.panel_bg)),
-        area,
-    );
+    f.render_widget(Paragraph::new(lines).style(Style::default().bg(theme.panel_bg)), area);
 }
 
 /// Render text as an *approximation* of rendered Markdown: per-line styling from
@@ -369,7 +358,11 @@ fn render_markdown(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
         if super::markdown::is_fence(&line) {
             let opening = !in_code;
             in_code = !in_code;
-            let lang = if opening { super::markdown::fence_info(&line).unwrap_or_default() } else { String::new() };
+            let lang = if opening {
+                super::markdown::fence_info(&line).unwrap_or_default()
+            } else {
+                String::new()
+            };
             lines.push(code_border_line(width, opening, &lang, border, code));
             line_idx += 1;
             continue;
@@ -413,7 +406,13 @@ fn render_markdown(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
 
 /// A code-box border row spanning the full content width: `┌──…──┐` when
 /// `opening` (labeled with the language, if any) or `└──…──┘` when closing.
-fn code_border_line(width: usize, opening: bool, lang: &str, border: Style, label: Style) -> Line<'static> {
+fn code_border_line(
+    width: usize,
+    opening: bool,
+    lang: &str,
+    border: Style,
+    label: Style,
+) -> Line<'static> {
     let (corner_l, corner_r) = if opening { ('┌', '┐') } else { ('└', '┘') };
     if width < 2 {
         return Line::from(Span::styled("─".repeat(width), border));
@@ -501,19 +500,12 @@ fn render_hex(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
                 hex.push(' ');
             }
             hex.push_str(&format!("{b:02x} "));
-            ascii.push(if b.is_ascii_graphic() || *b == b' ' {
-                *b as char
-            } else {
-                '.'
-            });
+            ascii.push(if b.is_ascii_graphic() || *b == b' ' { *b as char } else { '.' });
         }
         let line = format!("{off:08x}  {hex:<49} |{ascii}|");
         lines.push(Line::from(Span::styled(line, style)));
     }
-    f.render_widget(
-        Paragraph::new(lines).style(Style::default().bg(theme.panel_bg)),
-        area,
-    );
+    f.render_widget(Paragraph::new(lines).style(Style::default().bg(theme.panel_bg)), area);
 }
 
 fn render_footer(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {

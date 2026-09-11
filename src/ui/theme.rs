@@ -117,11 +117,7 @@ impl GradientDir {
 
 /// `d`'s position within a `span`-wide axis, in `[0, 1]`.
 fn frac(d: u16, span: u16) -> f64 {
-    if span <= 1 {
-        0.0
-    } else {
-        (d as f64 / (span - 1) as f64).clamp(0.0, 1.0)
-    }
+    if span <= 1 { 0.0 } else { (d as f64 / (span - 1) as f64).clamp(0.0, 1.0) }
 }
 
 /// A gradient attached to one UI element in `themes.toml`:
@@ -297,78 +293,125 @@ pub struct ThemeSpec {
     pub name: String,
 
     // -- Panels --
-    #[serde(with = "hex_color")] pub panel_bg: Color,
-    #[serde(with = "hex_color")] pub panel_fg: Color,
+    #[serde(with = "hex_color")]
+    pub panel_bg: Color,
+    #[serde(with = "hex_color")]
+    pub panel_fg: Color,
     /// Body text in the editor/viewer (usually higher contrast than `panel_fg`).
-    #[serde(with = "hex_color")] pub text_fg: Color,
-    #[serde(with = "hex_color")] pub panel_border: Color,
-    #[serde(with = "hex_color")] pub panel_border_active: Color,
+    #[serde(with = "hex_color")]
+    pub text_fg: Color,
+    #[serde(with = "hex_color")]
+    pub panel_border: Color,
+    #[serde(with = "hex_color")]
+    pub panel_border_active: Color,
     /// Column headers (Name/Size/…).
-    #[serde(with = "hex_color")] pub header_fg: Color,
+    #[serde(with = "hex_color")]
+    pub header_fg: Color,
 
     // -- Cursor (the selection bar over the focused file) --
-    #[serde(with = "hex_color")] pub cursor_bg: Color,
-    #[serde(with = "hex_color")] pub cursor_fg: Color,
+    #[serde(with = "hex_color")]
+    pub cursor_bg: Color,
+    #[serde(with = "hex_color")]
+    pub cursor_fg: Color,
     /// Cursor on the inactive panel.
-    #[serde(with = "hex_color")] pub cursor_inactive_bg: Color,
-    #[serde(with = "hex_color")] pub cursor_inactive_fg: Color,
+    #[serde(with = "hex_color")]
+    pub cursor_inactive_bg: Color,
+    #[serde(with = "hex_color")]
+    pub cursor_inactive_fg: Color,
 
     // -- File-type name colors --
-    #[serde(with = "hex_color")] pub marked_fg: Color,
-    #[serde(with = "hex_color")] pub dir_fg: Color,
+    #[serde(with = "hex_color")]
+    pub marked_fg: Color,
+    #[serde(with = "hex_color")]
+    pub dir_fg: Color,
     /// Regular files with no special type. Defaulted for `themes.toml` files
     /// written before this field existed (so they keep loading).
-    #[serde(default = "default_file_fg", with = "hex_color")] pub file_fg: Color,
-    #[serde(with = "hex_color")] pub exec_fg: Color,
-    #[serde(with = "hex_color")] pub symlink_fg: Color,
-    #[serde(with = "hex_color")] pub archive_fg: Color,
-    #[serde(with = "hex_color")] pub doc_fg: Color,
-    #[serde(with = "hex_color")] pub image_fg: Color,
-    #[serde(with = "hex_color")] pub media_fg: Color,
+    #[serde(default = "default_file_fg", with = "hex_color")]
+    pub file_fg: Color,
+    #[serde(with = "hex_color")]
+    pub exec_fg: Color,
+    #[serde(with = "hex_color")]
+    pub symlink_fg: Color,
+    #[serde(with = "hex_color")]
+    pub archive_fg: Color,
+    #[serde(with = "hex_color")]
+    pub doc_fg: Color,
+    #[serde(with = "hex_color")]
+    pub image_fg: Color,
+    #[serde(with = "hex_color")]
+    pub media_fg: Color,
 
     // -- Top menu bar + bottom F-key bar --
-    #[serde(with = "hex_color")] pub menubar_bg: Color,
-    #[serde(with = "hex_color")] pub menubar_fg: Color,
-    #[serde(with = "hex_color")] pub fkey_label_bg: Color,
-    #[serde(with = "hex_color")] pub fkey_label_fg: Color,
-    #[serde(with = "hex_color")] pub fkey_num_bg: Color,
-    #[serde(with = "hex_color")] pub fkey_num_fg: Color,
+    #[serde(with = "hex_color")]
+    pub menubar_bg: Color,
+    #[serde(with = "hex_color")]
+    pub menubar_fg: Color,
+    #[serde(with = "hex_color")]
+    pub fkey_label_bg: Color,
+    #[serde(with = "hex_color")]
+    pub fkey_label_fg: Color,
+    #[serde(with = "hex_color")]
+    pub fkey_num_bg: Color,
+    #[serde(with = "hex_color")]
+    pub fkey_num_fg: Color,
 
     // -- Dialogs --
-    #[serde(with = "hex_color")] pub dialog_bg: Color,
-    #[serde(with = "hex_color")] pub dialog_fg: Color,
-    #[serde(with = "hex_color")] pub dialog_title: Color,
-    #[serde(with = "hex_color")] pub dialog_border_fg: Color,
-    #[serde(with = "hex_color")] pub dialog_border_bg: Color,
+    #[serde(with = "hex_color")]
+    pub dialog_bg: Color,
+    #[serde(with = "hex_color")]
+    pub dialog_fg: Color,
+    #[serde(with = "hex_color")]
+    pub dialog_title: Color,
+    #[serde(with = "hex_color")]
+    pub dialog_border_fg: Color,
+    #[serde(with = "hex_color")]
+    pub dialog_border_bg: Color,
     /// Focused control / selected row inside a dialog.
-    #[serde(with = "hex_color")] pub dialog_selection_bg: Color,
-    #[serde(with = "hex_color")] pub dialog_selection_fg: Color,
+    #[serde(with = "hex_color")]
+    pub dialog_selection_bg: Color,
+    #[serde(with = "hex_color")]
+    pub dialog_selection_fg: Color,
 
     // -- Pulldown menus --
-    #[serde(with = "hex_color")] pub menu_bg: Color,
-    #[serde(with = "hex_color")] pub menu_fg: Color,
-    #[serde(with = "hex_color")] pub menu_selection_bg: Color,
-    #[serde(with = "hex_color")] pub menu_selection_fg: Color,
+    #[serde(with = "hex_color")]
+    pub menu_bg: Color,
+    #[serde(with = "hex_color")]
+    pub menu_fg: Color,
+    #[serde(with = "hex_color")]
+    pub menu_selection_bg: Color,
+    #[serde(with = "hex_color")]
+    pub menu_selection_fg: Color,
     /// Underlined accelerator letters in menus.
-    #[serde(with = "hex_color")] pub hotkey_fg: Color,
+    #[serde(with = "hex_color")]
+    pub hotkey_fg: Color,
 
     // -- Text inputs + buttons --
-    #[serde(with = "hex_color")] pub input_bg: Color,
-    #[serde(with = "hex_color")] pub input_fg: Color,
-    #[serde(with = "hex_color")] pub button_bg: Color,
-    #[serde(with = "hex_color")] pub button_fg: Color,
-    #[serde(with = "hex_color")] pub button_focused_bg: Color,
-    #[serde(with = "hex_color")] pub button_focused_fg: Color,
+    #[serde(with = "hex_color")]
+    pub input_bg: Color,
+    #[serde(with = "hex_color")]
+    pub input_fg: Color,
+    #[serde(with = "hex_color")]
+    pub button_bg: Color,
+    #[serde(with = "hex_color")]
+    pub button_fg: Color,
+    #[serde(with = "hex_color")]
+    pub button_focused_bg: Color,
+    #[serde(with = "hex_color")]
+    pub button_focused_fg: Color,
 
     // -- Misc --
-    #[serde(with = "hex_color")] pub error_fg: Color,
+    #[serde(with = "hex_color")]
+    pub error_fg: Color,
     /// Text drawn over animated gradient bars.
-    #[serde(with = "hex_color")] pub bar_fg: Color,
+    #[serde(with = "hex_color")]
+    pub bar_fg: Color,
     /// Accent gradient endpoints: the ramp the progress bars, graphs and disk
     /// treemap fade through, and the default look of the bars and the cursor on
     /// truecolor terminals (until those elements get a gradient of their own).
-    #[serde(with = "hex_color")] pub gradient_from: Color,
-    #[serde(with = "hex_color")] pub gradient_to: Color,
+    #[serde(with = "hex_color")]
+    pub gradient_from: Color,
+    #[serde(with = "hex_color")]
+    pub gradient_to: Color,
 
     /// Per-element gradients (`[theme.gradients.*]`). Serialized last, since
     /// TOML sub-tables have to follow the plain keys of their parent table.
@@ -1050,7 +1093,9 @@ fn builtin_specs() -> Vec<ThemeSpec> {
         }
         // The showcase themes swap the derived surface tints for their own
         // backdrop; everything else about their gradients stays derived.
-        if let Some(b) = SHOWCASE_BACKDROPS.iter().find(|b| norm_name(b.name) == norm_name(&spec.name)) {
+        if let Some(b) =
+            SHOWCASE_BACKDROPS.iter().find(|b| norm_name(b.name) == norm_name(&spec.name))
+        {
             for (slot, to) in [
                 (&mut spec.gradients.panel_bg, b.panels),
                 (&mut spec.gradients.dialog_bg, b.dialogs),
@@ -1371,11 +1416,7 @@ impl Theme {
     /// to seed the editable [`ThemeSpec`]s; the runtime builds themes via
     /// [`from_spec`](Self::from_spec).
     fn from_ansi(p: &Palette, truecolor: bool) -> Self {
-        let surface = if truecolor {
-            mix(p.bg, p.fg, 0.12)
-        } else {
-            p.bright_black
-        };
+        let surface = if truecolor { mix(p.bg, p.fg, 0.12) } else { p.bright_black };
         // Derived themes use a gradient-friendly bright-blue cursor. (The teal
         // Commander cursor lives in the explicit specs, not here.)
         let (cursor_bg, cursor_fg) =
@@ -1408,10 +1449,7 @@ impl Theme {
             panel_border: border,
             panel_border_active: p.bright_cyan,
             header_fg: p.bright_yellow,
-            cursor: Style::default()
-                .bg(cursor_bg)
-                .fg(cursor_fg)
-                .add_modifier(Modifier::BOLD),
+            cursor: Style::default().bg(cursor_bg).fg(cursor_fg).add_modifier(Modifier::BOLD),
             cursor_inactive: Style::default().bg(surface).fg(p.fg),
             cursor_fg,
             marked_fg: p.bright_yellow,
@@ -1466,7 +1504,11 @@ impl Theme {
             error_fg: p.bright_red,
             // Derived themes use a vivid blue→magenta gradient; the text over the
             // bars picks whichever of black/white contrasts with its midpoint.
-            bar_fg: best_contrast(mix(p.bright_blue, p.bright_magenta, 0.5), p.black, p.bright_white),
+            bar_fg: best_contrast(
+                mix(p.bright_blue, p.bright_magenta, 0.5),
+                p.black,
+                p.bright_white,
+            ),
             anim: 0,
             animated: false,
             grad_a: to_rgb(p.bright_blue),
@@ -1505,18 +1547,10 @@ impl Theme {
         if !self.truecolor {
             return Color::Rgb(self.grad_a.0, self.grad_a.1, self.grad_a.2);
         }
-        let base = if width <= 1 {
-            0.0
-        } else {
-            i as f64 / (width - 1) as f64
-        };
+        let base = if width <= 1 { 0.0 } else { i as f64 / (width - 1) as f64 };
         // When animated, slide a triangle wave so the gradient bounces a→b→a
         // and shifts over time; otherwise a static linear a→b ramp.
-        let t = if self.animated {
-            triangle(base * 1.5 + self.anim as f64 * 0.04)
-        } else {
-            base
-        };
+        let t = if self.animated { triangle(base * 1.5 + self.anim as f64 * 0.04) } else { base };
         let r = lerp(self.grad_a.0, self.grad_b.0, t);
         let g = lerp(self.grad_a.1, self.grad_b.1, t);
         let b = lerp(self.grad_a.2, self.grad_b.2, t);
@@ -1571,11 +1605,7 @@ impl Theme {
         } else {
             t.clamp(0.0, 1.0)
         };
-        Color::Rgb(
-            lerp(g.from.0, g.to.0, t),
-            lerp(g.from.1, g.to.1, t),
-            lerp(g.from.2, g.to.2, t),
-        )
+        Color::Rgb(lerp(g.from.0, g.to.0, t), lerp(g.from.1, g.to.1, t), lerp(g.from.2, g.to.2, t))
     }
 
     /// The gradient color (full RGB) at normalized position `t` in `[0, 1]`,
@@ -1646,11 +1676,7 @@ fn luma(c: Color) -> f64 {
 pub(crate) fn readable_on(fg: Color, bg: Color) -> Color {
     const MIN_DIFF: f64 = 96.0;
     let bg_luma = luma(bg);
-    let target = if bg_luma < 128.0 {
-        Color::Rgb(255, 255, 255)
-    } else {
-        Color::Rgb(0, 0, 0)
-    };
+    let target = if bg_luma < 128.0 { Color::Rgb(255, 255, 255) } else { Color::Rgb(0, 0, 0) };
     let mut out = fg;
     let mut t = 0.0;
     while (luma(out) - bg_luma).abs() < MIN_DIFF && t < 1.0 {
@@ -1664,11 +1690,7 @@ pub(crate) fn readable_on(fg: Color, bg: Color) -> Color {
 /// background — brighter on dark backgrounds, darker on light ones — so body
 /// text in the editor/viewer reads crisply (it's softer by default for chrome).
 fn contrast_text(fg: Color, bg: Color) -> Color {
-    let target = if luma(bg) < 128.0 {
-        Color::Rgb(255, 255, 255)
-    } else {
-        Color::Rgb(0, 0, 0)
-    };
+    let target = if luma(bg) < 128.0 { Color::Rgb(255, 255, 255) } else { Color::Rgb(0, 0, 0) };
     mix(fg, target, 0.3)
 }
 
@@ -1697,244 +1719,544 @@ fn has_palette(name: &str) -> bool {
 pub static PALETTES: &[Palette] = &[
     Palette {
         name: "Dracula",
-        bg: rgb(0x282a36), fg: rgb(0xf8f8f2),
-        black: rgb(0x21222c), red: rgb(0xff5555), green: rgb(0x50fa7b), yellow: rgb(0xf1fa8c),
-        blue: rgb(0xbd93f9), magenta: rgb(0xff79c6), cyan: rgb(0x8be9fd), white: rgb(0xf8f8f2),
-        bright_black: rgb(0x6272a4), bright_red: rgb(0xff6e6e), bright_green: rgb(0x69ff94),
-        bright_yellow: rgb(0xffffa5), bright_blue: rgb(0xd6acff), bright_magenta: rgb(0xff92df),
-        bright_cyan: rgb(0xa4ffff), bright_white: rgb(0xffffff),
+        bg: rgb(0x282a36),
+        fg: rgb(0xf8f8f2),
+        black: rgb(0x21222c),
+        red: rgb(0xff5555),
+        green: rgb(0x50fa7b),
+        yellow: rgb(0xf1fa8c),
+        blue: rgb(0xbd93f9),
+        magenta: rgb(0xff79c6),
+        cyan: rgb(0x8be9fd),
+        white: rgb(0xf8f8f2),
+        bright_black: rgb(0x6272a4),
+        bright_red: rgb(0xff6e6e),
+        bright_green: rgb(0x69ff94),
+        bright_yellow: rgb(0xffffa5),
+        bright_blue: rgb(0xd6acff),
+        bright_magenta: rgb(0xff92df),
+        bright_cyan: rgb(0xa4ffff),
+        bright_white: rgb(0xffffff),
     },
     Palette {
         name: "Nord",
-        bg: rgb(0x2e3440), fg: rgb(0xd8dee9),
-        black: rgb(0x3b4252), red: rgb(0xbf616a), green: rgb(0xa3be8c), yellow: rgb(0xebcb8b),
-        blue: rgb(0x81a1c1), magenta: rgb(0xb48ead), cyan: rgb(0x88c0d0), white: rgb(0xe5e9f0),
-        bright_black: rgb(0x4c566a), bright_red: rgb(0xbf616a), bright_green: rgb(0xa3be8c),
-        bright_yellow: rgb(0xebcb8b), bright_blue: rgb(0x81a1c1), bright_magenta: rgb(0xb48ead),
-        bright_cyan: rgb(0x8fbcbb), bright_white: rgb(0xeceff4),
+        bg: rgb(0x2e3440),
+        fg: rgb(0xd8dee9),
+        black: rgb(0x3b4252),
+        red: rgb(0xbf616a),
+        green: rgb(0xa3be8c),
+        yellow: rgb(0xebcb8b),
+        blue: rgb(0x81a1c1),
+        magenta: rgb(0xb48ead),
+        cyan: rgb(0x88c0d0),
+        white: rgb(0xe5e9f0),
+        bright_black: rgb(0x4c566a),
+        bright_red: rgb(0xbf616a),
+        bright_green: rgb(0xa3be8c),
+        bright_yellow: rgb(0xebcb8b),
+        bright_blue: rgb(0x81a1c1),
+        bright_magenta: rgb(0xb48ead),
+        bright_cyan: rgb(0x8fbcbb),
+        bright_white: rgb(0xeceff4),
     },
     Palette {
         name: "Gruvbox Dark",
-        bg: rgb(0x282828), fg: rgb(0xebdbb2),
-        black: rgb(0x282828), red: rgb(0xcc241d), green: rgb(0x98971a), yellow: rgb(0xd79921),
-        blue: rgb(0x458588), magenta: rgb(0xb16286), cyan: rgb(0x689d6a), white: rgb(0xa89984),
-        bright_black: rgb(0x928374), bright_red: rgb(0xfb4934), bright_green: rgb(0xb8bb26),
-        bright_yellow: rgb(0xfabd2f), bright_blue: rgb(0x83a598), bright_magenta: rgb(0xd3869b),
-        bright_cyan: rgb(0x8ec07c), bright_white: rgb(0xebdbb2),
+        bg: rgb(0x282828),
+        fg: rgb(0xebdbb2),
+        black: rgb(0x282828),
+        red: rgb(0xcc241d),
+        green: rgb(0x98971a),
+        yellow: rgb(0xd79921),
+        blue: rgb(0x458588),
+        magenta: rgb(0xb16286),
+        cyan: rgb(0x689d6a),
+        white: rgb(0xa89984),
+        bright_black: rgb(0x928374),
+        bright_red: rgb(0xfb4934),
+        bright_green: rgb(0xb8bb26),
+        bright_yellow: rgb(0xfabd2f),
+        bright_blue: rgb(0x83a598),
+        bright_magenta: rgb(0xd3869b),
+        bright_cyan: rgb(0x8ec07c),
+        bright_white: rgb(0xebdbb2),
     },
     Palette {
         name: "Gruvbox Light",
-        bg: rgb(0xfbf1c7), fg: rgb(0x3c3836),
-        black: rgb(0xfbf1c7), red: rgb(0xcc241d), green: rgb(0x98971a), yellow: rgb(0xd79921),
-        blue: rgb(0x458588), magenta: rgb(0xb16286), cyan: rgb(0x689d6a), white: rgb(0x7c6f64),
-        bright_black: rgb(0x928374), bright_red: rgb(0x9d0006), bright_green: rgb(0x79740e),
-        bright_yellow: rgb(0xb57614), bright_blue: rgb(0x076678), bright_magenta: rgb(0x8f3f71),
-        bright_cyan: rgb(0x427b58), bright_white: rgb(0x3c3836),
+        bg: rgb(0xfbf1c7),
+        fg: rgb(0x3c3836),
+        black: rgb(0xfbf1c7),
+        red: rgb(0xcc241d),
+        green: rgb(0x98971a),
+        yellow: rgb(0xd79921),
+        blue: rgb(0x458588),
+        magenta: rgb(0xb16286),
+        cyan: rgb(0x689d6a),
+        white: rgb(0x7c6f64),
+        bright_black: rgb(0x928374),
+        bright_red: rgb(0x9d0006),
+        bright_green: rgb(0x79740e),
+        bright_yellow: rgb(0xb57614),
+        bright_blue: rgb(0x076678),
+        bright_magenta: rgb(0x8f3f71),
+        bright_cyan: rgb(0x427b58),
+        bright_white: rgb(0x3c3836),
     },
     Palette {
         name: "Solarized Dark",
-        bg: rgb(0x002b36), fg: rgb(0x839496),
-        black: rgb(0x073642), red: rgb(0xdc322f), green: rgb(0x859900), yellow: rgb(0xb58900),
-        blue: rgb(0x268bd2), magenta: rgb(0xd33682), cyan: rgb(0x2aa198), white: rgb(0xeee8d5),
-        bright_black: rgb(0x586e75), bright_red: rgb(0xcb4b16), bright_green: rgb(0x586e75),
-        bright_yellow: rgb(0x657b83), bright_blue: rgb(0x839496), bright_magenta: rgb(0x6c71c4),
-        bright_cyan: rgb(0x93a1a1), bright_white: rgb(0xfdf6e3),
+        bg: rgb(0x002b36),
+        fg: rgb(0x839496),
+        black: rgb(0x073642),
+        red: rgb(0xdc322f),
+        green: rgb(0x859900),
+        yellow: rgb(0xb58900),
+        blue: rgb(0x268bd2),
+        magenta: rgb(0xd33682),
+        cyan: rgb(0x2aa198),
+        white: rgb(0xeee8d5),
+        bright_black: rgb(0x586e75),
+        bright_red: rgb(0xcb4b16),
+        bright_green: rgb(0x586e75),
+        bright_yellow: rgb(0x657b83),
+        bright_blue: rgb(0x839496),
+        bright_magenta: rgb(0x6c71c4),
+        bright_cyan: rgb(0x93a1a1),
+        bright_white: rgb(0xfdf6e3),
     },
     Palette {
         name: "Solarized Light",
-        bg: rgb(0xfdf6e3), fg: rgb(0x657b83),
-        black: rgb(0x073642), red: rgb(0xdc322f), green: rgb(0x859900), yellow: rgb(0xb58900),
-        blue: rgb(0x268bd2), magenta: rgb(0xd33682), cyan: rgb(0x2aa198), white: rgb(0xeee8d5),
-        bright_black: rgb(0x002b36), bright_red: rgb(0xcb4b16), bright_green: rgb(0x586e75),
-        bright_yellow: rgb(0x657b83), bright_blue: rgb(0x268bd2), bright_magenta: rgb(0x6c71c4),
-        bright_cyan: rgb(0x2aa198), bright_white: rgb(0x002b36),
+        bg: rgb(0xfdf6e3),
+        fg: rgb(0x657b83),
+        black: rgb(0x073642),
+        red: rgb(0xdc322f),
+        green: rgb(0x859900),
+        yellow: rgb(0xb58900),
+        blue: rgb(0x268bd2),
+        magenta: rgb(0xd33682),
+        cyan: rgb(0x2aa198),
+        white: rgb(0xeee8d5),
+        bright_black: rgb(0x002b36),
+        bright_red: rgb(0xcb4b16),
+        bright_green: rgb(0x586e75),
+        bright_yellow: rgb(0x657b83),
+        bright_blue: rgb(0x268bd2),
+        bright_magenta: rgb(0x6c71c4),
+        bright_cyan: rgb(0x2aa198),
+        bright_white: rgb(0x002b36),
     },
     Palette {
         name: "Tokyo Night",
-        bg: rgb(0x1a1b26), fg: rgb(0xc0caf5),
-        black: rgb(0x15161e), red: rgb(0xf7768e), green: rgb(0x9ece6a), yellow: rgb(0xe0af68),
-        blue: rgb(0x7aa2f7), magenta: rgb(0xbb9af7), cyan: rgb(0x7dcfff), white: rgb(0xa9b1d6),
-        bright_black: rgb(0x414868), bright_red: rgb(0xf7768e), bright_green: rgb(0x9ece6a),
-        bright_yellow: rgb(0xe0af68), bright_blue: rgb(0x7aa2f7), bright_magenta: rgb(0xbb9af7),
-        bright_cyan: rgb(0x7dcfff), bright_white: rgb(0xc0caf5),
+        bg: rgb(0x1a1b26),
+        fg: rgb(0xc0caf5),
+        black: rgb(0x15161e),
+        red: rgb(0xf7768e),
+        green: rgb(0x9ece6a),
+        yellow: rgb(0xe0af68),
+        blue: rgb(0x7aa2f7),
+        magenta: rgb(0xbb9af7),
+        cyan: rgb(0x7dcfff),
+        white: rgb(0xa9b1d6),
+        bright_black: rgb(0x414868),
+        bright_red: rgb(0xf7768e),
+        bright_green: rgb(0x9ece6a),
+        bright_yellow: rgb(0xe0af68),
+        bright_blue: rgb(0x7aa2f7),
+        bright_magenta: rgb(0xbb9af7),
+        bright_cyan: rgb(0x7dcfff),
+        bright_white: rgb(0xc0caf5),
     },
     Palette {
         name: "Catppuccin Mocha",
-        bg: rgb(0x1e1e2e), fg: rgb(0xcdd6f4),
-        black: rgb(0x45475a), red: rgb(0xf38ba8), green: rgb(0xa6e3a1), yellow: rgb(0xf9e2af),
-        blue: rgb(0x89b4fa), magenta: rgb(0xf5c2e7), cyan: rgb(0x94e2d5), white: rgb(0xbac2de),
-        bright_black: rgb(0x585b70), bright_red: rgb(0xf38ba8), bright_green: rgb(0xa6e3a1),
-        bright_yellow: rgb(0xf9e2af), bright_blue: rgb(0x89b4fa), bright_magenta: rgb(0xf5c2e7),
-        bright_cyan: rgb(0x94e2d5), bright_white: rgb(0xa6adc8),
+        bg: rgb(0x1e1e2e),
+        fg: rgb(0xcdd6f4),
+        black: rgb(0x45475a),
+        red: rgb(0xf38ba8),
+        green: rgb(0xa6e3a1),
+        yellow: rgb(0xf9e2af),
+        blue: rgb(0x89b4fa),
+        magenta: rgb(0xf5c2e7),
+        cyan: rgb(0x94e2d5),
+        white: rgb(0xbac2de),
+        bright_black: rgb(0x585b70),
+        bright_red: rgb(0xf38ba8),
+        bright_green: rgb(0xa6e3a1),
+        bright_yellow: rgb(0xf9e2af),
+        bright_blue: rgb(0x89b4fa),
+        bright_magenta: rgb(0xf5c2e7),
+        bright_cyan: rgb(0x94e2d5),
+        bright_white: rgb(0xa6adc8),
     },
     Palette {
         name: "One Dark",
-        bg: rgb(0x282c34), fg: rgb(0xabb2bf),
-        black: rgb(0x282c34), red: rgb(0xe06c75), green: rgb(0x98c379), yellow: rgb(0xe5c07b),
-        blue: rgb(0x61afef), magenta: rgb(0xc678dd), cyan: rgb(0x56b6c2), white: rgb(0xabb2bf),
-        bright_black: rgb(0x5c6370), bright_red: rgb(0xe06c75), bright_green: rgb(0x98c379),
-        bright_yellow: rgb(0xe5c07b), bright_blue: rgb(0x61afef), bright_magenta: rgb(0xc678dd),
-        bright_cyan: rgb(0x56b6c2), bright_white: rgb(0xffffff),
+        bg: rgb(0x282c34),
+        fg: rgb(0xabb2bf),
+        black: rgb(0x282c34),
+        red: rgb(0xe06c75),
+        green: rgb(0x98c379),
+        yellow: rgb(0xe5c07b),
+        blue: rgb(0x61afef),
+        magenta: rgb(0xc678dd),
+        cyan: rgb(0x56b6c2),
+        white: rgb(0xabb2bf),
+        bright_black: rgb(0x5c6370),
+        bright_red: rgb(0xe06c75),
+        bright_green: rgb(0x98c379),
+        bright_yellow: rgb(0xe5c07b),
+        bright_blue: rgb(0x61afef),
+        bright_magenta: rgb(0xc678dd),
+        bright_cyan: rgb(0x56b6c2),
+        bright_white: rgb(0xffffff),
     },
     Palette {
         name: "Tomorrow Night",
-        bg: rgb(0x1d1f21), fg: rgb(0xc5c8c6),
-        black: rgb(0x1d1f21), red: rgb(0xcc6666), green: rgb(0xb5bd68), yellow: rgb(0xf0c674),
-        blue: rgb(0x81a2be), magenta: rgb(0xb294bb), cyan: rgb(0x8abeb7), white: rgb(0xc5c8c6),
-        bright_black: rgb(0x969896), bright_red: rgb(0xcc6666), bright_green: rgb(0xb5bd68),
-        bright_yellow: rgb(0xf0c674), bright_blue: rgb(0x81a2be), bright_magenta: rgb(0xb294bb),
-        bright_cyan: rgb(0x8abeb7), bright_white: rgb(0xffffff),
+        bg: rgb(0x1d1f21),
+        fg: rgb(0xc5c8c6),
+        black: rgb(0x1d1f21),
+        red: rgb(0xcc6666),
+        green: rgb(0xb5bd68),
+        yellow: rgb(0xf0c674),
+        blue: rgb(0x81a2be),
+        magenta: rgb(0xb294bb),
+        cyan: rgb(0x8abeb7),
+        white: rgb(0xc5c8c6),
+        bright_black: rgb(0x969896),
+        bright_red: rgb(0xcc6666),
+        bright_green: rgb(0xb5bd68),
+        bright_yellow: rgb(0xf0c674),
+        bright_blue: rgb(0x81a2be),
+        bright_magenta: rgb(0xb294bb),
+        bright_cyan: rgb(0x8abeb7),
+        bright_white: rgb(0xffffff),
     },
     Palette {
         name: "Cobalt2",
-        bg: rgb(0x122738), fg: rgb(0xffffff),
-        black: rgb(0x000000), red: rgb(0xff0000), green: rgb(0x38de21), yellow: rgb(0xffe50a),
-        blue: rgb(0x1460d2), magenta: rgb(0xff005d), cyan: rgb(0x00bbbb), white: rgb(0xbbbbbb),
-        bright_black: rgb(0x555555), bright_red: rgb(0xf40e17), bright_green: rgb(0x3bd01d),
-        bright_yellow: rgb(0xedc809), bright_blue: rgb(0x5555ff), bright_magenta: rgb(0xff55ff),
-        bright_cyan: rgb(0x6ae3fa), bright_white: rgb(0xffffff),
+        bg: rgb(0x122738),
+        fg: rgb(0xffffff),
+        black: rgb(0x000000),
+        red: rgb(0xff0000),
+        green: rgb(0x38de21),
+        yellow: rgb(0xffe50a),
+        blue: rgb(0x1460d2),
+        magenta: rgb(0xff005d),
+        cyan: rgb(0x00bbbb),
+        white: rgb(0xbbbbbb),
+        bright_black: rgb(0x555555),
+        bright_red: rgb(0xf40e17),
+        bright_green: rgb(0x3bd01d),
+        bright_yellow: rgb(0xedc809),
+        bright_blue: rgb(0x5555ff),
+        bright_magenta: rgb(0xff55ff),
+        bright_cyan: rgb(0x6ae3fa),
+        bright_white: rgb(0xffffff),
     },
     Palette {
         name: "Everforest",
-        bg: rgb(0x2d353b), fg: rgb(0xd3c6aa),
-        black: rgb(0x475258), red: rgb(0xe67e80), green: rgb(0xa7c080), yellow: rgb(0xdbbc7f),
-        blue: rgb(0x7fbbb3), magenta: rgb(0xd699b6), cyan: rgb(0x83c092), white: rgb(0xd3c6aa),
-        bright_black: rgb(0x475258), bright_red: rgb(0xe67e80), bright_green: rgb(0xa7c080),
-        bright_yellow: rgb(0xdbbc7f), bright_blue: rgb(0x7fbbb3), bright_magenta: rgb(0xd699b6),
-        bright_cyan: rgb(0x83c092), bright_white: rgb(0xd3c6aa),
+        bg: rgb(0x2d353b),
+        fg: rgb(0xd3c6aa),
+        black: rgb(0x475258),
+        red: rgb(0xe67e80),
+        green: rgb(0xa7c080),
+        yellow: rgb(0xdbbc7f),
+        blue: rgb(0x7fbbb3),
+        magenta: rgb(0xd699b6),
+        cyan: rgb(0x83c092),
+        white: rgb(0xd3c6aa),
+        bright_black: rgb(0x475258),
+        bright_red: rgb(0xe67e80),
+        bright_green: rgb(0xa7c080),
+        bright_yellow: rgb(0xdbbc7f),
+        bright_blue: rgb(0x7fbbb3),
+        bright_magenta: rgb(0xd699b6),
+        bright_cyan: rgb(0x83c092),
+        bright_white: rgb(0xd3c6aa),
     },
     Palette {
         name: "Ayu",
-        bg: rgb(0x0a0e14), fg: rgb(0xb3b1ad),
-        black: rgb(0x01060e), red: rgb(0xea6c73), green: rgb(0x91b362), yellow: rgb(0xf9af4f),
-        blue: rgb(0x53bdfa), magenta: rgb(0xfae994), cyan: rgb(0x90e1c6), white: rgb(0xc7c7c7),
-        bright_black: rgb(0x686868), bright_red: rgb(0xf07178), bright_green: rgb(0xc2d94c),
-        bright_yellow: rgb(0xffb454), bright_blue: rgb(0x59c2ff), bright_magenta: rgb(0xffee99),
-        bright_cyan: rgb(0x95e6cb), bright_white: rgb(0xffffff),
+        bg: rgb(0x0a0e14),
+        fg: rgb(0xb3b1ad),
+        black: rgb(0x01060e),
+        red: rgb(0xea6c73),
+        green: rgb(0x91b362),
+        yellow: rgb(0xf9af4f),
+        blue: rgb(0x53bdfa),
+        magenta: rgb(0xfae994),
+        cyan: rgb(0x90e1c6),
+        white: rgb(0xc7c7c7),
+        bright_black: rgb(0x686868),
+        bright_red: rgb(0xf07178),
+        bright_green: rgb(0xc2d94c),
+        bright_yellow: rgb(0xffb454),
+        bright_blue: rgb(0x59c2ff),
+        bright_magenta: rgb(0xffee99),
+        bright_cyan: rgb(0x95e6cb),
+        bright_white: rgb(0xffffff),
     },
     Palette {
         name: "Nightfox",
-        bg: rgb(0x192330), fg: rgb(0xcdcecf),
-        black: rgb(0x393b44), red: rgb(0xc94f6d), green: rgb(0x81b29a), yellow: rgb(0xdbc074),
-        blue: rgb(0x719cd6), magenta: rgb(0x9d79d6), cyan: rgb(0x63cdcf), white: rgb(0xdfdfe0),
-        bright_black: rgb(0x575860), bright_red: rgb(0xd16983), bright_green: rgb(0x8ebaa4),
-        bright_yellow: rgb(0xe0c989), bright_blue: rgb(0x86abdc), bright_magenta: rgb(0xbaa1e2),
-        bright_cyan: rgb(0x7ad5d6), bright_white: rgb(0xe4e4e5),
+        bg: rgb(0x192330),
+        fg: rgb(0xcdcecf),
+        black: rgb(0x393b44),
+        red: rgb(0xc94f6d),
+        green: rgb(0x81b29a),
+        yellow: rgb(0xdbc074),
+        blue: rgb(0x719cd6),
+        magenta: rgb(0x9d79d6),
+        cyan: rgb(0x63cdcf),
+        white: rgb(0xdfdfe0),
+        bright_black: rgb(0x575860),
+        bright_red: rgb(0xd16983),
+        bright_green: rgb(0x8ebaa4),
+        bright_yellow: rgb(0xe0c989),
+        bright_blue: rgb(0x86abdc),
+        bright_magenta: rgb(0xbaa1e2),
+        bright_cyan: rgb(0x7ad5d6),
+        bright_white: rgb(0xe4e4e5),
     },
     Palette {
         name: "Rose Pine",
-        bg: rgb(0x191724), fg: rgb(0xe0def4),
-        black: rgb(0x26233a), red: rgb(0xeb6f92), green: rgb(0x31748f), yellow: rgb(0xf6c177),
-        blue: rgb(0x9ccfd8), magenta: rgb(0xc4a7e7), cyan: rgb(0xebbcba), white: rgb(0xe0def4),
-        bright_black: rgb(0x6e6a86), bright_red: rgb(0xeb6f92), bright_green: rgb(0x31748f),
-        bright_yellow: rgb(0xf6c177), bright_blue: rgb(0x9ccfd8), bright_magenta: rgb(0xc4a7e7),
-        bright_cyan: rgb(0xebbcba), bright_white: rgb(0xe0def4),
+        bg: rgb(0x191724),
+        fg: rgb(0xe0def4),
+        black: rgb(0x26233a),
+        red: rgb(0xeb6f92),
+        green: rgb(0x31748f),
+        yellow: rgb(0xf6c177),
+        blue: rgb(0x9ccfd8),
+        magenta: rgb(0xc4a7e7),
+        cyan: rgb(0xebbcba),
+        white: rgb(0xe0def4),
+        bright_black: rgb(0x6e6a86),
+        bright_red: rgb(0xeb6f92),
+        bright_green: rgb(0x31748f),
+        bright_yellow: rgb(0xf6c177),
+        bright_blue: rgb(0x9ccfd8),
+        bright_magenta: rgb(0xc4a7e7),
+        bright_cyan: rgb(0xebbcba),
+        bright_white: rgb(0xe0def4),
     },
     Palette {
         name: "GitHub Light",
-        bg: rgb(0xffffff), fg: rgb(0x24292e),
-        black: rgb(0x24292e), red: rgb(0xd73a49), green: rgb(0x28a745), yellow: rgb(0xdbab09),
-        blue: rgb(0x0366d6), magenta: rgb(0x5a32a3), cyan: rgb(0x0598bc), white: rgb(0x6a737d),
-        bright_black: rgb(0x959da5), bright_red: rgb(0xcb2431), bright_green: rgb(0x22863a),
-        bright_yellow: rgb(0xb08800), bright_blue: rgb(0x005cc5), bright_magenta: rgb(0x5a32a3),
-        bright_cyan: rgb(0x3192aa), bright_white: rgb(0xd1d5da),
+        bg: rgb(0xffffff),
+        fg: rgb(0x24292e),
+        black: rgb(0x24292e),
+        red: rgb(0xd73a49),
+        green: rgb(0x28a745),
+        yellow: rgb(0xdbab09),
+        blue: rgb(0x0366d6),
+        magenta: rgb(0x5a32a3),
+        cyan: rgb(0x0598bc),
+        white: rgb(0x6a737d),
+        bright_black: rgb(0x959da5),
+        bright_red: rgb(0xcb2431),
+        bright_green: rgb(0x22863a),
+        bright_yellow: rgb(0xb08800),
+        bright_blue: rgb(0x005cc5),
+        bright_magenta: rgb(0x5a32a3),
+        bright_cyan: rgb(0x3192aa),
+        bright_white: rgb(0xd1d5da),
     },
     // Single-hue themes: every color is within the hue family so the whole UI
     // (cursor, bars, gradient) stays monochrome / amber / green.
     Palette {
         name: "Monochrome",
-        bg: rgb(0x000000), fg: rgb(0xc6c6c6),
-        black: rgb(0x000000), red: rgb(0x5f5f5f), green: rgb(0x8a8a8a), yellow: rgb(0xa8a8a8),
-        blue: rgb(0x6c6c6c), magenta: rgb(0x949494), cyan: rgb(0xb0b0b0), white: rgb(0xc6c6c6),
-        bright_black: rgb(0x3a3a3a), bright_red: rgb(0x8a8a8a), bright_green: rgb(0xb0b0b0),
-        bright_yellow: rgb(0xffffff), bright_blue: rgb(0xbdbdbd), bright_magenta: rgb(0xf0f0f0),
-        bright_cyan: rgb(0xe0e0e0), bright_white: rgb(0xffffff),
+        bg: rgb(0x000000),
+        fg: rgb(0xc6c6c6),
+        black: rgb(0x000000),
+        red: rgb(0x5f5f5f),
+        green: rgb(0x8a8a8a),
+        yellow: rgb(0xa8a8a8),
+        blue: rgb(0x6c6c6c),
+        magenta: rgb(0x949494),
+        cyan: rgb(0xb0b0b0),
+        white: rgb(0xc6c6c6),
+        bright_black: rgb(0x3a3a3a),
+        bright_red: rgb(0x8a8a8a),
+        bright_green: rgb(0xb0b0b0),
+        bright_yellow: rgb(0xffffff),
+        bright_blue: rgb(0xbdbdbd),
+        bright_magenta: rgb(0xf0f0f0),
+        bright_cyan: rgb(0xe0e0e0),
+        bright_white: rgb(0xffffff),
     },
     Palette {
         name: "Amber CRT",
-        bg: rgb(0x160d00), fg: rgb(0xffb000),
-        black: rgb(0x160d00), red: rgb(0xcc7000), green: rgb(0xd98a00), yellow: rgb(0xe0a000),
-        blue: rgb(0xb36b00), magenta: rgb(0xc98200), cyan: rgb(0xe0a040), white: rgb(0xffb000),
-        bright_black: rgb(0x5a3c00), bright_red: rgb(0xff9030), bright_green: rgb(0xffc060),
-        bright_yellow: rgb(0xffd000), bright_blue: rgb(0xffb000), bright_magenta: rgb(0xff8000),
-        bright_cyan: rgb(0xffe0a0), bright_white: rgb(0xfff0d0),
+        bg: rgb(0x160d00),
+        fg: rgb(0xffb000),
+        black: rgb(0x160d00),
+        red: rgb(0xcc7000),
+        green: rgb(0xd98a00),
+        yellow: rgb(0xe0a000),
+        blue: rgb(0xb36b00),
+        magenta: rgb(0xc98200),
+        cyan: rgb(0xe0a040),
+        white: rgb(0xffb000),
+        bright_black: rgb(0x5a3c00),
+        bright_red: rgb(0xff9030),
+        bright_green: rgb(0xffc060),
+        bright_yellow: rgb(0xffd000),
+        bright_blue: rgb(0xffb000),
+        bright_magenta: rgb(0xff8000),
+        bright_cyan: rgb(0xffe0a0),
+        bright_white: rgb(0xfff0d0),
     },
     Palette {
         name: "Green CRT",
-        bg: rgb(0x001000), fg: rgb(0x33ff33),
-        black: rgb(0x001000), red: rgb(0x00aa00), green: rgb(0x11cc11), yellow: rgb(0x66dd33),
-        blue: rgb(0x009900), magenta: rgb(0x22bb22), cyan: rgb(0x55dd55), white: rgb(0x33ff33),
-        bright_black: rgb(0x004d00), bright_red: rgb(0x55ff55), bright_green: rgb(0x88ff88),
-        bright_yellow: rgb(0xaaffaa), bright_blue: rgb(0x55ff55), bright_magenta: rgb(0x00bb00),
-        bright_cyan: rgb(0xaaffcc), bright_white: rgb(0xccffcc),
+        bg: rgb(0x001000),
+        fg: rgb(0x33ff33),
+        black: rgb(0x001000),
+        red: rgb(0x00aa00),
+        green: rgb(0x11cc11),
+        yellow: rgb(0x66dd33),
+        blue: rgb(0x009900),
+        magenta: rgb(0x22bb22),
+        cyan: rgb(0x55dd55),
+        white: rgb(0x33ff33),
+        bright_black: rgb(0x004d00),
+        bright_red: rgb(0x55ff55),
+        bright_green: rgb(0x88ff88),
+        bright_yellow: rgb(0xaaffaa),
+        bright_blue: rgb(0x55ff55),
+        bright_magenta: rgb(0x00bb00),
+        bright_cyan: rgb(0xaaffcc),
+        bright_white: rgb(0xccffcc),
     },
     // Rainbow: every ANSI slot is a different hue of the spectrum (red → orange
     // → yellow → green → blue → indigo → violet) over a deep indigo backdrop, so
     // the file list and gradient bars cycle through the full rainbow.
     Palette {
         name: "Rainbow",
-        bg: rgb(0x1a1a2e), fg: rgb(0xf0f0f0),
-        black: rgb(0x1a1a2e), red: rgb(0xff3b30), green: rgb(0x34c759), yellow: rgb(0xffcc00),
-        blue: rgb(0x007aff), magenta: rgb(0xaf52de), cyan: rgb(0x00c7be), white: rgb(0xf0f0f0),
-        bright_black: rgb(0x4a4a6a), bright_red: rgb(0xff6b5e), bright_green: rgb(0x5ee87a),
-        bright_yellow: rgb(0xffe14d), bright_blue: rgb(0x4d9fff), bright_magenta: rgb(0xd16bff),
-        bright_cyan: rgb(0x4de1d8), bright_white: rgb(0xffffff),
+        bg: rgb(0x1a1a2e),
+        fg: rgb(0xf0f0f0),
+        black: rgb(0x1a1a2e),
+        red: rgb(0xff3b30),
+        green: rgb(0x34c759),
+        yellow: rgb(0xffcc00),
+        blue: rgb(0x007aff),
+        magenta: rgb(0xaf52de),
+        cyan: rgb(0x00c7be),
+        white: rgb(0xf0f0f0),
+        bright_black: rgb(0x4a4a6a),
+        bright_red: rgb(0xff6b5e),
+        bright_green: rgb(0x5ee87a),
+        bright_yellow: rgb(0xffe14d),
+        bright_blue: rgb(0x4d9fff),
+        bright_magenta: rgb(0xd16bff),
+        bright_cyan: rgb(0x4de1d8),
+        bright_white: rgb(0xffffff),
     },
     // Candy: a light, pastel sweet-shop palette — mint greens, caramel yellows,
     // peach oranges and grape purples on a pale candy-pink background. The
     // "bright" tints stay medium-saturated so accents read on the light bg.
     Palette {
         name: "Candy",
-        bg: rgb(0xfdeef7), fg: rgb(0x5d4470),
-        black: rgb(0x3a2a4a), red: rgb(0xe85d9a), green: rgb(0x3fa86a), yellow: rgb(0xc8881f),
-        blue: rgb(0x7b5fd0), magenta: rgb(0xb24fc4), cyan: rgb(0x2fa896), white: rgb(0x5d4470),
-        bright_black: rgb(0xa98fc0), bright_red: rgb(0xf26faa), bright_green: rgb(0x4fc47e),
-        bright_yellow: rgb(0xd99a1f), bright_blue: rgb(0x8a6fe0), bright_magenta: rgb(0xc45fd6),
-        bright_cyan: rgb(0x3fc0a8), bright_white: rgb(0x3a2a4a),
+        bg: rgb(0xfdeef7),
+        fg: rgb(0x5d4470),
+        black: rgb(0x3a2a4a),
+        red: rgb(0xe85d9a),
+        green: rgb(0x3fa86a),
+        yellow: rgb(0xc8881f),
+        blue: rgb(0x7b5fd0),
+        magenta: rgb(0xb24fc4),
+        cyan: rgb(0x2fa896),
+        white: rgb(0x5d4470),
+        bright_black: rgb(0xa98fc0),
+        bright_red: rgb(0xf26faa),
+        bright_green: rgb(0x4fc47e),
+        bright_yellow: rgb(0xd99a1f),
+        bright_blue: rgb(0x8a6fe0),
+        bright_magenta: rgb(0xc45fd6),
+        bright_cyan: rgb(0x3fc0a8),
+        bright_white: rgb(0x3a2a4a),
     },
     // Neon: saturated electric blues, cyans, reds and greens glowing against a
     // near-black backdrop.
     Palette {
         name: "Neon",
-        bg: rgb(0x0a0a12), fg: rgb(0xe6f7ff),
-        black: rgb(0x0a0a12), red: rgb(0xff2d6f), green: rgb(0x39ff14), yellow: rgb(0xffe93b),
-        blue: rgb(0x2d9bff), magenta: rgb(0xc724ff), cyan: rgb(0x18f0ff), white: rgb(0xe6f7ff),
-        bright_black: rgb(0x2a2a3a), bright_red: rgb(0xff5c8a), bright_green: rgb(0x6dff5c),
-        bright_yellow: rgb(0xfff45c), bright_blue: rgb(0x5cb8ff), bright_magenta: rgb(0xe05cff),
-        bright_cyan: rgb(0x5cf7ff), bright_white: rgb(0xffffff),
+        bg: rgb(0x0a0a12),
+        fg: rgb(0xe6f7ff),
+        black: rgb(0x0a0a12),
+        red: rgb(0xff2d6f),
+        green: rgb(0x39ff14),
+        yellow: rgb(0xffe93b),
+        blue: rgb(0x2d9bff),
+        magenta: rgb(0xc724ff),
+        cyan: rgb(0x18f0ff),
+        white: rgb(0xe6f7ff),
+        bright_black: rgb(0x2a2a3a),
+        bright_red: rgb(0xff5c8a),
+        bright_green: rgb(0x6dff5c),
+        bright_yellow: rgb(0xfff45c),
+        bright_blue: rgb(0x5cb8ff),
+        bright_magenta: rgb(0xe05cff),
+        bright_cyan: rgb(0x5cf7ff),
+        bright_white: rgb(0xffffff),
     },
     // Forest: earthy browns and a spread of dark-to-light greens (bark, moss,
     // leaf, sage) over a deep woodland backdrop.
     Palette {
         name: "Forest",
-        bg: rgb(0x1a2417), fg: rgb(0xd8e0c8),
-        black: rgb(0x14180f), red: rgb(0xb5532e), green: rgb(0x5a8c3a), yellow: rgb(0xb08540),
-        blue: rgb(0x4a7d6a), magenta: rgb(0x8a6d4a), cyan: rgb(0x6fa86b), white: rgb(0xd8e0c8),
-        bright_black: rgb(0x4a5a3a), bright_red: rgb(0xd57a4a), bright_green: rgb(0x8fc46a),
-        bright_yellow: rgb(0xd4a85a), bright_blue: rgb(0x6fa88c), bright_magenta: rgb(0xb08d63),
-        bright_cyan: rgb(0x9fd49a), bright_white: rgb(0xeef0e0),
+        bg: rgb(0x1a2417),
+        fg: rgb(0xd8e0c8),
+        black: rgb(0x14180f),
+        red: rgb(0xb5532e),
+        green: rgb(0x5a8c3a),
+        yellow: rgb(0xb08540),
+        blue: rgb(0x4a7d6a),
+        magenta: rgb(0x8a6d4a),
+        cyan: rgb(0x6fa86b),
+        white: rgb(0xd8e0c8),
+        bright_black: rgb(0x4a5a3a),
+        bright_red: rgb(0xd57a4a),
+        bright_green: rgb(0x8fc46a),
+        bright_yellow: rgb(0xd4a85a),
+        bright_blue: rgb(0x6fa88c),
+        bright_magenta: rgb(0xb08d63),
+        bright_cyan: rgb(0x9fd49a),
+        bright_white: rgb(0xeef0e0),
     },
     // Freedom: mostly blues and golds over a deep-navy field, with just a touch
     // of red.
     Palette {
         name: "Freedom",
-        bg: rgb(0x0a1a3f), fg: rgb(0xf0f4ff),
-        black: rgb(0x081230), red: rgb(0xd83a4a), green: rgb(0x4a9d6a), yellow: rgb(0xffd23f),
-        blue: rgb(0x2b6cff), magenta: rgb(0x6d7de0), cyan: rgb(0x3fb0e0), white: rgb(0xf0f4ff),
-        bright_black: rgb(0x3a4a6f), bright_red: rgb(0xff5c6a), bright_green: rgb(0x6fc78a),
-        bright_yellow: rgb(0xffe066), bright_blue: rgb(0x5c9bff), bright_magenta: rgb(0x8a9bf0),
-        bright_cyan: rgb(0x6fd0ff), bright_white: rgb(0xffffff),
+        bg: rgb(0x0a1a3f),
+        fg: rgb(0xf0f4ff),
+        black: rgb(0x081230),
+        red: rgb(0xd83a4a),
+        green: rgb(0x4a9d6a),
+        yellow: rgb(0xffd23f),
+        blue: rgb(0x2b6cff),
+        magenta: rgb(0x6d7de0),
+        cyan: rgb(0x3fb0e0),
+        white: rgb(0xf0f4ff),
+        bright_black: rgb(0x3a4a6f),
+        bright_red: rgb(0xff5c6a),
+        bright_green: rgb(0x6fc78a),
+        bright_yellow: rgb(0xffe066),
+        bright_blue: rgb(0x5c9bff),
+        bright_magenta: rgb(0x8a9bf0),
+        bright_cyan: rgb(0x6fd0ff),
+        bright_white: rgb(0xffffff),
     },
     // Movienight: the cinematic teal-and-orange grade — deep orange and cyan
     // playing off each other against a dark theatre backdrop.
     Palette {
         name: "Movienight",
-        bg: rgb(0x0d1417), fg: rgb(0xdfe8ea),
-        black: rgb(0x0a0f11), red: rgb(0xff6a2b), green: rgb(0x3fa890), yellow: rgb(0xffa033),
-        blue: rgb(0x1f9bb3), magenta: rgb(0xe0843f), cyan: rgb(0x22c8d8), white: rgb(0xdfe8ea),
-        bright_black: rgb(0x2a3a3f), bright_red: rgb(0xff8c4d), bright_green: rgb(0x4fd0b0),
-        bright_yellow: rgb(0xffb84d), bright_blue: rgb(0x33c0d8), bright_magenta: rgb(0xff9a4d),
-        bright_cyan: rgb(0x4fe0ee), bright_white: rgb(0xf0f8fa),
+        bg: rgb(0x0d1417),
+        fg: rgb(0xdfe8ea),
+        black: rgb(0x0a0f11),
+        red: rgb(0xff6a2b),
+        green: rgb(0x3fa890),
+        yellow: rgb(0xffa033),
+        blue: rgb(0x1f9bb3),
+        magenta: rgb(0xe0843f),
+        cyan: rgb(0x22c8d8),
+        white: rgb(0xdfe8ea),
+        bright_black: rgb(0x2a3a3f),
+        bright_red: rgb(0xff8c4d),
+        bright_green: rgb(0x4fd0b0),
+        bright_yellow: rgb(0xffb84d),
+        bright_blue: rgb(0x33c0d8),
+        bright_magenta: rgb(0xff9a4d),
+        bright_cyan: rgb(0x4fe0ee),
+        bright_white: rgb(0xf0f8fa),
     },
     // Themes built around their backdrop: each fades the panels and dialogs to a
     // color of its own (see [`SHOWCASE_BACKDROPS`]) instead of the hint of accent
@@ -1944,56 +2266,116 @@ pub static PALETTES: &[Palette] = &[
     // kept for what wants attention — errors, marked files, the column header.
     Palette {
         name: "Tron",
-        bg: rgb(0x000b14), fg: rgb(0xbfe6f5),
-        black: rgb(0x000b14), red: rgb(0xff2d20), green: rgb(0x2fd6bd), yellow: rgb(0xff5a2b),
-        blue: rgb(0x0d4d6b), magenta: rgb(0x2f7fd6), cyan: rgb(0x22a8cc), white: rgb(0xbfe6f5),
-        bright_black: rgb(0x0d3348), bright_red: rgb(0xff4030), bright_green: rgb(0x5ff0d8),
-        bright_yellow: rgb(0xff6b3d), bright_blue: rgb(0x7fe3ff), bright_magenta: rgb(0x35a7e8),
-        bright_cyan: rgb(0xa9f3ff), bright_white: rgb(0xffffff),
+        bg: rgb(0x000b14),
+        fg: rgb(0xbfe6f5),
+        black: rgb(0x000b14),
+        red: rgb(0xff2d20),
+        green: rgb(0x2fd6bd),
+        yellow: rgb(0xff5a2b),
+        blue: rgb(0x0d4d6b),
+        magenta: rgb(0x2f7fd6),
+        cyan: rgb(0x22a8cc),
+        white: rgb(0xbfe6f5),
+        bright_black: rgb(0x0d3348),
+        bright_red: rgb(0xff4030),
+        bright_green: rgb(0x5ff0d8),
+        bright_yellow: rgb(0xff6b3d),
+        bright_blue: rgb(0x7fe3ff),
+        bright_magenta: rgb(0x35a7e8),
+        bright_cyan: rgb(0xa9f3ff),
+        bright_white: rgb(0xffffff),
     },
     // Graphite: monochrome — no hue anywhere, so the UI is carried entirely by
     // brightness and by the slow fade down the panels.
     Palette {
         name: "Graphite",
-        bg: rgb(0x16181c), fg: rgb(0xc9ced6),
-        black: rgb(0x0d0f12), red: rgb(0x8b9198), green: rgb(0x9aa1a9), yellow: rgb(0xb2b9c1),
-        blue: rgb(0x333941), magenta: rgb(0x8f959d), cyan: rgb(0xa7aeb6), white: rgb(0xc9ced6),
-        bright_black: rgb(0x2b3037), bright_red: rgb(0xa9b0b8), bright_green: rgb(0xb9c0c8),
-        bright_yellow: rgb(0xffffff), bright_blue: rgb(0xaab1b9), bright_magenta: rgb(0xd7dce3),
-        bright_cyan: rgb(0xeef1f5), bright_white: rgb(0xffffff),
+        bg: rgb(0x16181c),
+        fg: rgb(0xc9ced6),
+        black: rgb(0x0d0f12),
+        red: rgb(0x8b9198),
+        green: rgb(0x9aa1a9),
+        yellow: rgb(0xb2b9c1),
+        blue: rgb(0x333941),
+        magenta: rgb(0x8f959d),
+        cyan: rgb(0xa7aeb6),
+        white: rgb(0xc9ced6),
+        bright_black: rgb(0x2b3037),
+        bright_red: rgb(0xa9b0b8),
+        bright_green: rgb(0xb9c0c8),
+        bright_yellow: rgb(0xffffff),
+        bright_blue: rgb(0xaab1b9),
+        bright_magenta: rgb(0xd7dce3),
+        bright_cyan: rgb(0xeef1f5),
+        bright_white: rgb(0xffffff),
     },
     // Synthwave: a violet dusk deepening to magenta down the panels, with the
     // cursor and bars sweeping cyan into hot pink.
     Palette {
         name: "Synthwave",
-        bg: rgb(0x1b0b2e), fg: rgb(0xf0e6ff),
-        black: rgb(0x120720), red: rgb(0xff3b6b), green: rgb(0x2de2c6), yellow: rgb(0xff9f1c),
-        blue: rgb(0x3a1f6b), magenta: rgb(0xc724b1), cyan: rgb(0x00d9ff), white: rgb(0xf0e6ff),
-        bright_black: rgb(0x3a2158), bright_red: rgb(0xff5c7a), bright_green: rgb(0x5ff5dc),
-        bright_yellow: rgb(0xffd166), bright_blue: rgb(0x00e5ff), bright_magenta: rgb(0xff2e97),
-        bright_cyan: rgb(0x8be9fd), bright_white: rgb(0xffffff),
+        bg: rgb(0x1b0b2e),
+        fg: rgb(0xf0e6ff),
+        black: rgb(0x120720),
+        red: rgb(0xff3b6b),
+        green: rgb(0x2de2c6),
+        yellow: rgb(0xff9f1c),
+        blue: rgb(0x3a1f6b),
+        magenta: rgb(0xc724b1),
+        cyan: rgb(0x00d9ff),
+        white: rgb(0xf0e6ff),
+        bright_black: rgb(0x3a2158),
+        bright_red: rgb(0xff5c7a),
+        bright_green: rgb(0x5ff5dc),
+        bright_yellow: rgb(0xffd166),
+        bright_blue: rgb(0x00e5ff),
+        bright_magenta: rgb(0xff2e97),
+        bright_cyan: rgb(0x8be9fd),
+        bright_white: rgb(0xffffff),
     },
     // Aurora: polar-night blue lit from below by a green curtain, the cursor and
     // bars sweeping sky blue through violet.
     Palette {
         name: "Aurora",
-        bg: rgb(0x0a1626), fg: rgb(0xd8e6f0),
-        black: rgb(0x071120), red: rgb(0xff6b81), green: rgb(0x3ddc97), yellow: rgb(0xffd479),
-        blue: rgb(0x1b3a5c), magenta: rgb(0xa06bff), cyan: rgb(0x37c8d8), white: rgb(0xd8e6f0),
-        bright_black: rgb(0x16324d), bright_red: rgb(0xff8095), bright_green: rgb(0x5cf2a8),
-        bright_yellow: rgb(0xffe08a), bright_blue: rgb(0x6ea8ff), bright_magenta: rgb(0xb388ff),
-        bright_cyan: rgb(0x7ce9ff), bright_white: rgb(0xffffff),
+        bg: rgb(0x0a1626),
+        fg: rgb(0xd8e6f0),
+        black: rgb(0x071120),
+        red: rgb(0xff6b81),
+        green: rgb(0x3ddc97),
+        yellow: rgb(0xffd479),
+        blue: rgb(0x1b3a5c),
+        magenta: rgb(0xa06bff),
+        cyan: rgb(0x37c8d8),
+        white: rgb(0xd8e6f0),
+        bright_black: rgb(0x16324d),
+        bright_red: rgb(0xff8095),
+        bright_green: rgb(0x5cf2a8),
+        bright_yellow: rgb(0xffe08a),
+        bright_blue: rgb(0x6ea8ff),
+        bright_magenta: rgb(0xb388ff),
+        bright_cyan: rgb(0x7ce9ff),
+        bright_white: rgb(0xffffff),
     },
     // Coral Reef: deep water at the top warming to reef dusk at the bottom, with
     // turquoise chrome and coral accents.
     Palette {
         name: "Coral Reef",
-        bg: rgb(0x06232e), fg: rgb(0xe8f4f2),
-        black: rgb(0x041a23), red: rgb(0xff6f59), green: rgb(0x34d399), yellow: rgb(0xffc857),
-        blue: rgb(0x0d4a5c), magenta: rgb(0xff7eb6), cyan: rgb(0x2ec4b6), white: rgb(0xe8f4f2),
-        bright_black: rgb(0x0e3d4d), bright_red: rgb(0xff8a70), bright_green: rgb(0x5eead4),
-        bright_yellow: rgb(0xffd98a), bright_blue: rgb(0x22d3ee), bright_magenta: rgb(0xff8fab),
-        bright_cyan: rgb(0x7ee8dd), bright_white: rgb(0xffffff),
+        bg: rgb(0x06232e),
+        fg: rgb(0xe8f4f2),
+        black: rgb(0x041a23),
+        red: rgb(0xff6f59),
+        green: rgb(0x34d399),
+        yellow: rgb(0xffc857),
+        blue: rgb(0x0d4a5c),
+        magenta: rgb(0xff7eb6),
+        cyan: rgb(0x2ec4b6),
+        white: rgb(0xe8f4f2),
+        bright_black: rgb(0x0e3d4d),
+        bright_red: rgb(0xff8a70),
+        bright_green: rgb(0x5eead4),
+        bright_yellow: rgb(0xffd98a),
+        bright_blue: rgb(0x22d3ee),
+        bright_magenta: rgb(0xff8fab),
+        bright_cyan: rgb(0x7ee8dd),
+        bright_white: rgb(0xffffff),
     },
 ];
 
@@ -2024,10 +2406,8 @@ mod tests {
     fn a_themes_file_gains_presets_it_has_never_been_offered() {
         // An older file: two themes, and no record of what it has been shown.
         let mine = ThemeSpec { name: "Mine".to_string(), ..BUILTIN[0].clone() };
-        let mut tf = ThemesFile {
-            known_presets: Vec::new(),
-            theme: vec![mine.clone(), BUILTIN[1].clone()],
-        };
+        let mut tf =
+            ThemesFile { known_presets: Vec::new(), theme: vec![mine.clone(), BUILTIN[1].clone()] };
 
         assert!(add_new_presets(&mut tf), "the presets it is missing are added");
         assert_eq!(tf.theme[0], mine, "the user's own theme keeps its place");
@@ -2048,10 +2428,7 @@ mod tests {
     #[test]
     fn a_preset_the_user_deleted_is_not_put_back() {
         // A file that has been offered everything, with two presets removed.
-        let mut tf = ThemesFile {
-            known_presets: preset_names(),
-            theme: vec![BUILTIN[0].clone()],
-        };
+        let mut tf = ThemesFile { known_presets: preset_names(), theme: vec![BUILTIN[0].clone()] };
         assert!(!add_new_presets(&mut tf), "deletions stick");
         assert_eq!(tf.theme.len(), 1);
 
@@ -2070,7 +2447,8 @@ mod tests {
         // been offered.
         let stock = ThemeSpec { gradients: Gradients::default(), ..BUILTIN[0].clone() };
         let mine = ThemeSpec { name: "Mine".to_string(), ..stock.clone() };
-        let path = std::env::temp_dir().join(format!("rc_upgrade_test_{}.toml", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("rc_upgrade_test_{}.toml", std::process::id()));
         let old = ThemesFile { known_presets: Vec::new(), theme: vec![stock, mine.clone()] };
         std::fs::write(&path, toml::to_string_pretty(&old).unwrap()).unwrap();
 
@@ -2144,8 +2522,12 @@ mod tests {
         // must not do is take much of what was there away.
         for spec in builtin_specs() {
             for (surface, base, ramp, over) in [
-                ("panel", spec.panel_bg, spec.gradients.panel_bg,
-                 [spec.panel_fg, spec.file_fg, spec.dir_fg]),
+                (
+                    "panel",
+                    spec.panel_bg,
+                    spec.gradients.panel_bg,
+                    [spec.panel_fg, spec.file_fg, spec.dir_fg],
+                ),
                 ("dialog", spec.dialog_bg, spec.gradients.dialog_bg, [spec.dialog_fg; 3]),
                 ("menu", spec.menu_bg, spec.gradients.menu_bg, [spec.menu_fg; 3]),
             ] {
@@ -2243,7 +2625,8 @@ mod tests {
     #[test]
     fn an_explicit_from_overrides_the_element_color() {
         let mut spec = ramp_spec();
-        spec.gradients.panel_bg = Some(GradientSpec { from: Some(rgb(0xff0000)), ..GradientSpec::new(rgb(0x00ff00)) });
+        spec.gradients.panel_bg =
+            Some(GradientSpec { from: Some(rgb(0xff0000)), ..GradientSpec::new(rgb(0x00ff00)) });
         let t = Theme::from_spec(&spec, true);
         let r = Rect::new(0, 0, 4, 1);
         assert_eq!(t.grad_color_in(GradRole::PanelBg, 0, 0, r), Some(rgb(0xff0000)));
@@ -2312,8 +2695,15 @@ mod tests {
             direction: GradientDir::Radial,
             animated: true,
         });
-        let text = toml::to_string_pretty(&ThemesFile { known_presets: Vec::new(), theme: vec![spec.clone()] }).unwrap();
-        assert!(text.contains("[theme.gradients.panel_bg]"), "gradients get their own table:\n{text}");
+        let text = toml::to_string_pretty(&ThemesFile {
+            known_presets: Vec::new(),
+            theme: vec![spec.clone()],
+        })
+        .unwrap();
+        assert!(
+            text.contains("[theme.gradients.panel_bg]"),
+            "gradients get their own table:\n{text}"
+        );
         assert!(text.contains("direction = \"radial\""), "the direction is a plain word:\n{text}");
         let back: ThemesFile = toml::from_str(&text).unwrap();
         assert_eq!(back.theme[0], spec);
@@ -2325,7 +2715,11 @@ mod tests {
     fn a_theme_without_gradients_writes_no_table_and_still_loads() {
         let spec = flat_preset(); // the CRT themes ship without gradients
         assert!(spec.gradients.is_empty());
-        let text = toml::to_string_pretty(&ThemesFile { known_presets: Vec::new(), theme: vec![spec.clone()] }).unwrap();
+        let text = toml::to_string_pretty(&ThemesFile {
+            known_presets: Vec::new(),
+            theme: vec![spec.clone()],
+        })
+        .unwrap();
         assert!(!text.contains("gradients"), "nothing is written for a flat theme:\n{text}");
         let back: ThemesFile = toml::from_str(&text).unwrap();
         assert_eq!(back.theme[0], spec);
@@ -2402,7 +2796,11 @@ mod tests {
     fn migration_fills_missing_file_fg_from_panel_fg() {
         // Simulate a pre-upgrade file by stripping the `file_fg` lines.
         let spec = builtin_specs()[0].clone();
-        let full = toml::to_string_pretty(&ThemesFile { known_presets: Vec::new(), theme: vec![spec.clone()] }).unwrap();
+        let full = toml::to_string_pretty(&ThemesFile {
+            known_presets: Vec::new(),
+            theme: vec![spec.clone()],
+        })
+        .unwrap();
         let old: String = full
             .lines()
             .filter(|l| !l.trim_start().starts_with("file_fg"))
@@ -2424,7 +2822,9 @@ mod tests {
     fn builtin_themes_serialize_and_reparse() {
         let specs = builtin_specs();
         assert!(specs.len() >= 10, "expected the full preset set");
-        let body = toml::to_string_pretty(&ThemesFile { known_presets: Vec::new(), theme: specs.clone() }).unwrap();
+        let body =
+            toml::to_string_pretty(&ThemesFile { known_presets: Vec::new(), theme: specs.clone() })
+                .unwrap();
         let back: ThemesFile = toml::from_str(&body).unwrap();
         assert_eq!(back.theme.len(), specs.len());
         for (a, b) in specs.iter().zip(&back.theme) {
@@ -2498,7 +2898,11 @@ mod tests {
         for name in ["Dracula", "Nord", "Gruvbox Dark", "Tokyo Night"] {
             let t = Theme::by_name(name, true);
             let p = PALETTES.iter().find(|p| p.name == name).unwrap();
-            assert_ne!(t.menubar.bg, Some(p.cyan), "{name} menu bar should not use the raw cyan slot");
+            assert_ne!(
+                t.menubar.bg,
+                Some(p.cyan),
+                "{name} menu bar should not use the raw cyan slot"
+            );
             // It sits at the middle of the theme's accent gradient, so the F9 bar
             // reads like the rest of the theme's chrome — and matches the F-key bar.
             assert_eq!(t.menubar.bg, t.fkey_label.bg, "{name} menu and F-key bars match");

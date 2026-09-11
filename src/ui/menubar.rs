@@ -90,7 +90,14 @@ pub fn render_titles(
 /// menu bar): a compact gauge over an opaque panel background, labelled with the
 /// number of running operations and the aggregate percentage. `done`/`total` are
 /// bytes across all background transfers; `count` is how many are running.
-pub fn render_mini_progress(f: &mut Frame, area: Rect, done: u64, total: u64, count: usize, theme: &Theme) {
+pub fn render_mini_progress(
+    f: &mut Frame,
+    area: Rect,
+    done: u64,
+    total: u64,
+    count: usize,
+    theme: &Theme,
+) {
     if area.width < 8 || area.height == 0 {
         return;
     }
@@ -129,10 +136,7 @@ pub fn render_status(f: &mut Frame, area: Rect, s: &SysSampler, theme: &Theme) {
         return;
     }
     // Opaque background so the widget reads over the gradient bar.
-    f.render_widget(
-        Block::default().style(Style::default().bg(theme.panel_bg)),
-        area,
-    );
+    f.render_widget(Block::default().style(Style::default().bg(theme.panel_bg)), area);
 
     let cpu_label_w: u16 = 5; // "CPU "
     let mem_w: u16 = 9; // " MEM nnn%"
@@ -163,26 +167,13 @@ pub fn render_status(f: &mut Frame, area: Rect, s: &SysSampler, theme: &Theme) {
         .direction(RenderDirection::RightToLeft)
         .max(100)
         .style(Style::default().fg(spark_color).bg(theme.panel_bg));
-    f.render_widget(
-        spark,
-        Rect {
-            x: area.x + cpu_label_w,
-            width: spark_w,
-            ..area
-        },
-    );
+    f.render_widget(spark, Rect { x: area.x + cpu_label_w, width: spark_w, ..area });
 
     let mem = format!(" MEM{:>3}%", s.mem_percent());
-    let mem_style = Style::default()
-        .fg(theme.panel_border_active)
-        .bg(theme.panel_bg);
+    let mem_style = Style::default().fg(theme.panel_border_active).bg(theme.panel_bg);
     f.render_widget(
         Paragraph::new(Span::styled(mem, mem_style)),
-        Rect {
-            x: area.x + cpu_label_w + spark_w,
-            width: mem_w,
-            ..area
-        },
+        Rect { x: area.x + cpu_label_w + spark_w, width: mem_w, ..area },
     );
 }
 

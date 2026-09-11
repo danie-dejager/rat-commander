@@ -131,8 +131,13 @@ fn by_name(name: &str) -> Option<char> {
     Some(match name {
         "makefile" | "gnumakefile" | "makefile.am" | "makefile.in" | "meson.build" => MAKE,
         "cmakelists.txt" | "cmakecache.txt" => CMAKE,
-        "dockerfile" | "containerfile" | "docker-compose.yml" | "docker-compose.yaml"
-        | "compose.yml" | "compose.yaml" | ".dockerignore" => DOCKER,
+        "dockerfile"
+        | "containerfile"
+        | "docker-compose.yml"
+        | "docker-compose.yaml"
+        | "compose.yml"
+        | "compose.yaml"
+        | ".dockerignore" => DOCKER,
         "license" | "license.md" | "license.txt" | "licence" | "copying" | "copying.lesser" => {
             LICENSE
         }
@@ -200,9 +205,7 @@ fn by_extension(ext: &str) -> Option<char> {
         | "fnt" | "fon" => FONT,
         "pem" | "crt" | "cer" | "der" | "key" | "p12" | "pfx" | "gpg" | "pgp" | "asc" | "sig"
         | "kdbx" | "pub" | "keystore" => KEY,
-        "db" | "sqlite" | "sqlite3" | "sql" | "mdb" | "accdb" | "dump" | "myd" | "frm" => {
-            DATABASE
-        }
+        "db" | "sqlite" | "sqlite3" | "sql" | "mdb" | "accdb" | "dump" | "myd" | "frm" => DATABASE,
         "o" | "obj" | "so" | "a" | "lib" | "dylib" | "ko" | "elf" | "bin" | "class" | "pyc"
         | "pyo" | "wasm" | "rlib" | "rmeta" | "pdb" => BINARY,
 
@@ -250,8 +253,8 @@ fn by_extension(ext: &str) -> Option<char> {
         "m" | "mm" | "f" | "f90" | "f95" | "for" | "pas" | "pp" | "vb" | "vbs" | "groovy"
         | "gradle" | "awk" | "sed" | "tcl" | "el" | "lisp" | "scm" | "rkt" | "ml" | "mli"
         | "fs" | "fsx" | "erl" | "hrl" | "jl" | "cr" | "v" | "sv" | "sol" | "hx" | "coffee"
-        | "cmake" | "mk" | "am" | "ac" | "spec" | "proto" | "thrift" | "graphql" | "gql"
-        | "ll" | "bc" => CODE,
+        | "cmake" | "mk" | "am" | "ac" | "spec" | "proto" | "thrift" | "graphql" | "gql" | "ll"
+        | "bc" => CODE,
 
         _ => return None,
     })
@@ -332,8 +335,22 @@ mod tests {
         // measured two columns would shift every name on its row.
         use unicode_width::UnicodeWidthChar;
         let names = [
-            "a.rs", "b.py", "c.png", "d.mkv", "e.zip", "f.pdf", "Makefile", "Dockerfile",
-            "g.deb", "h.ttf", "i.sqlite", "j.o", "k.json", "l.ps1", "m.hs", "n.unknownext",
+            "a.rs",
+            "b.py",
+            "c.png",
+            "d.mkv",
+            "e.zip",
+            "f.pdf",
+            "Makefile",
+            "Dockerfile",
+            "g.deb",
+            "h.ttf",
+            "i.sqlite",
+            "j.o",
+            "k.json",
+            "l.ps1",
+            "m.hs",
+            "n.unknownext",
         ];
         let mut glyphs: Vec<char> = names.iter().map(|n| icon(&file(n))).collect();
         glyphs.extend([DIR, DIR_UP, LINK, LINK_BROKEN, EXEC, FILE, DEVICE]);

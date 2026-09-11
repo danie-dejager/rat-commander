@@ -72,11 +72,7 @@ impl EditorBuffer {
 
     /// Character at `idx`, or `None` at/after the end.
     pub fn char_at(&self, idx: usize) -> Option<char> {
-        if idx < self.rope.len_chars() {
-            Some(self.rope.char(idx))
-        } else {
-            None
-        }
+        if idx < self.rope.len_chars() { Some(self.rope.char(idx)) } else { None }
     }
 
     /// Number of characters on `line`, excluding the trailing newline.
@@ -142,11 +138,7 @@ impl EditorBuffer {
             last.inserted.push_str(text);
             return start + text.chars().count();
         }
-        self.undo.push(Edit {
-            at: start,
-            removed,
-            inserted: text.to_string(),
-        });
+        self.undo.push(Edit { at: start, removed, inserted: text.to_string() });
         start + text.chars().count()
     }
 

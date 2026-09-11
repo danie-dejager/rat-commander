@@ -279,7 +279,11 @@ pub(crate) mod testmock {
         flag: Arc<AtomicBool>,
     }
     impl AsyncWrite for ProbeWriter {
-        fn poll_write(self: Pin<&mut Self>, _: &mut Context<'_>, b: &[u8]) -> Poll<std::io::Result<usize>> {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            b: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
             Poll::Ready(Ok(b.len()))
         }
         fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
@@ -296,7 +300,11 @@ pub(crate) mod testmock {
         remaining: usize,
     }
     impl AsyncRead for FailingReader {
-        fn poll_read(mut self: Pin<&mut Self>, _: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
             if self.remaining == 0 {
                 return Poll::Ready(Err(std::io::Error::other("simulated read failure")));
             }

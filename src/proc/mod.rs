@@ -84,7 +84,11 @@ pub enum ProcSignal {
     Stay,
     Close,
     /// Request to kill `pid` (after the app confirms). `force` ⇒ SIGKILL.
-    Kill { pid: i32, name: String, force: bool },
+    Kill {
+        pid: i32,
+        name: String,
+        force: bool,
+    },
 }
 
 pub struct ProcView {
@@ -165,11 +169,7 @@ impl ProcView {
         // core count are known up front (and the first delta has a reference).
         let mut sys = System::new();
         sys.refresh_cpu_all();
-        let cpu_name = sys
-            .cpus()
-            .first()
-            .map(|c| c.brand().trim().to_string())
-            .unwrap_or_default();
+        let cpu_name = sys.cpus().first().map(|c| c.brand().trim().to_string()).unwrap_or_default();
         let ncores = sys.cpus().len().max(1);
         let networks = Networks::new_with_refreshed_list();
         let users = Users::new_with_refreshed_list();
@@ -366,11 +366,7 @@ impl ProcView {
 
     fn kill_request(&self, force: bool) -> ProcSignal {
         match self.cursor_proc() {
-            Some(p) => ProcSignal::Kill {
-                pid: p.pid,
-                name: p.name.clone(),
-                force,
-            },
+            Some(p) => ProcSignal::Kill { pid: p.pid, name: p.name.clone(), force },
             None => ProcSignal::Stay,
         }
     }
@@ -550,9 +546,8 @@ impl ProcView {
         // every process unless a parent/child cycle strands some: flood the full
         // tree (ignoring folds) from the reapers, then promote any still-unreached
         // node to a root so nothing silently vanishes.
-        let mut roots: Vec<usize> = (0..n)
-            .filter(|&i| is_reaper_root(&self.procs, &by_pid, i))
-            .collect();
+        let mut roots: Vec<usize> =
+            (0..n).filter(|&i| is_reaper_root(&self.procs, &by_pid, i)).collect();
         let mut reachable = vec![false; n];
         let mut stack: Vec<usize> = Vec::new();
         for &r in &roots {
@@ -735,7 +730,13 @@ fn dfs_emit(
         } else {
             format!("{bars}{}", if is_last { "└─" } else { "├─" })
         };
-        rows.push(ProcRow { proc_idx: idx, depth, has_children, expanded: is_expanded, tree_prefix });
+        rows.push(ProcRow {
+            proc_idx: idx,
+            depth,
+            has_children,
+            expanded: is_expanded,
+            tree_prefix,
+        });
 
         if is_expanded && let Some(kids) = kids {
             // Children inherit the bars plus this node's continuation column.
@@ -772,10 +773,8 @@ impl ProcView {
         // Seconds since the last sample, to turn sysinfo's bytes-since-refresh
         // disk/network counters into per-second rates.
         let now = std::time::Instant::now();
-        let dt = self
-            .last_instant
-            .map(|prev| now.duration_since(prev).as_secs_f64())
-            .unwrap_or(0.0);
+        let dt =
+            self.last_instant.map(|prev| now.duration_since(prev).as_secs_f64()).unwrap_or(0.0);
         self.last_instant = Some(now);
 
         self.sys.refresh_cpu_all();
@@ -827,11 +826,7 @@ impl ProcView {
                 if parts.is_empty() {
                     String::new()
                 } else {
-                    parts
-                        .iter()
-                        .map(|s| s.to_string_lossy())
-                        .collect::<Vec<_>>()
-                        .join(" ")
+                    parts.iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ")
                 }
             };
             // Owning user name, resolved from the UID via the user database.
@@ -842,11 +837,8 @@ impl ProcView {
                 .unwrap_or_default();
             let cpu = p.cpu_usage().clamp(0.0, max_cpu);
             let rss = p.memory();
-            let mem_pct = if self.mem_total > 0 {
-                100.0 * rss as f32 / self.mem_total as f32
-            } else {
-                0.0
-            };
+            let mem_pct =
+                if self.mem_total > 0 { 100.0 * rss as f32 / self.mem_total as f32 } else { 0.0 };
             // Thread count is only exposed by sysinfo where process "tasks" are
             // available (Linux); it reads 0 elsewhere (e.g. Windows/macOS).
             let threads = p.tasks().map(|t| t.len() as u32).unwrap_or(0);
@@ -896,8 +888,7 @@ impl ProcView {
         if self.refresh_count.is_multiple_of(3) {
             push_hist(&mut self.cpu_history, self.cpu_now);
             if self.core_history.len() < self.cores.len() {
-                self.core_history
-                    .resize(self.cores.len(), VecDeque::with_capacity(CORE_HISTORY));
+                self.core_history.resize(self.cores.len(), VecDeque::with_capacity(CORE_HISTORY));
             }
             for (i, &v) in self.cores.iter().enumerate() {
                 push_core_hist(&mut self.core_history[i], v);
@@ -1002,11 +993,7 @@ mod tests {
     #[test]
     fn cursor_follows_process_across_resort() {
         let mut pv = ProcView::new();
-        pv.procs = vec![
-            mk(1, None, "a", 10.0),
-            mk(2, None, "b", 50.0),
-            mk(3, None, "c", 30.0),
-        ];
+        pv.procs = vec![mk(1, None, "a", 10.0), mk(2, None, "b", 50.0), mk(3, None, "c", 30.0)];
         pv.sort = ProcSort::Pid;
         pv.reverse = false;
         pv.rebuild_rows();
@@ -1102,7 +1089,10 @@ mod tests {
         pv.reverse = false;
         pv.rebuild_rows();
         assert_eq!(visible(&pv), vec![1, 2, 3], "flat mode shows all processes");
-        assert!(pv.rows.iter().all(|r| r.depth == 0 && !r.has_children), "flat rows are undecorated");
+        assert!(
+            pv.rows.iter().all(|r| r.depth == 0 && !r.has_children),
+            "flat rows are undecorated"
+        );
     }
 
     /// Tree mode is fully unfolded by default, draws branch prefixes, and folds
@@ -1162,11 +1152,7 @@ mod tests {
     fn cursor_starts_asleep_and_esc_backs_out_in_two_steps() {
         use super::ProcSignal;
         let mut pv = ProcView::new();
-        pv.procs = vec![
-            mk(1, None, "a", 10.0),
-            mk(2, None, "b", 50.0),
-            mk(3, None, "c", 30.0),
-        ];
+        pv.procs = vec![mk(1, None, "a", 10.0), mk(2, None, "b", 50.0), mk(3, None, "c", 30.0)];
         pv.sort = ProcSort::Pid;
         pv.reverse = false;
         pv.rebuild_rows();

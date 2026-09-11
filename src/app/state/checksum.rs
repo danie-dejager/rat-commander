@@ -33,12 +33,12 @@ impl AppState {
 
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            let outcome = match compute_checksum(&backend, &path, kind, id, &name, &cancel, &tx).await
-            {
-                Ok(Some(digest)) => Ok(ChecksumReport { kind, name, digest, expected }),
-                Ok(None) => Err(None),      // aborted → just close the dialog
-                Err(msg) => Err(Some(msg)), // I/O failure → show an error
-            };
+            let outcome =
+                match compute_checksum(&backend, &path, kind, id, &name, &cancel, &tx).await {
+                    Ok(Some(digest)) => Ok(ChecksumReport { kind, name, digest, expected }),
+                    Ok(None) => Err(None), // aborted → just close the dialog
+                    Err(msg) => Err(Some(msg)), // I/O failure → show an error
+                };
             let _ = tx.send(AppEvent::ChecksumDone { id, result: outcome }).await;
         });
     }

@@ -55,8 +55,11 @@ impl AppState {
                     let active_tab = config.panel_tab_active[i].min(tabs.len() - 1);
                     // The panel itself is showing `panel.cwd`, so the front tab
                     // has to agree with it or the first switch would jump.
-                    tabs[active_tab] =
-                        crate::panel::tabs::TabState::new(panel.cwd.clone(), panel.format, panel.sort);
+                    tabs[active_tab] = crate::panel::tabs::TabState::new(
+                        panel.cwd.clone(),
+                        panel.format,
+                        panel.sort,
+                    );
                     tabs[active_tab].filter = panel.filter.clone();
                     panel.tabs = tabs;
                     panel.tab = active_tab;
@@ -345,9 +348,7 @@ impl AppState {
     /// something actually moving. A settled camera over a finished crawl returns
     /// false, so an idle 3D panel costs no more CPU than an idle Full view.
     pub fn wants_frames(&self) -> bool {
-        self.panels
-            .iter()
-            .any(|p| p.space3d.as_ref().is_some_and(|s| s.needs_frames()))
+        self.panels.iter().any(|p| p.space3d.as_ref().is_some_and(|s| s.needs_frames()))
     }
 
     /// Advance the 3D views' camera and box-size animations.
@@ -458,8 +459,8 @@ impl AppState {
     pub(crate) fn menu_progress_rect(&self, menubar_row: Rect) -> Option<Rect> {
         self.background_summary()?;
         let mini_w = 24u16.min(menubar_row.width);
-        let status_shown = self.config.system_status
-            && menubar_row.width >= crate::ui::menubar::STATUS_MIN_WIDTH;
+        let status_shown =
+            self.config.system_status && menubar_row.width >= crate::ui::menubar::STATUS_MIN_WIDTH;
         let right_edge = if status_shown {
             menubar_row.x + menubar_row.width.saturating_sub(crate::ui::menubar::STATUS_WIDTH)
         } else {
@@ -603,9 +604,8 @@ impl AppState {
                 self.flash_tasks.remove(&id);
                 self.stashed_progress = None;
                 match outcome {
-                    TaskOutcome::Done => {
-                        self.show_info("Image created", "The device image was written successfully.")
-                    }
+                    TaskOutcome::Done => self
+                        .show_info("Image created", "The device image was written successfully."),
                     TaskOutcome::Cancelled => self.show_info(
                         "Imaging aborted",
                         "Imaging was aborted; the partial image file was removed.",
@@ -769,7 +769,10 @@ impl AppState {
     /// The text [`Self::copy_paths_to_clipboard`] would put on the clipboard, or
     /// empty when there is nothing to copy. Split out so the shapes can be tested
     /// without writing an escape sequence to the terminal.
-    pub(in crate::app::state) fn clipboard_text(&self, what: crate::ui::menu::ClipTarget) -> String {
+    pub(in crate::app::state) fn clipboard_text(
+        &self,
+        what: crate::ui::menu::ClipTarget,
+    ) -> String {
         use crate::ui::menu::ClipTarget;
         // `operation_targets` resolves marks, the cursor entry and find-file
         // panelization the same way every file operation does, so what gets
@@ -786,7 +789,10 @@ impl AppState {
 
     /// Copy the active panel's paths to the system clipboard (Alt-C, the File
     /// menu, and the command palette).
-    pub(in crate::app::state) fn copy_paths_to_clipboard(&mut self, what: crate::ui::menu::ClipTarget) {
+    pub(in crate::app::state) fn copy_paths_to_clipboard(
+        &mut self,
+        what: crate::ui::menu::ClipTarget,
+    ) {
         let text = self.clipboard_text(what);
         if text.is_empty() {
             // Nothing under the cursor but `..`, or an empty listing.
@@ -821,5 +827,4 @@ impl AppState {
             Flow::Quit
         }
     }
-
 }

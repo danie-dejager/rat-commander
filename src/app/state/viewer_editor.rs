@@ -201,7 +201,8 @@ impl AppState {
             Ok(o) => {
                 // Failures still have something to say — paste stderr so the user
                 // sees why nothing came back, rather than a silent no-op.
-                let bytes = if o.stdout.is_empty() && !o.status.success() { &o.stderr } else { &o.stdout };
+                let bytes =
+                    if o.stdout.is_empty() && !o.status.success() { &o.stderr } else { &o.stdout };
                 let text = String::from_utf8_lossy(bytes).into_owned();
                 if text.is_empty() {
                     return self.show_error(format!("{cmd}: no output"));
@@ -216,7 +217,10 @@ impl AppState {
 
     /// Apply new editor options: to the open editor at once, and to the config
     /// so the next file opens with them too.
-    pub(in crate::app::state) fn apply_editor_options(&mut self, opts: crate::config::EditorOptions) {
+    pub(in crate::app::state) fn apply_editor_options(
+        &mut self,
+        opts: crate::config::EditorOptions,
+    ) {
         self.config.editor_options = opts.clone();
         let dark = self.dark_ui();
         if let Some(ed) = self.editor.as_mut() {
@@ -296,10 +300,12 @@ impl AppState {
             // line-index scan runs off-thread so it doesn't block the reactor.
             let local = path.path.clone();
             let dark = self.dark_ui();
-            let scanned = tokio::task::spawn_blocking(move || crate::viewer::scan_file(&local)).await;
+            let scanned =
+                tokio::task::spawn_blocking(move || crate::viewer::scan_file(&local)).await;
             match scanned {
                 Ok(Ok((file, len, line_starts, scanned))) => {
-                    let mut v = ViewerState::from_scanned(name, file, len, line_starts, scanned, None);
+                    let mut v =
+                        ViewerState::from_scanned(name, file, len, line_starts, scanned, None);
                     v.enable_syntax(dark);
                     v.set_search_seed(self.search_memory.viewer_query.clone());
                     // A find-file content hit opens the viewer at its matching
@@ -518,38 +524,29 @@ impl AppState {
         self.next_task_id += 1;
         let cancel = CancelToken::new();
         let (reply, _reply_rx) = tokio::sync::mpsc::channel(1);
-        self.tasks.insert(
-            id,
-            TaskHandle {
-                id,
-                cancel: cancel.clone(),
-                reply,
-            },
-        );
+        self.tasks.insert(id, TaskHandle { id, cancel: cancel.clone(), reply });
         self.dialog = Some(Dialog::Progress(ProgressDialog::new(id, "Reading")));
 
         let temp = crate::util::temp::rc_temp_path("fetch");
         let tx = self.tx.clone();
         let orig_path = path.clone();
         tokio::spawn(async move {
-            let outcome = fetch_to_temp(&backend, &path, &temp, total, &cancel, id, &name, &tx).await;
+            let outcome =
+                fetch_to_temp(&backend, &path, &temp, total, &cancel, id, &name, &tx).await;
             match outcome {
                 Ok(true) => {
-                    let _ = tx
-                        .send(AppEvent::FileFetched { id, kind, name, orig_path, temp })
-                        .await;
+                    let _ =
+                        tx.send(AppEvent::FileFetched { id, kind, name, orig_path, temp }).await;
                 }
                 Ok(false) => {
                     let _ = tokio::fs::remove_file(&temp).await;
-                    let _ = tx
-                        .send(AppEvent::TaskDone { id, outcome: TaskOutcome::Cancelled })
-                        .await;
+                    let _ =
+                        tx.send(AppEvent::TaskDone { id, outcome: TaskOutcome::Cancelled }).await;
                 }
                 Err(e) => {
                     let _ = tokio::fs::remove_file(&temp).await;
-                    let _ = tx
-                        .send(AppEvent::TaskDone { id, outcome: TaskOutcome::Failed(e) })
-                        .await;
+                    let _ =
+                        tx.send(AppEvent::TaskDone { id, outcome: TaskOutcome::Failed(e) }).await;
                 }
             }
         });
@@ -832,8 +829,8 @@ impl AppState {
                 for (n, sa) in &a {
                     if let Some(sb) = bmap.get(n.as_str()) {
                         // Different sizes ⇒ different content (no need to read).
-                        let differ = sa != sb
-                            || files_differ(&ba, &ca.join(n), &bb, &cb.join(n)).await;
+                        let differ =
+                            sa != sb || files_differ(&ba, &ca.join(n), &bb, &cb.join(n)).await;
                         if differ {
                             mark_a.push(n.clone());
                             mark_b.push(n.clone());
@@ -861,7 +858,8 @@ impl AppState {
                 .filter(|e| e.kind == VfsKind::File && e.name != "..")
                 .map(|e| (e.name.clone(), p.cwd.join(&e.name)))
         };
-        let (Some((ln, lp)), Some((rn, rp))) = (pick(&self.panels[0]), pick(&self.panels[1])) else {
+        let (Some((ln, lp)), Some((rn, rp))) = (pick(&self.panels[0]), pick(&self.panels[1]))
+        else {
             return self.show_error("Put the cursor on a file in both panels to compare");
         };
         let lback = self.panels[0].backend.clone();
@@ -908,5 +906,4 @@ impl AppState {
             self.reload_all().await;
         }
     }
-
 }

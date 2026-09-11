@@ -323,7 +323,8 @@ mod tests {
         let (v, c) = run("foo bar baz", 11, &[backspace_alt]);
         assert_eq!((v.as_str(), c), ("foo bar ", 8));
         // Alt-C-h does the same.
-        let alt_ctrl_h = KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT | KeyModifiers::CONTROL);
+        let alt_ctrl_h =
+            KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT | KeyModifiers::CONTROL);
         let (v, c) = run("foo bar baz", 11, &[alt_ctrl_h]);
         assert_eq!((v.as_str(), c), ("foo bar ", 8));
     }

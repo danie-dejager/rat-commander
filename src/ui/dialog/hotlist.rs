@@ -155,10 +155,7 @@ impl HotlistDialog {
         }
 
         let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
-        let list = Rect {
-            height: inner.height.saturating_sub(1),
-            ..inner
-        };
+        let list = Rect { height: inner.height.saturating_sub(1), ..inner };
         self.list_area = list;
         let visible = list.height as usize;
         self.offset = crate::util::scroll::scroll_to_visible(self.offset, self.cursor, visible);

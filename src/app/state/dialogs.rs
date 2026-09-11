@@ -186,10 +186,8 @@ impl AppState {
                 // Escalating needs sudo's credential cache primed first, and
                 // that may mean asking for a password — so stash the answer and
                 // come back to it once we have one.
-                let wants_root = matches!(
-                    decision,
-                    PrivDecision::Escalate | PrivDecision::EscalateAll
-                );
+                let wants_root =
+                    matches!(decision, PrivDecision::Escalate | PrivDecision::EscalateAll);
                 if wants_root && !crate::priv_ops::available().await {
                     self.pending_priv_answer = Some((id, decision));
                     self.dialog = Some(Dialog::Input(InputDialog::password(
@@ -255,7 +253,8 @@ impl AppState {
                 } else {
                     // The command has `%{…}` prompts: ask for each in turn, then
                     // run once the last answer is in (see `advance_menu_prompt`).
-                    self.pending_menu = Some(PendingMenu { template: tpl, labels, answers: Vec::new() });
+                    self.pending_menu =
+                        Some(PendingMenu { template: tpl, labels, answers: Vec::new() });
                     self.open_menu_prompt();
                 }
             }
@@ -298,13 +297,9 @@ impl AppState {
                 self.editor = None;
                 self.reload_all().await;
             }
-            Submit::Select {
-                select,
-                pattern,
-                files_only,
-                case_sensitive,
-                shell,
-            } => self.apply_select(select, &pattern, files_only, case_sensitive, shell),
+            Submit::Select { select, pattern, files_only, case_sensitive, shell } => {
+                self.apply_select(select, &pattern, files_only, case_sensitive, shell)
+            }
             Submit::SearchReplace(p) => self.apply_search_replace(p),
             Submit::Find(p) => self.start_find(p),
             Submit::Chmod(paths, mode, recursive) => self.apply_chmod(paths, mode, recursive).await,
@@ -341,11 +336,8 @@ impl AppState {
                 self.truecolor = v.truecolor;
                 // Apply the chosen language (store English as the default => None).
                 crate::l10n::set_active_by_name(&v.language);
-                self.config.language = if v.language == "English" {
-                    None
-                } else {
-                    Some(v.language)
-                };
+                self.config.language =
+                    if v.language == "English" { None } else { Some(v.language) };
                 self.config.reshape_rtl = v.reshape_rtl;
                 crate::l10n::set_reshape_rtl(v.reshape_rtl);
                 self.config.graphics = v.graphics;
@@ -501,10 +493,8 @@ impl AppState {
     /// Open an input dialog for the next unanswered `%{…}` prompt of the pending
     /// user-menu command, if any.
     fn open_menu_prompt(&mut self) {
-        let label = self
-            .pending_menu
-            .as_ref()
-            .and_then(|pm| pm.labels.get(pm.answers.len()).cloned());
+        let label =
+            self.pending_menu.as_ref().and_then(|pm| pm.labels.get(pm.answers.len()).cloned());
         if let Some(label) = label {
             self.dialog = Some(Dialog::Input(InputDialog::new(
                 "User menu",
@@ -547,11 +537,9 @@ impl AppState {
     ) {
         let p = &mut self.panels[self.active];
         let res = if select {
-            p.selection
-                .select_group(&p.entries, pattern, files_only, case_sensitive, shell)
+            p.selection.select_group(&p.entries, pattern, files_only, case_sensitive, shell)
         } else {
-            p.selection
-                .unselect_group(&p.entries, pattern, case_sensitive, shell)
+            p.selection.unselect_group(&p.entries, pattern, case_sensitive, shell)
         };
         if let Err(e) = res {
             self.show_error(format!("Invalid pattern: {e}"));
@@ -574,7 +562,13 @@ impl AppState {
     }
 
     /// Apply ownership to every target, recursing into directories when asked.
-    async fn apply_chown(&mut self, paths: Vec<VfsPath>, owner: &str, group: &str, recursive: bool) {
+    async fn apply_chown(
+        &mut self,
+        paths: Vec<VfsPath>,
+        owner: &str,
+        group: &str,
+        recursive: bool,
+    ) {
         let uid = match resolve_uid(owner) {
             Ok(u) => u,
             Err(e) => return self.show_error(e),
@@ -715,12 +709,8 @@ impl AppState {
 
     pub(in crate::app::state) fn invert_selection(&mut self) {
         let p = &mut self.panels[self.active];
-        let names: Vec<String> = p
-            .entries
-            .iter()
-            .filter(|e| e.name != "..")
-            .map(|e| e.name.clone())
-            .collect();
+        let names: Vec<String> =
+            p.entries.iter().filter(|e| e.name != "..").map(|e| e.name.clone()).collect();
         for n in names {
             p.selection.toggle(&n);
         }
@@ -750,12 +740,9 @@ impl AppState {
             return self.show_error("No files selected");
         }
         // Prefill the bits from the file under the cursor (a representative).
-        let mode = p
-            .current_entry()
-            .filter(|e| e.name != "..")
-            .and_then(|e| e.mode)
-            .unwrap_or(0o644)
-            & 0o777;
+        let mode =
+            p.current_entry().filter(|e| e.name != "..").and_then(|e| e.mode).unwrap_or(0o644)
+                & 0o777;
         self.dialog = Some(Dialog::Form(FormDialog::chmod(targets, mode)));
     }
 
@@ -791,10 +778,9 @@ impl AppState {
         let dir = self.panels[other].cwd.clone();
         let active = &self.panels[self.active];
         let (target, name) = match active.current_entry() {
-            Some(e) if e.name != ".." => (
-                active.cwd.join(&e.name).path.to_string_lossy().into_owned(),
-                e.name.clone(),
-            ),
+            Some(e) if e.name != ".." => {
+                (active.cwd.join(&e.name).path.to_string_lossy().into_owned(), e.name.clone())
+            }
             _ => (String::new(), String::new()),
         };
         self.dialog = Some(Dialog::Form(FormDialog::symlink(dir, target, name)));
@@ -883,7 +869,6 @@ impl AppState {
             tokio::spawn(async move { launch_default(path).await });
         }
     }
-
 }
 
 /// Every path an op should touch: `root`, plus — when `recursive` — all

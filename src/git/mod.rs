@@ -105,9 +105,7 @@ pub fn parse_branch(header: &str) -> (String, usize, usize) {
     }
     // The branch name is up to the first "..." (before the upstream) or the whole
     // token when there is no upstream.
-    let name_end = body.find("...").unwrap_or_else(|| {
-        body.find([' ', '[']).unwrap_or(body.len())
-    });
+    let name_end = body.find("...").unwrap_or_else(|| body.find([' ', '[']).unwrap_or(body.len()));
     let branch = body[..name_end].trim().to_string();
 
     let (mut ahead, mut behind) = (0usize, 0usize);
@@ -130,10 +128,7 @@ pub fn parse_branch(header: &str) -> (String, usize, usize) {
 /// Map an `XY` porcelain code to a [`GitState`].
 fn code_to_state(x: u8, y: u8) -> GitState {
     // Unmerged (conflict) combinations.
-    let unmerged = matches!(
-        (x, y),
-        (b'U', _) | (_, b'U') | (b'D', b'D') | (b'A', b'A')
-    );
+    let unmerged = matches!((x, y), (b'U', _) | (_, b'U') | (b'D', b'D') | (b'A', b'A'));
     if unmerged {
         return GitState::Conflict;
     }
@@ -212,11 +207,7 @@ fn child_under(path: &str, rel_dir: &Path) -> Option<String> {
     // Normalise a trailing slash git adds to untracked directories.
     let path = path.trim_end_matches('/');
     let p = Path::new(path);
-    let rest = if rel_dir.as_os_str().is_empty() {
-        p
-    } else {
-        p.strip_prefix(rel_dir).ok()?
-    };
+    let rest = if rel_dir.as_os_str().is_empty() { p } else { p.strip_prefix(rel_dir).ok()? };
     let first = rest.components().next()?;
     Some(first.as_os_str().to_string_lossy().into_owned())
 }
@@ -232,16 +223,7 @@ pub async fn status(dir: &Path) -> Option<GitStatus> {
     let rel_dir = dir.strip_prefix(&root).unwrap_or(Path::new("")).to_path_buf();
     let out = run(
         dir,
-        &[
-            "-c",
-            "core.quotepath=false",
-            "status",
-            "--porcelain=v1",
-            "--branch",
-            "-z",
-            "--",
-            ".",
-        ],
+        &["-c", "core.quotepath=false", "status", "--porcelain=v1", "--branch", "-z", "--", "."],
     )
     .await?;
     Some(parse_status_z(&out, &rel_dir, root))
@@ -404,10 +386,8 @@ mod tests {
     /// unstaged modification and an untracked file. Returns `None` (skip) if git
     /// isn't usable here.
     fn make_repo() -> Option<PathBuf> {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let dir = std::env::temp_dir().join(format!("rc_git_it_{}_{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir).ok()?;
         if !git_ok(&dir, &["init", "-q"]) {

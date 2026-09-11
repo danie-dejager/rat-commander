@@ -2,7 +2,9 @@
 //! done with shell commands over the SSH connection (the standard approach for
 //! scp-based file managers), while transfers stream through `cat`.
 
-use super::{Connection, RemoteCreds, SshHandle, parse_unix_listing_line, shell_quote, ssh_connect};
+use super::{
+    Connection, RemoteCreds, SshHandle, parse_unix_listing_line, shell_quote, ssh_connect,
+};
 use crate::util::{Error, Result};
 use crate::vfs::membuf::{pipe_download, pipe_upload};
 use crate::vfs::{BoxRead, BoxWrite, Capabilities, Vfs, VfsEntry, VfsKind, VfsPath, WriteMeta};
@@ -24,11 +26,7 @@ pub async fn connect(creds: &RemoteCreds) -> Result<Connection> {
         creds.path.clone()
     };
     let label = format!("scp://{}@{}", creds.user, creds.host);
-    Ok(Connection {
-        backend: Arc::new(ScpFs { handle }),
-        root,
-        label,
-    })
+    Ok(Connection { backend: Arc::new(ScpFs { handle }), root, label })
 }
 
 /// Run a command over a fresh exec channel; collect stdout and the exit code.
@@ -37,10 +35,7 @@ async fn exec_capture(handle: &SshHandle, cmd: &str) -> Result<(Vec<u8>, u32)> {
         .channel_open_session()
         .await
         .map_err(|e| Error::other(format!("channel open failed: {e}")))?;
-    channel
-        .exec(true, cmd)
-        .await
-        .map_err(|e| Error::other(format!("exec failed: {e}")))?;
+    channel.exec(true, cmd).await.map_err(|e| Error::other(format!("exec failed: {e}")))?;
     let mut out = Vec::new();
     let mut code = 0u32;
     loop {
@@ -99,10 +94,7 @@ impl Vfs for ScpFs {
     }
 
     async fn read_dir(&self, dir: &VfsPath) -> Result<Vec<VfsEntry>> {
-        let cmd = format!(
-            "ls -la --time-style=long-iso -- {}",
-            shell_quote(&path_str(dir))
-        );
+        let cmd = format!("ls -la --time-style=long-iso -- {}", shell_quote(&path_str(dir)));
         let (out, code) = exec_capture(&self.handle, &cmd).await?;
         if code != 0 && out.is_empty() {
             return Err(Error::other("remote listing failed"));
@@ -119,10 +111,7 @@ impl Vfs for ScpFs {
     }
 
     async fn stat(&self, path: &VfsPath) -> Result<VfsEntry> {
-        let cmd = format!(
-            "ls -lad --time-style=long-iso -- {}",
-            shell_quote(&path_str(path))
-        );
+        let cmd = format!("ls -lad --time-style=long-iso -- {}", shell_quote(&path_str(path)));
         let (out, code) = exec_capture(&self.handle, &cmd).await?;
         if code != 0 {
             return Err(Error::NotFound(path_str(path)));
@@ -200,10 +189,7 @@ impl Vfs for ScpFs {
                 .data(rx)
                 .await
                 .map_err(|e| std::io::Error::other(format!("upload failed: {e}")))?;
-            channel
-                .eof()
-                .await
-                .map_err(|e| std::io::Error::other(format!("eof failed: {e}")))?;
+            channel.eof().await.map_err(|e| std::io::Error::other(format!("eof failed: {e}")))?;
             // Check the remote command actually succeeded. A failed `cat`
             // (permission, quota, disk full) must surface as an error, not a
             // silently truncated or empty file reported as a successful write.
@@ -237,11 +223,7 @@ impl Vfs for ScpFs {
     async fn rename(&self, from: &VfsPath, to: &VfsPath) -> Result<()> {
         run_ok(
             &self.handle,
-            &format!(
-                "mv -- {} {}",
-                shell_quote(&path_str(from)),
-                shell_quote(&path_str(to))
-            ),
+            &format!("mv -- {} {}", shell_quote(&path_str(from)), shell_quote(&path_str(to))),
         )
         .await
     }
@@ -250,9 +232,5 @@ impl Vfs for ScpFs {
 /// Run a command and require exit code 0.
 async fn run_ok(handle: &SshHandle, cmd: &str) -> Result<()> {
     let (_, code) = exec_capture(handle, cmd).await?;
-    if code == 0 {
-        Ok(())
-    } else {
-        Err(Error::other(format!("remote command failed: {cmd}")))
-    }
+    if code == 0 { Ok(()) } else { Err(Error::other(format!("remote command failed: {cmd}"))) }
 }

@@ -483,7 +483,12 @@ mod tests {
         assert!(menu.entries.iter().all(|e| e.hotkey != '#' && e.hotkey != '+'));
         // the default menu ships with bare (self-quoting) macros and is stable
         // under the upgrade migration.
-        assert!(!menu.entries.iter().any(|e| e.command.contains("\"%f\"") || e.command.contains("\"%d\"")));
+        assert!(
+            !menu
+                .entries
+                .iter()
+                .any(|e| e.command.contains("\"%f\"") || e.command.contains("\"%d\""))
+        );
         assert!(migrate_menu_text(DEFAULT_MENU).is_none(), "default needs no migration");
     }
 
@@ -501,7 +506,8 @@ mod tests {
 
     #[test]
     fn parses_prefixes_and_shell_patterns() {
-        let text = "shell_patterns=0\n=+ f \\.c$ & t r\nc Compile\n\tcc %f\n= t d\nz Zip\n\tzip x\n";
+        let text =
+            "shell_patterns=0\n=+ f \\.c$ & t r\nc Compile\n\tcc %f\n= t d\nz Zip\n\tzip x\n";
         let menu = parse(text);
         assert!(!menu.shell_patterns, "shell_patterns=0 ⇒ regex mode");
         let c = menu.entries.iter().find(|e| e.hotkey == 'c').unwrap();
@@ -620,7 +626,10 @@ mod tests {
         assert!(new.contains("\"$Pwd\""), "shell-var quotes kept");
         assert!(new.contains("%{keep}"), "prompt macro untouched");
         assert!(migrate_menu_text(&new).is_none(), "idempotent");
-        assert!(unquote_self_quoting_macros("gzip %f\ncat %d\n").is_none(), "bare macros untouched");
+        assert!(
+            unquote_self_quoting_macros("gzip %f\ncat %d\n").is_none(),
+            "bare macros untouched"
+        );
         // mc's own menu abuts %t against adjacent string literals — not a quoted
         // macro token, so it must be left alone.
         assert!(

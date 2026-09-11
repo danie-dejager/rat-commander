@@ -20,11 +20,7 @@ pub struct VfsPath {
 impl VfsPath {
     /// A local-filesystem path.
     pub fn local(path: impl Into<PathBuf>) -> Self {
-        VfsPath {
-            scheme: "file".to_string(),
-            path: path.into(),
-            container: None,
-        }
+        VfsPath { scheme: "file".to_string(), path: path.into(), container: None }
     }
 
     /// A path inside an archive. `inner` is absolute within the archive.
@@ -108,9 +104,7 @@ impl VfsPath {
     /// `/`. On Unix `MAIN_SEPARATOR` is already `/`, so this is a no-op that
     /// preserves any literal backslash in a (legitimate) POSIX file name.
     pub fn posix_path(&self) -> String {
-        self.path
-            .to_string_lossy()
-            .replace(std::path::MAIN_SEPARATOR, "/")
+        self.path.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/")
     }
 
     /// The final component (file name), or the whole path for the root.
@@ -169,11 +163,7 @@ impl VfsPath {
             let comp = comp.trim_matches('/');
             PathBuf::from(format!("{base}/{comp}"))
         };
-        VfsPath {
-            scheme: self.scheme.clone(),
-            path,
-            container: self.container.clone(),
-        }
+        VfsPath { scheme: self.scheme.clone(), path, container: self.container.clone() }
     }
 
     /// Display string for the location bar.
@@ -194,7 +184,10 @@ mod tests {
     fn has_lossy_name_flags_the_replacement_char() {
         assert!(!VfsPath::local("/home/user/file.txt").has_lossy_name());
         assert!(!VfsPath::local("/home/user/naïve.txt").has_lossy_name(), "valid UTF-8 is fine");
-        assert!(VfsPath::local("/home/user/ba\u{FFFD}d").has_lossy_name(), "a lossy-decoded name is flagged");
+        assert!(
+            VfsPath::local("/home/user/ba\u{FFFD}d").has_lossy_name(),
+            "a lossy-decoded name is flagged"
+        );
     }
 
     use super::*;

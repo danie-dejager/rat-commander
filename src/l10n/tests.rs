@@ -5,7 +5,8 @@ fn all_builtin_catalogs_parse_with_unique_names() {
     // Every embedded file must parse (a TOML typo would silently drop it).
     let cats = builtin_catalogs();
     assert_eq!(cats.len(), super::BUILTIN_FILES.len(), "every built-in file parsed");
-    for expected in ["English", "Deutsch", "Français", "Русский", "日本語", "العربية"] {
+    for expected in ["English", "Deutsch", "Français", "Русский", "日本語", "العربية"]
+    {
         assert!(cats.iter().any(|c| c.name == expected), "missing language: {expected}");
     }
     // Language display names must be distinct so the chooser is unambiguous.
@@ -18,10 +19,7 @@ fn all_builtin_catalogs_parse_with_unique_names() {
 
 #[test]
 fn german_catalog_translates_across_categories() {
-    let de = builtin_catalogs()
-        .into_iter()
-        .find(|c| c.name == "Deutsch")
-        .expect("German catalog");
+    let de = builtin_catalogs().into_iter().find(|c| c.name == "Deutsch").expect("German catalog");
     // A representative key from each translated surface.
     assert_eq!(de.get("File"), Some("Datei")); // menu bar title
     assert_eq!(de.get("&Copy"), Some("&Kopieren")); // menu item
@@ -70,39 +68,77 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
     let editor_menus: Vec<&[&str]> = crate::editor::menu::MENU_KEYS.to_vec();
     let menus: &[&[&str]] = &[
         &[
-            "&View", "&Edit", "&Copy", "&Rename/Move", "M&ulti rename", "&Make directory",
-            "&Delete", "C&hmod", "Cho&wn", "&Symlink", "Com&press...", "Chec&ksum...",
-            "Send over &LAN...", "Cop&y path to clipboard", "&Git",
-            "&Background operations...", "Select gr&oup", "U&nselect group",
-            "&Invert selection", "&Quit",
+            "&View",
+            "&Edit",
+            "&Copy",
+            "&Rename/Move",
+            "M&ulti rename",
+            "&Make directory",
+            "&Delete",
+            "C&hmod",
+            "Cho&wn",
+            "&Symlink",
+            "Com&press...",
+            "Chec&ksum...",
+            "Send over &LAN...",
+            "Cop&y path to clipboard",
+            "&Git",
+            "&Background operations...",
+            "Select gr&oup",
+            "U&nselect group",
+            "&Invert selection",
+            "&Quit",
         ],
         // The Git submenu (File → Git, or Alt-G). Its accelerators only need to be
         // unique among themselves, since it is a menu of its own.
         &git_keys,
         &[
-            "C&ommand palette...", "Directory &hotlist...", "Panel f&ilter...",
-            "Directory hi&story...", "Sy&nc panels", "Show directory on other p&anel",
+            "C&ommand palette...",
+            "Directory &hotlist...",
+            "Panel f&ilter...",
+            "Directory hi&story...",
+            "Sy&nc panels",
+            "Show directory on other p&anel",
             "&Find file...",
-            "Find d&uplicates...", "Compare &directories...", "S&ynchronize directories...",
+            "Find d&uplicates...",
+            "Compare &directories...",
+            "S&ynchronize directories...",
             "Compare fi&les...",
-            "&Process explorer...", "Disk &explorer...", "Disk &manager...", "Network &connections...",
-            "S&wap panels", "&Re-read directories", "&Toggle split V/H",
+            "&Process explorer...",
+            "Disk &explorer...",
+            "Disk &manager...",
+            "Network &connections...",
+            "S&wap panels",
+            "&Re-read directories",
+            "&Toggle split V/H",
         ],
         &[
-            "&Settings...", "&Confirmations...", "&Edit themes...", "Edit e&xtensions...",
+            "&Settings...",
+            "&Confirmations...",
+            "&Edit themes...",
+            "Edit e&xtensions...",
             "Edit &menu file...",
         ],
         &[
-            "&Full view", "&Brief view", "&Details view", "Tree v&iew", "&3D view", "Sort: &Name",
-            "Sort: &Extension", "Sort: &Size", "Sort: &Modify time", "Sort: &Unsorted",
-            "&Reverse order", "SFT&P connection...", "F&TP connection...", "S&CP connection...",
+            "&Full view",
+            "&Brief view",
+            "&Details view",
+            "Tree v&iew",
+            "&3D view",
+            "Sort: &Name",
+            "Sort: &Extension",
+            "Sort: &Size",
+            "Sort: &Modify time",
+            "Sort: &Unsorted",
+            "&Reverse order",
+            "SFT&P connection...",
+            "F&TP connection...",
+            "S&CP connection...",
             "Go &local (keep session)",
         ],
     ];
     let accel = |s: &str| -> Option<char> {
-        s.find('&')
-            .and_then(|b| s[b + 1..].chars().next())
-            .map(|c| c.to_ascii_lowercase())
+        s.find('&').and_then(|b| s[b + 1..].chars().next()).map(|c| c.to_ascii_lowercase())
     };
     // The editor's six menus are checked on the same terms as the panel ones.
     let menus: Vec<&[&str]> = menus.iter().copied().chain(editor_menus).collect();

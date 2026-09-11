@@ -14,16 +14,8 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
         return;
     }
     let status = Rect { height: 1, ..area };
-    let text_area = Rect {
-        y: area.y + 1,
-        height: area.height - 2,
-        ..area
-    };
-    let footer = Rect {
-        y: area.y + area.height - 1,
-        height: 1,
-        ..area
-    };
+    let text_area = Rect { y: area.y + 1, height: area.height - 2, ..area };
+    let footer = Rect { y: area.y + area.height - 1, height: 1, ..area };
 
     ed.view_rows = text_area.height as usize;
     ed.view_cols = text_area.width as usize;
@@ -103,11 +95,7 @@ fn render_help(f: &mut Frame, area: Rect, theme: &Theme) {
     let help = super::EDITOR_HELP;
     // Width = widest "keys  description" line (+ padding); height = rows + border.
     let key_w = help.iter().map(|(k, _)| k.chars().count()).max().unwrap_or(0);
-    let inner_w = help
-        .iter()
-        .map(|(_k, d)| key_w + 2 + d.chars().count())
-        .max()
-        .unwrap_or(20);
+    let inner_w = help.iter().map(|(_k, d)| key_w + 2 + d.chars().count()).max().unwrap_or(20);
     let w = (inner_w as u16 + 4).min(area.width.saturating_sub(2));
     let h = (help.len() as u16 + 2).min(area.height.saturating_sub(2));
     let x = area.x + (area.width.saturating_sub(w)) / 2;
@@ -120,14 +108,18 @@ fn render_help(f: &mut Frame, area: Rect, theme: &Theme) {
         .border_style(Style::default().fg(theme.dialog_border_fg).bg(theme.dialog_border_bg))
         .title(Span::styled(
             " Editor shortcuts ",
-            Style::default().fg(theme.dialog_title).bg(theme.dialog_border_bg).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.dialog_title)
+                .bg(theme.dialog_border_bg)
+                .add_modifier(Modifier::BOLD),
         ))
         .title_alignment(ratatui::layout::Alignment::Center)
         .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg));
     let inner = block.inner(rect);
     f.render_widget(block, rect);
 
-    let key_style = Style::default().fg(theme.header_fg).bg(theme.dialog_bg).add_modifier(Modifier::BOLD);
+    let key_style =
+        Style::default().fg(theme.header_fg).bg(theme.dialog_bg).add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
     let mut lines: Vec<Line> = Vec::with_capacity(help.len());
     for (k, d) in help {
@@ -166,19 +158,13 @@ fn render_hex(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) ->
     let offset_style = Style::default().fg(theme.header_fg).bg(theme.panel_bg);
     let sep = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
     let active = theme.cursor; // highlighted cell in the focused pane
-    let inactive = Style::default()
-        .fg(theme.panel_bg)
-        .bg(theme.panel_border)
-        .add_modifier(Modifier::BOLD);
+    let inactive =
+        Style::default().fg(theme.panel_bg).bg(theme.panel_border).add_modifier(Modifier::BOLD);
 
     // `window` can come back shorter than `len` implies (the file shrank under
     // us, or a read failed), so index it rather than trusting the length.
     let cell = |off: u64| -> Option<u8> {
-        if off < h.len {
-            window.get((off - h.top) as usize).copied()
-        } else {
-            None
-        }
+        if off < h.len { window.get((off - h.top) as usize).copied() } else { None }
     };
 
     let mut lines: Vec<Line> = Vec::with_capacity(rows);
@@ -193,11 +179,8 @@ fn render_hex(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) ->
                 Some(b) => format!("{b:02X}"),
                 None => "  ".to_string(),
             };
-            let st = if off == h.cursor {
-                if h.ascii_pane { inactive } else { active }
-            } else {
-                normal
-            };
+            let st =
+                if off == h.cursor { if h.ascii_pane { inactive } else { active } } else { normal };
             spans.push(Span::styled(txt, st));
             spans.push(Span::styled(if j == 7 { "  " } else { " " }, sep));
         }
@@ -249,15 +232,10 @@ fn render_hex_status(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Th
         None => "--".to_string(),
     };
     let pane = if h.ascii_pane { "ASCII" } else { "HEX" };
-    let flags = format!(
-        "{}{}",
-        if h.dirty { "[+]" } else { "   " },
-        if h.readonly { " [RO]" } else { "" }
-    );
-    let text = format!(
-        " HEX {flags} {name}  Off 0x{cur:08X}/{:X}  Byte {byte}  pane:{pane} ",
-        h.len
-    );
+    let flags =
+        format!("{}{}", if h.dirty { "[+]" } else { "   " }, if h.readonly { " [RO]" } else { "" });
+    let text =
+        format!(" HEX {flags} {name}  Off 0x{cur:08X}/{:X}  Byte {byte}  pane:{pane} ", h.len);
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
             pad_right(&text, area.width as usize),
@@ -410,8 +388,7 @@ fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Op
             let ci = ed.left_col + vc;
             let (ch, style) = if ci < chars.len() {
                 let abs = line_start + ci;
-                let (dch, marker) =
-                    display_char(chars[ci], ci >= trail_from, ed.show_tabs());
+                let (dch, marker) = display_char(chars[ci], ci >= trail_from, ed.show_tabs());
                 if block.map(|(s, e)| abs >= s && abs < e).unwrap_or(false) {
                     (dch, block_style)
                 } else if marker {
@@ -437,10 +414,7 @@ fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Op
         }
         lines.push(Line::from(spans));
     }
-    f.render_widget(
-        Paragraph::new(lines).style(Style::default().bg(theme.panel_bg)),
-        area,
-    );
+    f.render_widget(Paragraph::new(lines).style(Style::default().bg(theme.panel_bg)), area);
 
     // Cursor position (only when not prompting; caller decides).
     let cline = ed.buf.char_to_line(ed.cursor);
@@ -507,7 +481,12 @@ fn ensure_visible_wrapped(ed: &mut EditorState) {
 /// Render the body with virtual word wrap: each logical line spans one or more
 /// screen rows, and every *continued* row ends in a `>` marker. Returns the
 /// hardware cursor position, if on screen.
-fn render_text_wrapped(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Option<Position> {
+fn render_text_wrapped(
+    f: &mut Frame,
+    area: Rect,
+    ed: &EditorState,
+    theme: &Theme,
+) -> Option<Position> {
     let normal = Style::default().fg(theme.text_fg).bg(theme.panel_bg);
     let found_bg = found_line_bg(theme);
     // The selected block follows the theme's selection bar (like the panel
@@ -567,8 +546,7 @@ fn render_text_wrapped(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Them
             let ci = start + vc;
             let (ch, style) = if ci < end {
                 let abs = line_start + ci;
-                let (dch, marker) =
-                    display_char(chars[ci], ci >= trail_from, ed.show_tabs());
+                let (dch, marker) = display_char(chars[ci], ci >= trail_from, ed.show_tabs());
                 if block.map(|(s, e)| abs >= s && abs < e).unwrap_or(false) {
                     (dch, block_style)
                 } else if marker {
@@ -602,10 +580,7 @@ fn render_text_wrapped(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Them
             None => past_end = true,
         }
     }
-    f.render_widget(
-        Paragraph::new(lines).style(Style::default().bg(theme.panel_bg)),
-        area,
-    );
+    f.render_widget(Paragraph::new(lines).style(Style::default().bg(theme.panel_bg)), area);
     cursor_screen
 }
 

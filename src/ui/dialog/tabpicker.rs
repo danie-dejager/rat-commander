@@ -47,7 +47,10 @@ impl TabPickerDialog {
             width: rect.width.saturating_sub(2),
             height: rect.height.saturating_sub(2),
         };
-        if col < inner.x || col >= inner.x + inner.width || row < inner.y || row >= inner.y + inner.height
+        if col < inner.x
+            || col >= inner.x + inner.width
+            || row < inner.y
+            || row >= inner.y + inner.height
         {
             return DialogResult::None;
         }

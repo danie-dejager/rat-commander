@@ -3,8 +3,8 @@
 //! itself, the file being shared, and a live count of completed downloads. It
 //! stays open — serving the file — until dismissed; closing it stops the server.
 
-use super::widgets::*;
 use super::DialogResult;
+use super::widgets::*;
 use crate::util::qr::Qr;
 use ratatui::style::Color;
 
@@ -41,7 +41,13 @@ impl SendFileDialog {
         }
     }
 
-    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, mut gfx: Option<&mut Gfx>) {
+    pub(crate) fn render(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        theme: &Theme,
+        mut gfx: Option<&mut Gfx>,
+    ) {
         // ASCII footprint in cells: one module per column, two modules per row
         // (half-blocks stack two vertically), which keeps the modules square.
         let ascii_cols = self.qr.padded() as u16;
@@ -62,10 +68,8 @@ impl SendFileDialog {
             (ascii_cols, ascii_rows.min(avail_qr_rows))
         };
 
-        let inner_w = qr_cols
-            .max(self.url.chars().count() as u16)
-            .max(30)
-            .min(area.width.saturating_sub(4));
+        let inner_w =
+            qr_cols.max(self.url.chars().count() as u16).max(30).min(area.width.saturating_sub(4));
         let box_w = (inner_w + 4).min(area.width);
         let box_h = (qr_rows + text_rows + 2).min(area.height);
         let rect = centered(area, box_w, box_h);
@@ -124,7 +128,10 @@ impl SendFileDialog {
         );
         f.render_widget(
             centered_line(
-                ellipsize(&format!("{}  ·  {}", self.filename, human_size(self.size)), inner.width as usize),
+                ellipsize(
+                    &format!("{}  ·  {}", self.filename, human_size(self.size)),
+                    inner.width as usize,
+                ),
                 base,
             ),
             rows[2],

@@ -24,7 +24,10 @@ pub enum Matcher {
     Regex(regex::Regex),
     /// `pat` is matched as a suffix when it starts with `.`, else as an exact
     /// name. `ci` selects case-insensitive comparison.
-    Shell { pat: String, ci: bool },
+    Shell {
+        pat: String,
+        ci: bool,
+    },
 }
 
 impl Matcher {
@@ -44,11 +47,7 @@ impl Matcher {
     }
 
     fn shell_match(name: &str, pat: &str) -> bool {
-        if pat.starts_with('.') {
-            name.ends_with(pat)
-        } else {
-            name == pat
-        }
+        if pat.starts_with('.') { name.ends_with(pat) } else { name == pat }
     }
 }
 
@@ -116,18 +115,11 @@ pub fn ensure_ext_file() -> Option<std::path::PathBuf> {
 fn parse_matcher(line: &str) -> Option<Matcher> {
     if let Some(rest) = line.strip_prefix("regex/") {
         let (ci, pat) = strip_ci(rest);
-        return regex::RegexBuilder::new(pat)
-            .case_insensitive(ci)
-            .build()
-            .ok()
-            .map(Matcher::Regex);
+        return regex::RegexBuilder::new(pat).case_insensitive(ci).build().ok().map(Matcher::Regex);
     }
     if let Some(rest) = line.strip_prefix("shell/") {
         let (ci, pat) = strip_ci(rest);
-        return Some(Matcher::Shell {
-            pat: pat.to_string(),
-            ci,
-        });
+        return Some(Matcher::Shell { pat: pat.to_string(), ci });
     }
     None
 }
@@ -147,8 +139,8 @@ pub fn parse(text: &str) -> ExtRules {
 
     for line in text.lines() {
         match line.chars().next() {
-            None => continue,          // blank line
-            Some('#') => continue,     // comment
+            None => continue,      // blank line
+            Some('#') => continue, // comment
             Some(c) if c.is_whitespace() => {
                 // Action line for the current entry: `Key=Value`.
                 if let Some(e) = cur.as_mut()
@@ -162,10 +154,8 @@ pub fn parse(text: &str) -> ExtRules {
                 if let Some(e) = cur.take() {
                     entries.push(e);
                 }
-                cur = parse_matcher(line.trim()).map(|matcher| ExtEntry {
-                    matcher,
-                    actions: HashMap::new(),
-                });
+                cur = parse_matcher(line.trim())
+                    .map(|matcher| ExtEntry { matcher, actions: HashMap::new() });
             }
         }
     }
@@ -231,10 +221,7 @@ mod tests {
         assert!(rules.lookup("archive.zip").is_some());
         assert!(rules.lookup("archive.ZIP").is_some());
         assert!(rules.lookup("archive.tar").is_none());
-        assert_eq!(
-            rules.lookup("disc.iso").unwrap().action("Open"),
-            Some("%cd %p/iso9660://")
-        );
+        assert_eq!(rules.lookup("disc.iso").unwrap().action("Open"), Some("%cd %p/iso9660://"));
         // exact name (not a suffix) does not spuriously match
         assert!(rules.lookup("iso").is_none());
     }
@@ -268,10 +255,7 @@ mod tests {
     #[test]
     fn value_may_contain_equals() {
         let rules = parse("shell/.mk\n    Open=make -f %f VAR=value\n");
-        assert_eq!(
-            rules.lookup("build.mk").unwrap().action("Open"),
-            Some("make -f %f VAR=value")
-        );
+        assert_eq!(rules.lookup("build.mk").unwrap().action("Open"), Some("make -f %f VAR=value"));
     }
 
     #[test]

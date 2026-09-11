@@ -187,7 +187,8 @@ fn build_cards_classifies_and_groups() {
 #[test]
 fn build_cards_unions_protocols_and_dedupes_ips() {
     let mut nv = NetView::new(false, None);
-    nv.listening = vec![Socket { proto: "tcp".into(), local: "0.0.0.0:8080".into(), ..Default::default() }];
+    nv.listening =
+        vec![Socket { proto: "tcp".into(), local: "0.0.0.0:8080".into(), ..Default::default() }];
     // Same service + same peer host over TCP and UDP ⇒ one card, one IP, both protos.
     nv.connections = vec![
         Socket {
@@ -311,4 +312,3 @@ fn details_popup_opens_and_closes() {
     nv.handle_key(key(KeyCode::Esc)); // any key dismisses it
     assert!(nv.detail.is_none(), "Esc closes the details popup");
 }
-

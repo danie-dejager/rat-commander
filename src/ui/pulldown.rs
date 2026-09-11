@@ -247,9 +247,9 @@ impl<A: Action> PulldownState<A> {
         // share one (the editor's File and Format do), so the search starts just
         // past the open menu and wraps: repeating the letter steps between them.
         let n = self.titles.len();
-        let first_letter =
-            |t: &str| t.chars().next().map(|x| x.to_ascii_lowercase());
-        if let Some(off) = (1..=n).find(|k| first_letter(&self.titles[(self.active + k) % n]) == Some(lc))
+        let first_letter = |t: &str| t.chars().next().map(|x| x.to_ascii_lowercase());
+        if let Some(off) =
+            (1..=n).find(|k| first_letter(&self.titles[(self.active + k) % n]) == Some(lc))
         {
             self.active = (self.active + off) % n;
             self.item = self.first_selectable(0, 1);
@@ -275,7 +275,8 @@ impl<A: Action> PulldownState<A> {
     /// Route a left-click to the menu (titles switch/open; items activate;
     /// anything else closes).
     pub fn click(&mut self, area: Rect, col: u16, row: u16) -> MenuSignal<A> {
-        let hit = |r: &Rect| col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height;
+        let hit =
+            |r: &Rect| col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height;
         // A click on a top-bar title switches to that menu (closing any submenu).
         if let Some(i) = title_index_at(&self.titles, area, col, row) {
             self.active = i;
@@ -341,10 +342,8 @@ impl<A: Action> PulldownState<A> {
         // The title's first letter (after the leading space) is its hotkey
         // (skipped in RTL, where the reshaped title reads right-to-left).
         let hk = if rtl { None } else { Some(1) };
-        let style = Style::default()
-            .bg(theme.dialog_bg)
-            .fg(theme.dialog_fg)
-            .add_modifier(Modifier::BOLD);
+        let style =
+            Style::default().bg(theme.dialog_bg).fg(theme.dialog_fg).add_modifier(Modifier::BOLD);
         let text = format!(" {} ", crate::l10n::display(&self.titles[self.active]));
         f.render_widget(
             Paragraph::new(label_spans(&text, hk, style, theme)),
@@ -502,7 +501,13 @@ fn draw_items<A: Action>(
 
 /// A menu item whose label is translated and may mark an `&` accelerator.
 pub fn item<A: Action>(label: &str, action: A) -> MenuItem<A> {
-    MenuItem { label: crate::l10n::tr(label), shortcut: "", action, enabled: true, submenu: Vec::new() }
+    MenuItem {
+        label: crate::l10n::tr(label),
+        shortcut: "",
+        action,
+        enabled: true,
+        submenu: Vec::new(),
+    }
 }
 
 /// A menu item whose label is used verbatim (no translation, no `&` hotkey) —

@@ -37,11 +37,7 @@ fn run_color(digits: &[char]) -> Option<Color> {
     let nib = |c: char| c.to_digit(16).map(|d| d as u8);
     match digits.len() {
         // #rgb → expand each nibble to a byte (0xA → 0xAA).
-        3 => Some(Color::Rgb(
-            nib(digits[0])? * 17,
-            nib(digits[1])? * 17,
-            nib(digits[2])? * 17,
-        )),
+        3 => Some(Color::Rgb(nib(digits[0])? * 17, nib(digits[1])? * 17, nib(digits[2])? * 17)),
         // #rrggbb / #rrggbbaa (alpha ignored).
         6 | 8 => {
             let byte = |hi: char, lo: char| Some(nib(hi)? * 16 + nib(lo)?);

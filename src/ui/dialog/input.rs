@@ -79,7 +79,11 @@ impl InputDialog {
     }
 
     /// A masked single-field prompt (for a password).
-    pub fn password(title: impl Into<String>, prompt: impl Into<String>, purpose: InputPurpose) -> Self {
+    pub fn password(
+        title: impl Into<String>,
+        prompt: impl Into<String>,
+        purpose: InputPurpose,
+    ) -> Self {
         InputDialog {
             title: title.into(),
             prompt: prompt.into(),
@@ -140,10 +144,9 @@ impl InputDialog {
                     InputPurpose::CopyDest(s) => Submit::Copy(s.clone(), text),
                     InputPurpose::MoveDest(s) => Submit::Move(s.clone(), text),
                     InputPurpose::Compress(s) => Submit::Compress(s.clone(), text),
-                    InputPurpose::MountPath(device) => Submit::Mount {
-                        device: device.clone(),
-                        path: text,
-                    },
+                    InputPurpose::MountPath(device) => {
+                        Submit::Mount { device: device.clone(), path: text }
+                    }
                     InputPurpose::SudoPassword
                     | InputPurpose::FlashPassword
                     | InputPurpose::ImagePassword
@@ -209,10 +212,7 @@ impl InputDialog {
             rows[0],
         );
 
-        let field = Rect {
-            height: 1,
-            ..rows[1]
-        };
+        let field = Rect { height: 1, ..rows[1] };
         if let Some(pos) = draw_input_field_ex(
             f,
             field,
@@ -266,4 +266,3 @@ mod tests {
         assert_eq!(d.buffer_cursor(), ("hello", 5));
     }
 }
-

@@ -170,12 +170,7 @@ impl Subshell {
         let used = feed.used.clone();
         let pty = native_pty_system();
         let pair = pty
-            .openpty(PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
+            .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
             .map_err(|e| Error::other(format!("openpty failed: {e}")))?;
 
         // The user's shell (config `shell`, else `$SHELL` / the shell we were
@@ -197,14 +192,10 @@ impl Subshell {
         // Close the slave in the parent so the PTY reports EOF when the shell exits.
         drop(pair.slave);
 
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| Error::other(format!("pty reader: {e}")))?;
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|e| Error::other(format!("pty writer: {e}")))?;
+        let reader =
+            pair.master.try_clone_reader().map_err(|e| Error::other(format!("pty reader: {e}")))?;
+        let writer =
+            pair.master.take_writer().map_err(|e| Error::other(format!("pty writer: {e}")))?;
 
         let active = Arc::new(AtomicBool::new(false));
         // Reader thread: drain the PTY for the shell's lifetime. Every chunk feeds
@@ -239,14 +230,7 @@ impl Subshell {
             });
         }
 
-        Ok(Subshell {
-            master: pair.master,
-            writer,
-            child,
-            active,
-            pid,
-            feed,
-        })
+        Ok(Subshell { master: pair.master, writer, child, active, pid, feed })
     }
 
     /// The emulator this shell feeds, for `Console::set_current`.
@@ -255,12 +239,7 @@ impl Subshell {
     }
 
     pub fn resize(&self, rows: u16, cols: u16) {
-        let _ = self.master.resize(PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        });
+        let _ = self.master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
     }
 
     /// Write a command line to the shell (as if typed), followed by Enter, so it
@@ -322,8 +301,7 @@ impl Subshell {
     pub fn child_cwd(&self) -> Option<std::path::PathBuf> {
         #[cfg(target_os = "linux")]
         {
-            self.pid
-                .and_then(|pid| std::fs::read_link(format!("/proc/{pid}/cwd")).ok())
+            self.pid.and_then(|pid| std::fs::read_link(format!("/proc/{pid}/cwd")).ok())
         }
         #[cfg(not(target_os = "linux"))]
         {
@@ -667,9 +645,7 @@ fn parent_shell() -> Option<String> {
             // Prefer the full path so we launch exactly this binary (there can
             // be several `pwsh.exe` on a machine); fall back to the bare name,
             // which PATH resolves.
-            return Some(
-                p.exe().map(|e| e.to_string_lossy().into_owned()).unwrap_or(name),
-            );
+            return Some(p.exe().map(|e| e.to_string_lossy().into_owned()).unwrap_or(name));
         }
         started = p.start_time();
         pid = parent;

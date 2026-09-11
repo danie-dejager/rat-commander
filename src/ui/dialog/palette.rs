@@ -183,7 +183,9 @@ impl CommandPaletteDialog {
 
     fn submit_current(&self) -> DialogResult {
         match self.filtered.get(self.sel) {
-            Some(hit) => DialogResult::Submit(Submit::Palette(self.entries[hit.idx].action.clone())),
+            Some(hit) => {
+                DialogResult::Submit(Submit::Palette(self.entries[hit.idx].action.clone()))
+            }
             None => DialogResult::None,
         }
     }
@@ -255,11 +257,7 @@ impl CommandPaletteDialog {
         let rect = centered(area, width, height);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
-        let title = format!(
-            "{} ({})",
-            crate::l10n::trd("Command palette"),
-            self.filtered.len()
-        );
+        let title = format!("{} ({})", crate::l10n::trd("Command palette"), self.filtered.len());
         let block = dialog_block(&title, theme);
         let inner = block.inner(rect);
         f.render_widget(block, rect);
@@ -288,7 +286,8 @@ impl CommandPaletteDialog {
         ]);
         f.render_widget(Paragraph::new(qline), qrow);
         // Place the caret within the query field.
-        let cx = qrow.x + (prompt.chars().count() + (self.qcursor - start)).min(iw.saturating_sub(1)) as u16;
+        let cx = qrow.x
+            + (prompt.chars().count() + (self.qcursor - start)).min(iw.saturating_sub(1)) as u16;
         f.set_cursor_position(Position::new(cx, qrow.y));
 
         // --- Separator (row 1) ---
@@ -325,11 +324,8 @@ impl CommandPaletteDialog {
             };
             // Right side: the category tag, plus any state hint after it.
             let tag = e.category.tag();
-            let right: String = if e.hint.is_empty() {
-                tag.clone()
-            } else {
-                format!("{}  {}", tag, e.hint)
-            };
+            let right: String =
+                if e.hint.is_empty() { tag.clone() } else { format!("{}  {}", tag, e.hint) };
             let right_len = right.chars().count();
             let max_label = iw.saturating_sub(right_len + 3);
             let label = ellipsize(&e.label, max_label);
@@ -351,10 +347,7 @@ impl CommandPaletteDialog {
                     spans.push(Span::styled(tag, tag_style));
                 } else {
                     spans.push(Span::styled(tag, tag_style));
-                    spans.push(Span::styled(
-                        format!("  {}", e.hint),
-                        base.fg(theme.dialog_title),
-                    ));
+                    spans.push(Span::styled(format!("  {}", e.hint), base.fg(theme.dialog_title)));
                 }
             }
             lines.push(Line::from(spans));

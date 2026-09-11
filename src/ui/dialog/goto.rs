@@ -60,7 +60,8 @@ impl GotoDialog {
 
     pub(crate) fn handle_click(&mut self, area: Rect, col: u16, row: u16) -> DialogResult {
         let rect = self.box_rect(area);
-        if col < rect.x || col >= rect.x + rect.width || row < rect.y || row >= rect.y + rect.height {
+        if col < rect.x || col >= rect.x + rect.width || row < rect.y || row >= rect.y + rect.height
+        {
             return DialogResult::None;
         }
         let (inner_x, inner_y) = (rect.x + 1, rect.y + 1);
@@ -122,4 +123,3 @@ impl Default for GotoDialog {
         Self::new()
     }
 }
-

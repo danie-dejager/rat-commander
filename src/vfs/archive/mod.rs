@@ -15,7 +15,7 @@ pub mod formats;
 
 use crate::util::{Error, Result};
 use crate::vfs::{BoxRead, BoxWrite, Capabilities, Vfs, VfsEntry, VfsKind, VfsPath, WriteMeta};
-use formats::{normalize, ArchiveFormat, FullEntry, RawEntry};
+use formats::{ArchiveFormat, FullEntry, RawEntry, normalize};
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -52,10 +52,7 @@ struct ArchiveTree {
 impl ArchiveTree {
     fn read_dir(&self, inner: &str) -> Result<Vec<VfsEntry>> {
         let norm = normalize(inner);
-        let children = self
-            .dirs
-            .get(&norm)
-            .ok_or_else(|| Error::NotFound(norm.clone()))?;
+        let children = self.dirs.get(&norm).ok_or_else(|| Error::NotFound(norm.clone()))?;
         Ok(children.iter().map(|c| self.entry(c)).collect())
     }
 
@@ -134,9 +131,7 @@ pub struct ArchiveFs {
 
 impl ArchiveFs {
     pub fn new() -> Self {
-        ArchiveFs {
-            cache: Arc::new(Mutex::new(HashMap::new())),
-        }
+        ArchiveFs { cache: Arc::new(Mutex::new(HashMap::new())) }
     }
 
     /// Get (or rebuild) the tree for an archive, keyed on the container's
@@ -157,10 +152,7 @@ impl ArchiveFs {
             .await
             .map_err(|e| Error::other(e.to_string()))??;
         let arc = Arc::new(tree);
-        self.cache
-            .lock()
-            .unwrap()
-            .insert(container.to_path_buf(), arc.clone());
+        self.cache.lock().unwrap().insert(container.to_path_buf(), arc.clone());
         Ok(arc)
     }
 
@@ -174,11 +166,10 @@ impl ArchiveFs {
         let container = container_of(path)?.clone();
         let inner = normalize(&path.path.to_string_lossy());
         let target = container.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            mutate(&target, |entries| edit(&inner, entries))
-        })
-        .await
-        .map_err(|e| Error::other(e.to_string()))?;
+        let result =
+            tokio::task::spawn_blocking(move || mutate(&target, |entries| edit(&inner, entries)))
+                .await
+                .map_err(|e| Error::other(e.to_string()))?;
         self.cache.lock().unwrap().remove(&container);
         result
     }
@@ -199,9 +190,7 @@ impl Default for ArchiveFs {
 }
 
 fn container_of(path: &VfsPath) -> Result<&PathBuf> {
-    path.container
-        .as_ref()
-        .ok_or_else(|| Error::InvalidPath("not an archive path".to_string()))
+    path.container.as_ref().ok_or_else(|| Error::InvalidPath("not an archive path".to_string()))
 }
 
 #[async_trait::async_trait]
@@ -245,9 +234,10 @@ impl Vfs for ArchiveFs {
         let tree = self.tree(&container).await?;
         let format = tree.format;
         let inner = path.path.to_string_lossy().into_owned();
-        let data = tokio::task::spawn_blocking(move || formats::read_entry(format, &container, &inner))
-            .await
-            .map_err(|e| Error::other(e.to_string()))??;
+        let data =
+            tokio::task::spawn_blocking(move || formats::read_entry(format, &container, &inner))
+                .await
+                .map_err(|e| Error::other(e.to_string()))??;
         Ok(Box::new(BytesReader { data, pos: 0 }))
     }
 
@@ -305,7 +295,10 @@ impl Vfs for ArchiveFs {
             match Kinds::of(entries).kind(inner) {
                 Some(VfsKind::Dir) => {}
                 Some(_) => {
-                    return Err(Error::other(format!("\"{}\" is not a directory", base_name(inner))));
+                    return Err(Error::other(format!(
+                        "\"{}\" is not a directory",
+                        base_name(inner)
+                    )));
                 }
                 // A directory that no member declares exists only as long as it
                 // has children, so a recursive delete that just removed the last
@@ -364,8 +357,8 @@ impl Vfs for ArchiveFs {
     }
 
     async fn set_permissions(&self, path: &VfsPath, mode: u32) -> Result<()> {
-        let stores_mode = ArchiveFormat::from_path(container_of(path)?)
-            .is_some_and(ArchiveFormat::stores_mode);
+        let stores_mode =
+            ArchiveFormat::from_path(container_of(path)?).is_some_and(ArchiveFormat::stores_mode);
         if !stores_mode {
             return Err(Error::Unsupported);
         }
@@ -497,8 +490,8 @@ impl AsyncWrite for MemberWriter {
 }
 
 fn build_tree(container: &Path) -> Result<ArchiveTree> {
-    let format =
-        ArchiveFormat::from_path(container).ok_or_else(|| Error::other("unknown archive format"))?;
+    let format = ArchiveFormat::from_path(container)
+        .ok_or_else(|| Error::other("unknown archive format"))?;
     let meta = std::fs::metadata(container).ok();
     let mtime = meta.as_ref().and_then(|m| m.modified().ok());
     let stamp = (mtime, meta.map(|m| m.len()).unwrap_or(0));
@@ -530,11 +523,8 @@ fn insert_path(dirs: &mut HashMap<String, Vec<ChildMeta>>, entry: &RawEntry) {
         let is_last = i + 1 == comps.len();
         // Only the last component can be a file; every prefix is a directory.
         let as_dir = !is_last || entry.is_dir;
-        let child_norm = if parent == "/" {
-            format!("/{comp}")
-        } else {
-            format!("{parent}/{comp}")
-        };
+        let child_norm =
+            if parent == "/" { format!("/{comp}") } else { format!("{parent}/{comp}") };
 
         let list = dirs.entry(parent.clone()).or_default();
         let is_dir = match list.iter_mut().find(|c| c.name == *comp) {
@@ -673,7 +663,10 @@ pub fn add_to_archive(container: &Path, dest_inner: &str, sources: &[PathBuf]) -
         for s in &staged {
             match (kinds.kind(&s.inner), s.is_dir) {
                 (Some(VfsKind::Dir), false) => {
-                    return Err(Error::other(format!("\"{}\" is a directory in the archive", s.inner)));
+                    return Err(Error::other(format!(
+                        "\"{}\" is a directory in the archive",
+                        s.inner
+                    )));
                 }
                 (Some(VfsKind::File), true) => {
                     return Err(Error::other(format!("\"{}\" is a file in the archive", s.inner)));
@@ -696,11 +689,17 @@ pub fn add_to_archive(container: &Path, dest_inner: &str, sources: &[PathBuf]) -
 /// The members `add_to_archive` would replace: existing files the incoming
 /// sources land on. Reads only the archive's index, not its contents, so the
 /// caller can ask before committing to a full rebuild.
-pub fn add_conflicts(container: &Path, dest_inner: &str, sources: &[PathBuf]) -> Result<Vec<String>> {
+pub fn add_conflicts(
+    container: &Path,
+    dest_inner: &str,
+    sources: &[PathBuf],
+) -> Result<Vec<String>> {
     let format = writable_format(container)?;
     let existing: Vec<FullEntry> = formats::list_entries(format, container)?
         .into_iter()
-        .map(|e| if e.is_dir { FullEntry::dir(e.path) } else { FullEntry::file(e.path, Vec::new()) })
+        .map(
+            |e| if e.is_dir { FullEntry::dir(e.path) } else { FullEntry::file(e.path, Vec::new()) },
+        )
         .collect();
     let kinds = Kinds::of(&existing);
     Ok(stage(sources, dest_inner)?
@@ -755,7 +754,8 @@ fn write_member(
         // The writers keep a replaced member's original position, so pushing is
         // an overwrite in place rather than a move to the end.
         entries.push(
-            FullEntry::file(inner, data).with_meta(Some(mtime.unwrap_or_else(SystemTime::now)), mode),
+            FullEntry::file(inner, data)
+                .with_meta(Some(mtime.unwrap_or_else(SystemTime::now)), mode),
         );
         Ok(true)
     })
@@ -809,9 +809,8 @@ fn stage_one(path: &Path, base: &Path, dest_inner: &str, out: &mut Vec<Staged>) 
 
     if meta.is_dir() {
         out.push(Staged { inner, is_dir: true, source: path.to_path_buf() });
-        let mut children: Vec<PathBuf> = std::fs::read_dir(path)?
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .collect();
+        let mut children: Vec<PathBuf> =
+            std::fs::read_dir(path)?.filter_map(|e| e.ok().map(|e| e.path())).collect();
         children.sort();
         for child in children {
             stage_one(&child, base, dest_inner, out)?;
@@ -854,11 +853,7 @@ fn local_mode(_meta: &std::fs::Metadata) -> Option<u32> {
 fn join_inner(dir: &str, name: &str) -> String {
     let d = normalize(dir);
     let n = name.trim_matches('/');
-    if d == "/" {
-        format!("/{n}")
-    } else {
-        format!("{d}/{n}")
-    }
+    if d == "/" { format!("/{n}") } else { format!("{d}/{n}") }
 }
 
 #[cfg(test)]

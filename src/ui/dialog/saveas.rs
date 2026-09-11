@@ -172,11 +172,8 @@ impl SaveAsDialog {
 
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
         if key.code == KeyCode::Tab {
-            self.focus = if self.focus == SaveFocus::List {
-                SaveFocus::Name
-            } else {
-                SaveFocus::List
-            };
+            self.focus =
+                if self.focus == SaveFocus::List { SaveFocus::Name } else { SaveFocus::List };
             return DialogResult::None;
         }
         if self.focus == SaveFocus::Name {
@@ -231,7 +228,8 @@ impl SaveAsDialog {
             return DialogResult::None;
         }
         let a = self.list_area;
-        if a.height == 0 || col < a.x || col >= a.x + a.width || row < a.y || row >= a.y + a.height {
+        if a.height == 0 || col < a.x || col >= a.x + a.width || row < a.y || row >= a.y + a.height
+        {
             return DialogResult::None;
         }
         let idx = self.top + (row - a.y) as usize;
@@ -264,10 +262,8 @@ impl SaveAsDialog {
             Constraint::Length(1), // name input
             Constraint::Length(1), // footer
         ]);
-        let rows = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(constraints)
-            .split(inner);
+        let rows =
+            Layout::default().direction(Direction::Vertical).constraints(constraints).split(inner);
         let mut ri = 0;
 
         let label = Style::default().fg(theme.header_fg).bg(theme.dialog_bg);
@@ -286,7 +282,13 @@ impl SaveAsDialog {
 
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                format!(" {}", ellipsize(&self.cwd.display().to_string(), inner.width.saturating_sub(1) as usize)),
+                format!(
+                    " {}",
+                    ellipsize(
+                        &self.cwd.display().to_string(),
+                        inner.width.saturating_sub(1) as usize
+                    )
+                ),
                 base,
             ))),
             rows[ri],
@@ -317,10 +319,7 @@ impl SaveAsDialog {
         }
         f.render_widget(Paragraph::new(lines).style(Style::default().bg(theme.dialog_bg)), list);
 
-        f.render_widget(
-            Paragraph::new(Line::from(Span::styled(" File name:", label))),
-            rows[ri],
-        );
+        f.render_widget(Paragraph::new(Line::from(Span::styled(" File name:", label))), rows[ri]);
         ri += 1;
         self.name_area = rows[ri];
         let caret = draw_input_field(
@@ -339,7 +338,8 @@ impl SaveAsDialog {
             inner.width as usize,
         );
         f.render_widget(
-            Paragraph::new(Line::from(Span::styled(footer, theme.fkey_label))).style(theme.fkey_label),
+            Paragraph::new(Line::from(Span::styled(footer, theme.fkey_label)))
+                .style(theme.fkey_label),
             rows[ri],
         );
 

@@ -57,7 +57,10 @@ impl DirHistoryDialog {
             width: rect.width.saturating_sub(2),
             height: rect.height.saturating_sub(2),
         };
-        if col < inner.x || col >= inner.x + inner.width || row < inner.y || row >= inner.y + inner.height
+        if col < inner.x
+            || col >= inner.x + inner.width
+            || row < inner.y
+            || row >= inner.y + inner.height
         {
             return DialogResult::None;
         }
@@ -134,7 +137,8 @@ impl DirHistoryDialog {
                 // position within the history rather than a flat list.
                 let mark = if i == self.current { "▶ " } else { "  " };
                 let shown = path.display();
-                let text = format!("{mark}{}", ellipsize(&shown, inner.width.saturating_sub(2) as usize));
+                let text =
+                    format!("{mark}{}", ellipsize(&shown, inner.width.saturating_sub(2) as usize));
                 let style = if i == self.cursor {
                     theme.dialog_selection
                 } else if i == self.current {

@@ -66,15 +66,23 @@ impl CompareDialog {
     }
 
     pub(crate) fn handle_click(&mut self, col: u16, row: u16) -> DialogResult {
-        if let Some(&(_, i)) = self.zones.iter().find(|(r, _)| {
-            col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height
-        }) {
+        if let Some(&(_, i)) = self
+            .zones
+            .iter()
+            .find(|(r, _)| col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height)
+        {
             return Self::submit(i);
         }
         DialogResult::None
     }
 
-    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
+    pub(crate) fn render(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        theme: &Theme,
+        gfx: Option<&mut Gfx>,
+    ) {
         self.zones.clear();
         let mut gfx = gfx;
         let w = 68u16.min(area.width.saturating_sub(4));
@@ -100,12 +108,20 @@ impl CompareDialog {
         // Centered row of bracketed buttons; record click zones.
         let texts: Vec<String> = CHOICES.iter().map(|(l, _, _)| crate::l10n::trd(l)).collect();
         let labels: Vec<String> = texts.iter().map(|l| format!("[ {l} ]")).collect();
-        let total: usize =
-            labels.iter().map(|l| l.chars().count()).sum::<usize>() + labels.len().saturating_sub(1);
+        let total: usize = labels.iter().map(|l| l.chars().count()).sum::<usize>()
+            + labels.len().saturating_sub(1);
         let mut x = rows[1].x + (rows[1].width.saturating_sub(total as u16)) / 2;
         for (i, label) in labels.iter().enumerate() {
             let rect = Rect { x, y: rows[1].y, width: label.chars().count() as u16, height: 1 };
-            if !gfx_button(f, gfx.as_deref_mut(), Slot::Button(i as u16), rect, &texts[i], i == self.focus, theme) {
+            if !gfx_button(
+                f,
+                gfx.as_deref_mut(),
+                Slot::Button(i as u16),
+                rect,
+                &texts[i],
+                i == self.focus,
+                theme,
+            ) {
                 let style = if i == self.focus { theme.button_focused } else { theme.button };
                 f.render_widget(Paragraph::new(Span::styled(label.clone(), style)), rect);
             }

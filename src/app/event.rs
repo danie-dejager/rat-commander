@@ -63,108 +63,57 @@ pub enum AppEvent {
     },
     /// A privileged disk-manager command (mount/unmount/format) run in the
     /// background finished; carries its result and the success message to show.
-    PrivilegedDone {
-        ok_msg: String,
-        result: Result<(), String>,
-    },
+    PrivilegedDone { ok_msg: String, result: Result<(), String> },
     /// An image-flash task finished (success, cancel, or failure).
-    FlashDone {
-        id: TaskId,
-        outcome: TaskOutcome,
-    },
+    FlashDone { id: TaskId, outcome: TaskOutcome },
     /// A device-imaging ("create image") task finished.
-    ImageDone {
-        id: TaskId,
-        outcome: TaskOutcome,
-    },
+    ImageDone { id: TaskId, outcome: TaskOutcome },
     /// A file-checksum task finished. `Ok(report)` on success (the report also
     /// carries any comparison verdict); `Err(Some(msg))` on I/O failure;
     /// `Err(None)` when the user aborted (the progress dialog just closes).
-    ChecksumDone {
-        id: TaskId,
-        result: Result<ChecksumReport, Option<String>>,
-    },
+    ChecksumDone { id: TaskId, result: Result<ChecksumReport, Option<String>> },
     /// A find-file task finished (or was aborted); carries the matches collected
     /// so far so partial results can still be panelized. Paths may be local or
     /// remote, depending on the searched backend.
-    FindDone {
-        id: TaskId,
-        results: Vec<FindHit>,
-    },
+    FindDone { id: TaskId, results: Vec<FindHit> },
     /// A find-duplicates task finished (or was cancelled). Carries the file names
     /// to mark in the left and right panels (identical per the chosen criteria);
     /// partial on cancel.
-    DuplicatesFound {
-        id: TaskId,
-        left: Vec<String>,
-        right: Vec<String>,
-    },
+    DuplicatesFound { id: TaskId, left: Vec<String>, right: Vec<String> },
     /// A "Details" panel's background size scan reported progress (`done` marks
     /// the final update). `viewer` is the panel displaying the details; a stale
     /// `generation` is ignored.
-    DetailsTally {
-        viewer: usize,
-        generation: u64,
-        total: u64,
-        files: u64,
-        dirs: u64,
-        done: bool,
-    },
+    DetailsTally { viewer: usize, generation: u64, total: u64, files: u64, dirs: u64, done: bool },
     /// A network-explorer `ss` scan finished; `generation` lets the view drop a
     /// result from a scan it has already superseded.
-    NetworkScanned {
-        generation: u64,
-        result: Result<Scan, String>,
-    },
+    NetworkScanned { generation: u64, result: Result<Scan, String> },
     /// A reverse-DNS lookup for a peer IP finished (`host` = `None` = no PTR).
-    ReverseDnsResolved {
-        ip: String,
-        host: Option<String>,
-    },
+    ReverseDnsResolved { ip: String, host: Option<String> },
     /// A background Git-status scan for panel `side` finished; a stale
     /// `generation` is ignored. `status` is `None` when the directory is not a
     /// git work tree (or git is unavailable).
-    GitStatusScanned {
-        side: usize,
-        generation: u64,
-        status: Option<Box<crate::git::GitStatus>>,
-    },
+    GitStatusScanned { side: usize, generation: u64, status: Option<Box<crate::git::GitStatus>> },
     /// A background Details-view preview load finished for panel `viewer`; a stale
     /// `generation` is ignored.
-    DetailsPreview {
-        viewer: usize,
-        generation: u64,
-        preview: Box<crate::details::Preview>,
-    },
+    DetailsPreview { viewer: usize, generation: u64, preview: Box<crate::details::Preview> },
     /// A "Send file over LAN" selection finished being zipped to a temp archive;
     /// `Ok(path)` gives the archive to serve, `Err(msg)` reports a failure. `name`
     /// is the friendly download name to advertise. Only used for the multi-file /
     /// directory case (a lone file skips zipping).
-    SendPrepared {
-        name: String,
-        result: Result<std::path::PathBuf, String>,
-    },
+    SendPrepared { name: String, result: Result<std::path::PathBuf, String> },
     /// A device fully downloaded the shared file from the LAN send server; the
     /// open Send dialog bumps its download counter.
     FileSent,
     /// A directory-sync plan finished being computed (both trees walked and
     /// diffed). Nothing has been changed yet — the plan is shown for approval.
-    SyncPlanned {
-        result: Result<Box<crate::ops::sync::SyncPlan>, String>,
-    },
+    SyncPlanned { result: Result<Box<crate::ops::sync::SyncPlan>, String> },
     /// A Git command finished; `title` names it (e.g. `"push"`). The handler shows
     /// the output (or closes quietly when a successful command said nothing) and
     /// refreshes the panels' VCS state.
-    GitDone {
-        title: String,
-        out: crate::git::ops::GitOutput,
-    },
+    GitDone { title: String, out: crate::git::ops::GitOutput },
     /// The branches/remotes behind a guided Git dialog were read; open `form`
     /// populated with them.
-    GitInfo {
-        form: GitInfoForm,
-        info: Box<crate::git::ops::RepoInfo>,
-    },
+    GitInfo { form: GitInfoForm, info: Box<crate::git::ops::RepoInfo> },
     /// A view/edit fetch streamed a (remote/archive) file to a local temp file;
     /// the handler opens it (paged viewer, or editor targeting `orig_path`).
     FileFetched {

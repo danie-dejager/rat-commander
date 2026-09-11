@@ -107,14 +107,17 @@ pub enum OverwriteRule {
 impl OverwriteRule {
     /// Whether, under this rule, a given source should overwrite the existing
     /// destination.
-    pub fn should_overwrite(self, new_size: u64, new_mtime: Option<SystemTime>, old_size: u64, old_mtime: Option<SystemTime>) -> bool {
+    pub fn should_overwrite(
+        self,
+        new_size: u64,
+        new_mtime: Option<SystemTime>,
+        old_size: u64,
+        old_mtime: Option<SystemTime>,
+    ) -> bool {
         match self {
             OverwriteRule::All => true,
             OverwriteRule::None => false,
-            OverwriteRule::Older => old_mtime
-                .zip(new_mtime)
-                .map(|(o, n)| o < n)
-                .unwrap_or(true),
+            OverwriteRule::Older => old_mtime.zip(new_mtime).map(|(o, n)| o < n).unwrap_or(true),
             OverwriteRule::Smaller => old_size < new_size,
             OverwriteRule::SizeDiffers => old_size != new_size,
         }
@@ -132,10 +135,7 @@ pub enum OverwriteDecision {
     AppendOnce,
     /// Apply a rule to this and all remaining conflicts. `skip_empty` additionally
     /// protects any destination from being clobbered by a zero-length source.
-    Policy {
-        rule: OverwriteRule,
-        skip_empty: bool,
-    },
+    Policy { rule: OverwriteRule, skip_empty: bool },
     /// Abort the whole operation.
     Abort,
 }

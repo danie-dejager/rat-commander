@@ -9,9 +9,7 @@
 
 pub mod render;
 
-use ratatui::crossterm::event::{
-    KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind,
-};
+use ratatui::crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use std::time::{Duration, Instant};
 
@@ -135,11 +133,7 @@ pub fn format_command(s: &FormatSpec) -> String {
     let dev = shell_quote(&s.dev);
     let label = s.label.trim();
     let labeled = |flag: &str| {
-        if label.is_empty() {
-            String::new()
-        } else {
-            format!(" {flag} {}", shell_quote(label))
-        }
+        if label.is_empty() { String::new() } else { format!(" {flag} {}", shell_quote(label)) }
     };
     match s.fs {
         FsType::Fat32 => format!("mkfs.vfat -F 32{} {dev}", labeled("-n")),
@@ -233,7 +227,9 @@ impl MountView {
             status: if is_root() {
                 "Enter: mount   u: unmount".to_string()
             } else {
-                crate::l10n::trd("Mounting needs root — sudo is used (you may be asked for a password)")
+                crate::l10n::trd(
+                    "Mounting needs root — sudo is used (you may be asked for a password)",
+                )
             },
             view_rows: 1,
             dev_hit: ListHit::default(),
@@ -300,9 +296,7 @@ impl MountView {
             KeyCode::Char('u') | KeyCode::Char('U') | KeyCode::Delete | KeyCode::F(8) => {
                 let mp = match self.focus {
                     Pane::Mounts => self.selected_mount().map(|m| m.mountpoint.clone()),
-                    Pane::Devices => {
-                        self.selected_device().and_then(|d| d.mountpoint.clone())
-                    }
+                    Pane::Devices => self.selected_device().and_then(|d| d.mountpoint.clone()),
                 };
                 if let Some(mp) = mp {
                     return MountSignal::Unmount(mp);
@@ -323,15 +317,14 @@ impl MountView {
             MouseEventKind::Down(MouseButton::Left) => {
                 self.status.clear();
                 // Which list (if any) was hit?
-                let (pane, idx) = if let Some(i) =
-                    self.dev_hit.index_at(col, row, self.devices.len())
-                {
-                    (Pane::Devices, i)
-                } else if let Some(i) = self.mnt_hit.index_at(col, row, self.mounts.len()) {
-                    (Pane::Mounts, i)
-                } else {
-                    return MountSignal::Stay;
-                };
+                let (pane, idx) =
+                    if let Some(i) = self.dev_hit.index_at(col, row, self.devices.len()) {
+                        (Pane::Devices, i)
+                    } else if let Some(i) = self.mnt_hit.index_at(col, row, self.mounts.len()) {
+                        (Pane::Mounts, i)
+                    } else {
+                        return MountSignal::Stay;
+                    };
                 self.focus = pane;
                 *self.cursor_mut() = idx;
 
@@ -444,9 +437,24 @@ pub fn shell_quote(s: &str) -> String {
 /// unbootable. Unmounting any of these warrants a loud, extra warning.
 pub fn is_essential_mount(mountpoint: &str) -> bool {
     const ESSENTIAL: &[&str] = &[
-        "/", "/boot", "/boot/efi", "/efi", "/usr", "/var", "/etc", "/home",
-        "/bin", "/sbin", "/lib", "/lib64", "/opt", "/srv", "/run", "/proc",
-        "/sys", "/dev",
+        "/",
+        "/boot",
+        "/boot/efi",
+        "/efi",
+        "/usr",
+        "/var",
+        "/etc",
+        "/home",
+        "/bin",
+        "/sbin",
+        "/lib",
+        "/lib64",
+        "/opt",
+        "/srv",
+        "/run",
+        "/proc",
+        "/sys",
+        "/dev",
     ];
     let mp = mountpoint.trim_end_matches('/');
     let mp = if mp.is_empty() { "/" } else { mp };
@@ -545,11 +553,7 @@ fn status_to_result(out: std::process::Output) -> Result<(), String> {
     let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
     // Strip the sudo password prompt echo if present.
     let err = err.trim_start_matches("[sudo] password for").trim().to_string();
-    Err(if err.is_empty() {
-        "command failed".to_string()
-    } else {
-        err
-    })
+    Err(if err.is_empty() { "command failed".to_string() } else { err })
 }
 
 // ---------------------------------------------------------------------------
@@ -678,9 +682,7 @@ fn parent_disk(name: &str) -> String {
 /// Read a sysfs attribute, trimmed; empty string when absent/unreadable.
 #[cfg(target_os = "linux")]
 fn read_sys(path: &str) -> String {
-    std::fs::read_to_string(path)
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default()
+    std::fs::read_to_string(path).map(|s| s.trim().to_string()).unwrap_or_default()
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -787,10 +789,28 @@ mod tests {
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let mut v = MountView::new();
         v.devices = vec![
-            BlockDevice { name: "sda".into(), dev: "/dev/sda".into(), size: 0, fstype: String::new(), mountpoint: None , ..Default::default() },
-            BlockDevice { name: "sdb".into(), dev: "/dev/sdb".into(), size: 0, fstype: String::new(), mountpoint: None , ..Default::default() },
+            BlockDevice {
+                name: "sda".into(),
+                dev: "/dev/sda".into(),
+                size: 0,
+                fstype: String::new(),
+                mountpoint: None,
+                ..Default::default()
+            },
+            BlockDevice {
+                name: "sdb".into(),
+                dev: "/dev/sdb".into(),
+                size: 0,
+                fstype: String::new(),
+                mountpoint: None,
+                ..Default::default()
+            },
         ];
-        v.mounts = vec![MountEntry { dev: "/dev/sda1".into(), mountpoint: "/mnt/x".into(), fstype: "ext4".into() }];
+        v.mounts = vec![MountEntry {
+            dev: "/dev/sda1".into(),
+            mountpoint: "/mnt/x".into(),
+            fstype: "ext4".into(),
+        }];
         v.focus = Pane::Devices;
         v.dev_cursor = 0;
         v.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
@@ -816,8 +836,16 @@ mod tests {
             BlockDevice { name: "sdc".into(), dev: "/dev/sdc".into(), ..Default::default() },
         ];
         v.mounts = vec![
-            MountEntry { dev: "/dev/sda1".into(), mountpoint: "/mnt/a".into(), fstype: "ext4".into() },
-            MountEntry { dev: "/dev/sdb1".into(), mountpoint: "/mnt/b".into(), fstype: "ext4".into() },
+            MountEntry {
+                dev: "/dev/sda1".into(),
+                mountpoint: "/mnt/a".into(),
+                fstype: "ext4".into(),
+            },
+            MountEntry {
+                dev: "/dev/sdb1".into(),
+                mountpoint: "/mnt/b".into(),
+                fstype: "ext4".into(),
+            },
         ];
         // Simulate the geometry a render would record: two side-by-side lists.
         v.dev_hit = ListHit { area: Rect::new(1, 1, 20, 8), top: 0 };

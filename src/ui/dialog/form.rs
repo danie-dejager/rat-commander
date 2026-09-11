@@ -47,20 +47,14 @@ const GROUP_COL_GUTTER: u16 = 2;
 /// not. Its height is `Σ(ceil(count / columns) + 2) + 4`, so a field added to a
 /// one-column group still costs a row and a whole new group costs two more; the
 /// two-column Visual group is what buys the headroom.
-const SETTINGS_GROUPS: &[(&str, usize, usize)] = &[
-    ("Language", 2, 1),
-    ("Edit/View", 4, 1),
-    ("Visual", 9, 2),
-];
+const SETTINGS_GROUPS: &[(&str, usize, usize)] =
+    &[("Language", 2, 1), ("Edit/View", 4, 1), ("Visual", 9, 2)];
 
 /// The editor-options form's groups, in the order [`FormDialog::editor_options`]
 /// builds its fields: `(title, field count, columns)`. The counts must sum to
 /// the number of fields.
-const EDITOR_OPTION_GROUPS: &[(&str, usize, usize)] = &[
-    ("Wrap mode", 1, 1),
-    ("Tabulation", 3, 1),
-    ("Other options", 10, 1),
-];
+const EDITOR_OPTION_GROUPS: &[(&str, usize, usize)] =
+    &[("Wrap mode", 1, 1), ("Tabulation", 3, 1), ("Other options", 10, 1)];
 
 /// Rows a group of `count` fields occupies when spread over `cols` columns; the
 /// last column may be short. Never zero, so an empty group still has an
@@ -108,44 +102,28 @@ impl Field {
     pub fn text(label: &str, value: impl Into<String>) -> Self {
         let value = value.into();
         let cursor = value.chars().count();
-        Field::Text {
-            label: label.to_string(),
-            value,
-            cursor,
-        }
+        Field::Text { label: label.to_string(), value, cursor }
     }
 
     pub fn password(label: &str) -> Self {
-        Field::Password {
-            label: label.to_string(),
-            value: String::new(),
-            cursor: 0,
-        }
+        Field::Password { label: label.to_string(), value: String::new(), cursor: 0 }
     }
 
     pub fn check(label: &str, value: bool) -> Self {
-        Field::Check {
-            label: label.to_string(),
-            value,
-        }
+        Field::Check { label: label.to_string(), value }
     }
 
     pub fn choice(label: &str, options: Vec<String>, selected: &str) -> Self {
         let idx = options.iter().position(|o| o == selected).unwrap_or(0);
-        Field::Choice {
-            label: label.to_string(),
-            options,
-            idx,
-            open: false,
-            sel: idx,
-            top: 0,
-        }
+        Field::Choice { label: label.to_string(), options, idx, open: false, sel: idx, top: 0 }
     }
 
     fn as_text(&self) -> &str {
         match self {
             Field::Text { value, .. } | Field::Password { value, .. } => value,
-            Field::Choice { options, idx, .. } => options.get(*idx).map(|s| s.as_str()).unwrap_or(""),
+            Field::Choice { options, idx, .. } => {
+                options.get(*idx).map(|s| s.as_str()).unwrap_or("")
+            }
             Field::Check { .. } => "",
         }
     }
@@ -209,7 +187,9 @@ impl Form {
             KeyCode::Enter => return true,
             KeyCode::Tab | KeyCode::Down => self.focus_next(),
             KeyCode::BackTab | KeyCode::Up => self.focus_prev(),
-            KeyCode::Char(' ') if matches!(self.fields.get(self.focus), Some(Field::Check { .. })) => {
+            KeyCode::Char(' ')
+                if matches!(self.fields.get(self.focus), Some(Field::Check { .. })) =>
+            {
                 if let Some(Field::Check { value, .. }) = self.fields.get_mut(self.focus) {
                     *value = !*value;
                 }
@@ -305,7 +285,9 @@ pub enum GitForm {
     Fetch,
     Pull,
     /// `push` names `<remote> <branch>`; the branch comes from the repo, not the user.
-    Push { branch: String },
+    Push {
+        branch: String,
+    },
     Checkout,
     Reset,
 }
@@ -352,13 +334,7 @@ impl FormDialog {
             Field::check("Nerd Font symbols", cfg.nerd_font),
             Field::choice(
                 "Graphics",
-                vec![
-                    "Auto".into(),
-                    "Off".into(),
-                    "Kitty".into(),
-                    "Sixel".into(),
-                    "iTerm2".into(),
-                ],
+                vec!["Auto".into(), "Off".into(), "Kitty".into(), "Sixel".into(), "iTerm2".into()],
                 graphics_label(&cfg.graphics),
             ),
             Field::choice(
@@ -371,10 +347,7 @@ impl FormDialog {
             // new field belongs on screen — the foot of the right column.
             Field::choice(
                 "3D style",
-                crate::config::Space3dStyle::ALL
-                    .iter()
-                    .map(|(_, l)| (*l).to_string())
-                    .collect(),
+                crate::config::Space3dStyle::ALL.iter().map(|(_, l)| (*l).to_string()).collect(),
                 cfg.space3d_style.label(),
             ),
         ]);
@@ -532,12 +505,7 @@ impl FormDialog {
 
     /// As [`Self::from_fields`], for a caller that already built the `Form`.
     fn from_form(title: &str, form: Form, purpose: FormPurpose) -> Self {
-        FormDialog {
-            title: title.to_string(),
-            form,
-            purpose,
-            connect: None,
-        }
+        FormDialog { title: title.to_string(), form, purpose, connect: None }
     }
 
     // --- Guided Git dialogs ------------------------------------------------
@@ -702,8 +670,7 @@ impl FormDialog {
     /// The currently-selected 3D view style in the settings form (for live
     /// preview), or `None` if not the settings form.
     pub fn space3d_choice(&self) -> Option<crate::config::Space3dStyle> {
-        self.choice_value("3D style")
-            .map(crate::config::Space3dStyle::from_label)
+        self.choice_value("3D style").map(crate::config::Space3dStyle::from_label)
     }
 
     /// The value of the settings `Check` field labelled `label_key` (for live
@@ -755,10 +722,8 @@ impl FormDialog {
         }
         let form = Form::new(fields);
         // Only this protocol's recent connections.
-        let history: Vec<_> = history
-            .into_iter()
-            .filter(|e| e.protocol == protocol.scheme_prefix())
-            .collect();
+        let history: Vec<_> =
+            history.into_iter().filter(|e| e.protocol == protocol.scheme_prefix()).collect();
         FormDialog {
             // The proto prefix stays literal; the word is translated (the title
             // is passed through `trd` again at render, harmlessly, for RTL shaping).
@@ -839,7 +804,8 @@ impl FormDialog {
     /// Route a click for the connect dropdown. Returns `Some` if the click hit
     /// the chevron or a dropdown entry (or dismissed an open dropdown).
     pub(crate) fn click_dropdown(&mut self, col: u16, row: u16) -> Option<DialogResult> {
-        let hit = |r: &Rect| col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height;
+        let hit =
+            |r: &Rect| col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height;
         let cd = self.connect.as_ref()?;
         if cd.chevron.is_some_and(|r| hit(&r)) {
             let cd = self.connect.as_mut().unwrap();
@@ -859,9 +825,7 @@ impl FormDialog {
     }
 
     fn chmod_mode(&self) -> u32 {
-        const BITS: [u32; 9] = [
-            0o400, 0o200, 0o100, 0o040, 0o020, 0o010, 0o004, 0o002, 0o001,
-        ];
+        const BITS: [u32; 9] = [0o400, 0o200, 0o100, 0o040, 0o020, 0o010, 0o004, 0o002, 0o001];
         // `zip` stops at the 9 permission bits, so the trailing "Recurse"
         // checkbox is ignored here.
         let mut mode = 0;
@@ -953,8 +917,11 @@ impl FormDialog {
         if self.form.on_button() {
             match key.code {
                 KeyCode::Left | KeyCode::Right => {
-                    self.form.focus =
-                        if self.form.on_cancel() { self.form.ok_slot() } else { self.form.cancel_slot() };
+                    self.form.focus = if self.form.on_cancel() {
+                        self.form.ok_slot()
+                    } else {
+                        self.form.cancel_slot()
+                    };
                     return DialogResult::None;
                 }
                 KeyCode::Up | KeyCode::BackTab => {
@@ -1117,7 +1084,10 @@ impl FormDialog {
                     }
                     GitForm::Reset => Submit::GitRun {
                         title: "reset".into(),
-                        args: ops::reset_args(reset_mode_name(fields[0].as_text()), fields[1].as_text()),
+                        args: ops::reset_args(
+                            reset_mode_name(fields[0].as_text()),
+                            fields[1].as_text(),
+                        ),
                     },
                 }
             }
@@ -1138,22 +1108,15 @@ impl FormDialog {
                 if target.is_empty() || name.is_empty() {
                     return DialogResult::Cancel;
                 }
-                Submit::Symlink {
-                    dir: dir.clone(),
-                    target,
-                    name,
-                }
+                Submit::Symlink { dir: dir.clone(), target, name }
             }
             FormPurpose::Connect(protocol, side) => {
                 let host = fields[0].as_text().trim().to_string();
                 if host.is_empty() {
                     return DialogResult::Cancel;
                 }
-                let port = fields[1]
-                    .as_text()
-                    .trim()
-                    .parse::<u16>()
-                    .unwrap_or(protocol.default_port());
+                let port =
+                    fields[1].as_text().trim().parse::<u16>().unwrap_or(protocol.default_port());
                 Submit::Connect(
                     *side,
                     RemoteCreds {
@@ -1188,10 +1151,8 @@ impl FormDialog {
             // Each group box = the rows its fields need once spread over its
             // columns, + 2 border rows; plus a spacer and the hint/button row
             // inside, and the outer border.
-            let group_rows: u16 = groups
-                .iter()
-                .map(|(_, n, cols)| group_row_count(*n, *cols) + 2)
-                .sum();
+            let group_rows: u16 =
+                groups.iter().map(|(_, n, cols)| group_row_count(*n, *cols) + 2).sum();
             let height = group_rows + 1 /* spacer */ + 1 /* hint */ + 2 /* border */;
             // 76 rather than 72 so a two-column half still holds the longest
             // row a chooser can produce — in German, "Design: Midnight
@@ -1286,7 +1247,13 @@ impl FormDialog {
         rows
     }
 
-    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
+    pub(crate) fn render(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        theme: &Theme,
+        gfx: Option<&mut Gfx>,
+    ) {
         let rect = self.outer_rect(area);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
@@ -1337,16 +1304,7 @@ impl FormDialog {
             let y = row.y;
             let focused = i == self.form.focus;
             match field {
-                Field::Text {
-                    label,
-                    value,
-                    cursor,
-                }
-                | Field::Password {
-                    label,
-                    value,
-                    cursor,
-                } => {
+                Field::Text { label, value, cursor } | Field::Password { label, value, cursor } => {
                     let masked = matches!(field, Field::Password { .. });
                     let label_str = crate::l10n::display(&format!("{}: ", crate::l10n::tr(label)));
                     let lw = (label_str.chars().count() as u16).min(row.width);
@@ -1355,11 +1313,8 @@ impl FormDialog {
                         Paragraph::new(Span::styled(label_str, style)),
                         Rect { width: lw, ..row },
                     );
-                    let mut field_area = Rect {
-                        x: row.x + lw,
-                        width: row.width.saturating_sub(lw),
-                        ..row
-                    };
+                    let mut field_area =
+                        Rect { x: row.x + lw, width: row.width.saturating_sub(lw), ..row };
                     // Reserve room for the chevron on the Host field.
                     if i == 0 && connect_host && field_area.width > 4 {
                         let cx = field_area.x + field_area.width - 2;
@@ -1412,13 +1367,10 @@ impl FormDialog {
             self.render_dropdown(f, inner, theme);
         }
 
-        let choice_open = self.form.fields.iter().any(|f| matches!(f, Field::Choice { open: true, .. }));
+        let choice_open =
+            self.form.fields.iter().any(|f| matches!(f, Field::Choice { open: true, .. }));
 
-        let hint = Rect {
-            y: inner.y + inner.height.saturating_sub(1),
-            height: 1,
-            ..inner
-        };
+        let hint = Rect { y: inner.y + inner.height.saturating_sub(1), height: 1, ..inner };
         let extra = match &self.purpose {
             FormPurpose::Chmod(_) => format!("  octal {:03o}", self.chmod_mode()),
             _ => String::new(),
@@ -1429,7 +1381,8 @@ impl FormDialog {
         let cancel_txt = crate::l10n::tr("Cancel");
         // Graphical buttons only when the font can render the labels; otherwise
         // fall back to the text button row (terminal font handles any script).
-        if gfx.as_deref().is_some_and(|g| g.buttons_ok()) && all_renderable(&[&ok_txt, &cancel_txt]) {
+        if gfx.as_deref().is_some_and(|g| g.buttons_ok()) && all_renderable(&[&ok_txt, &cancel_txt])
+        {
             // Graphical buttons: OK at the left, Cancel at the right, with the
             // navigation hint between them. Left/right halves still hit-test OK/Cancel.
             let ok_w = 10u16.min(hint.width);
@@ -1554,16 +1507,16 @@ impl FormDialog {
         let inner = self.dialog_inner(area);
         let rows = self.field_rows(inner);
         // An open dropdown: pick the clicked option, or close on an outside click.
-        if let Some(fi) = self
-            .form
-            .fields
-            .iter()
-            .position(|f| matches!(f, Field::Choice { open: true, .. }))
+        if let Some(fi) =
+            self.form.fields.iter().position(|f| matches!(f, Field::Choice { open: true, .. }))
         {
             let frect = rows[fi];
-            if let Some(Field::Choice { options, idx, open, sel, top, .. }) = self.form.fields.get_mut(fi) {
+            if let Some(Field::Choice { options, idx, open, sel, top, .. }) =
+                self.form.fields.get_mut(fi)
+            {
                 let (rect, visible) = choice_dropdown_geom(frect, area, options.len());
-                let (list_x, list_y, list_w) = (rect.x + 1, rect.y + 1, rect.width.saturating_sub(2));
+                let (list_x, list_y, list_w) =
+                    (rect.x + 1, rect.y + 1, rect.width.saturating_sub(2));
                 if row >= list_y
                     && row < list_y + visible as u16
                     && col >= list_x
@@ -1666,12 +1619,7 @@ impl FormDialog {
         let top = inner.y + 1;
         let avail = (inner.y + inner.height).saturating_sub(top) as usize;
         let visible = c.history.len().min(avail.saturating_sub(2).max(1));
-        let rect = Rect {
-            x: inner.x,
-            y: top,
-            width: inner.width,
-            height: (visible + 2) as u16,
-        };
+        let rect = Rect { x: inner.x, y: top, width: inner.width, height: (visible + 2) as u16 };
         f.render_widget(Clear, rect);
         let block = Block::default()
             .borders(Borders::ALL)
@@ -1686,11 +1634,7 @@ impl FormDialog {
         f.render_widget(block, rect);
 
         // Scroll so the selection is on screen.
-        let offset = if c.sel >= visible {
-            c.sel + 1 - visible
-        } else {
-            0
-        };
+        let offset = if c.sel >= visible { c.sel + 1 - visible } else { 0 };
         let normal = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
         let sel_style = theme.dialog_selection;
         for vi in 0..visible {
@@ -1698,19 +1642,11 @@ impl FormDialog {
             let Some(entry) = c.history.get(idx) else {
                 break;
             };
-            let row = Rect {
-                x: list.x,
-                y: list.y + vi as u16,
-                width: list.width,
-                height: 1,
-            };
+            let row = Rect { x: list.x, y: list.y + vi as u16, width: list.width, height: 1 };
             let style = if idx == c.sel { sel_style } else { normal };
             let text = crate::util::text::ellipsize(&entry.label(), list.width as usize);
             let text = crate::util::text::pad_right(&text, list.width as usize);
-            f.render_widget(
-                Paragraph::new(Line::from(Span::styled(text, style))),
-                row,
-            );
+            f.render_widget(Paragraph::new(Line::from(Span::styled(text, style))), row);
             c.entries.push((row, idx));
         }
     }

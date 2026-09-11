@@ -93,7 +93,9 @@ pub fn helper_main(args: &[std::ffi::OsString]) -> i32 {
             std::fs::create_dir(Path::new(path)).and_then(|()| give_to_caller(Path::new(path)))
         }
         _ => {
-            eprintln!("{PRIV_OP_FLAG} takes: copy <src> <dst> | rm <path> | rmdir <path> | mkdir <path>");
+            eprintln!(
+                "{PRIV_OP_FLAG} takes: copy <src> <dst> | rm <path> | rmdir <path> | mkdir <path>"
+            );
             return 2;
         }
     };
@@ -122,8 +124,12 @@ fn give_to_caller(path: &Path) -> std::io::Result<()> {
     let (Some(uid), Some(gid)) = (uid, gid) else {
         return Ok(());
     };
-    nix::unistd::chown(path, Some(nix::unistd::Uid::from_raw(uid)), Some(nix::unistd::Gid::from_raw(gid)))
-        .map_err(std::io::Error::from)
+    nix::unistd::chown(
+        path,
+        Some(nix::unistd::Uid::from_raw(uid)),
+        Some(nix::unistd::Gid::from_raw(gid)),
+    )
+    .map_err(std::io::Error::from)
 }
 
 #[cfg(not(unix))]

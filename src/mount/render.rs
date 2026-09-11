@@ -53,11 +53,7 @@ pub fn render(f: &mut Frame, area: Rect, mv: &mut MountView, theme: &Theme) {
 
 /// A bordered sub-panel; the focused one gets the active accent border.
 fn panel(f: &mut Frame, area: Rect, title: &str, focused: bool, theme: &Theme) -> Rect {
-    let border = if focused {
-        theme.panel_border_active
-    } else {
-        theme.panel_border
-    };
+    let border = if focused { theme.panel_border_active } else { theme.panel_border };
     let b = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
@@ -88,7 +84,10 @@ fn render_devices(f: &mut Frame, area: Rect, mv: &mut MountView, theme: &Theme) 
 
     let mut lines: Vec<Line> = Vec::with_capacity(rows);
     if mv.devices.is_empty() {
-        lines.push(Line::from(Span::styled(format!("  {}", crate::l10n::trd("(no block devices)")), dim)));
+        lines.push(Line::from(Span::styled(
+            format!("  {}", crate::l10n::trd("(no block devices)")),
+            dim,
+        )));
     }
     for (i, d) in mv.devices.iter().enumerate().skip(top).take(rows) {
         // Tree: partitions are drawn indented under their parent disk.
@@ -144,16 +143,15 @@ fn render_mounts(f: &mut Frame, area: Rect, mv: &mut MountView, theme: &Theme) {
 
     let mut lines: Vec<Line> = Vec::with_capacity(rows);
     if mv.mounts.is_empty() {
-        lines.push(Line::from(Span::styled(format!("  {}", crate::l10n::trd("(no device mounts)")), dim)));
+        lines.push(Line::from(Span::styled(
+            format!("  {}", crate::l10n::trd("(no device mounts)")),
+            dim,
+        )));
     }
     for (i, m) in mv.mounts.iter().enumerate().skip(top).take(rows) {
         let dev = m.dev.strip_prefix("/dev/").unwrap_or(&m.dev);
         let text = format!("{}  {}", pad_right(dev, 12), m.mountpoint);
-        let style = if i == mv.mnt_cursor && focused {
-            theme.cursor
-        } else {
-            normal
-        };
+        let style = if i == mv.mnt_cursor && focused { theme.cursor } else { normal };
         lines.push(Line::from(Span::styled(pad_right(&ellipsize(&text, w), w), style)));
     }
     f.render_widget(Paragraph::new(lines), inner);
@@ -255,10 +253,31 @@ mod tests {
     fn renders_both_panels() {
         let mut mv = MountView::new();
         mv.devices = vec![
-            BlockDevice { name: "sda".into(), dev: "/dev/sda".into(), size: 500_000_000_000, model: "Acme SSD".into(), vendor: "Acme".into(), serial: "SN12345".into(), ..Default::default() },
-            BlockDevice { name: "sda1".into(), dev: "/dev/sda1".into(), size: 512_000_000, fstype: "vfat".into(), label: "ESP".into(), mountpoint: Some("/boot".into()), parent: Some("sda".into()) , ..Default::default() },
+            BlockDevice {
+                name: "sda".into(),
+                dev: "/dev/sda".into(),
+                size: 500_000_000_000,
+                model: "Acme SSD".into(),
+                vendor: "Acme".into(),
+                serial: "SN12345".into(),
+                ..Default::default()
+            },
+            BlockDevice {
+                name: "sda1".into(),
+                dev: "/dev/sda1".into(),
+                size: 512_000_000,
+                fstype: "vfat".into(),
+                label: "ESP".into(),
+                mountpoint: Some("/boot".into()),
+                parent: Some("sda".into()),
+                ..Default::default()
+            },
         ];
-        mv.mounts = vec![MountEntry { dev: "/dev/sda1".into(), mountpoint: "/boot".into(), fstype: "vfat".into() }];
+        mv.mounts = vec![MountEntry {
+            dev: "/dev/sda1".into(),
+            mountpoint: "/boot".into(),
+            fstype: "vfat".into(),
+        }];
         let theme = crate::ui::theme::Theme::mc();
         let mut t = Terminal::new(TestBackend::new(90, 14)).unwrap();
         t.draw(|f| super::render(f, f.area(), &mut mv, &theme)).unwrap();

@@ -30,7 +30,10 @@ enum Plan {
     Empty,
     File(VfsEntry),
     /// One or more roots to recursively size; `(name, kind, size)`.
-    Tally { label: String, roots: Vec<(String, VfsKind, u64)> },
+    Tally {
+        label: String,
+        roots: Vec<(String, VfsKind, u64)>,
+    },
 }
 
 impl AppState {
@@ -176,7 +179,11 @@ impl AppState {
                 tokio::spawn(async move {
                     let preview = build_preview(backend, path, kind, name, size, dark).await;
                     let _ = tx
-                        .send(AppEvent::DetailsPreview { viewer, generation, preview: Box::new(preview) })
+                        .send(AppEvent::DetailsPreview {
+                            viewer,
+                            generation,
+                            preview: Box::new(preview),
+                        })
                         .await;
                 });
             }
@@ -422,11 +429,7 @@ async fn build_text_preview(
         };
         lines.push(PreviewLine { text: display, runs });
     }
-    if lines.is_empty() {
-        Preview::None
-    } else {
-        Preview::Text(lines)
-    }
+    if lines.is_empty() { Preview::None } else { Preview::Text(lines) }
 }
 
 /// Expand tabs to 4-column tab stops (so highlight runs align to the display text).
@@ -451,11 +454,7 @@ fn expand_tabs(s: &str) -> String {
 async fn build_tree_preview(backend: &Arc<dyn Vfs>, dir: &VfsPath) -> Preview {
     let mut out: Vec<PreviewTreeLine> = Vec::new();
     walk_tree(backend, dir, 0, &mut out).await;
-    if out.is_empty() {
-        Preview::None
-    } else {
-        Preview::Tree(out)
-    }
+    if out.is_empty() { Preview::None } else { Preview::Tree(out) }
 }
 
 /// Recursive helper for [`build_tree_preview`] (boxed for async recursion).

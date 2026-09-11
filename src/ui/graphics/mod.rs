@@ -156,7 +156,11 @@ impl Gfx {
             self.cache.insert(slot, Cached { sig, proto });
         }
         if let Some(c) = self.cache.get_mut(&slot) {
-            f.render_stateful_widget(StatefulImage::default().resize(Resize::Fit(None)), area, &mut c.proto);
+            f.render_stateful_widget(
+                StatefulImage::default().resize(Resize::Fit(None)),
+                area,
+                &mut c.proto,
+            );
         }
     }
 
@@ -188,7 +192,11 @@ impl Gfx {
             self.cache.insert(slot, Cached { sig, proto });
         }
         if let Some(c) = self.cache.get_mut(&slot) {
-            f.render_stateful_widget(StatefulImage::default().resize(Resize::Fit(None)), area, &mut c.proto);
+            f.render_stateful_widget(
+                StatefulImage::default().resize(Resize::Fit(None)),
+                area,
+                &mut c.proto,
+            );
         }
     }
 }

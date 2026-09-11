@@ -79,10 +79,7 @@ impl SysSampler {
     }
 
     pub fn mem_percent(&self) -> u64 {
-        (self.mem_used_kb * 100)
-            .checked_div(self.mem_total_kb)
-            .unwrap_or(0)
-            .min(100)
+        (self.mem_used_kb * 100).checked_div(self.mem_total_kb).unwrap_or(0).min(100)
     }
 
     pub fn cpu_last(&self) -> u64 {

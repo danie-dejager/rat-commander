@@ -39,14 +39,24 @@ fn labeled_field(
     } else {
         Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg)
     };
-    f.render_widget(Paragraph::new(Span::styled(label.to_string(), style)), Rect { width: lw, ..area });
+    f.render_widget(
+        Paragraph::new(Span::styled(label.to_string(), style)),
+        Rect { width: lw, ..area },
+    );
     let field = Rect { x: area.x + lw, width: area.width.saturating_sub(lw), ..area };
     draw_input_field(f, field, value, cursor, focused, false, theme)
 }
 
 /// Draw a fixed-width turquoise numeric field (no `[^]` history button), for the
 /// narrow counter inputs. Returns the caret position when `focused`.
-fn draw_num_field(f: &mut Frame, area: Rect, value: &str, cursor: usize, focused: bool, theme: &Theme) -> Option<Position> {
+fn draw_num_field(
+    f: &mut Frame,
+    area: Rect,
+    value: &str,
+    cursor: usize,
+    focused: bool,
+    theme: &Theme,
+) -> Option<Position> {
     let w = area.width as usize;
     if w == 0 {
         return None;
@@ -62,7 +72,8 @@ fn draw_num_field(f: &mut Frame, area: Rect, value: &str, cursor: usize, focused
         Paragraph::new(Span::styled(shown, Style::default().fg(theme.input_fg).bg(theme.input_bg))),
         area,
     );
-    focused.then(|| Position::new(area.x + (cursor - start).min(w.saturating_sub(1)) as u16, area.y))
+    focused
+        .then(|| Position::new(area.x + (cursor - start).min(w.saturating_sub(1)) as u16, area.y))
 }
 
 const MR_FOCUS_COUNT: usize = 8;
@@ -267,7 +278,13 @@ impl MultiRenameDialog {
         self.scroll(delta);
     }
 
-    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
+    pub(crate) fn render(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        theme: &Theme,
+        gfx: Option<&mut Gfx>,
+    ) {
         let w = area.width.saturating_sub(4).max(40);
         let h = area.height.saturating_sub(2).max(14);
         let rect = centered(area, w, h);
@@ -298,8 +315,13 @@ impl MultiRenameDialog {
 
         // -- Mask --
         let caret = labeled_field(
-            f, rows[0], &format!("{}: ", crate::l10n::trd("Rename mask")), &self.mask,
-            self.mask_cursor, self.focus == 0, theme,
+            f,
+            rows[0],
+            &format!("{}: ", crate::l10n::trd("Rename mask")),
+            &self.mask,
+            self.mask_cursor,
+            self.focus == 0,
+            theme,
         );
         self.field_hits.push((rows[0], 0));
 
@@ -318,10 +340,7 @@ impl MultiRenameDialog {
         let case_text =
             format!("{}: ◂ {} ▸", crate::l10n::trd("Case"), crate::l10n::trd(self.case.label()));
         let case_w = (case_text.chars().count() as u16).min(crow.width);
-        f.render_widget(
-            Paragraph::new(Line::from(Span::styled(case_text, case_style))),
-            crow,
-        );
+        f.render_widget(Paragraph::new(Line::from(Span::styled(case_text, case_style))), crow);
         self.field_hits.push((Rect { width: case_w, ..crow }, 1));
 
         // -- Counter fields (right-aligned group): Counter Start / Step / Digits --
@@ -360,10 +379,8 @@ impl MultiRenameDialog {
             }
             cx += fw;
             // The label + field together are clickable to focus this counter.
-            self.field_hits.push((
-                Rect { x: group_x, y: crow.y, width: lw + fw, height: 1 },
-                *focus_idx,
-            ));
+            self.field_hits
+                .push((Rect { x: group_x, y: crow.y, width: lw + fw, height: 1 }, *focus_idx));
         }
 
         // -- Search & replace --
@@ -375,11 +392,32 @@ impl MultiRenameDialog {
                 Constraint::Min(10),
             ])
             .split(rows[3]);
-        let s1 = labeled_field(f, sr[0], &format!("{}: ", crate::l10n::trd("Search")), &self.search, self.search_cursor, self.focus == 5, theme);
-        let s2 = labeled_field(f, sr[1], &format!("{}: ", crate::l10n::trd("Replace")), &self.replace, self.replace_cursor, self.focus == 6, theme);
+        let s1 = labeled_field(
+            f,
+            sr[0],
+            &format!("{}: ", crate::l10n::trd("Search")),
+            &self.search,
+            self.search_cursor,
+            self.focus == 5,
+            theme,
+        );
+        let s2 = labeled_field(
+            f,
+            sr[1],
+            &format!("{}: ", crate::l10n::trd("Replace")),
+            &self.replace,
+            self.replace_cursor,
+            self.focus == 6,
+            theme,
+        );
         f.render_widget(
-            Paragraph::new(Line::from(check_span(&crate::l10n::trd("Case sensitive"), self.case_sensitive, self.focus == 7, theme)))
-                .style(Style::default().bg(theme.dialog_bg)),
+            Paragraph::new(Line::from(check_span(
+                &crate::l10n::trd("Case sensitive"),
+                self.case_sensitive,
+                self.focus == 7,
+                theme,
+            )))
+            .style(Style::default().bg(theme.dialog_bg)),
             sr[2],
         );
         self.field_hits.push((sr[0], 5));
@@ -391,11 +429,8 @@ impl MultiRenameDialog {
         let half = list.width.saturating_sub(1) / 2;
         let left = Rect { width: half, ..list };
         let divider_x = list.x + half;
-        let right = Rect {
-            x: list.x + half + 1,
-            width: list.width.saturating_sub(half + 1),
-            ..list
-        };
+        let right =
+            Rect { x: list.x + half + 1, width: list.width.saturating_sub(half + 1), ..list };
 
         // -- Separator between the settings and the file tables. --
         let sep = rows[4];
@@ -468,7 +503,11 @@ impl MultiRenameDialog {
         let footer = rows[7];
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                format!(" {} {}   Tab: field   ↑↓: scroll", self.originals.len(), crate::l10n::trd("file(s)")),
+                format!(
+                    " {} {}   Tab: field   ↑↓: scroll",
+                    self.originals.len(),
+                    crate::l10n::trd("file(s)")
+                ),
                 dim,
             ))),
             footer,
@@ -504,4 +543,3 @@ impl MultiRenameDialog {
         }
     }
 }
-

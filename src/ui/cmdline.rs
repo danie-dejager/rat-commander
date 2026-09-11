@@ -37,11 +37,7 @@ impl CommandLine {
     }
 
     fn byte_at(&self, char_idx: usize) -> usize {
-        self.buffer
-            .char_indices()
-            .nth(char_idx)
-            .map(|(b, _)| b)
-            .unwrap_or(self.buffer.len())
+        self.buffer.char_indices().nth(char_idx).map(|(b, _)| b).unwrap_or(self.buffer.len())
     }
 
     /// Apply one Emacs/readline editing key to the buffer (the same editor the
@@ -174,13 +170,7 @@ impl CommandLine {
 
 /// Render the command line. `cwd` is shown as the prompt; returns the caret
 /// screen position so the caller can show the cursor when the panel has focus.
-pub fn render(
-    f: &mut Frame,
-    area: Rect,
-    cmd: &CommandLine,
-    cwd: &str,
-    theme: &Theme,
-) -> Position {
+pub fn render(f: &mut Frame, area: Rect, cmd: &CommandLine, cwd: &str, theme: &Theme) -> Position {
     let prompt = format!("{}$ ", ellipsize(cwd, (area.width as usize).saturating_sub(12)));
     let line = Line::from(vec![
         Span::styled(prompt.clone(), Style::default().fg(theme.panel_border_active)),

@@ -5,8 +5,8 @@ pub mod event;
 pub mod state;
 
 use crate::ui;
-use crate::util::async_bridge::{self, AppReceiver};
 use crate::util::Result;
+use crate::util::async_bridge::{self, AppReceiver};
 use futures::StreamExt;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -25,10 +25,7 @@ use std::io::{self, Stdout, Write};
 type Term = Terminal<CrosstermBackend<Stdout>>;
 
 /// Set up, run, and tear down the application.
-pub async fn run(
-    startup: crate::Startup,
-    last_dir_file: Option<std::path::PathBuf>,
-) -> Result<()> {
+pub async fn run(startup: crate::Startup, last_dir_file: Option<std::path::PathBuf>) -> Result<()> {
     // Load user themes (generating themes.toml from the presets on first run)
     // before the initial theme is derived from the config.
     crate::ui::theme::load_user_themes();
@@ -91,11 +88,7 @@ pub async fn run(
     result
 }
 
-async fn run_loop(
-    term: &mut Term,
-    state: &mut AppState,
-    rx: &mut AppReceiver,
-) -> Result<()> {
+async fn run_loop(term: &mut Term, state: &mut AppState, rx: &mut AppReceiver) -> Result<()> {
     // ~100 ms tick drives animations and the system-status sampler.
     let mut ticker = tokio::time::interval(std::time::Duration::from_millis(100));
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -460,9 +453,9 @@ async fn run_command(
         let c = state.console_cwd();
         (c.scheme == "file").then_some(c.path)
     };
-    let spawn_cwd = target
-        .clone()
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")));
+    let spawn_cwd = target.clone().unwrap_or_else(|| {
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
+    });
 
     if !ensure_subshell(state, shells, &spawn_cwd, size.height, size.width) {
         // No PTY available — run this one command the old, suspended way.
@@ -553,11 +546,7 @@ struct InputMode(Option<u32>);
 impl InputMode {
     fn save() -> Self {
         use crossterm_winapi::{ConsoleMode, Handle};
-        InputMode(
-            Handle::current_in_handle()
-                .ok()
-                .and_then(|h| ConsoleMode::from(h).mode().ok()),
-        )
+        InputMode(Handle::current_in_handle().ok().and_then(|h| ConsoleMode::from(h).mode().ok()))
     }
 
     fn restore(&self) {
@@ -637,11 +626,7 @@ async fn run_external(
 /// On an SFTP/SCP panel this is a shell on the **remote host** (over the session's
 /// SSH connection); otherwise the local subshell. Either keeps its state between
 /// visits; Ctrl-O returns here.
-async fn toggle_subshell(
-    term: &mut Term,
-    state: &mut AppState,
-    shells: &mut Shells,
-) -> Result<()> {
+async fn toggle_subshell(term: &mut Term, state: &mut AppState, shells: &mut Shells) -> Result<()> {
     let cwd = {
         let p = &state.panels[state.active];
         if p.cwd.scheme == "file" {
@@ -753,7 +738,11 @@ fn take_terminal_back(term: &mut Term, state: &mut AppState) -> Result<()> {
 }
 
 /// Fallback when a PTY can't be created: run an interactive shell once.
-async fn run_oneshot_shell(term: &mut Term, state: &mut AppState, cwd: &std::path::Path) -> Result<()> {
+async fn run_oneshot_shell(
+    term: &mut Term,
+    state: &mut AppState,
+    cwd: &std::path::Path,
+) -> Result<()> {
     restore_terminal(term, state.kbd_enhanced)?;
     let mode = InputMode::save();
     println!("[Rat Commander subshell — type 'exit' to return]");
@@ -865,18 +854,15 @@ mod tests {
     /// the assertion holds wherever the tests run.
     #[test]
     fn command_line_runs_shell_interactively() {
-        let _guard =
-            crate::shell::PREFERRED_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = crate::shell::PREFERRED_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let restore = crate::shell::preferred();
         crate::shell::set_preferred("/bin/bash");
         let c = command_line_shell("ll");
         let argv: Vec<std::ffi::OsString> = std::iter::once(c.as_std().get_program().to_owned())
             .chain(c.as_std().get_args().map(|a| a.to_owned()))
             .collect();
-        let expected: Vec<std::ffi::OsString> = ["/bin/bash", "-i", "-c", "ll"]
-            .iter()
-            .map(std::ffi::OsString::from)
-            .collect();
+        let expected: Vec<std::ffi::OsString> =
+            ["/bin/bash", "-i", "-c", "ll"].iter().map(std::ffi::OsString::from).collect();
         crate::shell::set_preferred(&restore);
         assert_eq!(argv, expected);
     }

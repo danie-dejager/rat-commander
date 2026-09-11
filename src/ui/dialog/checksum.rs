@@ -8,8 +8,8 @@
 //!
 //! [`ProgressDialog`]: super::progress::ProgressDialog
 
-use super::widgets::*;
 use super::DialogResult;
+use super::widgets::*;
 use crate::util::checksum::ChecksumReport;
 
 pub struct ChecksumResultDialog {
@@ -36,16 +36,9 @@ impl ChecksumResultDialog {
     /// ignored (so a stray click can't dismiss the result).
     pub(crate) fn handle_click(&self, col: u16, row: u16) -> DialogResult {
         let r = self.ok_rect;
-        let hit = r.width > 0
-            && col >= r.x
-            && col < r.x + r.width
-            && row >= r.y
-            && row < r.y + r.height;
-        if hit {
-            DialogResult::Cancel
-        } else {
-            DialogResult::None
-        }
+        let hit =
+            r.width > 0 && col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height;
+        if hit { DialogResult::Cancel } else { DialogResult::None }
     }
 
     /// Split `s` into consecutive `width`-character rows (for wrapping a long
@@ -58,7 +51,13 @@ impl ChecksumResultDialog {
         chars.chunks(width).map(|c| c.iter().collect()).collect()
     }
 
-    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
+    pub(crate) fn render(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        theme: &Theme,
+        gfx: Option<&mut Gfx>,
+    ) {
         let w = 72u16.min(area.width.saturating_sub(4));
         let iw = w.saturating_sub(2) as usize; // interior width (inside the border)
         let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
@@ -70,10 +69,7 @@ impl ChecksumResultDialog {
             format!("File:  {}", ellipsize(&self.report.name, iw.saturating_sub(7))),
             base,
         )));
-        body.push(Line::from(Span::styled(
-            format!("Type:  {}", self.report.kind.label()),
-            base,
-        )));
+        body.push(Line::from(Span::styled(format!("Type:  {}", self.report.kind.label()), base)));
         body.push(Line::from(""));
         body.push(Line::from(Span::styled("Checksum:", base)));
         for chunk in Self::chunks(&self.report.digest, iw) {
@@ -91,9 +87,7 @@ impl ChecksumResultDialog {
                 Style::default().fg(color).bg(theme.dialog_bg).add_modifier(Modifier::BOLD),
             )));
             // On a mismatch, show what was expected so the difference is visible.
-            if !matched
-                && let Some(expected) = &self.report.expected
-            {
+            if !matched && let Some(expected) = &self.report.expected {
                 body.push(Line::from(Span::styled("Expected:", base)));
                 for chunk in Self::chunks(expected, iw) {
                     body.push(Line::from(Span::styled(chunk, base)));

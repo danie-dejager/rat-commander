@@ -142,8 +142,7 @@ impl AppState {
                 ProcSignal::Stay => {}
                 ProcSignal::Close => self.procview = None,
                 ProcSignal::Kill { pid, name, force } => {
-                    self.dialog =
-                        Some(Dialog::Confirm(ConfirmDialog::kill(pid, &name, force)));
+                    self.dialog = Some(Dialog::Confirm(ConfirmDialog::kill(pid, &name, force)));
                 }
             }
             return Flow::Continue;
@@ -282,7 +281,8 @@ impl AppState {
             MenuAction::Connect(side, proto) => {
                 if self.other_panel_is_remote(side) {
                     self.show_error(
-                        "The other panel is already remote — one panel must stay local.".to_string(),
+                        "The other panel is already remote — one panel must stay local."
+                            .to_string(),
                     );
                 } else {
                     self.dialog = Some(Dialog::Form(FormDialog::connect(
@@ -511,9 +511,7 @@ impl AppState {
             // walks the *other* panel, since that is the one the view describes.
             // Only with an empty command line, so it still deletes a character
             // when there is one to delete.
-            KeyCode::Backspace
-                if self.panels[self.active].is_space3d() && self.cmd.is_empty() =>
-            {
+            KeyCode::Backspace if self.panels[self.active].is_space3d() && self.cmd.is_empty() => {
                 self.space3d_up().await;
             }
             KeyCode::Backspace if cmdline => self.cmd.backspace(),
@@ -766,9 +764,7 @@ impl AppState {
     pub(in crate::app::state) async fn enter_dir(&mut self) -> Flow {
         let p = &self.panels[self.active];
         // Directory / ".." navigation first, then "enter archive file".
-        let target = p
-            .target_dir_under_cursor()
-            .or_else(|| archive_target_under_cursor(p));
+        let target = p.target_dir_under_cursor().or_else(|| archive_target_under_cursor(p));
         let Some((newcwd, focus)) = target else {
             // Not a directory/native archive: an rc.ext `Open` rule may mount it
             // via an extfs script or run a command; else an image opens the
@@ -793,9 +789,7 @@ impl AppState {
         };
         // Atomic move: if the target can't be listed (e.g. permission denied),
         // the panel stays where it is rather than getting stuck in it.
-        self.active_panel()
-            .try_enter(newcwd, backend, focus.as_deref())
-            .await;
+        self.active_panel().try_enter(newcwd, backend, focus.as_deref()).await;
         Flow::Continue
     }
 
@@ -902,11 +896,7 @@ impl AppState {
                 home_dir().join(rest)
             } else {
                 let raw = Path::new(arg);
-                if raw.is_absolute() {
-                    raw.to_path_buf()
-                } else {
-                    cur.path.join(raw)
-                }
+                if raw.is_absolute() { raw.to_path_buf() } else { cur.path.join(raw) }
             };
             VfsPath::local(normalize_path(&target))
         } else {
@@ -945,7 +935,9 @@ impl AppState {
             .user_menu
             .entries
             .iter()
-            .filter(|e| e.include.as_deref().is_none_or(|c| crate::usermenu::eval_condition(c, &ctx, sp)))
+            .filter(|e| {
+                e.include.as_deref().is_none_or(|c| crate::usermenu::eval_condition(c, &ctx, sp))
+            })
             .cloned()
             .collect();
         if shown.is_empty() {
@@ -954,7 +946,9 @@ impl AppState {
         // Default entry = the first shown entry whose `=` condition passes.
         let default = shown
             .iter()
-            .position(|e| e.default.as_deref().is_some_and(|c| crate::usermenu::eval_condition(c, &ctx, sp)))
+            .position(|e| {
+                e.default.as_deref().is_some_and(|c| crate::usermenu::eval_condition(c, &ctx, sp))
+            })
             .unwrap_or(0);
         self.dialog = Some(Dialog::UserMenu(UserMenuDialog::with_cursor(shown, default)));
     }
@@ -1003,7 +997,11 @@ impl AppState {
     /// — see [`menu_uses_untag`]); `%x` is the extension. Value macros are
     /// shell-quoted by default; `%0X` turns quoting off, `%1X` forces it.
     /// `%view{…}` is stripped. `%%` is a literal percent.
-    pub(in crate::app::state) fn expand_macros_with(&self, tpl: &str, answers: &[String]) -> String {
+    pub(in crate::app::state) fn expand_macros_with(
+        &self,
+        tpl: &str,
+        answers: &[String],
+    ) -> String {
         let quote = crate::vfs::remote::shell_quote;
 
         struct Vals {
@@ -1031,7 +1029,8 @@ impl AppState {
         };
         let emit_list = |out: &mut String, list: &[String], qo: Option<bool>| {
             let q = qo.unwrap_or(true);
-            let parts: Vec<String> = list.iter().map(|n| if q { quote(n) } else { n.clone() }).collect();
+            let parts: Vec<String> =
+                list.iter().map(|n| if q { quote(n) } else { n.clone() }).collect();
             out.push_str(&parts.join(" "));
         };
 
@@ -1120,7 +1119,6 @@ impl AppState {
         v.open_outline();
         self.viewer = Some(v);
     }
-
 }
 
 /// Whether `key` should be handled as Emacs/readline editing of the command line
@@ -1158,13 +1156,9 @@ pub(in crate::app::state) fn cmdline_edit_wanted(key: KeyEvent, empty: bool) -> 
 /// shell would treat specially; plain names are inserted verbatim so the common
 /// case (`report.txt`) stays clean.
 fn shell_arg(name: &str) -> String {
-    let safe = !name.is_empty()
-        && name.chars().all(|c| c.is_alphanumeric() || "._-+,:@%=/~".contains(c));
-    if safe {
-        name.to_string()
-    } else {
-        crate::vfs::remote::shell_quote(name)
-    }
+    let safe =
+        !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || "._-+,:@%=/~".contains(c));
+    if safe { name.to_string() } else { crate::vfs::remote::shell_quote(name) }
 }
 
 /// The labels of every `%{…}` interactive prompt in a user-menu command `tpl`,

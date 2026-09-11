@@ -194,7 +194,11 @@ pub fn editor_menu(active: usize, hex: bool) -> EditorMenu {
             text_only(item_key("&Go to line...", "Alt-L", EditorAction::GotoLine)),
             text_only(item_key("Go to matching &bracket", "Alt-B", EditorAction::MatchBracket)),
             sep(),
-            text_only(item_key("Toggle &syntax highlighting", "Ctrl-S", EditorAction::ToggleSyntax)),
+            text_only(item_key(
+                "Toggle &syntax highlighting",
+                "Ctrl-S",
+                EditorAction::ToggleSyntax,
+            )),
             text_only(item_key("Toggle &word wrap", "Shift-F9", EditorAction::ToggleWrap)),
             item_key("Toggle &hex editor", "Ctrl-F9", EditorAction::ToggleHex),
             sep(),
@@ -220,11 +224,7 @@ pub fn editor_menu(active: usize, hex: bool) -> EditorMenu {
         ],
     };
 
-    EditorMenu::build(
-        titles().to_vec(),
-        vec![file, edit, search, command, format, options],
-        active,
-    )
+    EditorMenu::build(titles().to_vec(), vec![file, edit, search, command, format, options], active)
 }
 
 /// Every menu's label keys, in bar order — the single source shared by the menu
@@ -232,21 +232,47 @@ pub fn editor_menu(active: usize, hex: bool) -> EditorMenu {
 #[allow(dead_code)] // read by the l10n and editor-menu tests
 pub const MENU_KEYS: &[&[&str]] = &[
     &[
-        "&Open file...", "&New", "&Save", "Save &as...", "&Insert file...",
-        "&Copy to file...", "A&bout...", "&Quit",
+        "&Open file...",
+        "&New",
+        "&Save",
+        "Save &as...",
+        "&Insert file...",
+        "&Copy to file...",
+        "A&bout...",
+        "&Quit",
     ],
     &[
-        "&Undo", "&Redo", "Toggle &ins/overwrite", "Toggle mar&k", "Mark &all", "U&nmark",
-        "&Copy", "&Move", "&Delete", "Copy to clip&board", "Cu&t to clipboard",
-        "&Paste from clipboard", "Be&ginning", "&End",
+        "&Undo",
+        "&Redo",
+        "Toggle &ins/overwrite",
+        "Toggle mar&k",
+        "Mark &all",
+        "U&nmark",
+        "&Copy",
+        "&Move",
+        "&Delete",
+        "Copy to clip&board",
+        "Cu&t to clipboard",
+        "&Paste from clipboard",
+        "Be&ginning",
+        "&End",
     ],
     &[
-        "&Search...", "Search a&gain", "&Replace...", "&Toggle bookmark", "&Next bookmark",
-        "&Prev bookmark", "&Flush bookmarks",
+        "&Search...",
+        "Search a&gain",
+        "&Replace...",
+        "&Toggle bookmark",
+        "&Next bookmark",
+        "&Prev bookmark",
+        "&Flush bookmarks",
     ],
     &[
-        "&Go to line...", "Go to matching &bracket", "Toggle &syntax highlighting",
-        "Toggle &word wrap", "Toggle &hex editor", "&Refresh screen",
+        "&Go to line...",
+        "Go to matching &bracket",
+        "Toggle &syntax highlighting",
+        "Toggle &word wrap",
+        "Toggle &hex editor",
+        "&Refresh screen",
     ],
     &["Insert &date/time", "&Format paragraph", "&Sort...", "&Paste output of..."],
     &["&General...", "&Save setup"],
@@ -263,7 +289,10 @@ mod tests {
             let mut seen = Vec::new();
             for it in &menu.items {
                 if let Some(hk) = it.hotkey() {
-                    assert!(!seen.contains(&hk), "duplicate accelerator {hk:?} in editor menu {mi}");
+                    assert!(
+                        !seen.contains(&hk),
+                        "duplicate accelerator {hk:?} in editor menu {mi}"
+                    );
                     seen.push(hk);
                 }
             }

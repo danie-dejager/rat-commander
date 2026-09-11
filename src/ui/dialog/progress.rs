@@ -1,9 +1,9 @@
 //! Progress dialog and the indeterminate "busy" spinner.
 
-use super::widgets::*;
 use super::DialogResult;
+use super::widgets::*;
 use crate::ops::progress::{ProgressUpdate, TaskId};
-use crate::ui::graphics::{raster, Gfx, Slot};
+use crate::ui::graphics::{Gfx, Slot, raster};
 use ratatui::style::Color;
 use std::time::Instant;
 
@@ -208,11 +208,7 @@ impl ProgressDialog {
         let remaining = self.total_total.saturating_sub(self.total_done) as f64;
         let secs = (remaining / speed).round() as u64;
         let (h, m, s) = (secs / 3600, (secs % 3600) / 60, secs % 60);
-        if h > 0 {
-            format!("{h}:{m:02}:{s:02}")
-        } else {
-            format!("{m:02}:{s:02}")
-        }
+        if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m:02}:{s:02}") }
     }
 
     fn ratio(done: u64, total: u64) -> f64 {
@@ -223,7 +219,13 @@ impl ProgressDialog {
         }
     }
 
-    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, mut gfx: Option<&mut Gfx>) {
+    pub(crate) fn render(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        theme: &Theme,
+        mut gfx: Option<&mut Gfx>,
+    ) {
         if self.indeterminate {
             return self.render_indeterminate(f, area, theme, gfx);
         }
@@ -311,7 +313,15 @@ impl ProgressDialog {
             self.bg_rect = bg;
             self.abort_rect = ab;
             let (bg_focus, ab_focus) = (self.focus == 0, self.focus == 1);
-            if !gfx_button(f, gfx.as_deref_mut(), Slot::Button(0), bg, "To background", bg_focus, theme) {
+            if !gfx_button(
+                f,
+                gfx.as_deref_mut(),
+                Slot::Button(0),
+                bg,
+                "To background",
+                bg_focus,
+                theme,
+            ) {
                 f.render_widget(
                     Paragraph::new(Line::from(button("[ To background ]", bg_focus, theme)))
                         .alignment(ratatui::layout::Alignment::Center)
@@ -404,13 +414,15 @@ impl ProgressDialog {
 
         // Graphics path: a smooth filled line graph in the same accent color.
         if let Some(g) = gfx
-            && g.available() {
-                let (pw, ph) = g.px_size(area);
-                let line = raster::rgb(intense);
-                let img = raster::line_graph(pw, ph, &bars, y_max, |_| line, raster::rgb(theme.dialog_bg));
-                g.draw(f, area, Slot::TransferSpeed, img);
-                return;
-            }
+            && g.available()
+        {
+            let (pw, ph) = g.px_size(area);
+            let line = raster::rgb(intense);
+            let img =
+                raster::line_graph(pw, ph, &bars, y_max, |_| line, raster::rgb(theme.dialog_bg));
+            g.draw(f, area, Slot::TransferSpeed, img);
+            return;
+        }
 
         let buf = f.buffer_mut();
         for (col, &bar) in bars.iter().enumerate() {
@@ -431,7 +443,13 @@ impl ProgressDialog {
     }
 
     /// Render an indeterminate scanning dialog (current path + sweep + count).
-    fn render_indeterminate(&mut self, f: &mut Frame, area: Rect, theme: &Theme, mut gfx: Option<&mut Gfx>) {
+    fn render_indeterminate(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        theme: &Theme,
+        mut gfx: Option<&mut Gfx>,
+    ) {
         let w = 64u16.min(area.width.saturating_sub(4));
         let rect = centered(area, w, 8);
         draw_shadow(f, rect, theme);
@@ -503,7 +521,10 @@ impl ProgressDialog {
             height: 1,
         };
         if !gfx_button(f, gfx, Slot::Button(0), arect, "Abort", true, theme) {
-            f.render_widget(Paragraph::new(Line::from(button(label, true, theme))).style(base), arect);
+            f.render_widget(
+                Paragraph::new(Line::from(button(label, true, theme))).style(base),
+                arect,
+            );
         }
         self.abort_rect = arect;
     }
@@ -525,39 +546,39 @@ fn gauge(
     theme: &Theme,
 ) {
     if let Some(g) = gfx
-        && g.available() && area.width > 0 && area.height > 0 {
-            let (w, h) = g.px_size(area);
-            let base_rgb = raster::rgb(base);
-            let dark = raster::over((0, 0, 0), base_rgb, 0.55);
-            let bright = raster::over(base_rgb, (255, 255, 255), 0.30);
-            let animated = theme.animated;
-            let anim = theme.anim as f64;
-            let fill = move |t: f64| {
-                let mut c = raster::over(dark, bright, t);
-                if animated {
-                    // A soft highlight band sweeps left→right as anim advances.
-                    let pos = (anim * 0.02).rem_euclid(1.0);
-                    let d = (t - pos)
-                        .abs()
-                        .min((t - pos + 1.0).abs())
-                        .min((t - pos - 1.0).abs());
-                    let hi = (1.0 - d / 0.22).clamp(0.0, 1.0);
-                    c = raster::over(c, (255, 255, 255), 0.4 * hi);
-                }
-                c
-            };
-            let img = raster::gradient_bar(
-                w,
-                h,
-                ratio,
-                fill,
-                raster::rgb(theme.panel_border),
-                raster::rgb(theme.dialog_bg),
-            );
-            g.draw(f, area, slot, img);
-            overlay_label(f, area, label, theme);
-            return;
-        }
+        && g.available()
+        && area.width > 0
+        && area.height > 0
+    {
+        let (w, h) = g.px_size(area);
+        let base_rgb = raster::rgb(base);
+        let dark = raster::over((0, 0, 0), base_rgb, 0.55);
+        let bright = raster::over(base_rgb, (255, 255, 255), 0.30);
+        let animated = theme.animated;
+        let anim = theme.anim as f64;
+        let fill = move |t: f64| {
+            let mut c = raster::over(dark, bright, t);
+            if animated {
+                // A soft highlight band sweeps left→right as anim advances.
+                let pos = (anim * 0.02).rem_euclid(1.0);
+                let d = (t - pos).abs().min((t - pos + 1.0).abs()).min((t - pos - 1.0).abs());
+                let hi = (1.0 - d / 0.22).clamp(0.0, 1.0);
+                c = raster::over(c, (255, 255, 255), 0.4 * hi);
+            }
+            c
+        };
+        let img = raster::gradient_bar(
+            w,
+            h,
+            ratio,
+            fill,
+            raster::rgb(theme.panel_border),
+            raster::rgb(theme.dialog_bg),
+        );
+        g.draw(f, area, slot, img);
+        overlay_label(f, area, label, theme);
+        return;
+    }
     pulse_gauge(f, area, ratio, label, base, theme);
 }
 
@@ -571,8 +592,12 @@ fn overlay_label(f: &mut Frame, area: Rect, label: &str, theme: &Theme) {
     let lstart = area.x + ((w - chars.len()) / 2) as u16;
     let midy = area.y + area.height / 2;
     let s: String = chars.into_iter().collect();
-    f.buffer_mut()
-        .set_string(lstart, midy, s, Style::default().fg(theme.bar_fg).bg(theme.dialog_bg));
+    f.buffer_mut().set_string(
+        lstart,
+        midy,
+        s,
+        Style::default().fg(theme.bar_fg).bg(theme.dialog_bg),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -663,4 +688,3 @@ impl BusyDialog {
         }
     }
 }
-

@@ -1,7 +1,7 @@
 //! Rendering of the [`DiskView`] treemap.
 
-use super::{human_gb, DiskEntry, DiskView};
-use crate::ui::graphics::{raster, Gfx, Slot};
+use super::{DiskEntry, DiskView, human_gb};
+use crate::ui::graphics::{Gfx, Slot, raster};
 use crate::ui::theme::Theme;
 use crate::util::text::{ellipsize, pad_right};
 use ratatui::Frame;
@@ -90,10 +90,11 @@ pub fn render(f: &mut Frame, area: Rect, dv: &mut DiskView, theme: &Theme, gfx: 
         // A full-screen pillow-shaded raster is built on the main thread, so
         // past a few megapixels (a 4K terminal) the cell boxes are the better
         // trade even where graphics are available.
-        Some(g) if g.available() && {
-            let (iw, ih) = g.px_size(body);
-            iw as u64 * ih as u64 <= MAX_TREEMAP_PX
-        } =>
+        Some(g)
+            if g.available() && {
+                let (iw, ih) = g.px_size(body);
+                iw as u64 * ih as u64 <= MAX_TREEMAP_PX
+            } =>
         {
             render_treemap_graphics(f, body, &dv.entries, &rects, cur, theme, g, dv.image_epoch)
         }
@@ -166,10 +167,7 @@ fn render_header(
     // something saying what Enter would descend into or Del would remove.
     if let Some((label, size)) = detail {
         let spans = vec![
-            Span::styled(
-                " ▶ ",
-                Style::default().fg(theme.panel_border_active).bg(theme.panel_bg),
-            ),
+            Span::styled(" ▶ ", Style::default().fg(theme.panel_border_active).bg(theme.panel_bg)),
             Span::styled(
                 ellipsize(&label, area.width.saturating_sub(20) as usize),
                 Style::default()
@@ -187,11 +185,7 @@ fn render_header(
     }
     let spans = match selected {
         Some(e) => {
-            let pct = if total > 0 {
-                100.0 * e.size as f32 / total as f32
-            } else {
-                0.0
-            };
+            let pct = if total > 0 { 100.0 * e.size as f32 / total as f32 } else { 0.0 };
             vec![
                 Span::styled(
                     " ▶ ",
@@ -205,7 +199,12 @@ fn render_header(
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    format!("   {}   {:.0}% {}", human_gb(e.size), pct, crate::l10n::trd("of total")),
+                    format!(
+                        "   {}   {:.0}% {}",
+                        human_gb(e.size),
+                        pct,
+                        crate::l10n::trd("of total")
+                    ),
                     Style::default().fg(theme.panel_fg).bg(theme.panel_bg),
                 ),
             ]
@@ -219,22 +218,18 @@ fn render_header(
 }
 
 fn render_footer(f: &mut Frame, area: Rect, theme: &Theme) {
-    let hint = "←↑↓→/click move   Enter open   Tab files   Del delete   g go to dir   Bksp up   Esc back";
+    let hint =
+        "←↑↓→/click move   Enter open   Tab files   Del delete   g go to dir   Bksp up   Esc back";
     // Draw as a highlighted bar (like the F-key row) so it's clearly visible.
     let line = pad_right(&format!(" {}", crate::l10n::trd(hint)), area.width as usize);
     f.render_widget(
-        Paragraph::new(Line::from(Span::styled(line, theme.fkey_label)))
-            .style(theme.fkey_label),
+        Paragraph::new(Line::from(Span::styled(line, theme.fkey_label))).style(theme.fkey_label),
         area,
     );
 }
 
 fn center_text(f: &mut Frame, area: Rect, text: &str, theme: &Theme) {
-    let row = Rect {
-        y: area.y + area.height / 2,
-        height: 1,
-        ..area
-    };
+    let row = Rect { y: area.y + area.height / 2, height: 1, ..area };
     f.render_widget(
         Paragraph::new(Line::from(text.to_string()))
             .alignment(Alignment::Center)
@@ -612,9 +607,15 @@ fn bake_labels(
     } else {
         raster::over(fill, (0, 0, 0), 0.6)
     };
-    let name_fg = if selected { raster::rgb(theme.cursor.fg.unwrap_or(theme.panel_bg)) } else { (250, 250, 250) };
+    let name_fg = if selected {
+        raster::rgb(theme.cursor.fg.unwrap_or(theme.panel_bg))
+    } else {
+        (250, 250, 250)
+    };
     // How many characters of `text` fit in `width_px` at font size `px`.
-    let fit = |width: u32, px: f32| (width.saturating_sub(4) as f32 / raster::char_advance(px)).max(1.0) as usize;
+    let fit = |width: u32, px: f32| {
+        (width.saturating_sub(4) as f32 / raster::char_advance(px)).max(1.0) as usize
+    };
 
     // Directory name, centered near the top.
     let name = ellipsize(&entry.name, fit(bw, name_px));
@@ -723,10 +724,7 @@ fn treemap(entries: &[DiskEntry], area: Rect) -> Vec<Rect> {
         return vec![Rect { width: 0, height: 0, ..area }; n];
     }
     let sizes: Vec<u64> = entries.iter().map(|e| e.size).collect();
-    let areas = crate::util::treemap::size_areas(
-        &sizes,
-        area.width as f64 * area.height as f64,
-    );
+    let areas = crate::util::treemap::size_areas(&sizes, area.width as f64 * area.height as f64);
     let frects = crate::util::treemap::squarify(
         &areas,
         area.x as f64,
@@ -743,12 +741,7 @@ fn treemap(entries: &[DiskEntry], area: Rect) -> Vec<Rect> {
             let y0 = r.y.round().clamp(area.y as f64, y_max);
             let x1 = (r.x + r.w).round().clamp(x0, x_max);
             let y1 = (r.y + r.h).round().clamp(y0, y_max);
-            Rect {
-                x: x0 as u16,
-                y: y0 as u16,
-                width: (x1 - x0) as u16,
-                height: (y1 - y0) as u16,
-            }
+            Rect { x: x0 as u16, y: y0 as u16, width: (x1 - x0) as u16, height: (y1 - y0) as u16 }
         })
         .collect()
 }
@@ -1058,7 +1051,8 @@ mod tests {
                 }
                 dv.handle_key(KeyEvent::new(opposite(dir), KeyModifiers::NONE));
                 assert_eq!(
-                    dv.selected, start,
+                    dv.selected,
+                    start,
                     "{start} --{dir:?}--> {moved} did not come back with {:?}",
                     opposite(dir)
                 );
@@ -1125,6 +1119,3 @@ mod tests {
         }
     }
 }
-
-
-

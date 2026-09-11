@@ -162,7 +162,9 @@ fn differs(a: &SyncEntry, b: &SyncEntry) -> bool {
 
 /// Whether `rel` lies inside any of `dirs` (which are being removed wholesale).
 fn under_any(rel: &str, dirs: &[String]) -> bool {
-    dirs.iter().any(|d| rel.len() > d.len() + 1 && rel.starts_with(d.as_str()) && rel.as_bytes()[d.len()] == b'/')
+    dirs.iter().any(|d| {
+        rel.len() > d.len() + 1 && rel.starts_with(d.as_str()) && rel.as_bytes()[d.len()] == b'/'
+    })
 }
 
 /// Files and bytes under `dir` in `tree` (the directory itself excluded).
@@ -225,8 +227,7 @@ pub fn plan(a: &Tree, b: &Tree, roots: [&VfsPath; 2], mode: SyncMode) -> Vec<Syn
     let del_step = |rel: &str, e: &SyncEntry, tree: &Tree| {
         // A directory is removed recursively, so it accounts for its whole
         // subtree in the progress totals.
-        let (files, size) =
-            if e.is_dir { subtree_totals(tree, rel) } else { (1, e.size) };
+        let (files, size) = if e.is_dir { subtree_totals(tree, rel) } else { (1, e.size) };
         SyncStep::Delete { side: 1, path: roots[1].join(rel), rel: rel.to_string(), files, size }
     };
 
@@ -340,10 +341,7 @@ fn walk_into<'a>(
                 format!("{prefix}/{}", child.name)
             };
             let is_dir = child.kind == VfsKind::Dir;
-            out.insert(
-                rel.clone(),
-                SyncEntry { size: child.size, mtime: child.mtime, is_dir },
-            );
+            out.insert(rel.clone(), SyncEntry { size: child.size, mtime: child.mtime, is_dir });
             if is_dir {
                 let path = dir.join(&child.name);
                 walk_into(fs, &path, rel, out).await?;
@@ -483,16 +481,10 @@ mod tests {
 
     #[test]
     fn two_way_lets_the_newer_side_win_and_never_deletes() {
-        let a = tree(&[
-            ("a_only", file(1, 100)),
-            ("a_newer", file(5, 900)),
-            ("b_newer", file(5, 100)),
-        ]);
-        let b = tree(&[
-            ("b_only", file(1, 100)),
-            ("a_newer", file(5, 100)),
-            ("b_newer", file(5, 900)),
-        ]);
+        let a =
+            tree(&[("a_only", file(1, 100)), ("a_newer", file(5, 900)), ("b_newer", file(5, 100))]);
+        let b =
+            tree(&[("b_only", file(1, 100)), ("a_newer", file(5, 100)), ("b_newer", file(5, 900))]);
         let steps = run(&a, &b, SyncMode::TwoWay);
         let mut got = copies(&steps);
         got.sort();

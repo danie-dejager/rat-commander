@@ -59,12 +59,39 @@ pub fn render(f: &mut Frame, area: Rect, dv: &mut DiffView, theme: &Theme) {
         let left_text = left_no.and_then(|i| dv.left.get(i).map(String::as_str));
         let right_text = right_no.and_then(|i| dv.right.get(i).map(String::as_str));
 
-        draw_cell(f, left_x, y, side_w, left_no, left_text, left_accent, in_delta, is_active, is_cursor, base_bg, absent_bg, theme);
-        draw_cell(f, right_x, y, right_w, right_no, right_text, right_accent, in_delta, is_active, is_cursor, base_bg, absent_bg, theme);
+        draw_cell(
+            f,
+            left_x,
+            y,
+            side_w,
+            left_no,
+            left_text,
+            left_accent,
+            in_delta,
+            is_active,
+            is_cursor,
+            base_bg,
+            absent_bg,
+            theme,
+        );
+        draw_cell(
+            f,
+            right_x,
+            y,
+            right_w,
+            right_no,
+            right_text,
+            right_accent,
+            in_delta,
+            is_active,
+            is_cursor,
+            base_bg,
+            absent_bg,
+            theme,
+        );
 
         let (mark, style) = gutter(row, is_cursor, is_active, theme, base_bg);
-        f.buffer_mut()
-            .set_string(gutter_x, y, format!("{mark:^w$}", w = GUTTER as usize), style);
+        f.buffer_mut().set_string(gutter_x, y, format!("{mark:^w$}", w = GUTTER as usize), style);
     }
 
     render_footer(f, footer, dv, theme);
@@ -113,8 +140,7 @@ fn draw_cell(
     if w > LINENO_W {
         let avail = w - LINENO_W;
         let body = ellipsize(text.unwrap_or(""), avail);
-        f.buffer_mut()
-            .set_string(x + LINENO_W as u16, y, pad_right(&body, avail), text_style);
+        f.buffer_mut().set_string(x + LINENO_W as u16, y, pad_right(&body, avail), text_style);
     }
 }
 
@@ -148,8 +174,10 @@ fn render_status(f: &mut Frame, area: Rect, dv: &DiffView, theme: &Theme) {
     let n = dv.deltas.len();
     let pos = dv.active.map(|i| format!("  [{}/{n}]", i + 1)).unwrap_or_default();
     let half = ((area.width as usize).saturating_sub(12) / 2).max(4);
-    let l = format!("{}{}", ellipsize(&dv.left_name, half), if dv.left_dirty { " [+]" } else { "" });
-    let r = format!("{}{}", ellipsize(&dv.right_name, half), if dv.right_dirty { " [+]" } else { "" });
+    let l =
+        format!("{}{}", ellipsize(&dv.left_name, half), if dv.left_dirty { " [+]" } else { "" });
+    let r =
+        format!("{}{}", ellipsize(&dv.right_name, half), if dv.right_dirty { " [+]" } else { "" });
     let text = format!(" {l}  ⇄  {r}   {n} {}{pos} ", crate::l10n::trd("diff(s)"));
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
@@ -179,7 +207,9 @@ fn render_footer(f: &mut Frame, area: Rect, dv: &DiffView, theme: &Theme) {
 fn mix(a: Color, b: Color, t: f32) -> Color {
     match (a, b) {
         (Color::Rgb(ar, ag, ab), Color::Rgb(br, bg, bb)) => {
-            let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round().clamp(0.0, 255.0) as u8;
+            let l = |x: u8, y: u8| {
+                (x as f32 + (y as f32 - x as f32) * t).round().clamp(0.0, 255.0) as u8
+            };
             Color::Rgb(l(ar, br), l(ag, bg), l(ab, bb))
         }
         _ => a,

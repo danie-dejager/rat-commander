@@ -250,7 +250,11 @@ pub enum NetSignal {
     Refresh,
     /// Kill the owning process of the selected socket (`force` ⇒ SIGKILL). The
     /// app confirms first.
-    Kill { pid: i32, program: String, force: bool },
+    Kill {
+        pid: i32,
+        program: String,
+        force: bool,
+    },
     /// Kick off a reverse-DNS lookup for this IP (result arrives via an event).
     ResolveDns(String),
 }
@@ -493,8 +497,9 @@ impl NetView {
     /// Recompute the filtered + sorted index list for both panes.
     fn rebuild_views(&mut self) {
         for pane in 0..2 {
-            let mut idx: Vec<usize> =
-                (0..self.list(pane).len()).filter(|&i| self.passes(&self.list(pane)[i], pane)).collect();
+            let mut idx: Vec<usize> = (0..self.list(pane).len())
+                .filter(|&i| self.passes(&self.list(pane)[i], pane))
+                .collect();
             let (key, rev) = (self.sort[pane], self.reverse[pane]);
             let list = self.list(pane);
             idx.sort_by(|&a, &b| {
@@ -577,9 +582,11 @@ impl NetView {
                     self.filter_cursor = 0;
                     self.rebuild_views();
                 }
-                KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown | KeyCode::Tab => {
-                    self.navigate(key.code)
-                }
+                KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::PageUp
+                | KeyCode::PageDown
+                | KeyCode::Tab => self.navigate(key.code),
                 _ => {
                     self.edit_filter(key);
                     self.rebuild_views();
@@ -648,7 +655,9 @@ impl NetView {
         // Overview: arrows move spatially between IP nodes; PgUp/PgDn scroll.
         if self.focus == Pane::Overview {
             match code {
-                KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down => self.move_node(code),
+                KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down => {
+                    self.move_node(code)
+                }
                 KeyCode::Home => self.overview_cursor = 0,
                 KeyCode::End => self.overview_cursor = self.overview_nodes.len().saturating_sub(1),
                 KeyCode::PageUp => self.overview_scroll = self.overview_scroll.saturating_sub(1),
@@ -856,7 +865,10 @@ impl NetView {
             } else {
                 (Dir::Out, port_of(&s.peer))
             };
-            dir as u8 == c.dir as u8 && port == c.port && host_of(&s.peer) == row.ip && s.pid.is_some()
+            dir as u8 == c.dir as u8
+                && port == c.port
+                && host_of(&s.peer) == row.ip
+                && s.pid.is_some()
         })
     }
 
@@ -897,7 +909,18 @@ impl NetView {
                 }
             }
         }
-        self.ip_detail = Some(IpDetail { ip: ipaddr.clone(), dir, port, service, proto, count, rx, tx, rate, programs });
+        self.ip_detail = Some(IpDetail {
+            ip: ipaddr.clone(),
+            dir,
+            port,
+            service,
+            proto,
+            count,
+            rx,
+            tx,
+            rate,
+            programs,
+        });
         // Trigger a reverse-DNS lookup if we don't have one yet.
         if ipaddr != "*"
             && !ipaddr.is_empty()
@@ -1092,12 +1115,7 @@ pub async fn scan(password: Option<String>) -> Result<Scan, String> {
 /// PTR record or the lookup fails. The canonical name is the getent line's 2nd
 /// field; a bare address echoed back (no name) is treated as "no PTR".
 pub async fn resolve_dns(ip: String) -> Option<String> {
-    let out = tokio::process::Command::new("getent")
-        .arg("hosts")
-        .arg(&ip)
-        .output()
-        .await
-        .ok()?;
+    let out = tokio::process::Command::new("getent").arg("hosts").arg(&ip).output().await.ok()?;
     if !out.status.success() {
         return None;
     }
@@ -1198,12 +1216,8 @@ pub fn parse_ss(out: &str) -> Scan {
         let svc_port = if is_listener { port_of(local) } else { port_of(peer) };
         let service = service_name(svc_port as u16, base_proto);
         // Keep the `ss -i` info (everything except the process token) for details.
-        let info = rest
-            .iter()
-            .filter(|s| !s.starts_with("users:"))
-            .copied()
-            .collect::<Vec<_>>()
-            .join(" ");
+        let info =
+            rest.iter().filter(|s| !s.starts_with("users:")).copied().collect::<Vec<_>>().join(" ");
         let sock = Socket {
             proto,
             state,
@@ -1240,11 +1254,7 @@ fn proto_label(netid: &str, local: &str) -> String {
     // The address part is everything before the final `:port`; IPv6 addresses
     // contain a colon there (e.g. `[::]`, `::1`, `fe80::1%eth0`).
     let addr = local.rsplit_once(':').map(|(a, _)| a).unwrap_or(local);
-    if addr.contains(':') {
-        format!("{netid}6")
-    } else {
-        netid.to_string()
-    }
+    if addr.contains(':') { format!("{netid}6") } else { netid.to_string() }
 }
 
 /// The port number from an `addr:port` (or `*:*`) token; 0 when it's a wildcard.

@@ -66,13 +66,7 @@ pub(crate) fn parse_unix_listing_line(line: &str) -> Option<ParsedListing> {
     if name == "." || name == ".." || name.is_empty() {
         return None;
     }
-    Some(ParsedListing {
-        name,
-        kind,
-        size,
-        mode: Some(perms_to_mode(perms)),
-        symlink_target,
-    })
+    Some(ParsedListing { name, kind, size, mode: Some(perms_to_mode(perms)), symlink_target })
 }
 
 /// Convert a `rwxr-xr-x` permission string (after the type char) to mode bits.
@@ -199,7 +193,7 @@ impl russh::client::Handler for HostKeyHandler {
                 Ok(true)
             }
             Err(russh::keys::Error::KeyChanged { .. }) => Ok(false), // reject possible MITM
-            Err(_) => Ok(true),    // known_hosts unreadable — fall back to accepting
+            Err(_) => Ok(true), // known_hosts unreadable — fall back to accepting
         }
     }
 }
@@ -240,10 +234,7 @@ pub(crate) async fn open_shell_channel(
 /// see [`auth::authenticate`]).
 pub(crate) async fn ssh_connect(creds: &RemoteCreds) -> Result<SshHandle> {
     let config = Arc::new(russh::client::Config::default());
-    let handler = HostKeyHandler {
-        host: creds.host.clone(),
-        port: creds.port,
-    };
+    let handler = HostKeyHandler { host: creds.host.clone(), port: creds.port };
     let mut handle = russh::client::connect(config, (creds.host.as_str(), creds.port), handler)
         .await
         .map_err(|e| Error::other(format!("SSH connect failed: {e}")))?;
@@ -257,8 +248,8 @@ mod tests {
 
     #[test]
     fn parses_classic_ls_line() {
-        let p = parse_unix_listing_line("-rw-r--r-- 1 user group 1234 Jan  2 12:00 notes.txt")
-            .unwrap();
+        let p =
+            parse_unix_listing_line("-rw-r--r-- 1 user group 1234 Jan  2 12:00 notes.txt").unwrap();
         assert_eq!(p.name, "notes.txt");
         assert_eq!(p.kind, VfsKind::File);
         assert_eq!(p.size, 1234);

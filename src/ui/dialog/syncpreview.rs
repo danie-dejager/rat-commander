@@ -26,11 +26,8 @@ pub struct SyncPreviewDialog {
 
 impl SyncPreviewDialog {
     pub fn new(plan: SyncPlan) -> Self {
-        let rows = plan
-            .steps
-            .iter()
-            .map(|s| (s.label(), matches!(s, SyncStep::Delete { .. })))
-            .collect();
+        let rows =
+            plan.steps.iter().map(|s| (s.label(), matches!(s, SyncStep::Delete { .. }))).collect();
         // A plan that removes files opens on Cancel, so the destructive option is
         // never one stray Enter away; a purely additive one opens on Execute,
         // since there is nothing to lose. An empty plan has no Execute at all.
@@ -151,7 +148,13 @@ impl SyncPreviewDialog {
         }
     }
 
-    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, mut gfx: Option<&mut Gfx>) {
+    pub(crate) fn render(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        theme: &Theme,
+        mut gfx: Option<&mut Gfx>,
+    ) {
         let w = area.width.saturating_sub(6).clamp(1, 100);
         let h = area.height.saturating_sub(4).max(8);
         let rect = centered(area, w, h);
@@ -217,7 +220,12 @@ impl SyncPreviewDialog {
         self.exec_rect = if can_exec { exec } else { Rect::default() };
         self.cancel_rect = cancel;
         if self.rows.len() > self.view_h {
-            let pos = format!("{}–{}/{}", self.top + 1, (self.top + self.view_h).min(self.rows.len()), self.rows.len());
+            let pos = format!(
+                "{}–{}/{}",
+                self.top + 1,
+                (self.top + self.view_h).min(self.rows.len()),
+                self.rows.len()
+            );
             let mid_x = exec.x + exec.width + 1;
             let mid_w = cancel.x.saturating_sub(mid_x);
             if mid_w > 0 {
@@ -230,14 +238,36 @@ impl SyncPreviewDialog {
             }
         }
         // An empty plan has nothing to execute, so only Cancel is live.
-        if can_exec && !gfx_button(f, gfx.as_deref_mut(), Slot::Button(0), exec, &exec_label, self.focus == 0, theme) {
+        if can_exec
+            && !gfx_button(
+                f,
+                gfx.as_deref_mut(),
+                Slot::Button(0),
+                exec,
+                &exec_label,
+                self.focus == 0,
+                theme,
+            )
+        {
             f.render_widget(
-                Paragraph::new(Line::from(button(&format!("[ {exec_label} ]"), self.focus == 0, theme)))
-                    .style(base),
+                Paragraph::new(Line::from(button(
+                    &format!("[ {exec_label} ]"),
+                    self.focus == 0,
+                    theme,
+                )))
+                .style(base),
                 exec,
             );
         }
-        if !gfx_button(f, gfx, Slot::Button(1), cancel, &cancel_label, self.focus == 1 || !can_exec, theme) {
+        if !gfx_button(
+            f,
+            gfx,
+            Slot::Button(1),
+            cancel,
+            &cancel_label,
+            self.focus == 1 || !can_exec,
+            theme,
+        ) {
             f.render_widget(
                 Paragraph::new(Line::from(button(
                     &format!("[ {cancel_label} ]"),

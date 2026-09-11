@@ -18,9 +18,8 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt};
 
 /// File-name extensions treated as raw, flashable disk images.
-pub const IMAGE_EXTENSIONS: &[&str] = &[
-    "iso", "img", "raw", "bin", "dd", "image", "wic", "hddimg", "sdcard",
-];
+pub const IMAGE_EXTENSIONS: &[&str] =
+    &["iso", "img", "raw", "bin", "dd", "image", "wic", "hddimg", "sdcard"];
 
 /// The default file-browser filter offered for picking an image.
 pub const DEFAULT_IMAGE_FILTER: &str = "*.iso *.img *.raw *.bin *.dd *.wic *.hddimg";
@@ -386,7 +385,13 @@ async fn run_image(
     if !matches!(outcome, TaskOutcome::Done) {
         let _ = std::fs::remove_file(&spec.dest_path);
     } else {
-        let _ = tx.try_send(progress_event(id, "Imaging", &spec.dest_name, spec.source.size, spec.source.size));
+        let _ = tx.try_send(progress_event(
+            id,
+            "Imaging",
+            &spec.dest_name,
+            spec.source.size,
+            spec.source.size,
+        ));
     }
     outcome
 }
@@ -414,7 +419,8 @@ async fn read_direct(
                 let now = Instant::now();
                 if last.is_none_or(|t| now.duration_since(t) >= Duration::from_millis(100)) {
                     last = Some(now);
-                    let _ = tx.try_send(progress_event(id, "Imaging", &name, total, done.min(total)));
+                    let _ =
+                        tx.try_send(progress_event(id, "Imaging", &name, total, done.min(total)));
                 }
             },
             || cancel.is_cancelled(),
@@ -640,10 +646,8 @@ mod tests {
     }
 
     fn tmp_dir(tag: &str) -> std::path::PathBuf {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let dir = std::env::temp_dir().join(format!("rc_{tag}_{}_{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -661,8 +665,14 @@ mod tests {
         std::fs::write(&target, vec![0u8; data.len()]).unwrap();
 
         let mut reported = Vec::new();
-        flash_copy(&img, target.to_str().unwrap(), data.len() as u64, |c| reported.push(c), || false)
-            .unwrap();
+        flash_copy(
+            &img,
+            target.to_str().unwrap(),
+            data.len() as u64,
+            |c| reported.push(c),
+            || false,
+        )
+        .unwrap();
 
         assert_eq!(std::fs::read(&target).unwrap(), data, "device gets the image bytes");
         assert!(reported.len() >= 3, "progress advances in steps: {reported:?}");
@@ -688,7 +698,11 @@ mod tests {
     #[test]
     fn sync_window_scales_with_size() {
         assert_eq!(sync_window(1_000), CHUNK as u64, "tiny images sync every chunk");
-        assert_eq!(sync_window(10_000 * 1024 * 1024), 64 * 1024 * 1024, "huge images cap the window");
+        assert_eq!(
+            sync_window(10_000 * 1024 * 1024),
+            64 * 1024 * 1024,
+            "huge images cap the window"
+        );
     }
 
     #[test]
@@ -701,8 +715,14 @@ mod tests {
         std::fs::write(&device, &data).unwrap();
 
         let mut reported = Vec::new();
-        image_copy(device.to_str().unwrap(), &dest, data.len() as u64, |c| reported.push(c), || false)
-            .unwrap();
+        image_copy(
+            device.to_str().unwrap(),
+            &dest,
+            data.len() as u64,
+            |c| reported.push(c),
+            || false,
+        )
+        .unwrap();
 
         assert_eq!(std::fs::read(&dest).unwrap(), data, "image file is a copy of the device");
         assert!(reported.len() >= 3, "progress advances in steps: {reported:?}");

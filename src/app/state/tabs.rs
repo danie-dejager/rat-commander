@@ -120,8 +120,7 @@ impl AppState {
             .enumerate()
             .map(|(i, t)| if i == p.tab { p.cwd.clone() } else { t.cwd.clone() })
             .collect();
-        self.dialog =
-            Some(Dialog::TabPicker(TabPickerDialog::new(side, entries, p.tab)));
+        self.dialog = Some(Dialog::TabPicker(TabPickerDialog::new(side, entries, p.tab)));
     }
 
     /// Move to the next / previous tab, wrapping.

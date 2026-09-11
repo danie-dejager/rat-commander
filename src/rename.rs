@@ -119,7 +119,14 @@ fn expand_mask(mask: &str, stem: &str, ext: &str, counter: &str, date: &str, tim
 
 /// Resolve a single placeholder token (the text between the brackets), or `None`
 /// if it is not a recognised placeholder.
-fn substitute(token: &str, stem: &str, ext: &str, counter: &str, date: &str, time: &str) -> Option<String> {
+fn substitute(
+    token: &str,
+    stem: &str,
+    ext: &str,
+    counter: &str,
+    date: &str,
+    time: &str,
+) -> Option<String> {
     match token.to_ascii_lowercase().as_str() {
         "c" => return Some(counter.to_string()),
         "ymd" => return Some(date.to_string()),

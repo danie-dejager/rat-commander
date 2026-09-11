@@ -88,19 +88,21 @@ impl SortConfig {
                 .cmp_name(a.extension(), b.extension())
                 .then_with(|| self.cmp_name(&a.name, &b.name)),
             SortKey::Size => a.size.cmp(&b.size).then_with(|| self.cmp_name(&a.name, &b.name)),
-            SortKey::ModifyTime => a.mtime.cmp(&b.mtime).then_with(|| self.cmp_name(&a.name, &b.name)),
-            SortKey::AccessTime => a.atime.cmp(&b.atime).then_with(|| self.cmp_name(&a.name, &b.name)),
-            SortKey::ChangeTime => a.ctime.cmp(&b.ctime).then_with(|| self.cmp_name(&a.name, &b.name)),
+            SortKey::ModifyTime => {
+                a.mtime.cmp(&b.mtime).then_with(|| self.cmp_name(&a.name, &b.name))
+            }
+            SortKey::AccessTime => {
+                a.atime.cmp(&b.atime).then_with(|| self.cmp_name(&a.name, &b.name))
+            }
+            SortKey::ChangeTime => {
+                a.ctime.cmp(&b.ctime).then_with(|| self.cmp_name(&a.name, &b.name))
+            }
             SortKey::Inode => a.inode.cmp(&b.inode).then_with(|| self.cmp_name(&a.name, &b.name)),
         }
     }
 
     fn cmp_name(&self, a: &str, b: &str) -> Ordering {
-        if self.case_sensitive {
-            a.cmp(b)
-        } else {
-            a.to_lowercase().cmp(&b.to_lowercase())
-        }
+        if self.case_sensitive { a.cmp(b) } else { a.to_lowercase().cmp(&b.to_lowercase()) }
     }
 }
 
@@ -144,10 +146,7 @@ mod tests {
 
     #[test]
     fn reverse_keeps_dirs_grouped() {
-        let cfg = SortConfig {
-            reverse: true,
-            ..Default::default()
-        };
+        let cfg = SortConfig { reverse: true, ..Default::default() };
         let mut v = vec![
             ent("a.txt", VfsKind::File, 1, 0o644),
             ent("dir", VfsKind::Dir, 0, 0o755),
@@ -159,29 +158,18 @@ mod tests {
 
     #[test]
     fn exec_first() {
-        let cfg = SortConfig {
-            exec_first: true,
-            ..Default::default()
-        };
-        let mut v = vec![
-            ent("data.txt", VfsKind::File, 1, 0o644),
-            ent("run.sh", VfsKind::File, 2, 0o755),
-        ];
+        let cfg = SortConfig { exec_first: true, ..Default::default() };
+        let mut v =
+            vec![ent("data.txt", VfsKind::File, 1, 0o644), ent("run.sh", VfsKind::File, 2, 0o755)];
         cfg.apply(&mut v);
         assert_eq!(names(&v), vec!["run.sh", "data.txt"]);
     }
 
     #[test]
     fn by_size() {
-        let cfg = SortConfig {
-            key: SortKey::Size,
-            dirs_first: false,
-            ..Default::default()
-        };
-        let mut v = vec![
-            ent("big", VfsKind::File, 100, 0o644),
-            ent("small", VfsKind::File, 5, 0o644),
-        ];
+        let cfg = SortConfig { key: SortKey::Size, dirs_first: false, ..Default::default() };
+        let mut v =
+            vec![ent("big", VfsKind::File, 100, 0o644), ent("small", VfsKind::File, 5, 0o644)];
         cfg.apply(&mut v);
         assert_eq!(names(&v), vec!["small", "big"]);
     }

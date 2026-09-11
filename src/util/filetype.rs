@@ -99,27 +99,17 @@ mod tests {
     fn the_match_ignores_case_and_unknown_extensions_are_plain_files() {
         assert_eq!(categorize("PNG"), Some(FileCategory::Image));
         assert_eq!(categorize("TaR"), Some(FileCategory::Archive));
-        assert_eq!(
-            categorize("rs"),
-            None,
-            "source files have no category of their own"
-        );
+        assert_eq!(categorize("rs"), None, "source files have no category of their own");
         assert_eq!(categorize(""), None, "a name with no extension at all");
     }
 
     #[test]
     fn programs_are_recognised_by_extension_only() {
         assert!(is_executable_ext("exe"));
-        assert!(
-            is_executable_ext("AppImage"),
-            "the match is case-insensitive"
-        );
+        assert!(is_executable_ext("AppImage"), "the match is case-insensitive");
         assert!(is_executable_ext("so"), "shared libraries count too");
         // The cache the 3D view reads has no mode bit, so this is all we get.
-        assert!(
-            !is_executable_ext(""),
-            "an extension-less program cannot be told apart"
-        );
+        assert!(!is_executable_ext(""), "an extension-less program cannot be told apart");
         assert!(!is_executable_ext("txt"));
     }
 }

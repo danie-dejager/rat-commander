@@ -216,9 +216,8 @@ fn a_crowded_subtree_does_not_spread_through_its_siblings() {
 
     // Every node in "busy"'s subtree must stay clear of its aunts.
     let busy = node_index(&sp, "busy");
-    let subtree: Vec<usize> = (0..sp.nodes.len())
-        .filter(|&i| i == busy || sp.nodes[i].parent == Some(busy))
-        .collect();
+    let subtree: Vec<usize> =
+        (0..sp.nodes.len()).filter(|&i| i == busy || sp.nodes[i].parent == Some(busy)).collect();
     let aunts: Vec<usize> = (0..sp.nodes.len())
         .filter(|&i| sp.nodes[i].parent == sp.nodes[busy].parent && i != busy)
         .collect();
@@ -227,12 +226,7 @@ fn a_crowded_subtree_does_not_spread_through_its_siblings() {
         for &j in &aunts {
             let (a, b) = (&sp.nodes[i], &sp.nodes[j]);
             let flat = (a.target.x - b.target.x).hypot(a.target.z - b.target.z);
-            assert!(
-                flat > a.target_half + b.target_half,
-                "{} overlaps {}",
-                a.name,
-                b.name
-            );
+            assert!(flat > a.target_half + b.target_half, "{} overlaps {}", a.name, b.name);
         }
     }
 }
@@ -256,7 +250,8 @@ fn a_huge_directory_shows_its_biggest_children_not_all_of_them() {
 fn the_focused_directory_survives_the_cap_however_small_it_is() {
     // Dropping the one box the user is actually looking for would be the worst
     // possible trade.
-    let mut kids: Vec<(String, u64)> = (0..400).map(|i| (format!("d{i:03}"), i as u64 + 100)).collect();
+    let mut kids: Vec<(String, u64)> =
+        (0..400).map(|i| (format!("d{i:03}"), i as u64 + 100)).collect();
     kids.push(("speck".into(), 1));
     let refs: Vec<(&str, u64)> = kids.iter().map(|(n, s)| (n.as_str(), *s)).collect();
     let t = cache(&refs, &[]);
@@ -477,8 +472,7 @@ fn setting_the_same_cursor_again_is_free() {
 #[test]
 fn the_highlighted_directory_survives_the_child_cap() {
     // The one box the user is about to step into must not be the one dropped.
-    let kids: Vec<(String, u64)> =
-        (0..400).map(|i| (format!("d{i:03}"), i as u64 + 100)).collect();
+    let kids: Vec<(String, u64)> = (0..400).map(|i| (format!("d{i:03}"), i as u64 + 100)).collect();
     let mut kids = kids;
     kids.push(("speck".into(), 1));
     let refs: Vec<(&str, u64)> = kids.iter().map(|(n, s)| (n.as_str(), *s)).collect();
@@ -616,7 +610,9 @@ fn a_fading_box_cannot_be_selected_or_clicked() {
 
     // Hand-place bounds for every drawn box, the ghost included.
     let boxes = sp.boxes(&pal());
-    sp.bounds = (0..boxes.len()).map(|i| Some((i as f32 * 20.0, 0.0, i as f32 * 20.0 + 10.0, 10.0))).collect();
+    sp.bounds = (0..boxes.len())
+        .map(|i| Some((i as f32 * 20.0, 0.0, i as f32 * 20.0 + 10.0, 10.0)))
+        .collect();
     let ghost_i = boxes.len() - 1;
     let x = ghost_i as f32 * 20.0 + 5.0;
     assert!(!sp.pick(x, 5.0), "clicking a fading box selects nothing");
@@ -889,13 +885,8 @@ fn two_levels_of_contents_are_shown_without_asking() {
     let inner = node(&sp, "inner");
     assert_eq!(sp.nodes[inner.parent.expect("a parent")].name, "b");
     // …but not a third level, which is detail the view cannot render legibly.
-    let deepest = sp
-        .nodes
-        .iter()
-        .filter(|n| !n.context)
-        .map(|n| depth_of(&sp, n))
-        .max()
-        .unwrap_or(0);
+    let deepest =
+        sp.nodes.iter().filter(|n| !n.context).map(|n| depth_of(&sp, n)).max().unwrap_or(0);
     assert_eq!(deepest, DEPTH_BELOW, "contents go exactly {DEPTH_BELOW} levels down");
 }
 
@@ -1015,30 +1006,18 @@ fn the_signpost_above_sits_behind_the_focus_not_in_front_of_it() {
     let up = node(&sp, "r");
     let focus = node(&sp, "a");
     assert!(up.context, "the parent is drawn as context");
-    assert!(
-        up.target.z < focus.target.z,
-        "and nearer the camera than the focus"
-    );
+    assert!(up.target.z < focus.target.z, "and nearer the camera than the focus");
 }
 
 #[test]
 fn sibling_subtrees_are_laid_side_by_side_and_never_overlap() {
-    let t = cache(
-        &[("a", 10), ("b", 20), ("c", 30)],
-        &[("a", "a1", 5), ("b", "b1", 5)],
-    );
+    let t = cache(&[("a", 10), ("b", 20), ("c", 30)], &[("a", "a1", 5), ("b", "b1", 5)]);
     let sp = fsn_on("/r", &t);
     let mut spans: Vec<(f32, f32, &str)> = sp
         .nodes
         .iter()
         .filter(|n| n.parent == Some(node_index(&sp, "r")))
-        .map(|n| {
-            (
-                n.target.x - n.target_plat,
-                n.target.x + n.target_plat,
-                n.name.as_str(),
-            )
-        })
+        .map(|n| (n.target.x - n.target_plat, n.target.x + n.target_plat, n.name.as_str()))
         .collect();
     spans.sort_by(|a, b| a.0.total_cmp(&b.0));
     for w in spans.windows(2) {
@@ -1050,32 +1029,19 @@ fn sibling_subtrees_are_laid_side_by_side_and_never_overlap() {
 fn a_platform_carries_the_files_that_sit_directly_in_its_directory() {
     let t = cache_with_files(&[("sub", 10)], &[("one.txt", 4096), ("two.zip", 8192)]);
     let sp = fsn_on("/r", &t);
-    let names: Vec<&str> = node(&sp, "r")
-        .files
-        .iter()
-        .map(|f| f.name.as_str())
-        .collect();
-    assert!(
-        names.contains(&"one.txt") && names.contains(&"two.zip"),
-        "got {names:?}"
-    );
+    let names: Vec<&str> = node(&sp, "r").files.iter().map(|f| f.name.as_str()).collect();
+    assert!(names.contains(&"one.txt") && names.contains(&"two.zip"), "got {names:?}");
     // The crawler's list is of the largest files in the whole *subtree*, so the
     // ones belonging to a subdirectory have to be filtered back out — otherwise
     // a directory would stand its children's contents on its own platform.
-    assert!(
-        !names.iter().any(|n| n.contains('/')),
-        "only its own files: {names:?}"
-    );
+    assert!(!names.iter().any(|n| n.contains('/')), "only its own files: {names:?}");
 }
 
 #[test]
 fn the_classic_look_draws_no_files_at_all() {
     let t = cache_with_files(&[("sub", 10)], &[("one.txt", 4096)]);
     let sp = view_on("/r", &t);
-    assert!(
-        sp.nodes.iter().all(|n| n.files.is_empty()),
-        "Cubes draws directories alone"
-    );
+    assert!(sp.nodes.iter().all(|n| n.files.is_empty()), "Cubes draws directories alone");
 }
 
 #[test]
@@ -1087,15 +1053,9 @@ fn file_solids_are_scenery_and_cannot_be_selected_or_clicked() {
     let mut sp = fsn_on("/r", &t);
     settle(&mut sp);
     let boxes = sp.boxes(&pal());
-    assert!(
-        boxes.len() > sp.nodes.len(),
-        "there are solids beyond the directories"
-    );
+    assert!(boxes.len() > sp.nodes.len(), "there are solids beyond the directories");
     for b in &boxes[sp.nodes.len()..] {
-        assert!(
-            !b.selected && !b.cursor && !b.focus,
-            "a solid is never the selection"
-        );
+        assert!(!b.selected && !b.cursor && !b.focus, "a solid is never the selection");
     }
     // Every directory box comes first, in node order.
     for (i, n) in sp.nodes.iter().enumerate() {
@@ -1109,10 +1069,7 @@ fn only_the_focus_and_its_children_stand_files_on_their_platforms() {
     // and a great deal to rasterize every frame.
     let t = cache(&[("a", 10)], &[("a", "a1", 5)]);
     let sp = fsn_on("/r", &t);
-    assert!(
-        node(&sp, "a1").files.is_empty(),
-        "a grandchild carries none"
-    );
+    assert!(node(&sp, "a1").files.is_empty(), "a grandchild carries none");
 }
 
 #[test]
@@ -1131,18 +1088,9 @@ fn a_file_solid_is_shaped_and_coloured_by_what_kind_of_file_it_is() {
 
 #[test]
 fn a_file_solids_height_follows_its_size_but_stays_within_bounds() {
-    assert!(
-        file_height(0) >= FILE_H_MIN,
-        "an empty file still has a solid to see"
-    );
-    assert!(
-        file_height(u64::MAX) <= FILE_H_MAX,
-        "and a huge one is not a skyscraper"
-    );
-    assert!(
-        file_height(10_000_000) > file_height(1_000),
-        "bigger files stand taller"
-    );
+    assert!(file_height(0) >= FILE_H_MIN, "an empty file still has a solid to see");
+    assert!(file_height(u64::MAX) <= FILE_H_MAX, "and a huge one is not a skyscraper");
+    assert!(file_height(10_000_000) > file_height(1_000), "bigger files stand taller");
 }
 
 #[test]
@@ -1153,15 +1101,9 @@ fn the_file_grid_covers_its_platform_whatever_it_is_holding() {
         let cols = grid_cols(n);
         let step = grid_step(PLATFORM_MAX, cols);
         let spanned = cols as f32 * step;
-        assert!(
-            spanned <= PLATFORM_MAX * 2.0,
-            "{n} files overflow the platform"
-        );
+        assert!(spanned <= PLATFORM_MAX * 2.0, "{n} files overflow the platform");
         if n > 1 {
-            assert!(
-                spanned > PLATFORM_MAX * 0.5,
-                "{n} files leave the platform mostly bare"
-            );
+            assert!(spanned > PLATFORM_MAX * 0.5, "{n} files leave the platform mostly bare");
         }
     }
 }
@@ -1176,10 +1118,7 @@ fn links_run_across_the_ground_between_the_platforms_they_join() {
     let links = sp.links();
     assert!(!links.is_empty(), "the child is joined to its parent");
     for (p, c) in &links {
-        assert!(
-            p.y > 0.0 && p.y <= PLATFORM_H,
-            "a link skims the ground, not the sky"
-        );
+        assert!(p.y > 0.0 && p.y <= PLATFORM_H, "a link skims the ground, not the sky");
         assert!((p.y - c.y).abs() < 1e-6, "and stays level along its length");
         assert!(c.z > p.z, "running away from the camera, parent to child");
     }
@@ -1191,18 +1130,12 @@ fn switching_style_re_lays_the_scene_out_and_re_aims_the_camera() {
     let mut sp = view_on("/r", &t);
     settle(&mut sp);
     let (cubes_pitch, _) = (sp.goal_angles().1, 0);
-    assert!(
-        sp.nodes.iter().any(|n| n.target.y != 0.0),
-        "the classic tree hangs below its root"
-    );
+    assert!(sp.nodes.iter().any(|n| n.target.y != 0.0), "the classic tree hangs below its root");
 
     sp.set_style(Space3dStyle::Fsn);
     sp.sync_from(&t);
     settle(&mut sp);
-    assert!(
-        sp.nodes.iter().all(|n| n.target.y == 0.0),
-        "the fsn scene stands on the ground"
-    );
+    assert!(sp.nodes.iter().all(|n| n.target.y == 0.0), "the fsn scene stands on the ground");
     assert!(
         sp.goal_angles().1 < cubes_pitch,
         "and the camera drops to look across the ground rather than down on it"
@@ -1216,11 +1149,7 @@ fn setting_the_style_it_already_has_changes_nothing() {
     settle(&mut sp);
     let before = (sp.cam, sp.nodes.len());
     sp.set_style(Space3dStyle::Fsn);
-    assert_eq!(
-        (sp.cam, sp.nodes.len()),
-        before,
-        "a no-op switch must not re-aim anything"
-    );
+    assert_eq!((sp.cam, sp.nodes.len()), before, "a no-op switch must not re-aim anything");
     assert!(sp.settled, "nor restart the animation");
 }
 
@@ -1234,12 +1163,6 @@ fn the_camera_stays_above_the_ground_at_every_angle_it_allows() {
         sp.orbit(0.3, -0.3);
     }
     settle(&mut sp);
-    assert!(
-        sp.cam.pitch >= PITCH_MIN,
-        "pitch is clamped above the horizontal"
-    );
-    assert!(
-        sp.cam.eye().y > sp.cam.target.y - 1e-3,
-        "so the eye never drops under the plane"
-    );
+    assert!(sp.cam.pitch >= PITCH_MIN, "pitch is clamped above the horizontal");
+    assert!(sp.cam.eye().y > sp.cam.target.y - 1e-3, "so the eye never drops under the plane");
 }

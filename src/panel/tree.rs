@@ -131,11 +131,9 @@ fn ancestor_chain(cwd: &VfsPath) -> Vec<VfsPath> {
 /// (e.g. permission denied) yield an empty list rather than failing the tree.
 async fn read_subdirs(backend: &Arc<dyn Vfs>, path: &VfsPath) -> Vec<String> {
     let mut names: Vec<String> = match backend.read_dir(path).await {
-        Ok(entries) => entries
-            .into_iter()
-            .filter(|e| e.kind == VfsKind::Dir)
-            .map(|e| e.name)
-            .collect(),
+        Ok(entries) => {
+            entries.into_iter().filter(|e| e.kind == VfsKind::Dir).map(|e| e.name).collect()
+        }
         Err(_) => Vec::new(),
     };
     names.sort_by_key(|n| n.to_lowercase());
@@ -180,10 +178,8 @@ mod tests {
     /// Build a small on-disk tree in a uniquely-named directory (so parallel
     /// tests don't clobber each other) and return its root path.
     fn scratch_tree(tag: &str) -> std::path::PathBuf {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let base =
             std::env::temp_dir().join(format!("rc-tree-{tag}-{}-{nanos}", std::process::id()));
         let _ = fs::remove_dir_all(&base);

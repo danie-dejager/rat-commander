@@ -55,7 +55,8 @@ fn goto_dialog_mouse_selects_radio_and_buttons() {
 #[test]
 fn mount_path_and_password_inputs_submit() {
     // The mount-path input yields a Mount submit with the device + typed path.
-    let mut d = InputDialog::new("Mount", "at:", "/mnt/x", InputPurpose::MountPath("/dev/sdb1".into()));
+    let mut d =
+        InputDialog::new("Mount", "at:", "/mnt/x", InputPurpose::MountPath("/dev/sdb1".into()));
     match d.handle_key(key(KeyCode::Enter)) {
         DialogResult::Submit(Submit::Mount { device, path }) => {
             assert_eq!(device, "/dev/sdb1");
@@ -135,7 +136,8 @@ fn device_menu_offers_flash_and_create_image() {
 
 #[test]
 fn image_save_dialog_builds_a_spec() {
-    let src = crate::flash::FlashTarget { dev: "/dev/sdb".into(), size: 4096, ..Default::default() };
+    let src =
+        crate::flash::FlashTarget { dev: "/dev/sdb".into(), size: 4096, ..Default::default() };
     // Start in an existing dir (the temp dir) and confirm with the default name.
     let mut d = ImageSaveDialog::new(src, std::env::temp_dir());
     d.focus = SaveFocus::Name; // jump to the name field
@@ -149,7 +151,11 @@ fn image_save_dialog_builds_a_spec() {
     }
     // The overwrite confirm routes to DoImage.
     let spec = crate::flash::ImageSpec {
-        source: crate::flash::FlashTarget { dev: "/dev/sdb".into(), size: 10, ..Default::default() },
+        source: crate::flash::FlashTarget {
+            dev: "/dev/sdb".into(),
+            size: 10,
+            ..Default::default()
+        },
         dest_path: "/tmp/x.img".into(),
         dest_name: "x.img".into(),
     };
@@ -176,10 +182,7 @@ fn drive_dialog_anchors_over_its_panel() {
 fn drive_dialog_local_button_is_default() {
     // No drives, no sessions: the always-present Local button is the default.
     let mut d = DriveDialog::new(0, vec![], None, None, vec![], true);
-    assert!(matches!(
-        d.handle_key(key(KeyCode::Enter)),
-        DialogResult::Submit(Submit::GoLocal(0))
-    ));
+    assert!(matches!(d.handle_key(key(KeyCode::Enter)), DialogResult::Submit(Submit::GoLocal(0))));
 }
 
 #[test]
@@ -227,15 +230,9 @@ fn drive_dialog_hides_remote_when_not_show_remote() {
     let mut d = DriveDialog::new(0, vec![], None, None, sessions, false);
     // Home and End both land on Local (the sole item).
     d.handle_key(key(KeyCode::End));
-    assert!(matches!(
-        d.handle_key(key(KeyCode::Enter)),
-        DialogResult::Submit(Submit::GoLocal(0))
-    ));
+    assert!(matches!(d.handle_key(key(KeyCode::Enter)), DialogResult::Submit(Submit::GoLocal(0))));
     d.handle_key(key(KeyCode::Home));
-    assert!(matches!(
-        d.handle_key(key(KeyCode::Enter)),
-        DialogResult::Submit(Submit::GoLocal(0))
-    ));
+    assert!(matches!(d.handle_key(key(KeyCode::Enter)), DialogResult::Submit(Submit::GoLocal(0))));
 }
 
 #[test]
@@ -258,12 +255,13 @@ fn drive_dialog_letter_jumps_and_highlights_current() {
 #[test]
 fn flash_target_picker_enforces_size() {
     let devs = vec![
-        bdev("sda", "/dev/sda", 1_000, false),  // too small
-        bdev("sdb", "/dev/sdb", 10_000, true),  // fits
+        bdev("sda", "/dev/sda", 1_000, false), // too small
+        bdev("sdb", "/dev/sdb", 10_000, true), // fits
     ];
     let img = std::path::PathBuf::from("/img/x.iso");
     // Preselect the big device → Enter flashes it.
-    let mut d = FlashTargetDialog::new(img.clone(), "x.iso".into(), 5_000, devs.clone(), Some("/dev/sdb"));
+    let mut d =
+        FlashTargetDialog::new(img.clone(), "x.iso".into(), 5_000, devs.clone(), Some("/dev/sdb"));
     match d.handle_key(key(KeyCode::Enter)) {
         DialogResult::Submit(Submit::FlashSelected(spec)) => {
             assert_eq!(spec.target.dev, "/dev/sdb");
@@ -317,15 +315,18 @@ fn flash_confirmations_emit_expected_submits() {
 
 #[test]
 fn file_browser_filters_and_picks() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("rc_fb_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(dir.join("sub")).unwrap();
     std::fs::write(dir.join("disk.img"), b"x").unwrap();
     std::fs::write(dir.join("notes.txt"), b"x").unwrap();
-    let target = crate::flash::FlashTarget { dev: "/dev/sdb".into(), size: 100, removable: true, ..Default::default() };
+    let target = crate::flash::FlashTarget {
+        dev: "/dev/sdb".into(),
+        size: 100,
+        removable: true,
+        ..Default::default()
+    };
     let mut d = FileBrowserDialog::new(target, dir.clone());
     // The default *.img/*.iso/... filter shows the image + dirs, not the .txt.
     assert!(d.entries.iter().any(|e| e.name == "disk.img" && !e.is_dir));
@@ -370,7 +371,10 @@ fn indeterminate_progress_abort_is_clickable_but_determinate_is_not() {
         matches!(d.handle_click(area, 40, 14), DialogResult::Abort(7)),
         "clicking the scan dialog's Abort button cancels it"
     );
-    assert!(matches!(d.handle_click(area, 40, 10), DialogResult::None), "a click elsewhere does nothing");
+    assert!(
+        matches!(d.handle_click(area, 40, 10), DialogResult::None),
+        "a click elsewhere does nothing"
+    );
 
     // A determinate (copy) progress dialog ignores clicks entirely.
     let mut c = Dialog::Progress(ProgressDialog::new(8, "Copying"));
@@ -533,9 +537,7 @@ fn open_choice_dropdown_is_drawn_over_the_button_row() {
     d.handle_key(key(KeyCode::Enter)); // open the dropdown
     t.draw(|f| d.render(f, f.area(), &theme, None)).unwrap();
     let buf = t.backend().buffer();
-    let row_text = |y: u16| {
-        (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect::<String>()
-    };
+    let row_text = |y: u16| (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect::<String>();
     // Find the row holding an option that sits below the dialog's own button row.
     let opt = crate::mount::FsType::ALL.last().unwrap().label();
     let opt_row = (0..buf.area.height)
@@ -656,10 +658,7 @@ fn two_button_confirm_still_works() {
     assert_eq!(d.buttons.len(), 2);
     assert!(matches!(d.handle_key(key(KeyCode::Char('n'))), DialogResult::Cancel));
     let mut d = ConfirmDialog::quit();
-    assert!(matches!(
-        d.handle_key(key(KeyCode::Char('y'))),
-        DialogResult::Submit(Submit::Quit)
-    ));
+    assert!(matches!(d.handle_key(key(KeyCode::Char('y'))), DialogResult::Submit(Submit::Quit)));
 }
 
 #[test]
@@ -895,10 +894,7 @@ fn multi_rename_mouse_focuses_and_toggles_fields() {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
-    let sources = vec![
-        VfsPath::local("/tmp/one.txt"),
-        VfsPath::local("/tmp/two.txt"),
-    ];
+    let sources = vec![VfsPath::local("/tmp/one.txt"), VfsPath::local("/tmp/two.txt")];
     let mut d = MultiRenameDialog::new(sources, "20260101".into(), "120000".into());
     let theme = crate::ui::theme::Theme::mc();
     let mut t = Terminal::new(TestBackend::new(100, 30)).unwrap();
@@ -983,9 +979,6 @@ fn compare_dialog_selects_mode() {
     assert!(matches!(d.handle_key(key(KeyCode::Esc)), DialogResult::Cancel));
 }
 
-
-
-
 #[test]
 fn form_ok_cancel_buttons_are_keyboard_navigable() {
     use ratatui::Terminal;
@@ -1002,14 +995,18 @@ fn form_ok_cancel_buttons_are_keyboard_navigable() {
         let buf = t.backend().buffer();
         let mut s = String::new();
         for y in 0..buf.area.height {
-            for x in 0..buf.area.width { s.push_str(buf[(x, y)].symbol()); }
+            for x in 0..buf.area.width {
+                s.push_str(buf[(x, y)].symbol());
+            }
         }
         s.contains(needle)
     };
 
     // Tab down onto OK → it renders highlighted, and Enter submits.
     let mut d = FormDialog::confirmations(&cfg);
-    for _ in 0..5 { let _ = d.handle_key(KeyEvent::from(KeyCode::Tab)); }
+    for _ in 0..5 {
+        let _ = d.handle_key(KeyEvent::from(KeyCode::Tab));
+    }
     assert!(render_has(&mut d, "< OK >"), "OK should highlight when focused");
     assert!(
         matches!(d.handle_key(KeyEvent::from(KeyCode::Enter)), DialogResult::Submit(_)),
@@ -1018,7 +1015,9 @@ fn form_ok_cancel_buttons_are_keyboard_navigable() {
 
     // Tab once more onto Cancel → Enter cancels.
     let mut d = FormDialog::confirmations(&cfg);
-    for _ in 0..6 { let _ = d.handle_key(KeyEvent::from(KeyCode::Tab)); }
+    for _ in 0..6 {
+        let _ = d.handle_key(KeyEvent::from(KeyCode::Tab));
+    }
     assert!(render_has(&mut d, "< Cancel >"), "Cancel should highlight when focused");
     assert!(
         matches!(d.handle_key(KeyEvent::from(KeyCode::Enter)), DialogResult::Cancel),
@@ -1027,16 +1026,14 @@ fn form_ok_cancel_buttons_are_keyboard_navigable() {
 
     // Left/Right toggles between the two buttons.
     let mut d = FormDialog::confirmations(&cfg);
-    for _ in 0..5 { let _ = d.handle_key(KeyEvent::from(KeyCode::Tab)); } // OK
+    for _ in 0..5 {
+        let _ = d.handle_key(KeyEvent::from(KeyCode::Tab));
+    } // OK
     let _ = d.handle_key(KeyEvent::from(KeyCode::Right));
     assert!(render_has(&mut d, "< Cancel >"), "Right moves OK→Cancel");
     let _ = d.handle_key(KeyEvent::from(KeyCode::Left));
     assert!(render_has(&mut d, "< OK >"), "Left moves Cancel→OK");
 }
-
-
-
-
 
 #[test]
 fn settings_dialog_renders_three_group_boxes() {
@@ -1064,14 +1061,16 @@ fn settings_dialog_renders_three_group_boxes() {
         assert!(s.contains(title), "settings should show the '{title}' group box");
     }
     // The program version is shown in the dialog title bar.
-    assert!(
-        s.contains(env!("CARGO_PKG_VERSION")),
-        "settings should show the program version"
-    );
+    assert!(s.contains(env!("CARGO_PKG_VERSION")), "settings should show the program version");
     // A representative field from each group is present.
-    for field in
-        ["Reshape RTL text", "External editor", "Theme", "Nerd Font symbols", "Graphics", "3D style"]
-    {
+    for field in [
+        "Reshape RTL text",
+        "External editor",
+        "Theme",
+        "Nerd Font symbols",
+        "Graphics",
+        "3D style",
+    ] {
         assert!(s.contains(field), "settings should show the '{field}' field");
     }
     // The Visual group is two columns wide, so a left-column field and a
@@ -1105,18 +1104,12 @@ fn form_ok_button_click_submits_over_a_focused_choice_field() {
 
     // A click on the Cancel (right) half cancels.
     let mut dlg = Dialog::Form(FormDialog::settings(&cfg, true));
-    assert!(matches!(
-        dlg.handle_click(area, x + w - 5, button_row),
-        DialogResult::Cancel
-    ));
+    assert!(matches!(dlg.handle_click(area, x + w - 5, button_row), DialogResult::Cancel));
 
     // A click that isn't on the button row leaves the dialog open (here, the
     // Theme choice row) — it must not submit or cancel.
     let mut dlg = Dialog::Form(FormDialog::settings(&cfg, true));
-    assert!(matches!(
-        dlg.handle_click(area, x + 5, y + 2),
-        DialogResult::None
-    ));
+    assert!(matches!(dlg.handle_click(area, x + 5, y + 2), DialogResult::None));
 }
 
 #[test]
@@ -1148,9 +1141,9 @@ fn checksum_form_submits_algorithm_and_comparison() {
 
 #[test]
 fn checksum_result_dialog_shows_verdict_and_digest() {
+    use crate::util::checksum::{ChecksumKind, ChecksumReport, normalize_expected};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
-    use crate::util::checksum::{ChecksumKind, ChecksumReport, normalize_expected};
     let theme = crate::ui::theme::Theme::mc();
     let area = Rect::new(0, 0, 90, 24);
     let dump = |t: &Terminal<TestBackend>| {
@@ -1230,9 +1223,9 @@ fn checksum_result_dialog_shows_verdict_and_digest() {
 
 #[test]
 fn graphical_buttons_paint_and_stay_clickable() {
+    use crate::ui::graphics::Gfx;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
-    use crate::ui::graphics::Gfx;
     let theme = crate::ui::theme::Theme::mc();
     let area = Rect::new(0, 0, 80, 24);
     let mut gfx = Gfx::test_halfblocks();
@@ -1369,7 +1362,11 @@ fn chown_form_mouse_focuses_the_clicked_text_field() {
     let area = Rect::new(0, 0, 80, 24);
     // chown has 3 fields (Owner text, Group text, Recurse check); box 60x7 at
     // {10,8}; inner.y = 9, so Group is the second field row (y=10).
-    let mut dlg = Dialog::Form(FormDialog::chown(vec![VfsPath::local("/tmp/f")], String::new(), String::new()));
+    let mut dlg = Dialog::Form(FormDialog::chown(
+        vec![VfsPath::local("/tmp/f")],
+        String::new(),
+        String::new(),
+    ));
     assert!(matches!(dlg.handle_click(area, 40, 10), DialogResult::None));
     // Typing now goes to the focused Group field, not Owner.
     for c in "staff".chars() {
@@ -1424,7 +1421,13 @@ fn select_dialog_mouse_ticks_boxes_and_submits() {
     assert!(matches!(dlg.handle_click(area, 16, 13), DialogResult::None));
     // OK button (row 14, left half) submits.
     match dlg.handle_click(area, 16, 14) {
-        DialogResult::Submit(Submit::Select { select, pattern, files_only, case_sensitive, shell }) => {
+        DialogResult::Submit(Submit::Select {
+            select,
+            pattern,
+            files_only,
+            case_sensitive,
+            shell,
+        }) => {
             assert!(select);
             assert_eq!(pattern, "*");
             assert!(files_only, "click ticked Files only");
@@ -1442,9 +1445,24 @@ fn select_dialog_mouse_ticks_boxes_and_submits() {
 fn user_menu_mouse_click_activates_entry() {
     use crate::usermenu::UserMenuEntry;
     let entries = vec![
-        UserMenuEntry { hotkey: 'a', title: "Alpha".into(), command: "echo a".into(), ..Default::default() },
-        UserMenuEntry { hotkey: 'b', title: "Beta".into(), command: "echo b".into(), ..Default::default() },
-        UserMenuEntry { hotkey: 'c', title: "Gamma".into(), command: "echo c".into(), ..Default::default() },
+        UserMenuEntry {
+            hotkey: 'a',
+            title: "Alpha".into(),
+            command: "echo a".into(),
+            ..Default::default()
+        },
+        UserMenuEntry {
+            hotkey: 'b',
+            title: "Beta".into(),
+            command: "echo b".into(),
+            ..Default::default()
+        },
+        UserMenuEntry {
+            hotkey: 'c',
+            title: "Gamma".into(),
+            command: "echo c".into(),
+            ..Default::default()
+        },
     ];
     // 80x24 → box 64x5 at {8,9}; inner.y = 10, so entry 1 is at row 11.
     let area = Rect::new(0, 0, 80, 24);
@@ -1455,7 +1473,12 @@ fn user_menu_mouse_click_activates_entry() {
     }
     // A click below the list does nothing.
     let mut dlg = Dialog::UserMenu(UserMenuDialog::with_cursor(
-        vec![UserMenuEntry { hotkey: 'a', title: "Alpha".into(), command: "echo a".into(), ..Default::default() }],
+        vec![UserMenuEntry {
+            hotkey: 'a',
+            title: "Alpha".into(),
+            command: "echo a".into(),
+            ..Default::default()
+        }],
         0,
     ));
     assert!(matches!(dlg.handle_click(area, 20, 23), DialogResult::None));
@@ -1562,11 +1585,7 @@ fn the_settings_dialog_still_fits_an_80x24_terminal() {
     );
     // Both columns must fit the longest row a chooser can produce — in German,
     // "Design: Midnight Commander Dark ▾" is 33 cells.
-    assert!(
-        rect.width >= 74,
-        "a two-column group needs a wide enough box, got {}",
-        rect.width
-    );
+    assert!(rect.width >= 74, "a two-column group needs a wide enough box, got {}", rect.width);
 }
 
 /// The 3D style is the last field of the Visual group, and the settings submit
@@ -1583,11 +1602,7 @@ fn the_settings_form_round_trips_the_3d_style() {
     // Click OK: box 76x21 at {2,1}, so the button row is y = 1 + 21 - 2 = 20.
     match d.handle_click(Rect::new(0, 0, 80, 24), 10, 20) {
         DialogResult::Submit(Submit::Settings(v)) => {
-            assert_eq!(
-                v.space3d_style,
-                Space3dStyle::Fsn,
-                "the form gives back what it was given"
-            );
+            assert_eq!(v.space3d_style, Space3dStyle::Fsn, "the form gives back what it was given");
             // A spot-check either side of it, so a shifted index shows up here.
             assert_eq!(v.brief_columns, cfg.brief_columns);
             assert_eq!(v.theme, cfg.theme);

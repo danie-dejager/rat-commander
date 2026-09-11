@@ -25,12 +25,12 @@ mod multirename;
 mod overwrite;
 mod palette;
 mod progress;
-mod tabpicker;
 mod saveas;
 mod search;
 mod select;
 mod send;
 mod syncpreview;
+mod tabpicker;
 mod usermenu;
 
 // Shared widget helpers used by `src/disk/render.rs` and kept accessible at the
@@ -49,7 +49,6 @@ pub use checksum::ChecksumResultDialog;
 pub use compare::CompareDialog;
 pub use confirm::ConfirmDialog;
 pub use dirhistory::DirHistoryDialog;
-pub use tabpicker::TabPickerDialog;
 pub use drive::DriveDialog;
 pub use find::{FindDialog, FindParams};
 pub use flash::{FileBrowserDialog, FlashTargetDialog, ImageSaveDialog};
@@ -62,13 +61,16 @@ pub use input::{InputDialog, InputPurpose};
 pub use message::MessageDialog;
 pub use multirename::MultiRenameDialog;
 pub use overwrite::OverwriteDialog;
-pub use palette::{BoolSetting, CommandPaletteDialog, PaletteAction, PaletteCategory, PaletteEntry};
+pub use palette::{
+    BoolSetting, CommandPaletteDialog, PaletteAction, PaletteCategory, PaletteEntry,
+};
 pub use progress::{BusyDialog, ProgressDialog, SpeedChart};
 pub use saveas::SaveAsDialog;
 pub use search::{SearchReplaceDialog, SearchReplaceParams};
 pub use select::SelectDialog;
 pub use send::SendFileDialog;
 pub use syncpreview::SyncPreviewDialog;
+pub use tabpicker::TabPickerDialog;
 pub use usermenu::UserMenuDialog;
 
 use crate::ops::progress::{OverwriteDecision, TaskId};
@@ -174,7 +176,11 @@ pub enum Submit {
     /// Run this command and insert its output at the editor's cursor.
     EditorPasteOutput(String),
     /// Sort the editor's marked block with these options.
-    EditorSort { reverse: bool, ignore_case: bool, unique: bool },
+    EditorSort {
+        reverse: bool,
+        ignore_case: bool,
+        unique: bool,
+    },
     /// New editor options accepted in the editor's Options → General dialog.
     EditorOptions(Box<crate::config::EditorOptions>),
     /// Confirmed F2 save in the file-comparison view.
@@ -226,7 +232,10 @@ pub enum Submit {
     /// Every guided Git dialog funnels into this one variant, having already
     /// built its argument list (see [`form::GitForm`]). `title` names the command
     /// in the output box (e.g. `"push"`).
-    GitRun { title: String, args: Vec<String> },
+    GitRun {
+        title: String,
+        args: Vec<String>,
+    },
     /// Open a remote connection on the given panel side.
     Connect(usize, RemoteCreds),
     /// Run a user-menu (F2) command template (macros expanded by the app).
@@ -234,7 +243,10 @@ pub enum Submit {
     /// An answer typed into a `%{…}` interactive prompt of a user-menu command.
     MenuPrompt(String),
     /// Kill a process from the process explorer (`force` ⇒ SIGKILL).
-    KillProcess { pid: i32, force: bool },
+    KillProcess {
+        pid: i32,
+        force: bool,
+    },
     /// Delete one large file picked out inside a disk-explorer box.
     DeleteDiskFile(std::path::PathBuf),
     /// Compare the two panels' directories and mark the differing files.
@@ -250,9 +262,15 @@ pub enum Submit {
     /// line (without running it).
     RecallCommand(String),
     /// Mount `device` at `path` (disk manager); the app handles create-if-missing.
-    Mount { device: String, path: String },
+    Mount {
+        device: String,
+        path: String,
+    },
     /// Create the (missing) mount point and then mount.
-    MountCreate { device: String, path: String },
+    MountCreate {
+        device: String,
+        path: String,
+    },
     /// The user's answer to a permission-denied prompt for a running task.
     PrivilegeAnswer(TaskId, crate::ops::progress::PrivDecision),
     /// Show tab `index` on panel `side` (from the tab picker).
@@ -339,7 +357,10 @@ pub enum Submit {
     Hotlist(HotlistOutcome),
     /// Set (or clear, when `pattern` is empty) the persistent listing filter on
     /// panel `side`.
-    PanelFilter { side: usize, pattern: String },
+    PanelFilter {
+        side: usize,
+        pattern: String,
+    },
 }
 
 /// How the directory-comparison tool decides which files differ.
@@ -577,7 +598,8 @@ impl Dialog {
             return DialogResult::None;
         };
         // Ignore clicks outside the dialog box.
-        if col < rect.x || col >= rect.x + rect.width || row < rect.y || row >= rect.y + rect.height {
+        if col < rect.x || col >= rect.x + rect.width || row < rect.y || row >= rect.y + rect.height
+        {
             return DialogResult::None;
         }
         // The action buttons sit on the dialog's last interior row.

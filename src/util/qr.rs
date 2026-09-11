@@ -115,10 +115,7 @@ impl Qr {
                 let bot = bottom_row < side && self.padded_dark(mx, bottom_row);
                 spans.push(Span::styled("▀", Style::default().fg(color(top)).bg(color(bot))));
             }
-            f.render_widget(
-                Paragraph::new(Line::from(spans)),
-                Rect { x: x0, y, width, height: 1 },
-            );
+            f.render_widget(Paragraph::new(Line::from(spans)), Rect { x: x0, y, width, height: 1 });
         }
     }
 }

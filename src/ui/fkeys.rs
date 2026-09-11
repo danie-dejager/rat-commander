@@ -8,19 +8,16 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 /// Labels for the function-key row in panel mode (Midnight Commander order).
-pub const PANEL_LABELS: [&str; 10] = [
-    "Help", "Menu", "View", "Edit", "Copy", "RenMov", "Mkdir", "Delete", "PullDn", "Quit",
-];
+pub const PANEL_LABELS: [&str; 10] =
+    ["Help", "Menu", "View", "Edit", "Copy", "RenMov", "Mkdir", "Delete", "PullDn", "Quit"];
 
 /// Labels for the internal editor's function-key row (mcedit order).
-pub const EDITOR_LABELS: [&str; 10] = [
-    "Help", "Save", "Mark", "Replac", "Copy", "Move", "Search", "Delete", "PullDn", "Quit",
-];
+pub const EDITOR_LABELS: [&str; 10] =
+    ["Help", "Save", "Mark", "Replac", "Copy", "Move", "Search", "Delete", "PullDn", "Quit"];
 
 /// Labels for the editor's hex mode (only the supported functions are shown).
-pub const HEX_LABELS: [&str; 10] = [
-    "", "Save", "", "Replac", "", "", "Search", "", "PullDn", "Quit",
-];
+pub const HEX_LABELS: [&str; 10] =
+    ["", "Save", "", "Replac", "", "", "Search", "", "PullDn", "Quit"];
 
 /// The function-key index (0-based — `i` means F`i+1`) at screen column `col`
 /// on the bar row `row`, or `None` if the click misses the row or lands on an

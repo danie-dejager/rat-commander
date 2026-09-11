@@ -91,15 +91,8 @@ impl Highlighter {
         }
         .or_else(|| THEMES.themes.values().next())?;
         let hl = SynHighlighter::new(theme);
-        let initial = (
-            ParseState::new(syntax),
-            HighlightState::new(&hl, ScopeStack::new()),
-        );
-        Some(Highlighter {
-            hl,
-            states: vec![initial],
-            colors: Vec::new(),
-        })
+        let initial = (ParseState::new(syntax), HighlightState::new(&hl, ScopeStack::new()));
+        Some(Highlighter { hl, states: vec![initial], colors: Vec::new() })
     }
 
     /// Number of lines highlighted so far.

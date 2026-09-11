@@ -2,45 +2,47 @@
 
 use crate::app::event::{AppEvent, FetchKind};
 use crate::config::Config;
-use crate::editor::{EditorSignal, EditorState};
-use crate::ops::progress::{PrivDecision, ProgressUpdate, TaskOutcome, TaskReply};
-use crate::ops::CancelToken;
-use crate::ops::{ArchiveAdd, OpKind, OpRequest, TaskHandle, TaskId, spawn_op};
 use crate::diff::{DiffSignal, DiffView};
 use crate::disk::{DiskSignal, DiskView};
+use crate::editor::{EditorSignal, EditorState};
 use crate::mount::{MountSignal, MountView};
 use crate::net::{NetSignal, NetView, Pane};
+use crate::ops::CancelToken;
+use crate::ops::progress::{PrivDecision, ProgressUpdate, TaskOutcome, TaskReply};
+use crate::ops::{ArchiveAdd, OpKind, OpRequest, TaskHandle, TaskId, spawn_op};
 use crate::panel::{Panel, ViewFormat};
 use crate::proc::{ProcSignal, ProcView};
 use crate::ui::cmdline::CommandLine;
 use crate::ui::dialog::{
-    BackgroundOpsDialog, BgRow, BoolSetting, BusyDialog, ChecksumResultDialog, CommandPaletteDialog,
-    CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult, DirHistoryDialog, DriveDialog,
-    DupCriteria, FileBrowserDialog, FindDialog, FindParams, FlashTargetDialog, FormDialog, GitOutputDialog, GotoDialog,
-    HotlistDialog, HotlistOutcome, ImageSaveDialog, InputDialog, InputPurpose, MessageDialog,
-    MultiRenameDialog, OverwriteDialog, PaletteAction, PaletteCategory, PaletteEntry, ProgressDialog,
-    SaveAsDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, SendFileDialog, SpeedChart,
-    SyncPreviewDialog,
-    ShellHistoryDialog, Submit, TabPickerDialog, UserMenuDialog,
+    BackgroundOpsDialog, BgRow, BoolSetting, BusyDialog, ChecksumResultDialog,
+    CommandPaletteDialog, CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult,
+    DirHistoryDialog, DriveDialog, DupCriteria, FileBrowserDialog, FindDialog, FindParams,
+    FlashTargetDialog, FormDialog, GitOutputDialog, GotoDialog, HotlistDialog, HotlistOutcome,
+    ImageSaveDialog, InputDialog, InputPurpose, MessageDialog, MultiRenameDialog, OverwriteDialog,
+    PaletteAction, PaletteCategory, PaletteEntry, ProgressDialog, SaveAsDialog,
+    SearchReplaceDialog, SearchReplaceParams, SelectDialog, SendFileDialog, ShellHistoryDialog,
+    SpeedChart, Submit, SyncPreviewDialog, TabPickerDialog, UserMenuDialog,
 };
-use crate::usermenu::{self, UserMenu};
 use crate::ui::layout::SplitDir;
 use crate::ui::menu::{MenuAction, MenuBarState, MenuSignal};
 use crate::ui::theme::Theme;
+use crate::usermenu::{self, UserMenu};
 use crate::util::async_bridge::AppSender;
-use crate::viewer::{MAX_VIEW_BYTES, ViewerSignal, ViewerState};
 use crate::vfs::Vfs;
+use crate::vfs::VfsPath;
 use crate::vfs::archive::{self, formats::ArchiveFormat};
+use crate::vfs::registry::Registry;
 use crate::vfs::remote::RemoteCreds;
 use crate::vfs::{VfsEntry, VfsKind};
+use crate::viewer::{MAX_VIEW_BYTES, ViewerSignal, ViewerState};
+use ratatui::crossterm::event::{
+    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::layout::Rect;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-use crate::vfs::registry::Registry;
-use crate::vfs::VfsPath;
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-use ratatui::layout::Rect;
-use std::collections::HashMap;
 
 /// What the run loop should do after handling input.
 pub enum Flow {
@@ -55,7 +57,10 @@ pub enum Flow {
     /// Used by the F2 user menu on a local panel.
     RunCommandForeground(String),
     /// Suspend the TUI and run an external program against a file.
-    RunExternal { program: String, path: std::path::PathBuf },
+    RunExternal {
+        program: String,
+        path: std::path::PathBuf,
+    },
     /// Ctrl-O: drop to an interactive subshell, full screen.
     SubShell,
 }
@@ -408,7 +413,6 @@ fn menu_title_index(c: char) -> Option<usize> {
         .position(|t| t.chars().next().map(|x| x.to_ascii_lowercase()) == Some(lc))
 }
 
-
 /// A human label for a viewer goto mode (used in the "invalid value" message).
 fn goto_mode_label(mode: crate::viewer::GotoMode) -> &'static str {
     use crate::viewer::GotoMode::*;
@@ -427,9 +431,7 @@ fn split_scheme(s: &str) -> Option<(&str, &str)> {
     let idx = s.find("://")?;
     let scheme = &s[..idx];
     if scheme.is_empty()
-        || !scheme
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '+' | '.'))
+        || !scheme.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '+' | '.'))
     {
         return None;
     }
@@ -483,19 +485,11 @@ fn dest_vfspath(dest: &str, other_cwd: &VfsPath, active_cwd: &VfsPath) -> VfsPat
 /// remote destination stays on its remote backend instead of becoming local.
 fn resolve_dest_on(dest: &str, base: &VfsPath) -> VfsPath {
     let p = Path::new(dest);
-    let path = if p.is_absolute() {
-        p.to_path_buf()
-    } else {
-        base.path.join(dest)
-    };
+    let path = if p.is_absolute() { p.to_path_buf() } else { base.path.join(dest) };
     if base.scheme == "file" {
         VfsPath::local(path)
     } else {
-        VfsPath {
-            scheme: base.scheme.clone(),
-            path,
-            container: base.container.clone(),
-        }
+        VfsPath { scheme: base.scheme.clone(), path, container: base.container.clone() }
     }
 }
 
@@ -574,38 +568,38 @@ fn detect_truecolor() -> bool {
         .unwrap_or(false)
 }
 
-mod lifecycle;
-mod keys;
-mod mouse;
-mod dialogs;
-mod fileops;
 mod checksum;
-mod disk;
-mod net;
-mod remote;
-mod find;
-mod duplicates;
 mod details;
-mod viewer_editor;
+mod dialogs;
+mod disk;
+mod duplicates;
 mod ext;
-mod palette;
-mod navigation;
+mod fileops;
+mod find;
 mod git;
+mod keys;
+mod lifecycle;
+mod mouse;
+mod navigation;
+mod net;
+mod palette;
+mod remote;
 mod sendfile;
+mod sizes;
 mod syncdirs;
 mod tabs;
+mod viewer_editor;
 mod watch;
-mod sizes;
 
 /// Read a file fully into memory (capped just above the viewer limit).
-async fn load_file(backend: &std::sync::Arc<dyn Vfs>, path: &VfsPath) -> crate::util::Result<Vec<u8>> {
+async fn load_file(
+    backend: &std::sync::Arc<dyn Vfs>,
+    path: &VfsPath,
+) -> crate::util::Result<Vec<u8>> {
     use tokio::io::AsyncReadExt;
     let reader = backend.open_read(path).await?;
     let mut buf = Vec::new();
-    reader
-        .take((MAX_VIEW_BYTES + 1) as u64)
-        .read_to_end(&mut buf)
-        .await?;
+    reader.take((MAX_VIEW_BYTES + 1) as u64).read_to_end(&mut buf).await?;
     Ok(buf)
 }
 
@@ -693,9 +687,7 @@ async fn write_file(
     data: &[u8],
 ) -> crate::util::Result<()> {
     use tokio::io::AsyncWriteExt;
-    let mut w = backend
-        .open_write(path, crate::vfs::WriteMeta::default())
-        .await?;
+    let mut w = backend.open_write(path, crate::vfs::WriteMeta::default()).await?;
     w.write_all(data).await?;
     // `shutdown()` (not just `flush()`) is what finalizes the write: for the
     // remote backends the writer is a pipe whose flush only pushes bytes into the
@@ -744,9 +736,11 @@ fn grep_file(path: &Path, needle: &crate::viewer::search::Needle) -> Option<u64>
     // proper substring search where `Needle::find` is a naive scan, and this walks
     // a whole tree rather than the viewer's single window.
     let fast = match needle {
-        crate::viewer::search::Needle::Bytes { pat, case_insensitive: false, whole_words: false } => {
-            Some(memchr::memmem::Finder::new(pat).into_owned())
-        }
+        crate::viewer::search::Needle::Bytes {
+            pat,
+            case_insensitive: false,
+            whole_words: false,
+        } => Some(memchr::memmem::Finder::new(pat).into_owned()),
         _ => None,
     };
 
@@ -776,7 +770,9 @@ fn grep_file(path: &Path, needle: &crate::viewer::search::Needle) -> Option<u64>
             None => needle.find(window, 0),
         };
         if let Some(at) = hit {
-            return Some(lines_before + memchr::memchr_iter(b'\n', &window[..at]).count() as u64 + 1);
+            return Some(
+                lines_before + memchr::memchr_iter(b'\n', &window[..at]).count() as u64 + 1,
+            );
         }
         if filled < GREP_WINDOW {
             break; // last (short) window, no match
@@ -812,7 +808,11 @@ fn find_files(
         None
     } else {
         match crate::viewer::search::Needle::build(
-            &p.content, p.regex_content, p.case_sensitive, false, false,
+            &p.content,
+            p.regex_content,
+            p.case_sensitive,
+            false,
+            false,
         ) {
             Some(n) => Some(n),
             // An unusable pattern (bad regex) would otherwise silently match
@@ -943,10 +943,7 @@ async fn launch_default(path: PathBuf) {
 #[cfg(windows)]
 async fn launch_default(path: PathBuf) {
     // `cmd /C start "" "<path>"` opens the file with its registered handler.
-    let _ = tokio::process::Command::new("cmd")
-        .args(["/C", "start", ""])
-        .arg(&path)
-        .spawn();
+    let _ = tokio::process::Command::new("cmd").args(["/C", "start", ""]).arg(&path).spawn();
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
@@ -973,10 +970,8 @@ async fn has_mime_handler(path: &Path) -> bool {
     if mime.is_empty() {
         return false;
     }
-    let Ok(def) = tokio::process::Command::new("xdg-mime")
-        .args(["query", "default", &mime])
-        .output()
-        .await
+    let Ok(def) =
+        tokio::process::Command::new("xdg-mime").args(["query", "default", &mime]).output().await
     else {
         return false;
     };
@@ -1036,18 +1031,12 @@ fn resolve_gid(_s: &str) -> Result<Option<u32>, String> {
 
 #[cfg(unix)]
 fn uid_name(uid: u32) -> Option<String> {
-    nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))
-        .ok()
-        .flatten()
-        .map(|u| u.name)
+    nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid)).ok().flatten().map(|u| u.name)
 }
 
 #[cfg(unix)]
 fn gid_name(gid: u32) -> Option<String> {
-    nix::unistd::Group::from_gid(nix::unistd::Gid::from_raw(gid))
-        .ok()
-        .flatten()
-        .map(|g| g.name)
+    nix::unistd::Group::from_gid(nix::unistd::Gid::from_raw(gid)).ok().flatten().map(|g| g.name)
 }
 
 #[cfg(not(unix))]

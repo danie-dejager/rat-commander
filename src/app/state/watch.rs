@@ -159,8 +159,7 @@ mod tests {
         assert_eq!(watch_key(&p, true), "", "panelized listings are left alone");
 
         // Remote and in-archive paths have nothing to subscribe to.
-        let remote =
-            VfsPath { scheme: "sftp-0".into(), path: "/srv".into(), container: None };
+        let remote = VfsPath { scheme: "sftp-0".into(), path: "/srv".into(), container: None };
         assert_eq!(watch_key(&panel_at(remote), true), "");
         assert_eq!(watch_key(&panel_at(VfsPath::archive("/tmp/a.zip", "/")), true), "");
     }
@@ -185,10 +184,8 @@ mod live_tests {
     /// wiring in between actually delivers.
     #[tokio::test]
     async fn a_real_write_reaches_the_app_channel() {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let root = std::env::temp_dir().join(format!("rc_live_{}_{nanos}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
 

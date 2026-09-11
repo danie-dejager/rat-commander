@@ -24,7 +24,9 @@ pub enum EditorSignal {
     Stay,
     Close,
     /// Persist the buffer; close the editor afterwards if `close_after`.
-    Save { close_after: bool },
+    Save {
+        close_after: bool,
+    },
     /// Open the "Save as" browser to write the buffer to a chosen path.
     SaveAs,
     /// The buffer is modified and the user asked to quit: the app should show a
@@ -355,7 +357,12 @@ impl EditorState {
 
     /// Per-character foreground colors for `line` (length `len`), or `None` when
     /// highlighting is off.
-    fn line_fg(&self, line: usize, len: usize, default: ratatui::style::Color) -> Option<Vec<ratatui::style::Color>> {
+    fn line_fg(
+        &self,
+        line: usize,
+        len: usize,
+        default: ratatui::style::Color,
+    ) -> Option<Vec<ratatui::style::Color>> {
         self.hl.as_ref().map(|hl| hl.line_fg(line, len, default))
     }
 
@@ -382,7 +389,6 @@ impl EditorState {
         Ok(())
     }
 
-
     /// Hex-mode search / replace. `hex` ⇒ the strings are hex bytes (e.g.
     /// "48 65"); otherwise they are literal ASCII bytes. Replace is overwrite-
     /// only, so the replacement must equal the search length.
@@ -395,11 +401,7 @@ impl EditorState {
         backwards: bool,
     ) {
         let parse = |s: &str| -> Option<Vec<u8>> {
-            if hex {
-                parse_hex_bytes(s)
-            } else {
-                Some(s.as_bytes().to_vec())
-            }
+            if hex { parse_hex_bytes(s) } else { Some(s.as_bytes().to_vec()) }
         };
         let pat = match parse(search) {
             Some(v) if !v.is_empty() => v,
@@ -672,11 +674,7 @@ impl EditorState {
             A::CopyToFile => return EditorSignal::Browse(BrowseKind::CopyTo),
             A::About => return EditorSignal::About,
             A::Quit => {
-                return if self.dirty {
-                    EditorSignal::ConfirmQuit
-                } else {
-                    EditorSignal::Close
-                };
+                return if self.dirty { EditorSignal::ConfirmQuit } else { EditorSignal::Close };
             }
 
             // -- Edit --
@@ -797,11 +795,8 @@ impl EditorState {
 
     fn toggle_overwrite(&mut self) {
         self.overwrite = !self.overwrite;
-        self.status = if self.overwrite {
-            "Overwrite mode".to_string()
-        } else {
-            "Insert mode".to_string()
-        };
+        self.status =
+            if self.overwrite { "Overwrite mode".to_string() } else { "Insert mode".to_string() };
     }
 
     /// Toggle the display-only word wrap (Shift-F9). Hex mode has no wrapping.
@@ -813,11 +808,8 @@ impl EditorState {
         self.left_col = 0;
         self.top_sub = 0;
         self.goal_col = None;
-        self.status = if self.wrap {
-            "Word wrap ON".to_string()
-        } else {
-            "Word wrap OFF".to_string()
-        };
+        self.status =
+            if self.wrap { "Word wrap ON".to_string() } else { "Word wrap OFF".to_string() };
     }
 
     /// Toggle syntax colouring, rebuilding the highlighter when turning it on.
@@ -973,8 +965,12 @@ impl EditorState {
         let (date, time) = crate::rename::date_time_now();
         let stamp = format!(
             "{}-{}-{} {}:{}:{}",
-            &date[0..4], &date[4..6], &date[6..8],
-            &time[0..2], &time[2..4], &time[4..6],
+            &date[0..4],
+            &date[4..6],
+            &date[6..8],
+            &time[0..2],
+            &time[2..4],
+            &time[4..6],
         );
         self.insert_text(&stamp);
     }
@@ -1006,11 +1002,7 @@ impl EditorState {
         let indent: String = head.chars().take_while(|c| c.is_whitespace()).collect();
         let words: Vec<String> = (first..=last)
             .flat_map(|l| {
-                self.buf
-                    .line_text(l)
-                    .split_whitespace()
-                    .map(|w| w.to_string())
-                    .collect::<Vec<_>>()
+                self.buf.line_text(l).split_whitespace().map(|w| w.to_string()).collect::<Vec<_>>()
             })
             .collect();
         if words.is_empty() {
@@ -1053,7 +1045,8 @@ impl EditorState {
         let (start, end) = match self.block_range() {
             // Grow the block out to whole lines: sorting half a line is nonsense.
             Some((s, e)) => {
-                let (ls, le) = (self.buf.char_to_line(s), self.buf.char_to_line(e.saturating_sub(1).max(s)));
+                let (ls, le) =
+                    (self.buf.char_to_line(s), self.buf.char_to_line(e.saturating_sub(1).max(s)));
                 (self.line_start_char(ls), self.line_start_char(le) + self.buf.line_len(le))
             }
             None => (0, self.buf.len_chars()),
@@ -1483,8 +1476,7 @@ impl EditorState {
     /// Type one character: overwriting the one under the cursor in overwrite
     /// mode, and hard-wrapping the line afterwards in typewriter mode.
     fn type_char(&mut self, c: char) {
-        let over = self.overwrite
-            && self.buf.char_at(self.cursor).is_some_and(|ch| ch != '\n');
+        let over = self.overwrite && self.buf.char_at(self.cursor).is_some_and(|ch| ch != '\n');
         if over {
             self.finalize_marks();
             let pos = self.cursor;
@@ -1509,9 +1501,8 @@ impl EditorState {
             return;
         }
         let chars: Vec<char> = self.buf.line_text(line).chars().collect();
-        let Some(brk) = chars[..=limit.min(chars.len() - 1)]
-            .iter()
-            .rposition(|c| *c == ' ' || *c == '\t')
+        let Some(brk) =
+            chars[..=limit.min(chars.len() - 1)].iter().rposition(|c| *c == ' ' || *c == '\t')
         else {
             return; // one long unbroken word: leave it alone
         };
@@ -1589,11 +1580,7 @@ impl EditorState {
         let alt = key.modifiers.contains(KeyModifiers::ALT);
         match key.code {
             KeyCode::F(10) | KeyCode::Esc => {
-                return if self.dirty {
-                    EditorSignal::ConfirmQuit
-                } else {
-                    EditorSignal::Close
-                };
+                return if self.dirty { EditorSignal::ConfirmQuit } else { EditorSignal::Close };
             }
             // Saving routes through the app, which flushes the overlay in place.
             KeyCode::F(2) => return EditorSignal::Save { close_after: false },
@@ -1722,11 +1709,7 @@ impl EditorState {
         case_sensitive: bool,
         whole_words: bool,
     ) -> Option<regex::Regex> {
-        let mut pat = if regex {
-            pattern.to_string()
-        } else {
-            regex::escape(pattern)
-        };
+        let mut pat = if regex { pattern.to_string() } else { regex::escape(pattern) };
         if whole_words {
             pat = format!(r"\b(?:{pat})\b");
         }
@@ -1762,8 +1745,7 @@ impl EditorState {
                 .last()
                 .or_else(|| re.find_iter(&text).last())
         } else {
-            re.find_at(&text, (cur_byte + 1).min(text.len()))
-                .or_else(|| re.find(&text))
+            re.find_at(&text, (cur_byte + 1).min(text.len())).or_else(|| re.find(&text))
         };
         match found {
             Some(m) => {
@@ -1914,7 +1896,8 @@ impl EditorState {
             let line = self.cur_line();
             let start = self.line_start_char(line);
             let col = self.cursor - start;
-            let indent_only = col > 0 && self.buf.slice(start, self.cursor).chars().all(|c| c == ' ');
+            let indent_only =
+                col > 0 && self.buf.slice(start, self.cursor).chars().all(|c| c == ' ');
             if indent_only {
                 let w = self.opts.tab_spacing.max(1);
                 let back = if col.is_multiple_of(w) { w } else { col % w }.min(col);
@@ -2100,16 +2083,11 @@ impl EditorState {
         let block_len = e - s;
         self.buf.delete(s, e);
         // Adjust the insertion point for the removed block.
-        let insert_at = if self.cursor > e {
-            self.cursor - block_len
-        } else {
-            self.cursor
-        };
+        let insert_at = if self.cursor > e { self.cursor - block_len } else { self.cursor };
         self.cursor = self.buf.insert(insert_at, &text);
         self.dirty = true;
         self.clear_marks();
     }
-
 }
 
 /// Whether `c` is one of the bracket characters "go to matching bracket" pairs.
@@ -2127,18 +2105,12 @@ fn parse_hex_bytes(s: &str) -> Option<Vec<u8>> {
     if cleaned.is_empty() || !cleaned.len().is_multiple_of(2) {
         return None;
     }
-    (0..cleaned.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&cleaned[i..i + 2], 16).ok())
-        .collect()
+    (0..cleaned.len()).step_by(2).map(|i| u8::from_str_radix(&cleaned[i..i + 2], 16).ok()).collect()
 }
 
 /// Convert a char index into a byte offset within `text`.
 fn char_to_byte(text: &str, char_idx: usize) -> usize {
-    text.char_indices()
-        .nth(char_idx)
-        .map(|(b, _)| b)
-        .unwrap_or(text.len())
+    text.char_indices().nth(char_idx).map(|(b, _)| b).unwrap_or(text.len())
 }
 
 #[cfg(test)]
@@ -2341,10 +2313,8 @@ mod tests {
     }
 
     fn tmpfile(bytes: &[u8]) -> std::path::PathBuf {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let p = std::env::temp_dir().join(format!("rc_edhex_{}_{nanos}", std::process::id()));
         std::fs::write(&p, bytes).unwrap();
         p
@@ -2433,8 +2403,7 @@ mod tests {
         e.handle_key(key_mod(KeyCode::F(9), KeyModifiers::CONTROL));
         let theme = crate::ui::theme::Theme::mc();
         let mut t = Terminal::new(TestBackend::new(90, 12)).unwrap();
-        t.draw(|f| crate::editor::render::render(f, f.area(), &mut e, &theme))
-            .unwrap();
+        t.draw(|f| crate::editor::render::render(f, f.area(), &mut e, &theme)).unwrap();
         let b = t.backend().buffer();
         let mut s = String::new();
         for y in 0..b.area.height {
@@ -2669,9 +2638,13 @@ foo three");
 xfoo 2
 foo 3");
         e.apply_search_replace(true, "^foo", "BAR", true, false, false, false, false);
-        assert_eq!(e.contents(), "BAR 1
+        assert_eq!(
+            e.contents(),
+            "BAR 1
 xfoo 2
-BAR 3", "only line-initial foo is replaced");
+BAR 3",
+            "only line-initial foo is replaced"
+        );
     }
 
     #[test]
@@ -2687,8 +2660,12 @@ d");
         let mut e = ed("aa
 bb");
         e.apply_search_replace(true, "a.*b", "X", true, false, false, false, false);
-        assert_eq!(e.contents(), "aa
-bb", "no match spans the newline");
+        assert_eq!(
+            e.contents(),
+            "aa
+bb",
+            "no match spans the newline"
+        );
 
         // An anchored empty-ish pattern still replaces once per line, not once
         // for the file.
@@ -2696,9 +2673,12 @@ bb", "no match spans the newline");
 q
 r");
         e.apply_search_replace(true, "^", ">", true, false, false, false, false);
-        assert_eq!(e.contents(), ">p
+        assert_eq!(
+            e.contents(),
+            ">p
 >q
->r");
+>r"
+        );
     }
 
     #[test]
@@ -3003,10 +2983,8 @@ r");
         assert_eq!(e.contents(), "    ab  ", "column 6 → two spaces reach column 8");
 
         // With "fill tabs with spaces" off it types a real tab.
-        let mut e = ed_opts(
-            "",
-            EditorOptions { fill_tabs_with_spaces: false, ..EditorOptions::default() },
-        );
+        let mut e =
+            ed_opts("", EditorOptions { fill_tabs_with_spaces: false, ..EditorOptions::default() });
         e.handle_key(key(KeyCode::Tab));
         assert_eq!(e.contents(), "\t");
     }
@@ -3201,12 +3179,15 @@ r");
         e.insert_date_time();
         let text = e.contents();
         assert_eq!(text.len(), 19, "YYYY-MM-DD HH:MM:SS");
-        assert!(text.chars().enumerate().all(|(i, c)| match i {
-            4 | 7 => c == '-',
-            10 => c == ' ',
-            13 | 16 => c == ':',
-            _ => c.is_ascii_digit(),
-        }), "unexpected timestamp shape: {text}");
+        assert!(
+            text.chars().enumerate().all(|(i, c)| match i {
+                4 | 7 => c == '-',
+                10 => c == ' ',
+                13 | 16 => c == ':',
+                _ => c.is_ascii_digit(),
+            }),
+            "unexpected timestamp shape: {text}"
+        );
     }
 
     // -- File-menu helpers the app calls back into -------------------------
@@ -3279,4 +3260,3 @@ r");
         std::fs::remove_file(&p).ok();
     }
 }
-

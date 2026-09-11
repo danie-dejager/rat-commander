@@ -32,11 +32,7 @@ impl V3 {
         self.x * o.x + self.y * o.y + self.z * o.z
     }
     pub fn cross(self, o: V3) -> V3 {
-        v3(
-            self.y * o.z - self.z * o.y,
-            self.z * o.x - self.x * o.z,
-            self.x * o.y - self.y * o.x,
-        )
+        v3(self.y * o.z - self.z * o.y, self.z * o.x - self.x * o.z, self.x * o.y - self.y * o.x)
     }
     pub fn len(self) -> f32 {
         self.dot(self).sqrt()

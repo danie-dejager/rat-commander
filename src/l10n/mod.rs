@@ -65,10 +65,7 @@ impl Catalog {
 }
 
 fn builtin_catalogs() -> Vec<Catalog> {
-    BUILTIN_FILES
-        .iter()
-        .filter_map(|(_, s)| toml::from_str::<Catalog>(s).ok())
-        .collect()
+    BUILTIN_FILES.iter().filter_map(|(_, s)| toml::from_str::<Catalog>(s).ok()).collect()
 }
 
 /// All available languages (built-ins until [`load_languages`] discovers files).
@@ -167,10 +164,7 @@ fn contains_rtl(s: &str) -> bool {
 
 /// Names of all available languages, for the Settings chooser.
 pub fn available() -> Vec<String> {
-    LANGS
-        .read()
-        .map(|l| l.iter().map(|c| c.name.clone()).collect())
-        .unwrap_or_default()
+    LANGS.read().map(|l| l.iter().map(|c| c.name.clone()).collect()).unwrap_or_default()
 }
 
 /// The active language's display name.
@@ -230,11 +224,11 @@ fn ensure_and_discover() -> Vec<Catalog> {
             if path.extension().and_then(|s| s.to_str()) != Some("toml") {
                 continue;
             }
-            if let Some(cat) = std::fs::read_to_string(&path)
-                .ok()
-                .and_then(|s| toml::from_str::<Catalog>(&s).ok())
+            if let Some(cat) =
+                std::fs::read_to_string(&path).ok().and_then(|s| toml::from_str::<Catalog>(&s).ok())
             {
-                let fname = path.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                let fname =
+                    path.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
                 cats.push((fname, cat));
             }
         }

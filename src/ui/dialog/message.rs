@@ -14,20 +14,12 @@ pub struct MessageDialog {
 
 impl MessageDialog {
     pub fn error(message: impl Into<String>) -> Self {
-        MessageDialog {
-            title: "Error".to_string(),
-            message: message.into(),
-            is_error: true,
-        }
+        MessageDialog { title: "Error".to_string(), message: message.into(), is_error: true }
     }
 
     /// A plain informational box (the editor's File → About uses it).
     pub fn info(title: impl Into<String>, message: impl Into<String>) -> Self {
-        MessageDialog {
-            title: title.into(),
-            message: message.into(),
-            is_error: false,
-        }
+        MessageDialog { title: title.into(), message: message.into(), is_error: false }
     }
 
     pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
@@ -44,11 +36,7 @@ impl MessageDialog {
             .constraints([Constraint::Min(1), Constraint::Length(1)])
             .split(inner);
 
-        let fg = if self.is_error {
-            theme.error_fg
-        } else {
-            theme.dialog_fg
-        };
+        let fg = if self.is_error { theme.error_fg } else { theme.dialog_fg };
         f.render_widget(
             Paragraph::new(self.message.clone())
                 .wrap(Wrap { trim: true })
@@ -67,4 +55,3 @@ impl MessageDialog {
         }
     }
 }
-

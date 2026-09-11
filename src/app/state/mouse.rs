@@ -118,7 +118,9 @@ impl AppState {
                     MouseEventKind::Down(MouseButton::Left) => {
                         if let Some(i) = nv.node_at(col, row) {
                             nv.overview_cursor = i;
-                            if let Some((ci, ii)) = nv.overview_nodes.get(i).map(|(c, r, _)| (*c, *r)) {
+                            if let Some((ci, ii)) =
+                                nv.overview_nodes.get(i).map(|(c, r, _)| (*c, *r))
+                            {
                                 sig = nv.open_ip_detail_at(ci, ii);
                             }
                         }
@@ -180,7 +182,8 @@ impl AppState {
                 }
                 // A click on the menu bar (top row) opens that menu.
                 if let Some(i) = MenuBarState::title_index_at(area, col, row) {
-                    self.menu = Some(MenuBarState::new(i, &self.session_list(), self.side_remote()));
+                    self.menu =
+                        Some(MenuBarState::new(i, &self.session_list(), self.side_remote()));
                 } else if let Some((side, index)) = self.tab_at(col, row) {
                     // A click on the tab strip switches to that tab. Tested
                     // before the listing, since the strip sits inside the panel.
@@ -397,5 +400,4 @@ impl AppState {
         let key = KeyEvent::new(KeyCode::F(i as u8 + 1), KeyModifiers::NONE);
         Some(self.handle_panel_key(key).await)
     }
-
 }

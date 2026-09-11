@@ -172,7 +172,8 @@ fn emit_inline(chars: &[char], start: usize, base: Style, out: &mut Out, theme: 
 
 /// The first index `j ≥ from` where `chars[j..j+len]` is all `marker`.
 fn find_run(chars: &[char], from: usize, marker: char, len: usize) -> Option<usize> {
-    (from..=chars.len().saturating_sub(len)).find(|&j| chars[j..j + len].iter().all(|c| *c == marker))
+    (from..=chars.len().saturating_sub(len))
+        .find(|&j| chars[j..j + len].iter().all(|c| *c == marker))
 }
 
 pub(crate) fn heading_color(level: usize, theme: &Theme) -> Color {

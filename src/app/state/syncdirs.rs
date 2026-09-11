@@ -41,11 +41,7 @@ impl AppState {
     /// A short display label for a panel's directory (used in the dialogs).
     fn sync_label(&self, side: usize) -> String {
         let cwd = &self.panels[side].cwd;
-        if cwd.is_plain_local() {
-            cwd.path.to_string_lossy().into_owned()
-        } else {
-            cwd.display()
-        }
+        if cwd.is_plain_local() { cwd.path.to_string_lossy().into_owned() } else { cwd.display() }
     }
 
     /// Walk both trees in the background and plan the sync; the result arrives as
@@ -134,8 +130,15 @@ impl AppState {
         };
         let handle = spawn_op(id, req, self.tx.clone());
         self.tasks.insert(id, handle);
-        self.task_progress
-            .insert(id, BgTransfer { verb: "Synchronizing", update: None, schemes, chart: SpeedChart::default() });
+        self.task_progress.insert(
+            id,
+            BgTransfer {
+                verb: "Synchronizing",
+                update: None,
+                schemes,
+                chart: SpeedChart::default(),
+            },
+        );
         let mut dialog = ProgressDialog::new(id, "Synchronizing");
         dialog.backgroundable = true;
         self.dialog = Some(Dialog::Progress(dialog));

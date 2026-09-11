@@ -104,7 +104,11 @@ mod tests {
         let mut p = panel_at("/tmp");
         p.error = Some("stale".into());
         p.result_paths = Some(vec![VfsPath::local("/hit")]);
-        p.apply_tab(&TabState::new(VfsPath::local("/etc"), ViewFormat::Full, SortConfig::default()));
+        p.apply_tab(&TabState::new(
+            VfsPath::local("/etc"),
+            ViewFormat::Full,
+            SortConfig::default(),
+        ));
         // None of this belongs to the directory we just switched to.
         assert!(p.entries.is_empty());
         assert!(p.error.is_none());

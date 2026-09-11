@@ -2,8 +2,8 @@
 //! state, and running the entry the user picks.
 
 use super::*;
-use crate::ui::menu::ClipTarget;
 use crate::panel::sort::SortKey;
+use crate::ui::menu::ClipTarget;
 use crate::vfs::remote::Protocol;
 
 impl AppState {
@@ -37,7 +37,10 @@ impl AppState {
             cmd("Send over &LAN...", MenuAction::SendFile),
             cmd("Cop&y path to clipboard", MenuAction::CopyToClipboard(ClipTarget::FullPath)),
             cmd("Copy file name to clipboard", MenuAction::CopyToClipboard(ClipTarget::Name)),
-            cmd("Copy selected paths to clipboard", MenuAction::CopyToClipboard(ClipTarget::Selection)),
+            cmd(
+                "Copy selected paths to clipboard",
+                MenuAction::CopyToClipboard(ClipTarget::Selection),
+            ),
             cmd("&Background operations...", MenuAction::BackgroundOps),
             cmd("Select gr&oup", MenuAction::SelectGroup),
             cmd("U&nselect group", MenuAction::UnselectGroup),
@@ -120,11 +123,23 @@ impl AppState {
                 BoolSetting::StripTrailingSpaces,
                 self.config.strip_trailing_spaces,
             ),
-            toggle("Use internal viewer", BoolSetting::InternalViewer, self.config.use_internal_viewer),
-            toggle("Use internal editor", BoolSetting::InternalEditor, self.config.use_internal_editor),
+            toggle(
+                "Use internal viewer",
+                BoolSetting::InternalViewer,
+                self.config.use_internal_viewer,
+            ),
+            toggle(
+                "Use internal editor",
+                BoolSetting::InternalEditor,
+                self.config.use_internal_editor,
+            ),
             toggle("Confirm delete", BoolSetting::ConfirmDelete, self.config.confirm_delete),
             toggle("Use trash bin", BoolSetting::UseTrash, self.config.use_trash),
-            toggle("Confirm overwrite", BoolSetting::ConfirmOverwrite, self.config.confirm_overwrite),
+            toggle(
+                "Confirm overwrite",
+                BoolSetting::ConfirmOverwrite,
+                self.config.confirm_overwrite,
+            ),
             toggle("Confirm execute", BoolSetting::ConfirmExecute, self.config.confirm_execute),
             toggle("Confirm unmount", BoolSetting::ConfirmUnmount, self.config.confirm_unmount),
             toggle("Confirm exit", BoolSetting::ConfirmExit, self.config.confirm_exit),
@@ -253,7 +268,10 @@ impl AppState {
     /// Run the entry chosen from the command palette. Menu-backed entries defer
     /// to [`AppState::run_menu_action`] (so they behave exactly like the menu);
     /// the rest apply a setting, jump to a bookmark, or toggle one in place.
-    pub(in crate::app::state) async fn run_palette_action(&mut self, action: PaletteAction) -> Flow {
+    pub(in crate::app::state) async fn run_palette_action(
+        &mut self,
+        action: PaletteAction,
+    ) -> Flow {
         match action {
             PaletteAction::Menu(a) => return self.run_menu_action(a).await,
             PaletteAction::SetTheme(name) => {
@@ -293,7 +311,8 @@ impl AppState {
                 // One panel must stay local — mirror the Connect menu guard.
                 if self.other_panel_is_remote(side) {
                     self.show_error(
-                        "The other panel is already remote — one panel must stay local.".to_string(),
+                        "The other panel is already remote — one panel must stay local."
+                            .to_string(),
                     );
                 } else if let Some(dlg) = FormDialog::connect_from(&entry, side) {
                     self.dialog = Some(Dialog::Form(dlg));

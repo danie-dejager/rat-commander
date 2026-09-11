@@ -53,7 +53,10 @@ pub enum DiskSignal {
     GoTo(PathBuf),
     /// Ask to delete the file the cursor is on inside a box. `label` is the
     /// `dir/relative/path` shown in the confirmation.
-    DeleteFile { path: PathBuf, label: String },
+    DeleteFile {
+        path: PathBuf,
+        label: String,
+    },
 }
 
 pub struct DiskView {
@@ -175,11 +178,7 @@ impl DiskView {
     fn restore_selection(&mut self) {
         match self.sel_name.as_deref() {
             Some(name) => {
-                self.selected = self
-                    .entries
-                    .iter()
-                    .position(|e| e.name == name)
-                    .unwrap_or(0);
+                self.selected = self.entries.iter().position(|e| e.name == name).unwrap_or(0);
             }
             None => {
                 self.selected = self.selected.min(self.entries.len().saturating_sub(1));
@@ -201,9 +200,7 @@ impl DiskView {
 
     pub fn handle_key(&mut self, key: KeyEvent) -> DiskSignal {
         // Shift/Ctrl modifiers on Enter — only some terminals report these.
-        let go_mod = key
-            .modifiers
-            .intersects(KeyModifiers::SHIFT | KeyModifiers::CONTROL);
+        let go_mod = key.modifiers.intersects(KeyModifiers::SHIFT | KeyModifiers::CONTROL);
         match key.code {
             // Esc backs out of the file list first, and only closes once the
             // cursor is back on the treemap. q/F10 always close outright.
@@ -368,9 +365,9 @@ impl DiskView {
     /// The entry whose box contains the screen point `(col, row)`, using the box
     /// rectangles recorded at the last render. `None` if the point misses every box.
     pub fn box_at(&self, col: u16, row: u16) -> Option<usize> {
-        self.rects.iter().position(|r| {
-            col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height
-        })
+        self.rects
+            .iter()
+            .position(|r| col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height)
     }
 
     /// The `(entry, file)` whose drawn file row contains `(col, row)`, using the
@@ -475,9 +472,8 @@ fn neighbour(rects: &[Rect], from: Rect, dir: KeyCode, line: f32) -> Option<usiz
         } else {
             0.0
         };
-        let better = best.is_none_or(|(bo, ba, _)| {
-            off.total_cmp(&bo).then(along.total_cmp(&ba)).is_lt()
-        });
+        let better =
+            best.is_none_or(|(bo, ba, _)| off.total_cmp(&bo).then(along.total_cmp(&ba)).is_lt());
         if better {
             best = Some((off, along, i));
         }
@@ -510,11 +506,7 @@ pub fn human_gb(bytes: u64) -> String {
         v /= 1024.0;
         u += 1;
     }
-    if v >= 100.0 {
-        format!("{v:.0} {}", UNITS[u])
-    } else {
-        format!("{v:.1} {}", UNITS[u])
-    }
+    if v >= 100.0 { format!("{v:.0} {}", UNITS[u]) } else { format!("{v:.1} {}", UNITS[u]) }
 }
 
 // ---------------------------------------------------------------------------
@@ -523,7 +515,6 @@ pub fn human_gb(bytes: u64) -> String {
 
 /// How many of the largest files to remember per box, for the in-box listing.
 pub(crate) const TOP_FILES: usize = 32;
-
 
 /// Scan the immediate subdirectories of `dir`, computing each one's total
 /// on-disk size and its largest files (symlinks are skipped, never followed).
@@ -571,11 +562,7 @@ fn subtree_stats(path: &Path) -> (u64, Vec<FileEntry>) {
 
     let mut total = 0u64;
     let mut heap: BinaryHeap<Reverse<(u64, String)>> = BinaryHeap::new();
-    for entry in walkdir::WalkDir::new(path)
-        .follow_links(false)
-        .into_iter()
-        .flatten()
-    {
+    for entry in walkdir::WalkDir::new(path).follow_links(false).into_iter().flatten() {
         if entry.file_type().is_file()
             && let Ok(meta) = entry.metadata()
         {
@@ -593,10 +580,8 @@ fn subtree_stats(path: &Path) -> (u64, Vec<FileEntry>) {
             }
         }
     }
-    let mut files: Vec<FileEntry> = heap
-        .into_iter()
-        .map(|Reverse((size, rel))| FileEntry { rel, size })
-        .collect();
+    let mut files: Vec<FileEntry> =
+        heap.into_iter().map(|Reverse((size, rel))| FileEntry { rel, size }).collect();
     files.sort_by(|a, b| b.size.cmp(&a.size).then(a.rel.cmp(&b.rel)));
     (total, files)
 }
@@ -870,10 +855,8 @@ mod tests {
 
     #[test]
     fn scan_excludes_symlinks_and_sizes_subdirs() {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let root = std::env::temp_dir().join(format!("rc_disk_{}_{nanos}", std::process::id()));
         std::fs::create_dir_all(root.join("big/sub")).unwrap();
         std::fs::create_dir_all(root.join("small")).unwrap();
@@ -900,10 +883,7 @@ mod tests {
         {
             std::os::unix::fs::symlink(root.join("big"), root.join("link")).unwrap();
             let entries = scan_dir(&root);
-            assert!(
-                !entries.iter().any(|e| e.name == "link"),
-                "symlinked dir is skipped"
-            );
+            assert!(!entries.iter().any(|e| e.name == "link"), "symlinked dir is skipped");
         }
 
         std::fs::remove_dir_all(&root).ok();

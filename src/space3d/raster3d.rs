@@ -246,15 +246,33 @@ fn faces(min: V3, max: V3) -> [([V3; 4], V3); 6] {
     let (a, b) = (min, max);
     [
         // roof
-        ([v3(a.x, b.y, a.z), v3(b.x, b.y, a.z), v3(b.x, b.y, b.z), v3(a.x, b.y, b.z)], v3(0.0, 1.0, 0.0)),
+        (
+            [v3(a.x, b.y, a.z), v3(b.x, b.y, a.z), v3(b.x, b.y, b.z), v3(a.x, b.y, b.z)],
+            v3(0.0, 1.0, 0.0),
+        ),
         // floor
-        ([v3(a.x, a.y, a.z), v3(a.x, a.y, b.z), v3(b.x, a.y, b.z), v3(b.x, a.y, a.z)], v3(0.0, -1.0, 0.0)),
+        (
+            [v3(a.x, a.y, a.z), v3(a.x, a.y, b.z), v3(b.x, a.y, b.z), v3(b.x, a.y, a.z)],
+            v3(0.0, -1.0, 0.0),
+        ),
         // -Z / +Z walls
-        ([v3(a.x, a.y, a.z), v3(b.x, a.y, a.z), v3(b.x, b.y, a.z), v3(a.x, b.y, a.z)], v3(0.0, 0.0, -1.0)),
-        ([v3(b.x, a.y, b.z), v3(a.x, a.y, b.z), v3(a.x, b.y, b.z), v3(b.x, b.y, b.z)], v3(0.0, 0.0, 1.0)),
+        (
+            [v3(a.x, a.y, a.z), v3(b.x, a.y, a.z), v3(b.x, b.y, a.z), v3(a.x, b.y, a.z)],
+            v3(0.0, 0.0, -1.0),
+        ),
+        (
+            [v3(b.x, a.y, b.z), v3(a.x, a.y, b.z), v3(a.x, b.y, b.z), v3(b.x, b.y, b.z)],
+            v3(0.0, 0.0, 1.0),
+        ),
         // -X / +X walls
-        ([v3(a.x, a.y, b.z), v3(a.x, a.y, a.z), v3(a.x, b.y, a.z), v3(a.x, b.y, b.z)], v3(-1.0, 0.0, 0.0)),
-        ([v3(b.x, a.y, a.z), v3(b.x, a.y, b.z), v3(b.x, b.y, b.z), v3(b.x, b.y, a.z)], v3(1.0, 0.0, 0.0)),
+        (
+            [v3(a.x, a.y, b.z), v3(a.x, a.y, a.z), v3(a.x, b.y, a.z), v3(a.x, b.y, b.z)],
+            v3(-1.0, 0.0, 0.0),
+        ),
+        (
+            [v3(b.x, a.y, a.z), v3(b.x, a.y, b.z), v3(b.x, b.y, b.z), v3(b.x, b.y, a.z)],
+            v3(1.0, 0.0, 0.0),
+        ),
     ]
 }
 
@@ -358,10 +376,7 @@ pub fn render_scene(
         let mut bb: Bounds = None;
         for (quad, normal) in shape_faces(b.shape, b.min, b.max) {
             // Back-face cull: keep only faces turned toward the camera.
-            let centre = quad
-                .iter()
-                .fold(v3(0.0, 0.0, 0.0), |acc, &p| acc.add(p))
-                .scale(0.25);
+            let centre = quad.iter().fold(v3(0.0, 0.0, 0.0), |acc, &p| acc.add(p)).scale(0.25);
             if normal.dot(eye.sub(centre)) <= 0.0 {
                 continue;
             }
@@ -438,7 +453,14 @@ pub fn horizon_row(basis: &vec3::Basis, focal: f32, h: f32) -> f32 {
 /// Both are left at depth zero, so anything with real depth draws over them.
 /// Nothing is ever *behind* the ground — the camera's pitch is clamped above
 /// zero, so the eye cannot drop below the plane the platforms stand on.
-fn paint_backdrop(img: &mut RgbaImage, sky: Sky, basis: &vec3::Basis, focal: f32, fw: f32, fh: f32) {
+fn paint_backdrop(
+    img: &mut RgbaImage,
+    sky: Sky,
+    basis: &vec3::Basis,
+    focal: f32,
+    fw: f32,
+    fh: f32,
+) {
     let hy = horizon_row(basis, focal, fh);
     for y in 0..img.height() {
         let yc = y as f32 + 0.5;
@@ -465,13 +487,7 @@ fn paint_backdrop(img: &mut RgbaImage, sky: Sky, basis: &vec3::Basis, focal: f32
 /// the mouse need, without touching a pixel. The panel renderer calls this every
 /// frame; the expensive rasterization only happens when the image actually has
 /// to be rebuilt.
-pub fn project_bounds(
-    w: u32,
-    h: u32,
-    boxes: &[SceneBox],
-    eye: V3,
-    target: V3,
-) -> Vec<Bounds> {
+pub fn project_bounds(w: u32, h: u32, boxes: &[SceneBox], eye: V3, target: V3) -> Vec<Bounds> {
     if w == 0 || h == 0 {
         return vec![None; boxes.len()];
     }
@@ -484,8 +500,14 @@ pub fn project_bounds(
             let (a, c) = (b.min, b.max);
             let mut bb: Bounds = None;
             for corner in [
-                v3(a.x, a.y, a.z), v3(c.x, a.y, a.z), v3(a.x, a.y, c.z), v3(c.x, a.y, c.z),
-                v3(a.x, c.y, a.z), v3(c.x, c.y, a.z), v3(a.x, c.y, c.z), v3(c.x, c.y, c.z),
+                v3(a.x, a.y, a.z),
+                v3(c.x, a.y, a.z),
+                v3(a.x, a.y, c.z),
+                v3(c.x, a.y, c.z),
+                v3(a.x, c.y, a.z),
+                v3(c.x, c.y, a.z),
+                v3(a.x, c.y, c.z),
+                v3(c.x, c.y, c.z),
             ] {
                 let Some((x, y, _)) = vec3::project(vec3::to_view(&basis, corner), fw, fh, focal)
                 else {
@@ -815,17 +837,25 @@ mod tests {
     }
 
     fn count_non_bg(img: &RgbaImage, bg: Rgb) -> usize {
-        img.pixels()
-            .filter(|p| (p[0], p[1], p[2]) != bg)
-            .count()
+        img.pixels().filter(|p| (p[0], p[1], p[2]) != bg).count()
     }
 
     #[test]
     fn a_box_is_drawn_and_the_background_survives_around_it() {
         let bg = (10, 10, 12);
         let (img, bounds, _) = render_scene(
-            200, 120, &[unit_box(false)], &[], v3(2.5, 2.0, -2.5), v3(0.0, 0.3, 0.0), bg,
-            (255, 255, 255), (128, 128, 128), (255, 210, 0), None, true,
+            200,
+            120,
+            &[unit_box(false)],
+            &[],
+            v3(2.5, 2.0, -2.5),
+            v3(0.0, 0.3, 0.0),
+            bg,
+            (255, 255, 255),
+            (128, 128, 128),
+            (255, 210, 0),
+            None,
+            true,
         );
         let drawn = count_non_bg(&img, bg);
         assert!(drawn > 200, "the box covers a real area, got {drawn} px");
@@ -848,20 +878,46 @@ mod tests {
         // is listed *after* the one in front of it.
         let bg = (10, 10, 12);
         let front = SceneBox {
-            min: v3(-2.0, 0.0, -1.2), max: v3(2.0, 2.0, -0.8),
-            color: (255, 0, 0), name: String::new(), size_label: String::new(),
-            selected: false, focus: false, cursor: false, partial: false, dim: false, fade: 1.0,
+            min: v3(-2.0, 0.0, -1.2),
+            max: v3(2.0, 2.0, -0.8),
+            color: (255, 0, 0),
+            name: String::new(),
+            size_label: String::new(),
+            selected: false,
+            focus: false,
+            cursor: false,
+            partial: false,
+            dim: false,
+            fade: 1.0,
             shape: Shape::Block,
         };
         let behind = SceneBox {
-            min: v3(-0.2, 0.0, 1.0), max: v3(0.2, 0.4, 1.4),
-            color: (0, 255, 0), name: String::new(), size_label: String::new(),
-            selected: false, focus: false, cursor: false, partial: false, dim: false, fade: 1.0,
+            min: v3(-0.2, 0.0, 1.0),
+            max: v3(0.2, 0.4, 1.4),
+            color: (0, 255, 0),
+            name: String::new(),
+            size_label: String::new(),
+            selected: false,
+            focus: false,
+            cursor: false,
+            partial: false,
+            dim: false,
+            fade: 1.0,
             shape: Shape::Block,
         };
         let (img, _, _) = render_scene(
-            160, 100, &[front, behind], &[], v3(0.0, 1.0, -6.0), v3(0.0, 0.6, 0.0), bg,
-            (255, 255, 255), (128, 128, 128), (255, 210, 0), None, true,
+            160,
+            100,
+            &[front, behind],
+            &[],
+            v3(0.0, 1.0, -6.0),
+            v3(0.0, 0.6, 0.0),
+            bg,
+            (255, 255, 255),
+            (128, 128, 128),
+            (255, 210, 0),
+            None,
+            true,
         );
         let green = img.pixels().filter(|p| p[1] > 120 && p[0] < 80).count();
         assert_eq!(green, 0, "the occluded box must not show through");
@@ -871,22 +927,48 @@ mod tests {
     fn a_nearer_box_wins_regardless_of_draw_order() {
         let bg = (0, 0, 0);
         let near = SceneBox {
-            min: v3(-0.6, 0.0, -1.6), max: v3(0.6, 1.2, -1.0),
-            color: (255, 0, 0), name: String::new(), size_label: String::new(),
-            selected: false, focus: false, cursor: false, partial: false, dim: false, fade: 1.0,
+            min: v3(-0.6, 0.0, -1.6),
+            max: v3(0.6, 1.2, -1.0),
+            color: (255, 0, 0),
+            name: String::new(),
+            size_label: String::new(),
+            selected: false,
+            focus: false,
+            cursor: false,
+            partial: false,
+            dim: false,
+            fade: 1.0,
             shape: Shape::Block,
         };
         let far = SceneBox {
-            min: v3(-0.6, 0.0, 1.0), max: v3(0.6, 1.2, 1.6),
-            color: (0, 0, 255), name: String::new(), size_label: String::new(),
-            selected: false, focus: false, cursor: false, partial: false, dim: false, fade: 1.0,
+            min: v3(-0.6, 0.0, 1.0),
+            max: v3(0.6, 1.2, 1.6),
+            color: (0, 0, 255),
+            name: String::new(),
+            size_label: String::new(),
+            selected: false,
+            focus: false,
+            cursor: false,
+            partial: false,
+            dim: false,
+            fade: 1.0,
             shape: Shape::Block,
         };
         // Draw the near one first: a painter's-algorithm renderer would let the
         // far box overwrite it. The depth buffer must not.
         let (img, _, _) = render_scene(
-            160, 100, &[near, far], &[], v3(0.0, 1.2, -6.0), v3(0.0, 0.6, 0.0), bg,
-            (255, 255, 255), (128, 128, 128), (255, 210, 0), None, true,
+            160,
+            100,
+            &[near, far],
+            &[],
+            v3(0.0, 1.2, -6.0),
+            v3(0.0, 0.6, 0.0),
+            bg,
+            (255, 255, 255),
+            (128, 128, 128),
+            (255, 210, 0),
+            None,
+            true,
         );
         let centre = img.get_pixel(80, 55);
         assert!(centre[0] > centre[2], "the nearer (red) box owns the centre");
@@ -905,11 +987,20 @@ mod tests {
             b.name = String::new();
             b.cursor = cursor;
             let (img, _, _) = render_scene(
-                200, 120, &[b], &[], eye, at, bg, (255, 255, 255), (128, 128, 128), (255, 210, 0), None, true,
+                200,
+                120,
+                &[b],
+                &[],
+                eye,
+                at,
+                bg,
+                (255, 255, 255),
+                (128, 128, 128),
+                (255, 210, 0),
+                None,
+                true,
             );
-            img.pixels()
-                .map(|p| p[0] as u64 * 2 + p[1] as u64 * 5 + p[2] as u64)
-                .sum()
+            img.pixels().map(|p| p[0] as u64 * 2 + p[1] as u64 * 5 + p[2] as u64).sum()
         };
         assert!(
             lum(true) > lum(false),
@@ -929,7 +1020,18 @@ mod tests {
             b.name = String::new();
             b.cursor = cursor;
             render_scene(
-                200, 120, &[b], &[], eye, at, bg, (255, 255, 255), (128, 128, 128), (255, 210, 0), None, true,
+                200,
+                120,
+                &[b],
+                &[],
+                eye,
+                at,
+                bg,
+                (255, 255, 255),
+                (128, 128, 128),
+                (255, 210, 0),
+                None,
+                true,
             )
         };
         let (plain, bounds, _) = render(false);
@@ -958,8 +1060,18 @@ mod tests {
         let bg = (0, 0, 0);
         for (w, h) in [(0u32, 0u32), (1, 1), (1, 40), (40, 1)] {
             let _ = render_scene(
-                w, h, &[unit_box(true)], &[], v3(2.0, 2.0, -2.0), v3(0.0, 0.0, 0.0), bg,
-                (255, 255, 255), (128, 128, 128), (255, 210, 0), None, true,
+                w,
+                h,
+                &[unit_box(true)],
+                &[],
+                v3(2.0, 2.0, -2.0),
+                v3(0.0, 0.0, 0.0),
+                bg,
+                (255, 255, 255),
+                (128, 128, 128),
+                (255, 210, 0),
+                None,
+                true,
             );
         }
     }
@@ -970,8 +1082,18 @@ mod tests {
         // wild coordinates.
         let bg = (0, 0, 0);
         let _ = render_scene(
-            80, 60, &[unit_box(false)], &[], v3(0.0, 0.5, 0.0), v3(1.0, 0.5, 0.0), bg,
-            (255, 255, 255), (128, 128, 128), (255, 210, 0), None, true,
+            80,
+            60,
+            &[unit_box(false)],
+            &[],
+            v3(0.0, 0.5, 0.0),
+            v3(1.0, 0.5, 0.0),
+            bg,
+            (255, 255, 255),
+            (128, 128, 128),
+            (255, 210, 0),
+            None,
+            true,
         );
     }
 
@@ -980,10 +1102,34 @@ mod tests {
         let bg = (10, 10, 12);
         let eye = v3(2.5, 2.0, -2.5);
         let at = v3(0.0, 0.3, 0.0);
-        let (plain, ..) =
-            render_scene(200, 120, &[unit_box(false)], &[], eye, at, bg, (255, 255, 255), (128, 128, 128), (255, 210, 0), None, true);
-        let (sel, ..) =
-            render_scene(200, 120, &[unit_box(true)], &[], eye, at, bg, (255, 255, 255), (128, 128, 128), (255, 210, 0), None, true);
+        let (plain, ..) = render_scene(
+            200,
+            120,
+            &[unit_box(false)],
+            &[],
+            eye,
+            at,
+            bg,
+            (255, 255, 255),
+            (128, 128, 128),
+            (255, 210, 0),
+            None,
+            true,
+        );
+        let (sel, ..) = render_scene(
+            200,
+            120,
+            &[unit_box(true)],
+            &[],
+            eye,
+            at,
+            bg,
+            (255, 255, 255),
+            (128, 128, 128),
+            (255, 210, 0),
+            None,
+            true,
+        );
         let lum = |i: &RgbaImage| -> u64 {
             i.pixels().map(|p| p[0] as u64 + p[1] as u64 + p[2] as u64).sum()
         };
@@ -996,7 +1142,21 @@ mod tests {
     fn label_ink(boxes: &[SceneBox], eye: V3, at: V3) -> u64 {
         let bg = (10, 10, 12);
         let render = |bs: &[SceneBox]| {
-            render_scene(260, 160, bs, &[], eye, at, bg, (255, 255, 255), (128, 128, 128), (255, 210, 0), None, true).0
+            render_scene(
+                260,
+                160,
+                bs,
+                &[],
+                eye,
+                at,
+                bg,
+                (255, 255, 255),
+                (128, 128, 128),
+                (255, 210, 0),
+                None,
+                true,
+            )
+            .0
         };
         let bare: Vec<SceneBox> = boxes
             .iter()
@@ -1075,8 +1235,18 @@ mod tests {
     fn a_label_is_budgeted_against_the_roof_width_not_its_squashed_height() {
         let b = labelled_box("alpha", 0.5, false);
         let (_, _, slots) = render_scene(
-            260, 160, std::slice::from_ref(&b), &[], v3(2.5, 2.0, -2.5), v3(0.0, 0.4, 0.0),
-            (10, 10, 12), (255, 255, 255), (128, 128, 128), (255, 210, 0), None, false,
+            260,
+            160,
+            std::slice::from_ref(&b),
+            &[],
+            v3(2.5, 2.0, -2.5),
+            v3(0.0, 0.4, 0.0),
+            (10, 10, 12),
+            (255, 255, 255),
+            (128, 128, 128),
+            (255, 210, 0),
+            None,
+            false,
         );
         let s = slots.first().expect("a slot");
         assert!(s.half_w >= s.half, "width is never the smaller of the two");
@@ -1180,31 +1350,16 @@ mod tests {
     fn every_shape_turns_its_faces_outward() {
         let (min, max) = (v3(-0.5, 0.0, -0.5), v3(0.5, 1.0, 0.5));
         let centre = min.add(max).scale(0.5);
-        for shape in [
-            Shape::Block,
-            Shape::Sheet,
-            Shape::Drum,
-            Shape::Frustum,
-            Shape::Wedge,
-            Shape::Pyramid,
-        ] {
+        for shape in
+            [Shape::Block, Shape::Sheet, Shape::Drum, Shape::Frustum, Shape::Wedge, Shape::Pyramid]
+        {
             let faces = shape_faces(shape, min, max);
-            assert!(
-                faces.len() >= 4,
-                "{shape:?} is not a solid: {} faces",
-                faces.len()
-            );
+            assert!(faces.len() >= 4, "{shape:?} is not a solid: {} faces", faces.len());
             for (quad, n) in &faces {
-                assert!(
-                    (n.len() - 1.0).abs() < 1e-3,
-                    "{shape:?} has an unnormalised normal"
-                );
+                assert!((n.len() - 1.0).abs() < 1e-3, "{shape:?} has an unnormalised normal");
                 // A face's own centre, measured from the middle of the solid,
                 // must lie along its normal rather than against it.
-                let fc = quad
-                    .iter()
-                    .fold(v3(0.0, 0.0, 0.0), |a, &p| a.add(p))
-                    .scale(0.25);
+                let fc = quad.iter().fold(v3(0.0, 0.0, 0.0), |a, &p| a.add(p)).scale(0.25);
                 let out = fc.sub(centre);
                 assert!(
                     n.dot(out) > -1e-4,
@@ -1218,13 +1373,7 @@ mod tests {
     #[test]
     fn every_shape_stays_inside_the_box_it_was_given() {
         let (min, max) = (v3(-0.5, 0.0, -0.5), v3(0.5, 1.0, 0.5));
-        for shape in [
-            Shape::Sheet,
-            Shape::Drum,
-            Shape::Frustum,
-            Shape::Wedge,
-            Shape::Pyramid,
-        ] {
+        for shape in [Shape::Sheet, Shape::Drum, Shape::Frustum, Shape::Wedge, Shape::Pyramid] {
             for (quad, _) in shape_faces(shape, min, max) {
                 for p in quad {
                     assert!(
@@ -1245,14 +1394,9 @@ mod tests {
     #[test]
     fn every_shape_reaches_the_full_height_of_its_box() {
         let (min, max) = (v3(-0.5, 0.0, -0.5), v3(0.5, 1.0, 0.5));
-        for shape in [
-            Shape::Block,
-            Shape::Sheet,
-            Shape::Drum,
-            Shape::Frustum,
-            Shape::Wedge,
-            Shape::Pyramid,
-        ] {
+        for shape in
+            [Shape::Block, Shape::Sheet, Shape::Drum, Shape::Frustum, Shape::Wedge, Shape::Pyramid]
+        {
             let top = shape_faces(shape, min, max)
                 .iter()
                 .flat_map(|(q, _)| q.iter().map(|p| p.y))
@@ -1299,20 +1443,11 @@ mod tests {
             count_non_bg(&img, bg)
         };
         let block = drawn(Shape::Block);
-        for shape in [
-            Shape::Sheet,
-            Shape::Drum,
-            Shape::Frustum,
-            Shape::Wedge,
-            Shape::Pyramid,
-        ] {
+        for shape in [Shape::Sheet, Shape::Drum, Shape::Frustum, Shape::Wedge, Shape::Pyramid] {
             let n = drawn(shape);
             assert!(n > 0, "{shape:?} drew nothing at all");
             let diff = (n as f32 - block as f32).abs() / block as f32;
-            assert!(
-                diff > 0.05,
-                "{shape:?} covers all but {diff:.3} of what a block does"
-            );
+            assert!(diff > 0.05, "{shape:?} covers all but {diff:.3} of what a block does");
         }
     }
 
@@ -1331,10 +1466,7 @@ mod tests {
         }
         let lo = rows.iter().copied().fold(f32::MAX, f32::min);
         let hi = rows.iter().copied().fold(f32::MIN, f32::max);
-        assert!(
-            hi - lo < 0.05,
-            "the horizon wanders as the camera turns: {lo}..{hi}"
-        );
+        assert!(hi - lo < 0.05, "the horizon wanders as the camera turns: {lo}..{hi}");
     }
 
     #[test]
@@ -1345,10 +1477,7 @@ mod tests {
             let eye = v3(0.0, pitch.sin() * 3.0, -pitch.cos() * 3.0);
             horizon_row(&vec3::look_at(eye, target, v3(0.0, 1.0, 0.0)), focal, 200.0)
         };
-        assert!(
-            row_at(0.6) < row_at(0.2),
-            "a higher camera sees more ground"
-        );
+        assert!(row_at(0.6) < row_at(0.2), "a higher camera sees more ground");
     }
 
     #[test]
@@ -1389,23 +1518,14 @@ mod tests {
         );
         // Nothing is left showing the flat background: the backdrop covers every
         // pixel the geometry does not.
-        let flat = img
-            .pixels()
-            .filter(|p| (p[0], p[1], p[2]) == (10, 10, 12))
-            .count();
-        assert_eq!(
-            flat, 0,
-            "the plain background must not show through the backdrop"
-        );
+        let flat = img.pixels().filter(|p| (p[0], p[1], p[2]) == (10, 10, 12)).count();
+        assert_eq!(flat, 0, "the plain background must not show through the backdrop");
         // Bluer up top than down below — that is the sky/ground split.
         let blueness = |y: u32| {
             let p = img.get_pixel(100, y);
             p[2] as i32 - p[1] as i32
         };
-        assert!(
-            blueness(4) > blueness(196),
-            "the sky is above and the ground below"
-        );
+        assert!(blueness(4) > blueness(196), "the sky is above and the ground below");
         // And the box still wins over both.
         assert!(
             img.pixels().any(|p| p[0] > 180 && p[1] < 80),
@@ -1413,6 +1533,3 @@ mod tests {
         );
     }
 }
-
-
-

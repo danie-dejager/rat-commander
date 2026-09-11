@@ -395,10 +395,10 @@ impl Space3d {
         let sel = self.sel_path.clone();
 
         let push = |nodes: &mut Vec<SceneNode>,
-                        kids: &mut Vec<Vec<usize>>,
-                        below: &mut Vec<u8>,
-                        n: SceneNode,
-                        lvl: u8| {
+                    kids: &mut Vec<Vec<usize>>,
+                    below: &mut Vec<u8>,
+                    n: SceneNode,
+                    lvl: u8| {
             nodes.push(n);
             kids.push(Vec::new());
             below.push(lvl);
@@ -448,8 +448,14 @@ impl Space3d {
             }
             let ppath = nodes[i].path.clone();
             let cap = child_cap(below[i]);
-            for k in children_to_draw(tree, &ppath, cap, &self.focus, sel.as_deref(), self.cursor.as_deref())
-            {
+            for k in children_to_draw(
+                tree,
+                &ppath,
+                cap,
+                &self.focus,
+                sel.as_deref(),
+                self.cursor.as_deref(),
+            ) {
                 if nodes.len() >= MAX_NODES {
                     break;
                 }
@@ -467,11 +473,7 @@ impl Space3d {
             // Only the focus and its children carry files; see `file_cap`.
             let mut budget = MAX_FILE_SOLIDS;
             for i in 0..nodes.len() {
-                let cap = if nodes[i].context {
-                    0
-                } else {
-                    file_cap(below[i])
-                };
+                let cap = if nodes[i].context { 0 } else { file_cap(below[i]) };
                 let cap = cap.min(budget);
                 if cap == 0 {
                     continue;
@@ -521,10 +523,9 @@ impl Space3d {
                 continue;
             }
             let start = match self.nodes[i].parent {
-                Some(p) => self
-                    .shown
-                    .get(&self.nodes[p].path)
-                    .map_or(self.nodes[p].target, |s| s.pos),
+                Some(p) => {
+                    self.shown.get(&self.nodes[p].path).map_or(self.nodes[p].target, |s| s.pos)
+                }
                 None => self.nodes[i].target,
             };
             self.shown
@@ -602,10 +603,7 @@ impl Space3d {
             if fsn {
                 let h = n.target_plat;
                 let top = PLATFORM_H + if n.files.is_empty() { 0.0 } else { FILE_H_MAX };
-                (
-                    v3(n.target.x - h, 0.0, n.target.z - h),
-                    v3(n.target.x + h, top, n.target.z + h),
-                )
+                (v3(n.target.x - h, 0.0, n.target.z - h), v3(n.target.x + h, top, n.target.z + h))
             } else {
                 let h = n.target_half;
                 (
@@ -625,11 +623,7 @@ impl Space3d {
         // Aim a little above the ground in the fsn style, so the camera looks
         // *across* the scene rather than down at the plane it stands on — which
         // is what keeps the horizon in frame.
-        self.goal.target = if fsn {
-            v3(centre.x, hi.y.max(0.12), centre.z)
-        } else {
-            centre
-        };
+        self.goal.target = if fsn { v3(centre.x, hi.y.max(0.12), centre.z) } else { centre };
         self.fit_radius = hi.sub(lo).scale(0.5).len().max(0.35);
         self.fit_pts = boxes;
         self.refit();
@@ -673,10 +667,7 @@ impl Space3d {
     /// converges.
     fn refit(&mut self) {
         let guess = fit_dist(self.fit_radius, self.aspect);
-        let fill = |d: f32| {
-            self.projected_fill(d)
-                .filter(|f| f.is_finite() && *f > 1e-4)
-        };
+        let fill = |d: f32| self.projected_fill(d).filter(|f| f.is_finite() && *f > 1e-4);
         let mut d = guess;
         if let Some(f0) = fill(guess) {
             // Bracket the target: `fill` falls as the camera pulls back, so walk
@@ -734,10 +725,7 @@ impl Space3d {
         // A nominal raster of the right shape: only the ratio matters here.
         let (fw, fh) = (1000.0 * self.aspect.max(0.05), 1000.0f32);
         let focal = vec3::focal_for(fh, raster3d::FOV_Y);
-        let pose = CamPose {
-            dist: d,
-            ..self.goal
-        };
+        let pose = CamPose { dist: d, ..self.goal };
         let basis = vec3::look_at(pose.eye(), pose.target, v3(0.0, 1.0, 0.0));
         let (mut x0, mut y0) = (f32::MAX, f32::MAX);
         let (mut x1, mut y1) = (f32::MIN, f32::MIN);
@@ -799,10 +787,11 @@ impl Space3d {
         let f = 1.0 - (-dt / FADE_TAU).exp();
 
         for n in &self.nodes {
-            let cur = self
-                .shown
-                .entry(n.path.clone())
-                .or_insert(Shown { pos: n.target, half: 0.0, fade: 0.0 });
+            let cur = self.shown.entry(n.path.clone()).or_insert(Shown {
+                pos: n.target,
+                half: 0.0,
+                fade: 0.0,
+            });
             cur.pos = cur.pos.lerp(n.target, t);
             cur.half += (n.target_half - cur.half) * t;
             cur.fade += (1.0 - cur.fade) * f;
@@ -887,11 +876,7 @@ impl Space3d {
                     let lift = PLATFORM_H * (h / n.target_plat.max(1e-4)).clamp(0.0, 1.0);
                     (v3(p.x - h, 0.0, p.z - h), v3(p.x + h, lift, p.z + h), c)
                 } else {
-                    (
-                        v3(p.x - h, p.y - h, p.z - h),
-                        v3(p.x + h, p.y + h, p.z + h),
-                        base,
-                    )
+                    (v3(p.x - h, p.y - h, p.z - h), v3(p.x + h, p.y + h, p.z + h), base)
                 };
                 SceneBox {
                     name: n.name.clone(),
@@ -1122,19 +1107,13 @@ impl Space3d {
 /// and see the platforms from underneath.
 fn default_pose(style: Space3dStyle) -> CamPose {
     match style {
-        Space3dStyle::Cubes => CamPose {
-            target: v3(0.0, -LEVEL_DY, 0.0),
-            dist: 3.6,
-            yaw: -2.0,
-            pitch: 0.62,
-        },
+        Space3dStyle::Cubes => {
+            CamPose { target: v3(0.0, -LEVEL_DY, 0.0), dist: 3.6, yaw: -2.0, pitch: 0.62 }
+        }
         // Looking along +Z, the direction the tree grows in.
-        Space3dStyle::Fsn => CamPose {
-            target: v3(0.0, 0.0, 0.0),
-            dist: 3.6,
-            yaw: -FRAC_PI_2,
-            pitch: 0.34,
-        },
+        Space3dStyle::Fsn => {
+            CamPose { target: v3(0.0, 0.0, 0.0), dist: 3.6, yaw: -FRAC_PI_2, pitch: 0.34 }
+        }
     }
 }
 
@@ -1187,24 +1166,13 @@ fn place(nodes: &mut [SceneNode], kids: &[Vec<usize>]) {
         // below its parent, so it can be found at a glance. Only when it is not
         // one of these children does the widest subtree get the middle — which
         // is the arrangement that actually needs the room.
-        let big = k
-            .iter()
-            .copied()
-            .find(|&c| nodes[c].is_focus)
-            .unwrap_or_else(|| {
-                k.iter()
-                    .copied()
-                    .max_by(|&a, &b| extent[a].total_cmp(&extent[b]))
-                    .expect("non-empty")
-            });
+        let big = k.iter().copied().find(|&c| nodes[c].is_focus).unwrap_or_else(|| {
+            k.iter().copied().max_by(|&a, &b| extent[a].total_cmp(&extent[b])).expect("non-empty")
+        });
         centre_child[i] = big;
         let rest = k.len() - 1;
-        let widest_other = k
-            .iter()
-            .copied()
-            .filter(|&c| c != big)
-            .map(|c| extent[c])
-            .fold(BOX_MIN, f32::max);
+        let widest_other =
+            k.iter().copied().filter(|&c| c != big).map(|c| extent[c]).fold(BOX_MIN, f32::max);
         if rest == 0 {
             extent[i] = extent[big].max(nodes[i].target_half);
             continue;
@@ -1276,17 +1244,9 @@ fn scale_boxes(nodes: &mut [SceneNode]) {
     // inside it, and squashes the whole of the contents onto the floor. A
     // directory of six roughly equal subdirectories would render as six boxes at
     // the minimum size, which says nothing at all.
-    let subject: Vec<f32> = nodes
-        .iter()
-        .filter(|n| !n.context && !n.is_focus)
-        .map(|n| (1 + n.size) as f32)
-        .collect();
-    let lo = subject
-        .iter()
-        .copied()
-        .fold(f32::MAX, f32::min)
-        .max(1.0)
-        .log2();
+    let subject: Vec<f32> =
+        nodes.iter().filter(|n| !n.context && !n.is_focus).map(|n| (1 + n.size) as f32).collect();
+    let lo = subject.iter().copied().fold(f32::MAX, f32::min).max(1.0).log2();
     let hi = subject.iter().copied().fold(1.0f32, f32::max).log2();
     let span = (hi - lo).max(1e-3);
     for n in nodes.iter_mut() {
@@ -1303,11 +1263,7 @@ fn scale_boxes(nodes: &mut [SceneNode]) {
         }
         // A flat range (every directory the same size) sits mid-scale rather
         // than all at the floor.
-        let t = if hi - lo < 1e-3 {
-            0.5
-        } else {
-            (((1 + n.size) as f32).log2() - lo) / span
-        };
+        let t = if hi - lo < 1e-3 { 0.5 } else { (((1 + n.size) as f32).log2() - lo) / span };
         n.target_half = BOX_MIN + (BOX_MAX - BOX_MIN) * t.clamp(0.0, 1.0);
     }
 }
@@ -1328,21 +1284,14 @@ fn own_files(tree: &crate::sizes::SizeTree, path: &Path, cap: usize) -> Vec<File
         .iter()
         .filter(|f| !f.rel.contains(std::path::MAIN_SEPARATOR) && !f.rel.contains('/'))
         .take(cap)
-        .map(|f| FileSolid {
-            name: f.rel.clone(),
-            size: f.size,
-        })
+        .map(|f| FileSolid { name: f.rel.clone(), size: f.size })
         .collect()
 }
 
 /// Columns the file grid on a platform is laid out in — as square as it can be,
 /// so the grid stays roughly square whatever it is holding.
 fn grid_cols(n: usize) -> usize {
-    if n == 0 {
-        0
-    } else {
-        (n as f64).sqrt().ceil() as usize
-    }
+    if n == 0 { 0 } else { (n as f64).sqrt().ceil() as usize }
 }
 
 /// Spacing of a platform's file grid, given its footprint and column count.
@@ -1363,17 +1312,9 @@ fn grid_step(plat_half: f32, cols: usize) -> f32 {
 /// reason; the difference is that a platform has a second, harder requirement —
 /// it must physically hold its grid — so the two are maxed together.
 fn scale_platforms(nodes: &mut [SceneNode]) {
-    let subject: Vec<f32> = nodes
-        .iter()
-        .filter(|n| !n.context)
-        .map(|n| (1 + n.size) as f32)
-        .collect();
-    let lo = subject
-        .iter()
-        .copied()
-        .fold(f32::MAX, f32::min)
-        .max(1.0)
-        .log2();
+    let subject: Vec<f32> =
+        nodes.iter().filter(|n| !n.context).map(|n| (1 + n.size) as f32).collect();
+    let lo = subject.iter().copied().fold(f32::MAX, f32::min).max(1.0).log2();
     let hi = subject.iter().copied().fold(1.0f32, f32::max).log2();
     let span = (hi - lo).max(1e-3);
     for n in nodes.iter_mut() {
@@ -1381,11 +1322,7 @@ fn scale_platforms(nodes: &mut [SceneNode]) {
             // A signpost, not a container — fixed and small, as in Cubes.
             PLATFORM_MIN * 0.8
         } else {
-            let t = if hi - lo < 1e-3 {
-                0.5
-            } else {
-                (((1 + n.size) as f32).log2() - lo) / span
-            };
+            let t = if hi - lo < 1e-3 { 0.5 } else { (((1 + n.size) as f32).log2() - lo) / span };
             PLATFORM_MIN + (PLATFORM_MAX - PLATFORM_MIN) * t.clamp(0.0, 1.0)
         };
         n.target_plat = by_size;
@@ -1434,11 +1371,7 @@ fn place_fsn(nodes: &mut [SceneNode], kids: &[Vec<usize>]) {
             k.iter().map(|&c| span[c]).sum::<f32>() + gap * k.len().saturating_sub(1) as f32;
         // A short hop for the signpost above; it should read as attached to the
         // focus, not as another level of contents.
-        let dz = if nodes[i].context {
-            FSN_ROW_GAP * 0.6
-        } else {
-            FSN_ROW_GAP
-        };
+        let dz = if nodes[i].context { FSN_ROW_GAP * 0.6 } else { FSN_ROW_GAP };
         let mut x = p.x - total * 0.5;
         for c in k {
             nodes[c].target = v3(x + span[c] * 0.5, 0.0, p.z + dz);

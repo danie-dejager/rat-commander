@@ -232,7 +232,13 @@ impl DriveDialog {
         DialogResult::None
     }
 
-    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
+    pub(crate) fn render(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        theme: &Theme,
+        gfx: Option<&mut Gfx>,
+    ) {
         let mut gfx = gfx;
         const DCELL: usize = 5; // "  X  " drive cell
         const GAP: usize = 1;
@@ -241,11 +247,8 @@ impl DriveDialog {
         let avail = (area.width.saturating_sub(8) as usize).max(DCELL);
         let dcols = (((avail + GAP) / (DCELL + GAP)).max(1)).min(self.drive_count.max(1));
         let drive_rows = if self.has_drives() { self.drive_count.div_ceil(dcols) } else { 0 };
-        let drive_w = if self.has_drives() {
-            dcols * DCELL + dcols.saturating_sub(1) * GAP
-        } else {
-            0
-        };
+        let drive_w =
+            if self.has_drives() { dcols * DCELL + dcols.saturating_sub(1) * GAP } else { 0 };
 
         // Width of each below-grid row (Local, session pairs, connect row).
         let row_width = |this: &Self, row: &[usize]| -> usize {
@@ -270,10 +273,7 @@ impl DriveDialog {
         let block = dialog_block(title, theme);
         let inner = block.inner(rect);
         f.render_widget(block, rect);
-        f.render_widget(
-            Paragraph::new("").style(Style::default().bg(theme.dialog_bg)),
-            inner,
-        );
+        f.render_widget(Paragraph::new("").style(Style::default().bg(theme.dialog_bg)), inner);
 
         let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
         let accent = base.fg(theme.hotkey_fg).add_modifier(Modifier::BOLD);

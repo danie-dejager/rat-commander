@@ -85,9 +85,5 @@ pub fn spawn_op(id: TaskId, req: OpRequest, tx: AppSender) -> TaskHandle {
         let outcome = engine::run(id, req, tx, task_cancel, reply_rx).await;
         let _ = done_tx.send(AppEvent::TaskDone { id, outcome }).await;
     });
-    TaskHandle {
-        id,
-        cancel,
-        reply: reply_tx,
-    }
+    TaskHandle { id, cancel, reply: reply_tx }
 }

@@ -90,7 +90,8 @@ impl ConfirmDialog {
         } else {
             format!("Permanently delete {} selected items?", targets.len())
         };
-        let mut d = Self::yes_no("Delete", message, Submit::Delete(targets), "Delete", "Cancel", None);
+        let mut d =
+            Self::yes_no("Delete", message, Submit::Delete(targets), "Delete", "Cancel", None);
         d.danger = true;
         d.focus = 1; // default to Cancel: this is the irreversible one
         d
@@ -295,7 +296,11 @@ impl ConfirmDialog {
             spec.image_name,
             human_size(spec.image_size),
         );
-        Self::from_buttons("Flash image", msg, vec![("Flash", Some(Submit::DoFlash(spec))), ("Cancel", None)])
+        Self::from_buttons(
+            "Flash image",
+            msg,
+            vec![("Flash", Some(Submit::DoFlash(spec))), ("Cancel", None)],
+        )
     }
 
     /// Loud red warning before flashing a *non-removable* device (likely a fixed
@@ -336,10 +341,7 @@ impl ConfirmDialog {
             "The operation is still in progress. Resume, or abort and discard \
              what has been written so far?"
                 .to_string(),
-            vec![
-                ("Resume", Some(Submit::FlashResume)),
-                ("Abort", Some(Submit::FlashAbort(id))),
-            ],
+            vec![("Resume", Some(Submit::FlashResume)), ("Abort", Some(Submit::FlashAbort(id)))],
         );
         d.danger = true;
         d.focus = 0; // Resume (the safe choice)
@@ -393,12 +395,13 @@ impl ConfirmDialog {
 
     /// Final (destructive) confirmation before formatting a device.
     pub fn format(spec: crate::mount::FormatSpec) -> Self {
-        let msg = format!(
-            "ERASE ALL DATA on {} and create a {} filesystem?",
-            spec.dev,
-            spec.fs.label()
-        );
-        Self::from_buttons("Format", msg, vec![("Format", Some(Submit::DoFormat(spec))), ("Cancel", None)])
+        let msg =
+            format!("ERASE ALL DATA on {} and create a {} filesystem?", spec.dev, spec.fs.label());
+        Self::from_buttons(
+            "Format",
+            msg,
+            vec![("Format", Some(Submit::DoFormat(spec))), ("Cancel", None)],
+        )
     }
 
     /// Confirm permanently disconnecting a remote session.
@@ -572,8 +575,8 @@ impl ConfirmDialog {
             return DialogResult::None;
         }
         let labels = self.button_labels();
-        let total: usize =
-            labels.iter().map(|l| l.chars().count()).sum::<usize>() + 3 * labels.len().saturating_sub(1);
+        let total: usize = labels.iter().map(|l| l.chars().count()).sum::<usize>()
+            + 3 * labels.len().saturating_sub(1);
         let inner_x = rect.x + 1;
         let inner_w = rect.width.saturating_sub(2) as usize;
         let mut x = inner_x + (inner_w.saturating_sub(total) / 2) as u16;
@@ -620,9 +623,13 @@ impl ConfirmDialog {
         f.render_widget(
             Paragraph::new(self.message.clone())
                 .wrap(Wrap { trim: true })
-                .style(Style::default().fg(msg_fg).bg(theme.dialog_bg).add_modifier(
-                    if self.danger { Modifier::BOLD } else { Modifier::empty() },
-                ))
+                .style(
+                    Style::default().fg(msg_fg).bg(theme.dialog_bg).add_modifier(if self.danger {
+                        Modifier::BOLD
+                    } else {
+                        Modifier::empty()
+                    }),
+                )
                 .alignment(ratatui::layout::Alignment::Center),
             rows[0],
         );
@@ -667,7 +674,6 @@ impl ConfirmDialog {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -689,9 +695,6 @@ mod tests {
         // Moving to the second button and confirming quits this instance.
         let mut d = ConfirmDialog::subshell_nested();
         d.handle_key(press(KeyCode::Right)); // focus → Quit
-        assert!(matches!(
-            d.handle_key(press(KeyCode::Enter)),
-            DialogResult::Submit(Submit::Quit)
-        ));
+        assert!(matches!(d.handle_key(press(KeyCode::Enter)), DialogResult::Submit(Submit::Quit)));
     }
 }

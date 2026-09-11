@@ -148,7 +148,8 @@ impl Engine {
                     // destination already exists so the copy path's overwrite
                     // prompt can run instead of silently clobbering/merging.
                     let dst_exists = dst_fs.stat(&dst).await.is_ok();
-                    if is_move && same_backend && !dst_exists && dst_fs.capabilities().server_rename {
+                    if is_move && same_backend && !dst_exists && dst_fs.capabilities().server_rename
+                    {
                         // Count the subtree before it is renamed away so the
                         // progress counters stay consistent.
                         let mut files = 0u64;
@@ -189,10 +190,8 @@ impl Engine {
     /// walks them in order and reuses the ordinary copy/delete paths, which brings
     /// the overwrite policy, cancellation and progress with them.
     async fn execute_sync(&mut self, req: &OpRequest) -> Result<()> {
-        let dst_fs = req
-            .dst_fs
-            .clone()
-            .ok_or_else(|| Error::other("destination backend missing"))?;
+        let dst_fs =
+            req.dst_fs.clone().ok_or_else(|| Error::other("destination backend missing"))?;
         // Side 0 is the source panel's backend, side 1 the destination's.
         let fs_of = |side: usize| if side == 0 { req.src_fs.clone() } else { dst_fs.clone() };
 
@@ -226,8 +225,7 @@ impl Engine {
                     if let Some(parent) = dst.parent() {
                         let _ = dst_fs.mkdir(&parent).await;
                     }
-                    let copied =
-                        self.copy_tree(&src_fs, src.clone(), &dst_fs, dst.clone()).await?;
+                    let copied = self.copy_tree(&src_fs, src.clone(), &dst_fs, dst.clone()).await?;
                     // Give the copy its source's timestamp, so the next run sees
                     // the two as identical instead of copying it again forever
                     // (and, two-way, bouncing it back). Best-effort: a backend
@@ -249,7 +247,11 @@ impl Engine {
     }
 
     /// Recursively accumulate file count and byte totals.
-    fn scan<'a>(&'a mut self, fs: &'a Arc<dyn Vfs>, path: &'a VfsPath) -> BoxFuture<'a, Result<()>> {
+    fn scan<'a>(
+        &'a mut self,
+        fs: &'a Arc<dyn Vfs>,
+        path: &'a VfsPath,
+    ) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
             let entry = fs.stat(path).await?;
             match entry.kind {
@@ -320,7 +322,9 @@ impl Engine {
                 _ => {
                     // Resolve a conflict if the destination file already exists.
                     let action = match dst_fs.stat(&dst).await {
-                        Ok(dst_entry) => self.resolve_conflict(&src, &entry, &dst, &dst_entry).await?,
+                        Ok(dst_entry) => {
+                            self.resolve_conflict(&src, &entry, &dst, &dst_entry).await?
+                        }
                         Err(_) => CopyAction::Overwrite, // no existing file
                     };
                     match action {
@@ -334,7 +338,13 @@ impl Engine {
                         }
                         CopyAction::Overwrite => {
                             self.copy_file(
-                                src_fs, &src, dst_fs, &dst, entry.size, entry.mode, entry.mtime,
+                                src_fs,
+                                &src,
+                                dst_fs,
+                                &dst,
+                                entry.size,
+                                entry.mode,
+                                entry.mtime,
                                 false,
                             )
                             .await?;
@@ -342,7 +352,13 @@ impl Engine {
                         }
                         CopyAction::Append => {
                             self.copy_file(
-                                src_fs, &src, dst_fs, &dst, entry.size, entry.mode, entry.mtime,
+                                src_fs,
+                                &src,
+                                dst_fs,
+                                &dst,
+                                entry.size,
+                                entry.mode,
+                                entry.mtime,
                                 true,
                             )
                             .await?;
@@ -395,7 +411,9 @@ impl Engine {
             return Err(Error::Cancelled);
         }
         match self.reply_rx.recv().await {
-            Some(TaskReply::Overwrite(OverwriteDecision::OverwriteOnce)) => Ok(CopyAction::Overwrite),
+            Some(TaskReply::Overwrite(OverwriteDecision::OverwriteOnce)) => {
+                Ok(CopyAction::Overwrite)
+            }
             Some(TaskReply::Overwrite(OverwriteDecision::SkipOnce)) => Ok(CopyAction::Skip),
             Some(TaskReply::Overwrite(OverwriteDecision::AppendOnce)) => Ok(CopyAction::Append),
             Some(TaskReply::Overwrite(OverwriteDecision::Policy { rule, skip_empty })) => {
@@ -428,12 +446,7 @@ impl Engine {
             };
         }
 
-        let info = DeniedInfo {
-            id: self.id,
-            path: path.display(),
-            verb: self.verb,
-            escalatable,
-        };
+        let info = DeniedInfo { id: self.id, path: path.display(), verb: self.verb, escalatable };
         if self.tx.send(crate::app::event::AppEvent::PermissionDenied(info)).await.is_err() {
             return Err(Error::Cancelled);
         }
@@ -534,12 +547,7 @@ impl Engine {
         self.emit(true);
 
         let mut reader = src_fs.open_read(src).await?;
-        let meta = WriteMeta {
-            size_hint: Some(size),
-            mode,
-            mtime: None,
-            append,
-        };
+        let meta = WriteMeta { size_hint: Some(size), mode, mtime: None, append };
         let mut writer = match dst_fs.open_write(dst, meta).await {
             Ok(w) => w,
             Err(e) => return Err(e),
@@ -684,11 +692,7 @@ impl Engine {
     }
 
     fn check_cancel(&self) -> Result<()> {
-        if self.cancel.is_cancelled() {
-            Err(Error::Cancelled)
-        } else {
-            Ok(())
-        }
+        if self.cancel.is_cancelled() { Err(Error::Cancelled) } else { Ok(()) }
     }
 
     /// Emit a progress snapshot, throttled unless `force`.
@@ -764,17 +768,16 @@ fn count_tree<'a>(
 mod tests {
     use super::*;
     use crate::ops::{OpKind, OpRequest};
-    use crate::util::async_bridge;
     use crate::trash::test_home::TempHome;
+    use crate::util::async_bridge;
     use crate::vfs::local::LocalFs;
     use std::path::PathBuf;
 
     fn unique_dir(tag: &str) -> PathBuf {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("rc_test_{tag}_{}_{nanos}", std::process::id()));
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("rc_test_{tag}_{}_{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -807,14 +810,8 @@ mod tests {
         let outcome = run(1, req, tx, CancelToken::new(), reply_rx).await;
         assert!(matches!(outcome, TaskOutcome::Done), "outcome: {outcome:?}");
 
-        assert_eq!(
-            std::fs::read(dst_dir.join("src/a.txt")).unwrap(),
-            b"hello world"
-        );
-        assert_eq!(
-            std::fs::read(dst_dir.join("src/sub/b.bin")).unwrap().len(),
-            5000
-        );
+        assert_eq!(std::fs::read(dst_dir.join("src/a.txt")).unwrap(), b"hello world");
+        assert_eq!(std::fs::read(dst_dir.join("src/sub/b.bin")).unwrap().len(), 5000);
 
         std::fs::remove_dir_all(&root).ok();
     }
@@ -981,10 +978,7 @@ mod tests {
 
     #[tokio::test]
     async fn overwrite_decision_replaces_destination() {
-        assert_eq!(
-            copy_with_conflict(OverwriteDecision::OverwriteOnce).await,
-            b"NEWDATA"
-        );
+        assert_eq!(copy_with_conflict(OverwriteDecision::OverwriteOnce).await, b"NEWDATA");
     }
 
     #[tokio::test]
@@ -994,10 +988,7 @@ mod tests {
 
     #[tokio::test]
     async fn append_decision_appends_to_destination() {
-        assert_eq!(
-            copy_with_conflict(OverwriteDecision::AppendOnce).await,
-            b"OLDNEWDATA"
-        );
+        assert_eq!(copy_with_conflict(OverwriteDecision::AppendOnce).await, b"OLDNEWDATA");
     }
 
     #[tokio::test]
@@ -1017,7 +1008,7 @@ mod tests {
                 sources: vec![VfsPath::local(&file)],
                 dst_fs: Some(fs.clone()),
                 dst_dir: Some(VfsPath::local(&root)),
-            dst_name: None,
+                dst_name: None,
                 overwrite_all: false,
                 steps: Vec::new(),
             };
@@ -1167,7 +1158,8 @@ mod tests {
     #[test]
     fn only_plain_local_paths_are_escalatable() {
         let local = VfsPath::local("/etc/hosts");
-        let remote = VfsPath { scheme: "sftp-0".into(), path: "/etc/hosts".into(), container: None };
+        let remote =
+            VfsPath { scheme: "sftp-0".into(), path: "/etc/hosts".into(), container: None };
         let in_archive = VfsPath {
             scheme: "archive".into(),
             path: "/inside.txt".into(),
@@ -1201,7 +1193,8 @@ mod tests {
         std::fs::write(src.join("a.txt"), b"a").unwrap();
         std::fs::write(src.join("b.txt"), b"b").unwrap();
         std::fs::write(src.join("c.txt"), b"c").unwrap();
-        std::fs::set_permissions(src.join("b.txt"), std::fs::Permissions::from_mode(0o000)).unwrap();
+        std::fs::set_permissions(src.join("b.txt"), std::fs::Permissions::from_mode(0o000))
+            .unwrap();
         let dst_dir = root.join("dest");
         std::fs::create_dir_all(&dst_dir).unwrap();
 
@@ -1226,7 +1219,11 @@ mod tests {
                 if let crate::app::event::AppEvent::PermissionDenied(info) = ev {
                     asked += 1;
                     assert!(info.escalatable, "a local file is escalatable");
-                    assert!(info.path.contains("b.txt"), "asked about the right file: {}", info.path);
+                    assert!(
+                        info.path.contains("b.txt"),
+                        "asked about the right file: {}",
+                        info.path
+                    );
                     let _ = reply_tx.send(TaskReply::Privilege(PrivDecision::Skip)).await;
                 }
             }
@@ -1311,7 +1308,8 @@ mod tests {
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(src.join("a.txt"), b"a").unwrap();
-        std::fs::set_permissions(src.join("a.txt"), std::fs::Permissions::from_mode(0o000)).unwrap();
+        std::fs::set_permissions(src.join("a.txt"), std::fs::Permissions::from_mode(0o000))
+            .unwrap();
         let dst_dir = root.join("dest");
         std::fs::create_dir_all(&dst_dir).unwrap();
 
@@ -1524,11 +1522,10 @@ mod partial_cleanup_tests {
     use crate::vfs::testmock::MockVfs;
 
     fn unique_dir(tag: &str) -> std::path::PathBuf {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("rc_test_{tag}_{}_{nanos}", std::process::id()));
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("rc_test_{tag}_{}_{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -1549,7 +1546,11 @@ mod partial_cleanup_tests {
         let req = OpRequest {
             kind: OpKind::Copy,
             src_fs,
-            sources: vec![VfsPath { scheme: "mock".into(), path: "/src.bin".into(), container: None }],
+            sources: vec![VfsPath {
+                scheme: "mock".into(),
+                path: "/src.bin".into(),
+                container: None,
+            }],
             dst_fs: Some(dst_fs),
             dst_dir: Some(VfsPath::local(&dst_dir)),
             dst_name: None,
@@ -1558,7 +1559,10 @@ mod partial_cleanup_tests {
         };
         let (_reply_tx, reply_rx) = mpsc::channel(1);
         let outcome = run(1, req, tx, CancelToken::new(), reply_rx).await;
-        assert!(matches!(outcome, TaskOutcome::Failed(_)), "the read error fails the op: {outcome:?}");
+        assert!(
+            matches!(outcome, TaskOutcome::Failed(_)),
+            "the read error fails the op: {outcome:?}"
+        );
         assert!(
             !dst_dir.join("src.bin").exists(),
             "the truncated destination file was removed, not left behind"

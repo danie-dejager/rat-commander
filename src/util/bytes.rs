@@ -31,18 +31,15 @@ pub fn format_time(time: SystemTime) -> String {
         Err(_) => return "            ".to_string(),
     };
     let (year, month, day, hour, min) = civil_from_unix(secs);
-    const MONTHS: [&str; 12] = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
+    const MONTHS: [&str; 12] =
+        ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     let mon = MONTHS[(month - 1) as usize];
 
     // "Recent" = within ~6 months in the past or near future shows time,
     // otherwise shows the year. We approximate against the file's own epoch
     // distance from now.
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(secs);
+    let now =
+        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(secs);
     let six_months = 60 * 60 * 24 * 182;
     if (now - secs).abs() < six_months {
         format!("{mon} {day:>2} {hour:02}:{min:02}")

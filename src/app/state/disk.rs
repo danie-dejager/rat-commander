@@ -24,7 +24,12 @@ impl AppState {
 
     /// Mount `device` at `path` (optionally creating the mount point first),
     /// escalating with sudo when not running as root.
-    pub(in crate::app::state) async fn do_mount(&mut self, device: String, path: String, create: bool) {
+    pub(in crate::app::state) async fn do_mount(
+        &mut self,
+        device: String,
+        path: String,
+        create: bool,
+    ) {
         let q = crate::mount::shell_quote;
         let cmd = if create {
             format!("mkdir -p {p} && mount {d} {p}", p = q(&path), d = q(&device))
@@ -133,7 +138,11 @@ impl AppState {
 
     /// Report the outcome of a privileged op on the mounter's status line and
     /// refresh its lists.
-    pub(in crate::app::state) fn finish_privileged(&mut self, result: Result<(), String>, ok_msg: String) {
+    pub(in crate::app::state) fn finish_privileged(
+        &mut self,
+        result: Result<(), String>,
+        ok_msg: String,
+    ) {
         match self.mountview.as_mut() {
             Some(mv) => {
                 mv.refresh();
@@ -179,9 +188,8 @@ impl AppState {
         if devices.is_empty() {
             return self.show_error("No block devices available to flash to");
         }
-        self.dialog = Some(Dialog::FlashTarget(FlashTargetDialog::new(
-            path, name, size, devices, None,
-        )));
+        self.dialog =
+            Some(Dialog::FlashTarget(FlashTargetDialog::new(path, name, size, devices, None)));
     }
 
     /// Open the file browser to pick an image to flash onto `target` (from the
@@ -197,7 +205,11 @@ impl AppState {
 
     /// An image was picked in the browser: stat it, guard the size, and proceed
     /// to the confirmation flow (red warning first for non-removable targets).
-    pub(in crate::app::state) fn flash_picked_image(&mut self, path: PathBuf, target: crate::flash::FlashTarget) {
+    pub(in crate::app::state) fn flash_picked_image(
+        &mut self,
+        path: PathBuf,
+        target: crate::flash::FlashTarget,
+    ) {
         let size = match std::fs::metadata(&path) {
             Ok(m) => m.len(),
             Err(e) => return self.show_error(format!("Cannot read image: {e}")),
@@ -206,14 +218,15 @@ impl AppState {
             return self.show_error("The chosen image is empty");
         }
         if target.size < size {
-            return self
-                .show_error(format!("Device {} is too small for this image", target.dev));
+            return self.show_error(format!("Device {} is too small for this image", target.dev));
         }
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let spec = crate::flash::FlashSpec { image_path: path, image_name: name, image_size: size, target };
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let spec = crate::flash::FlashSpec {
+            image_path: path,
+            image_name: name,
+            image_size: size,
+            target,
+        };
         self.dialog = Some(Dialog::Confirm(if spec.target.removable {
             ConfirmDialog::flash_confirm(spec)
         } else {
@@ -243,7 +256,11 @@ impl AppState {
     }
 
     /// Spawn the flash task and show its progress dialog.
-    pub(in crate::app::state) fn begin_flash(&mut self, spec: crate::flash::FlashSpec, auth: crate::flash::FlashAuth) {
+    pub(in crate::app::state) fn begin_flash(
+        &mut self,
+        spec: crate::flash::FlashSpec,
+        auth: crate::flash::FlashAuth,
+    ) {
         let id = self.next_task_id;
         self.next_task_id += 1;
         let cancel = crate::flash::spawn_flash(id, spec, auth, self.tx.clone());
@@ -279,7 +296,11 @@ impl AppState {
     }
 
     /// Spawn the imaging task and show its progress dialog.
-    pub(in crate::app::state) fn begin_image(&mut self, spec: crate::flash::ImageSpec, auth: crate::flash::FlashAuth) {
+    pub(in crate::app::state) fn begin_image(
+        &mut self,
+        spec: crate::flash::ImageSpec,
+        auth: crate::flash::FlashAuth,
+    ) {
         let id = self.next_task_id;
         self.next_task_id += 1;
         let cancel = crate::flash::spawn_image(id, spec, auth, self.tx.clone());
@@ -308,13 +329,12 @@ impl AppState {
             DiskSignal::GoTo(path) => {
                 self.diskview = None;
                 let backend = self.registry.local();
-                self.active_panel()
-                    .try_enter(VfsPath::local(path), backend, None)
-                    .await;
+                self.active_panel().try_enter(VfsPath::local(path), backend, None).await;
             }
             DiskSignal::DeleteFile { path, label } => {
                 if self.config.confirm_delete {
-                    self.dialog = Some(Dialog::Confirm(ConfirmDialog::delete_disk_file(&label, path)));
+                    self.dialog =
+                        Some(Dialog::Confirm(ConfirmDialog::delete_disk_file(&label, path)));
                 } else {
                     self.delete_disk_file(path);
                 }
@@ -380,5 +400,4 @@ impl AppState {
             self.start_network_scan();
         }
     }
-
 }

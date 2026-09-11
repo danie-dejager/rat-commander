@@ -141,12 +141,8 @@ fn draw_body(f: &mut Frame, state: &mut AppState) {
     // System-status widget on the right of the menu bar (wide screens only).
     if state.config.system_status && area.width >= menubar::STATUS_MIN_WIDTH {
         let sw = menubar::STATUS_WIDTH;
-        let status_area = Rect {
-            x: rows[0].x + rows[0].width - sw,
-            y: rows[0].y,
-            width: sw,
-            height: 1,
-        };
+        let status_area =
+            Rect { x: rows[0].x + rows[0].width - sw, y: rows[0].y, width: sw, height: 1 };
         menubar::render_status(f, status_area, &state.sampler, &theme);
     }
 
@@ -191,16 +187,10 @@ fn draw_body(f: &mut Frame, state: &mut AppState) {
     let nerd = state.nerd_font_active();
     // The quick search renders as an inline input on the active panel's
     // mini-status row (FAR/NC style); only the active panel shows it.
-    let left_qs = if active == 0 {
-        state.quick_search.as_ref().map(|q| q.query.as_str())
-    } else {
-        None
-    };
-    let right_qs = if active == 1 {
-        state.quick_search.as_ref().map(|q| q.query.as_str())
-    } else {
-        None
-    };
+    let left_qs =
+        if active == 0 { state.quick_search.as_ref().map(|q| q.query.as_str()) } else { None };
+    let right_qs =
+        if active == 1 { state.quick_search.as_ref().map(|q| q.query.as_str()) } else { None };
     // Whether the terminal-graphics layer can draw a pixel-image preview.
     // Pixel images are suppressed while a dialog or the menu is up (a repainted
     // image would bleed over them), so the panels must be told that too — the 3D
@@ -211,8 +201,16 @@ fn draw_body(f: &mut Frame, state: &mut AppState) {
     for (i, area_opt, qs) in [(0, left_area, left_qs), (1, right_area, right_qs)] {
         if let Some(pa) = area_opt {
             render_panel(
-                f, pa, &mut state.panels[i], active == i, &state.details[i], &theme, brief_cols, qs,
-                gfx_on, nerd,
+                f,
+                pa,
+                &mut state.panels[i],
+                active == i,
+                &state.details[i],
+                &theme,
+                brief_cols,
+                qs,
+                gfx_on,
+                nerd,
             );
         } else {
             // A hidden panel keeps no live geometry, so stray clicks in the
@@ -246,7 +244,11 @@ fn draw_body(f: &mut Frame, state: &mut AppState) {
             // Record where each box landed, in the same raster the image is
             // built in, so a click lands on what the user sees.
             sp.bounds = crate::space3d::raster3d::project_bounds(
-                pw, ph, &boxes, sp.cam.eye(), sp.cam.target,
+                pw,
+                ph,
+                &boxes,
+                sp.cam.eye(),
+                sp.cam.target,
             );
             let sig = crate::space3d::render::signature(sp, &boxes, pw, ph, &theme);
             g.draw_cached(f, area, crate::ui::graphics::Slot::Space3d(i as u16), sig, || {
@@ -260,9 +262,16 @@ fn draw_body(f: &mut Frame, state: &mut AppState) {
             {
                 // Centre the thumbnail in the preview area (aspect-preserved),
                 // using the terminal's cell-pixel size to size the target rect.
-                let target = crate::util::img::center_rect(area, pi.img.width(), pi.img.height(), g.cell());
+                let target =
+                    crate::util::img::center_rect(area, pi.img.width(), pi.img.height(), g.cell());
                 let (sig, img) = (pi.sig, &pi.img);
-                g.draw_cached(f, target, crate::ui::graphics::Slot::DetailsPreview(i as u16), sig, || img.clone());
+                g.draw_cached(
+                    f,
+                    target,
+                    crate::ui::graphics::Slot::DetailsPreview(i as u16),
+                    sig,
+                    || img.clone(),
+                );
             }
         }
     }
@@ -327,9 +336,8 @@ fn render_console(f: &mut Frame, area: Rect, console: &crate::console::Console) 
         let ty = ty as u16;
         for c in 0..area.width.min(cols) {
             let Some(cell) = screen.cell(r, c) else { continue };
-            let mut style = Style::default()
-                .fg(vt_color(cell.fgcolor()))
-                .bg(vt_color(cell.bgcolor()));
+            let mut style =
+                Style::default().fg(vt_color(cell.fgcolor())).bg(vt_color(cell.bgcolor()));
             if cell.bold() {
                 style = style.add_modifier(Modifier::BOLD);
             }
@@ -410,9 +418,16 @@ mod tests {
 
         // Menu bar, panel header columns, and the function-key row.
         for needle in [
-            "File", "Options", "Right", // menu bar
-            "Name", "Size", "Modify time", // full-format header
-            "Help", "Copy", "Delete", "Quit", // F-key row
+            "File",
+            "Options",
+            "Right", // menu bar
+            "Name",
+            "Size",
+            "Modify time", // full-format header
+            "Help",
+            "Copy",
+            "Delete",
+            "Quit", // F-key row
         ] {
             assert!(text.contains(needle), "expected UI to contain {needle:?}");
         }
@@ -457,17 +472,15 @@ mod tests {
 
     #[test]
     fn editor_renders_status_and_text() {
-        use crate::editor::render::render as ed_render;
         use crate::editor::EditorState;
+        use crate::editor::render::render as ed_render;
         use crate::vfs::VfsPath;
         let mut ed = EditorState::new("note.txt".into(), VfsPath::local("/tmp/n"), "hello\nworld");
         let theme = crate::ui::theme::Theme::mc();
 
         let backend = TestBackend::new(80, 12);
         let mut terminal = Terminal::new(backend).unwrap();
-        terminal
-            .draw(|f| ed_render(f, f.area(), &mut ed, &theme))
-            .unwrap();
+        terminal.draw(|f| ed_render(f, f.area(), &mut ed, &theme)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
 
         assert!(text.contains("note.txt"), "status shows filename");
@@ -477,11 +490,6 @@ mod tests {
         assert!(text.contains("Save") && text.contains("Quit"), "shortcut bar");
     }
 }
-
-
-
-
-
 
 #[cfg(test)]
 mod feature_tests {
@@ -500,7 +508,12 @@ mod feature_tests {
     fn text_of(t: &Terminal<TestBackend>) -> String {
         let b = t.backend().buffer();
         let mut s = String::new();
-        for y in 0..b.area.height { for x in 0..b.area.width { s.push_str(b[(x,y)].symbol()); } s.push('\n'); }
+        for y in 0..b.area.height {
+            for x in 0..b.area.width {
+                s.push_str(b[(x, y)].symbol());
+            }
+            s.push('\n');
+        }
         s
     }
 
@@ -595,10 +608,7 @@ mod feature_tests {
         st.panels[0].space3d = Some(sp);
 
         let _ = drawn(&mut st).await;
-        assert!(
-            st.panels[0].scene_area.is_some(),
-            "the panel handed its area to the root layer"
-        );
+        assert!(st.panels[0].scene_area.is_some(), "the panel handed its area to the root layer");
         assert!(
             st.panels[0].space3d.as_ref().is_some_and(|s| !s.bounds.is_empty()),
             "and the projected box bounds were recorded for hit-testing"
@@ -635,9 +645,8 @@ mod feature_tests {
         let _ = drawn(&mut st).await;
         assert!(st.panels[0].scene_area.is_some(), "graphics path while nothing is up");
 
-        st.dialog = Some(crate::ui::dialog::Dialog::Confirm(
-            crate::ui::dialog::ConfirmDialog::quit(),
-        ));
+        st.dialog =
+            Some(crate::ui::dialog::Dialog::Confirm(crate::ui::dialog::ConfirmDialog::quit()));
         let _ = drawn(&mut st).await;
         assert!(
             st.panels[0].scene_area.is_none(),
@@ -658,7 +667,8 @@ mod feature_tests {
         let bg = |x: u16, y: u16| b[(x, y)].bg;
 
         // The panel background ramps down the body (a still vertical gradient)…
-        let top = (0..b.area.height).find(|&y| (0..b.area.width).any(|x| b[(x, y)].symbol() == "┌"));
+        let top =
+            (0..b.area.height).find(|&y| (0..b.area.width).any(|x| b[(x, y)].symbol() == "┌"));
         let top = top.expect("a panel top border");
         assert_ne!(bg(2, top + 1), bg(2, b.area.height - 3), "the panels ramp downwards");
         // …and each row of it is one shade.
@@ -789,26 +799,27 @@ mod feature_tests {
 
     #[tokio::test]
     async fn status_widget_shows_on_wide_screen() {
-        let (tx,_rx)=async_bridge::channel();
-        let mut st=AppState::new(tx);
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
         st.config.system_status = true;
-        st.sampler.sample(); st.sampler.sample();
+        st.sampler.sample();
+        st.sampler.sample();
         st.init().await;
-        let mut t=Terminal::new(TestBackend::new(120,24)).unwrap();
-        t.draw(|f| draw(f,&mut st)).unwrap();
-        let text=text_of(&t);
+        let mut t = Terminal::new(TestBackend::new(120, 24)).unwrap();
+        t.draw(|f| draw(f, &mut st)).unwrap();
+        let text = text_of(&t);
         assert!(text.contains("CPU"), "status CPU label present");
         assert!(text.contains("MEM"), "status MEM present");
     }
 
     #[tokio::test]
     async fn status_widget_hidden_on_narrow_screen() {
-        let (tx,_rx)=async_bridge::channel();
-        let mut st=AppState::new(tx);
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
         st.config.system_status = true;
         st.init().await;
-        let mut t=Terminal::new(TestBackend::new(70,24)).unwrap();
-        t.draw(|f| draw(f,&mut st)).unwrap();
+        let mut t = Terminal::new(TestBackend::new(70, 24)).unwrap();
+        t.draw(|f| draw(f, &mut st)).unwrap();
         assert!(!text_of(&t).contains("CPU"), "no status on narrow screen");
     }
 
@@ -860,8 +871,8 @@ mod feature_tests {
 
     #[test]
     fn overwrite_dialog_renders_all_choices() {
-        use crate::ui::dialog::{Dialog, OverwriteDialog};
         use crate::ops::progress::ConflictInfo;
+        use crate::ui::dialog::{Dialog, OverwriteDialog};
         let info = ConflictInfo {
             id: 1,
             name: "test.wav".into(),
@@ -898,7 +909,11 @@ mod feature_tests {
         };
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let entries = vec![
-            PaletteEntry::new("Copy", PaletteCategory::Command, PaletteAction::ToggleBookmarkCurrent),
+            PaletteEntry::new(
+                "Copy",
+                PaletteCategory::Command,
+                PaletteAction::ToggleBookmarkCurrent,
+            ),
             PaletteEntry::new(
                 "Compare files",
                 PaletteCategory::Command,
@@ -934,10 +949,7 @@ mod feature_tests {
         use crate::vfs::VfsPath;
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-        let sources = vec![
-            VfsPath::local("/tmp/photo.jpg"),
-            VfsPath::local("/tmp/note.txt"),
-        ];
+        let sources = vec![VfsPath::local("/tmp/photo.jpg"), VfsPath::local("/tmp/note.txt")];
         let mut dlg = Dialog::MultiRename(MultiRenameDialog::new(
             sources,
             "20260630".to_string(),
@@ -949,7 +961,9 @@ mod feature_tests {
         // Default mask "[N].[E]" reproduces the original names.
         t.draw(|f| dlg.render(f, f.area(), &theme, None)).unwrap();
         let text = text_of(&t);
-        for needle in ["Multi rename", "Original name", "New name", "photo.jpg", "note.txt", "Execute"] {
+        for needle in
+            ["Multi rename", "Original name", "New name", "photo.jpg", "note.txt", "Execute"]
+        {
             assert!(text.contains(needle), "multi-rename dialog should show {needle:?}");
         }
 

@@ -1,7 +1,7 @@
 //! Overwrite-confirmation dialog (shown mid-copy when a destination exists).
 
-use super::widgets::*;
 use super::DialogResult;
+use super::widgets::*;
 use crate::ops::progress::{ConflictInfo, OverwriteDecision, OverwriteRule};
 
 // ---------------------------------------------------------------------------
@@ -48,12 +48,7 @@ pub struct OverwriteDialog {
 
 impl OverwriteDialog {
     pub fn new(info: ConflictInfo) -> Self {
-        OverwriteDialog {
-            info,
-            focus: 0,
-            skip_empty: false,
-            zones: Vec::new(),
-        }
+        OverwriteDialog { info, focus: 0, skip_empty: false, zones: Vec::new() }
     }
 
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
@@ -121,7 +116,13 @@ impl OverwriteDialog {
         }
     }
 
-    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
+    pub(crate) fn render(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        theme: &Theme,
+        gfx: Option<&mut Gfx>,
+    ) {
         self.zones.clear();
         let mut gfx = gfx;
 
@@ -139,10 +140,7 @@ impl OverwriteDialog {
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(base.add_modifier(Modifier::BOLD))
-            .title(Span::styled(
-                " File exists ",
-                base.add_modifier(Modifier::BOLD),
-            ))
+            .title(Span::styled(" File exists ", base.add_modifier(Modifier::BOLD)))
             .title_alignment(ratatui::layout::Alignment::Center)
             .style(base);
         let inner = block.inner(rect);
@@ -153,11 +151,29 @@ impl OverwriteDialog {
 
         let mut y = inner.y;
         let name_w = inner.width as usize;
-        ow_meta_line(f, inner, y, &format!("New     : {}", crate::util::text::ellipsize(&self.info.new_path, name_w.saturating_sub(10))), base);
+        ow_meta_line(
+            f,
+            inner,
+            y,
+            &format!(
+                "New     : {}",
+                crate::util::text::ellipsize(&self.info.new_path, name_w.saturating_sub(10))
+            ),
+            base,
+        );
         y += 1;
         ow_meta_line(f, inner, y, &ow_meta(self.info.new_size, self.info.new_mtime), base);
         y += 1;
-        ow_meta_line(f, inner, y, &format!("Existing: {}", crate::util::text::ellipsize(&self.info.old_path, name_w.saturating_sub(10))), base);
+        ow_meta_line(
+            f,
+            inner,
+            y,
+            &format!(
+                "Existing: {}",
+                crate::util::text::ellipsize(&self.info.old_path, name_w.saturating_sub(10))
+            ),
+            base,
+        );
         y += 1;
         ow_meta_line(f, inner, y, &ow_meta(self.info.old_size, self.info.old_mtime), base);
         y += 1;
@@ -171,11 +187,7 @@ impl OverwriteDialog {
             f,
             inner,
             y,
-            &[
-                (" Yes ", OwControl::Yes),
-                (" No ", OwControl::No),
-                (" Append ", OwControl::Append),
-            ],
+            &[(" Yes ", OwControl::Yes), (" No ", OwControl::No), (" Append ", OwControl::Append)],
             theme,
             gfx.as_deref_mut(),
         );
@@ -214,8 +226,7 @@ impl OverwriteDialog {
             return;
         }
         let style = Style::default().fg(ratatui::style::Color::White).bg(bg);
-        f.buffer_mut()
-            .set_string(inner.x, y, "─".repeat(inner.width as usize), style);
+        f.buffer_mut().set_string(inner.x, y, "─".repeat(inner.width as usize), style);
     }
 
     /// Render a centered row of bracketed buttons and record their click zones.
@@ -235,7 +246,8 @@ impl OverwriteDialog {
         let white = ratatui::style::Color::White;
         // Each label is wrapped as "[label]"; buttons separated by one space.
         let labels: Vec<String> = buttons.iter().map(|(l, _)| format!("[{l}]")).collect();
-        let total: usize = labels.iter().map(|l| l.chars().count()).sum::<usize>() + labels.len().saturating_sub(1);
+        let total: usize = labels.iter().map(|l| l.chars().count()).sum::<usize>()
+            + labels.len().saturating_sub(1);
         let mut x = inner.x + (inner.width.saturating_sub(total as u16)) / 2;
         let mut gfx = gfx;
         let use_gfx = gfx.as_deref().is_some_and(|g| g.buttons_ok());
@@ -315,8 +327,3 @@ fn ow_center(f: &mut Frame, inner: Rect, y: u16, text: &str, style: Style) {
         row,
     );
 }
-
-
-
-
-

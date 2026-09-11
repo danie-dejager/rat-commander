@@ -5,15 +5,15 @@
 //! external symbols with a single `use super::widgets::*;`.
 
 pub(crate) use crate::ui::theme::Theme;
+pub(crate) use crate::util::bytes::{format_time, human_size};
+pub(crate) use crate::util::text::{ellipsize, pad_right};
+pub(crate) use crate::vfs::VfsPath;
 pub(crate) use ratatui::Frame;
 pub(crate) use ratatui::crossterm::event::{KeyCode, KeyEvent};
 pub(crate) use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
 pub(crate) use ratatui::style::{Modifier, Style};
 pub(crate) use ratatui::text::{Line, Span};
 pub(crate) use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap};
-pub(crate) use crate::util::bytes::{format_time, human_size};
-pub(crate) use crate::util::text::{ellipsize, pad_right};
-pub(crate) use crate::vfs::VfsPath;
 
 use super::form::Field;
 
@@ -78,26 +78,23 @@ pub(crate) fn edit_text_marked(
 pub(crate) fn draw_shadow(f: &mut Frame, rect: Rect, _theme: &Theme) {
     let shadow = Style::default().bg(ratatui::style::Color::Rgb(8, 8, 12));
     // Bottom edge (offset right by 1 so it sits under the box).
-    let bottom = Rect {
-        x: rect.x + 1,
-        y: rect.y + rect.height,
-        width: rect.width,
-        height: 1,
-    };
+    let bottom = Rect { x: rect.x + 1, y: rect.y + rect.height, width: rect.width, height: 1 };
     // Right edge (offset down by 1).
-    let right = Rect {
-        x: rect.x + rect.width,
-        y: rect.y + 1,
-        width: 1,
-        height: rect.height,
-    };
+    let right = Rect { x: rect.x + rect.width, y: rect.y + 1, width: 1, height: rect.height };
     f.render_widget(Block::default().style(shadow), bottom);
     f.render_widget(Block::default().style(shadow), right);
 }
 
 /// A progress bar whose filled portion shows a gradient "pulse" sweeping left to
 /// right (truecolor only; otherwise a solid fill). `label` is centered over it.
-pub(crate) fn pulse_gauge(f: &mut Frame, area: Rect, ratio: f64, label: &str, base: ratatui::style::Color, theme: &Theme) {
+pub(crate) fn pulse_gauge(
+    f: &mut Frame,
+    area: Rect,
+    ratio: f64,
+    label: &str,
+    base: ratatui::style::Color,
+    theme: &Theme,
+) {
     let w = area.width as usize;
     if w == 0 || area.height == 0 {
         return;
@@ -119,7 +116,12 @@ pub(crate) fn pulse_gauge(f: &mut Frame, area: Rect, ratio: f64, label: &str, ba
                 Some(c) => (c, theme.dialog_bg, color),
                 None => ('█', color, theme.dialog_bg),
             };
-            buf.set_string(area.x + x as u16, area.y, ch.to_string(), Style::default().fg(fg).bg(bg));
+            buf.set_string(
+                area.x + x as u16,
+                area.y,
+                ch.to_string(),
+                Style::default().fg(fg).bg(bg),
+            );
         } else {
             let (ch, fg) = match lc {
                 Some(c) => (c, theme.dialog_fg),
@@ -137,11 +139,17 @@ pub(crate) fn pulse_gauge(f: &mut Frame, area: Rect, ratio: f64, label: &str, ba
 
 /// Linearly blend two RGB colors: `t`=0 → `a`, `t`=1 → `b`. Non-RGB inputs
 /// fall back to `b`.
-pub(crate) fn mix_rgb(a: ratatui::style::Color, b: ratatui::style::Color, t: f32) -> ratatui::style::Color {
+pub(crate) fn mix_rgb(
+    a: ratatui::style::Color,
+    b: ratatui::style::Color,
+    t: f32,
+) -> ratatui::style::Color {
     use ratatui::style::Color;
     match (a, b) {
         (Color::Rgb(ar, ag, ab), Color::Rgb(br, bg, bb)) => {
-            let f = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round().clamp(0.0, 255.0) as u8;
+            let f = |x: u8, y: u8| {
+                (x as f32 + (y as f32 - x as f32) * t).round().clamp(0.0, 255.0) as u8
+            };
             Color::Rgb(f(ar, br), f(ag, bg), f(ab, bb))
         }
         _ => b,
@@ -196,12 +204,7 @@ pub fn centered(area: Rect, width: u16, height: u16) -> Rect {
     let height = height.min(area.height);
     let x = area.x + (area.width.saturating_sub(width)) / 2;
     let y = area.y + (area.height.saturating_sub(height)) / 2;
-    Rect {
-        x,
-        y,
-        width,
-        height,
-    }
+    Rect { x, y, width, height }
 }
 
 pub(crate) fn dialog_block(title: &str, theme: &Theme) -> Block<'static> {
@@ -238,18 +241,14 @@ pub(crate) fn danger_block(title: &str, theme: &Theme) -> Block<'static> {
 }
 
 pub(crate) fn button(text: &str, focused: bool, theme: &Theme) -> Span<'static> {
-    let style = if focused {
-        theme.button_focused
-    } else {
-        theme.button
-    };
+    let style = if focused { theme.button_focused } else { theme.button };
     Span::styled(text.to_string(), style)
 }
 
 // --- Graphical buttons (terminal-graphics only) ----------------------------
 
-pub(crate) use crate::ui::graphics::{Gfx, Slot};
 use crate::ui::graphics::raster;
+pub(crate) use crate::ui::graphics::{Gfx, Slot};
 use ratatui::style::Color;
 
 /// Whether the bundled graphics font can render every one of `labels`. Graphics
@@ -386,11 +385,7 @@ pub(crate) fn draw_input_field_ex(
     // Horizontal scroll so the caret stays visible.
     let char_count = value.chars().count();
     let start = cursor.saturating_sub(inner_w.saturating_sub(1));
-    let shown: String = if masked {
-        "*".repeat(char_count)
-    } else {
-        value.chars().collect()
-    };
+    let shown: String = if masked { "*".repeat(char_count) } else { value.chars().collect() };
     let shown: String = shown.chars().skip(start).take(inner_w).collect();
     let shown_len = shown.chars().count();
     let pad: String = " ".repeat(inner_w.saturating_sub(shown_len));
@@ -403,10 +398,7 @@ pub(crate) fn draw_input_field_ex(
     let line = Line::from(vec![
         Span::styled(shown, text_style),
         Span::styled(pad, field_style),
-        Span::styled(
-            "[^]",
-            Style::default().fg(theme.dialog_title).bg(theme.input_bg),
-        ),
+        Span::styled("[^]", Style::default().fg(theme.dialog_title).bg(theme.input_bg)),
     ]);
     f.render_widget(Paragraph::new(line), area);
 
@@ -419,7 +411,12 @@ pub(crate) fn draw_input_field_ex(
 }
 
 /// A `(*) Label` / `( ) Label` radio span.
-pub(crate) fn radio_span(label: &str, selected: bool, focused: bool, theme: &Theme) -> Span<'static> {
+pub(crate) fn radio_span(
+    label: &str,
+    selected: bool,
+    focused: bool,
+    theme: &Theme,
+) -> Span<'static> {
     let mark = if selected { "(*) " } else { "( ) " };
     let style = if focused {
         theme.dialog_selection
@@ -430,7 +427,12 @@ pub(crate) fn radio_span(label: &str, selected: bool, focused: bool, theme: &The
 }
 
 /// A `[x] Label` / `[ ] Label` checkbox span.
-pub(crate) fn check_span(label: &str, checked: bool, focused: bool, theme: &Theme) -> Span<'static> {
+pub(crate) fn check_span(
+    label: &str,
+    checked: bool,
+    focused: bool,
+    theme: &Theme,
+) -> Span<'static> {
     let mark = if checked { "[x] " } else { "[ ] " };
     let style = if focused {
         theme.dialog_selection
@@ -443,7 +445,12 @@ pub(crate) fn check_span(label: &str, checked: bool, focused: bool, theme: &Them
 /// Draw the OK / Cancel pair as graphical buttons centered on `row` (OK
 /// highlighted). Returns `false` when graphics are unavailable (or the row is too
 /// narrow), so the caller falls back to [`ok_cancel_line`].
-pub(crate) fn draw_ok_cancel(f: &mut Frame, gfx: Option<&mut Gfx>, row: Rect, theme: &Theme) -> bool {
+pub(crate) fn draw_ok_cancel(
+    f: &mut Frame,
+    gfx: Option<&mut Gfx>,
+    row: Rect,
+    theme: &Theme,
+) -> bool {
     let mut gfx = gfx;
     if !gfx.as_deref().is_some_and(|g| g.buttons_ok()) {
         return false;
@@ -483,4 +490,3 @@ pub(crate) fn ok_cancel_line(focus_ok: bool, theme: &Theme) -> Line<'static> {
     };
     Line::from(vec![ok, Span::styled("   ", Style::default().bg(theme.dialog_bg)), cancel])
 }
-

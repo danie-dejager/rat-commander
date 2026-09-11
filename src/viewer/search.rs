@@ -125,7 +125,6 @@ impl Needle {
             }
         }
     }
-
 }
 
 /// Whether the `len`-byte match at `at` is bounded by non-word bytes.
@@ -142,10 +141,7 @@ pub fn parse_hex_bytes(s: &str) -> Option<Vec<u8>> {
     if cleaned.is_empty() || !cleaned.len().is_multiple_of(2) {
         return None;
     }
-    (0..cleaned.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&cleaned[i..i + 2], 16).ok())
-        .collect()
+    (0..cleaned.len()).step_by(2).map(|i| u8::from_str_radix(&cleaned[i..i + 2], 16).ok()).collect()
 }
 
 #[cfg(test)]
@@ -189,7 +185,6 @@ mod tests {
         assert_eq!(bytes("hit", true, false).find(b"hitting", 0), Some(0));
     }
 
-
     #[test]
     fn regex_anchors_are_per_line() {
         // `^foo` must skip the "foo" inside "xfoo" and match the one starting a
@@ -224,9 +219,15 @@ mod tests {
         let n = Needle::build("48 65", false, false, false, true).expect("builds");
         assert_eq!(n.find(b"xxHello", 0), Some(2));
         // Whitespace is optional, and hex is case-insensitive as *notation*.
-        assert_eq!(Needle::build("4865", false, false, false, true).unwrap().find(b"xxHe", 0), Some(2));
-        assert_eq!(Needle::build("4865", false, false, false, true).unwrap().find(b"xxhe", 0), None,
-                   "the bytes themselves are matched exactly");
+        assert_eq!(
+            Needle::build("4865", false, false, false, true).unwrap().find(b"xxHe", 0),
+            Some(2)
+        );
+        assert_eq!(
+            Needle::build("4865", false, false, false, true).unwrap().find(b"xxhe", 0),
+            None,
+            "the bytes themselves are matched exactly"
+        );
         // Odd digits / non-hex are refused.
         assert!(Needle::build("486", false, false, false, true).is_none());
         assert!(Needle::build("zz", false, false, false, true).is_none());

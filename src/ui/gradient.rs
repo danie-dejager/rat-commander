@@ -75,9 +75,7 @@ pub fn mark_painted(area: Rect) {
 
 /// The zone a cell belongs to: a bar it was drawn on, else the body.
 fn zone_at(bars: &[(GradZone, Rect)], x: u16, y: u16) -> GradZone {
-    bars.iter()
-        .find(|(_, r)| r.contains((x, y).into()))
-        .map_or(GradZone::Body, |(z, _)| *z)
+    bars.iter().find(|(_, r)| r.contains((x, y).into())).map_or(GradZone::Body, |(z, _)| *z)
 }
 
 /// Whether `symbol` is a box-drawing glyph — the frames, corners and column
@@ -131,9 +129,8 @@ pub fn apply(f: &mut Frame, area: Rect, theme: &Theme) {
             for x in 0..w {
                 let (px, py) = (area.x + x as u16, area.y + y as u16);
                 // Cells under a terminal-graphics image are not drawn at all.
-                let Some(cell) = buf
-                    .cell((px, py))
-                    .filter(|c| c.diff_option != CellDiffOption::Skip)
+                let Some(cell) =
+                    buf.cell((px, py)).filter(|c| c.diff_option != CellDiffOption::Skip)
                 else {
                     continue;
                 };
@@ -196,12 +193,7 @@ pub fn apply(f: &mut Frame, area: Rect, theme: &Theme) {
                 visit(i + w);
             }
         }
-        let bounds = Rect::new(
-            x0 as u16,
-            y0 as u16,
-            (x1 - x0 + 1) as u16,
-            (y1 - y0 + 1) as u16,
-        );
+        let bounds = Rect::new(x0 as u16, y0 as u16, (x1 - x0 + 1) as u16, (y1 - y0 + 1) as u16);
         let target = &targets[tagged as usize];
         let buf = f.buffer_mut();
         for &i in &region {
@@ -249,7 +241,12 @@ mod tests {
     }
 
     /// [`painted`], on a terminal of the given size.
-    fn painted_in(w: u16, h: u16, theme: &Theme, paint: impl FnOnce(&mut Frame)) -> ratatui::buffer::Buffer {
+    fn painted_in(
+        w: u16,
+        h: u16,
+        theme: &Theme,
+        paint: impl FnOnce(&mut Frame),
+    ) -> ratatui::buffer::Buffer {
         let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
         t.draw(|f| {
             reset();
@@ -302,7 +299,11 @@ mod tests {
         });
         for r in [left, right] {
             assert_eq!(bg_at(&buf, r.x, r.y), Color::Rgb(0, 0, 0), "{r:?} starts the ramp");
-            assert_eq!(bg_at(&buf, r.right() - 1, r.y), Color::Rgb(255, 255, 255), "{r:?} finishes it");
+            assert_eq!(
+                bg_at(&buf, r.right() - 1, r.y),
+                Color::Rgb(255, 255, 255),
+                "{r:?} finishes it"
+            );
         }
     }
 
@@ -396,9 +397,16 @@ mod tests {
             mark_painted(WAVE_BAR);
             drawn = self_paint(f, WAVE_BAR, GradRole::MenubarBg, &theme);
         });
-        assert_eq!(drawn[WAVE_HIT as usize], base, "the case guarded here: a moving shade on the flat color");
+        assert_eq!(
+            drawn[WAVE_HIT as usize], base,
+            "the case guarded here: a moving shade on the flat color"
+        );
         for x in 0..WAVE_BAR.width {
-            assert_eq!(bg_at(&buf, x, 0), drawn[x as usize], "column {x} keeps the shade the bar drew");
+            assert_eq!(
+                bg_at(&buf, x, 0),
+                drawn[x as usize],
+                "column {x} keeps the shade the bar drew"
+            );
         }
     }
 
@@ -429,9 +437,16 @@ mod tests {
             mark_painted(WAVE_BAR);
             drawn = self_paint(f, WAVE_BAR, GradRole::CursorBg, &theme);
         });
-        assert_eq!(drawn[WAVE_HIT as usize], purple, "the case guarded here: a moving shade on the flat color");
+        assert_eq!(
+            drawn[WAVE_HIT as usize], purple,
+            "the case guarded here: a moving shade on the flat color"
+        );
         for x in 0..WAVE_BAR.width {
-            assert_eq!(bg_at(&buf, x, 0), drawn[x as usize], "column {x} keeps the shade the cursor bar drew");
+            assert_eq!(
+                bg_at(&buf, x, 0),
+                drawn[x as usize],
+                "column {x} keeps the shade the cursor bar drew"
+            );
         }
     }
 
@@ -442,7 +457,11 @@ mod tests {
         let theme = moving(GradRole::CursorBg, Color::Rgb(122, 31, 255), Color::Rgb(34, 224, 255));
         let row = Rect::new(0, 0, 20, 1);
         let buf = painted(&theme, |f| fill(f, row, Style::default().bg(Color::Rgb(122, 31, 255))));
-        assert_ne!(bg_at(&buf, 19, 0), Color::Rgb(122, 31, 255), "a flat cursor bar takes the ramp");
+        assert_ne!(
+            bg_at(&buf, 19, 0),
+            Color::Rgb(122, 31, 255),
+            "a flat cursor bar takes the ramp"
+        );
     }
 
     #[test]

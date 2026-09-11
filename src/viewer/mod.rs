@@ -7,8 +7,8 @@
 //! Scrolling is by logical line (text) or 16-byte row (hex).
 
 pub mod markdown;
-pub mod search;
 pub mod render;
+pub mod search;
 
 use crate::syntax::{ColorRun, Highlighter};
 use ratatui::crossterm::event::{
@@ -335,7 +335,6 @@ impl ViewerState {
         self.src.len()
     }
 
-
     fn line_count(&self) -> usize {
         self.line_starts.len()
     }
@@ -459,7 +458,7 @@ impl ViewerState {
             // F3 toggles the viewer (open in the panels, close here), matching
             // the footer's "Quit" label; F10 / Esc / q also close.
             KeyCode::F(3) | KeyCode::F(10) | KeyCode::Esc | KeyCode::Char('q') => {
-                return ViewerSignal::Close
+                return ViewerSignal::Close;
             }
             KeyCode::F(2) => self.wrap = !self.wrap,
             KeyCode::F(4) => {
@@ -583,16 +582,16 @@ impl ViewerState {
     /// Perform the action of F-key index `i` (0-based) from a bar click.
     fn activate_fkey(&mut self, i: usize) -> ViewerSignal {
         let code = match i {
-            1 => KeyCode::F(2),               // Wrap / Unwrap
+            1 => KeyCode::F(2),                  // Wrap / Unwrap
             2 | 9 => return ViewerSignal::Close, // Quit
-            3 => KeyCode::F(4),               // Text / Hex
-            4 => return ViewerSignal::OpenGoto, // Goto
-            5 => KeyCode::F(6),               // Outline (Markdown)
-            6 => KeyCode::F(7),               // Search
-            7 => KeyCode::F(8),               // Raw / Render (Markdown)
-            8 => KeyCode::Char('n'),          // Next match
-            0 => return ViewerSignal::OpenHelp, // Help
-            _ => return ViewerSignal::Stay,   // empty slot: no-op
+            3 => KeyCode::F(4),                  // Text / Hex
+            4 => return ViewerSignal::OpenGoto,  // Goto
+            5 => KeyCode::F(6),                  // Outline (Markdown)
+            6 => KeyCode::F(7),                  // Search
+            7 => KeyCode::F(8),                  // Raw / Render (Markdown)
+            8 => KeyCode::Char('n'),             // Next match
+            0 => return ViewerSignal::OpenHelp,  // Help
+            _ => return ViewerSignal::Stay,      // empty slot: no-op
         };
         self.handle_key(KeyEvent::new(code, KeyModifiers::NONE))
     }
@@ -710,7 +709,6 @@ impl ViewerState {
         self.top = line.min(self.max_top());
         self.h_offset = 0;
     }
-
 
     fn scroll(&mut self, delta: isize) {
         let target = (self.top as isize + delta).max(0) as usize;
@@ -1061,16 +1059,16 @@ mod tests {
     #[test]
     fn outline_extracts_headings_and_skips_fenced_code() {
         let md = concat!(
-            "# Title\n",           // 0
-            "intro\n",             // 1
-            "## Section A\n",      // 2
-            "```\n",               // 3  code fence opens
-            "# not a heading\n",   // 4  inside the fence — ignored
-            "```\n",               // 5  fence closes
-            "## Section B\n",      // 6
-            "### Sub `B1`\n",      // 7  inline code stripped
-            "text\n",              // 8
-            "#### Deep\n",         // 9
+            "# Title\n",         // 0
+            "intro\n",           // 1
+            "## Section A\n",    // 2
+            "```\n",             // 3  code fence opens
+            "# not a heading\n", // 4  inside the fence — ignored
+            "```\n",             // 5  fence closes
+            "## Section B\n",    // 6
+            "### Sub `B1`\n",    // 7  inline code stripped
+            "text\n",            // 8
+            "#### Deep\n",       // 9
         );
         let mut v = ViewerState::new("doc.md".into(), md.as_bytes().to_vec());
         let items = v.build_outline();
@@ -1091,12 +1089,12 @@ mod tests {
     #[test]
     fn f6_opens_outline_navigates_and_jumps() {
         let md = concat!(
-            "# One\n",   // 0
-            "a\n",       // 1
-            "## Two\n",  // 2
-            "b\n",       // 3
-            "## Three\n",// 4
-            "c\n",       // 5
+            "# One\n",    // 0
+            "a\n",        // 1
+            "## Two\n",   // 2
+            "b\n",        // 3
+            "## Three\n", // 4
+            "c\n",        // 5
         );
         let mut v = ViewerState::new("d.md".into(), md.as_bytes().to_vec());
         let press = |v: &mut ViewerState, c: KeyCode| {
@@ -1182,12 +1180,12 @@ mod tests {
         use ratatui::Terminal;
         use ratatui::backend::TestBackend;
         let md = concat!(
-            "# Title\n",           // 0
-            "```rust\n",           // 1  fence opens (language: rust)
-            "fn main() {}\n",      // 2  code content, shown literally
-            "# not a heading\n",   // 3  '#' inside the fence stays literal
-            "```\n",               // 4  fence closes
-            "done\n",              // 5
+            "# Title\n",         // 0
+            "```rust\n",         // 1  fence opens (language: rust)
+            "fn main() {}\n",    // 2  code content, shown literally
+            "# not a heading\n", // 3  '#' inside the fence stays literal
+            "```\n",             // 4  fence closes
+            "done\n",            // 5
         );
         let mut v = ViewerState::new("doc.md".into(), md.as_bytes().to_vec());
         assert!(v.markdown_active());
@@ -1219,11 +1217,11 @@ mod tests {
         use ratatui::Terminal;
         use ratatui::backend::TestBackend;
         let md = concat!(
-            "```\n",    // 0  fence opens
-            "aaaa\n",   // 1
-            "bbbb\n",   // 2
-            "cccc\n",   // 3
-            "```\n",    // 4  fence closes
+            "```\n",  // 0  fence opens
+            "aaaa\n", // 1
+            "bbbb\n", // 2
+            "cccc\n", // 3
+            "```\n",  // 4  fence closes
         );
         let mut v = ViewerState::new("d.md".into(), md.as_bytes().to_vec());
         v.top = 2; // start on the "bbbb" content line, inside the fence
@@ -1432,7 +1430,6 @@ mod tests {
         assert_eq!(v.found_count(), 2);
         assert!(v.line_found(1) && !v.line_found(0));
     }
-
 
     #[test]
     fn line_indexing_and_content() {
@@ -1693,7 +1690,10 @@ mod tests {
     fn f5_and_goto_label_click_request_the_dialog() {
         let mut v = ViewerState::new("t".into(), fixed_lines(10));
         with_layout(&mut v);
-        assert!(matches!(v.handle_key(super::KeyEvent::new(super::KeyCode::F(5), super::KeyModifiers::NONE)), ViewerSignal::OpenGoto));
+        assert!(matches!(
+            v.handle_key(super::KeyEvent::new(super::KeyCode::F(5), super::KeyModifiers::NONE)),
+            ViewerSignal::OpenGoto
+        ));
         // The "Goto" label is F5 (index 4): cols 16-19 on a 40-wide bar.
         assert!(matches!(
             v.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 16, 12)),
@@ -1709,10 +1709,8 @@ mod tests {
 
     #[test]
     fn file_backed_viewer_pages_without_loading_all() {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let path = std::env::temp_dir().join(format!("rc_view_{}_{nanos}", std::process::id()));
         std::fs::write(&path, b"alpha\nbeta\r\nNEEDLE here\ngamma").unwrap();
 
@@ -1759,14 +1757,13 @@ mod tests {
     fn syntax_highlight_colors_the_body() {
         use ratatui::Terminal;
         use ratatui::backend::TestBackend;
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let path = std::env::temp_dir().join(format!("rc_hl_{}_{nanos}.rs", std::process::id()));
         std::fs::write(&path, b"fn main() { let x = 1; }\n").unwrap();
 
-        let mut v = ViewerState::open_file("a.rs".into(), path.clone(), Some(path.clone())).unwrap();
+        let mut v =
+            ViewerState::open_file("a.rs".into(), path.clone(), Some(path.clone())).unwrap();
         v.enable_syntax(true);
         assert!(v.has_syntax(), "rust syntax should be detected");
 

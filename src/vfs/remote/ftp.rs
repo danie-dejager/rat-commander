@@ -42,13 +42,7 @@ pub async fn connect(creds: &RemoteCreds) -> Result<Connection> {
         creds.path.clone()
     };
     let label = format!("ftp://{}@{}", creds.user, creds.host);
-    Ok(Connection {
-        backend: Arc::new(FtpFs {
-            conn: Arc::new(Mutex::new(stream)),
-        }),
-        root,
-        label,
-    })
+    Ok(Connection { backend: Arc::new(FtpFs { conn: Arc::new(Mutex::new(stream)) }), root, label })
 }
 
 fn path_str(p: &VfsPath) -> String {
@@ -80,10 +74,8 @@ impl Vfs for FtpFs {
 
     async fn read_dir(&self, dir: &VfsPath) -> Result<Vec<VfsEntry>> {
         let mut guard = self.conn.lock().await;
-        let lines = guard
-            .list(Some(&path_str(dir)))
-            .await
-            .map_err(|e| Error::other(e.to_string()))?;
+        let lines =
+            guard.list(Some(&path_str(dir))).await.map_err(|e| Error::other(e.to_string()))?;
         let mut out = Vec::new();
         for line in lines {
             if let Some(p) = parse_unix_listing_line(&line) {
@@ -171,30 +163,15 @@ impl Vfs for FtpFs {
     }
 
     async fn mkdir(&self, path: &VfsPath) -> Result<()> {
-        self.conn
-            .lock()
-            .await
-            .mkdir(path_str(path))
-            .await
-            .map_err(|e| Error::other(e.to_string()))
+        self.conn.lock().await.mkdir(path_str(path)).await.map_err(|e| Error::other(e.to_string()))
     }
 
     async fn remove_file(&self, path: &VfsPath) -> Result<()> {
-        self.conn
-            .lock()
-            .await
-            .rm(path_str(path))
-            .await
-            .map_err(|e| Error::other(e.to_string()))
+        self.conn.lock().await.rm(path_str(path)).await.map_err(|e| Error::other(e.to_string()))
     }
 
     async fn remove_dir(&self, path: &VfsPath) -> Result<()> {
-        self.conn
-            .lock()
-            .await
-            .rmdir(path_str(path))
-            .await
-            .map_err(|e| Error::other(e.to_string()))
+        self.conn.lock().await.rmdir(path_str(path)).await.map_err(|e| Error::other(e.to_string()))
     }
 
     async fn rename(&self, from: &VfsPath, to: &VfsPath) -> Result<()> {

@@ -49,9 +49,7 @@ pub struct Tail {
 /// `Skip` marks the placeholders a terminal-graphics image is drawn over, and
 /// erasing those would cut into the picture.
 fn erasable(cell: &Cell) -> bool {
-    cell.symbol() == " "
-        && cell.modifier.is_empty()
-        && cell.diff_option == CellDiffOption::None
+    cell.symbol() == " " && cell.modifier.is_empty() && cell.diff_option == CellDiffOption::None
 }
 
 /// Every row's erasable tail in `buf`, in row order. Rows that end in text (or
@@ -116,9 +114,7 @@ impl Trimmer {
 
     /// Whether `t` is exactly what the previous frame already erased.
     fn erased(&self, t: &Tail) -> bool {
-        self.last
-            .binary_search_by_key(&t.y, |p| p.y)
-            .is_ok_and(|i| self.last[i] == *t)
+        self.last.binary_search_by_key(&t.y, |p| p.y).is_ok_and(|i| self.last[i] == *t)
     }
 
     /// Forget the previous frame, because the screen was cleared behind this
@@ -174,10 +170,7 @@ mod tests {
         let buf = buf_of(10, Color::Blue, &["hello", "hi"]);
         assert_eq!(
             tails(&buf),
-            vec![
-                Tail { x: 5, y: 0, bg: Color::Blue },
-                Tail { x: 2, y: 1, bg: Color::Blue },
-            ]
+            vec![Tail { x: 5, y: 0, bg: Color::Blue }, Tail { x: 2, y: 1, bg: Color::Blue },]
         );
     }
 
@@ -274,15 +267,10 @@ mod tests {
         fn selected(bytes: &[u8]) -> Vec<String> {
             let mut vt = vt100::Parser::new(H, W, 0);
             vt.process(bytes);
-            vt.screen()
-                .contents_between(0, 0, H - 1, W - 1)
-                .lines()
-                .map(str::to_string)
-                .collect()
+            vt.screen().contents_between(0, 0, H - 1, W - 1).lines().map(str::to_string).collect()
         }
 
-        let mut ed =
-            EditorState::new("note.txt".into(), VfsPath::local("/tmp/n"), "hello\nworld");
+        let mut ed = EditorState::new("note.txt".into(), VfsPath::local("/tmp/n"), "hello\nworld");
         let theme = crate::ui::theme::Theme::mc();
         let mut term = Terminal::new(TestBackend::new(W, H)).unwrap();
         term.draw(|f| ed_render(f, f.area(), &mut ed, &theme)).unwrap();
@@ -310,7 +298,11 @@ mod tests {
             for x in 0..W {
                 let (a, b) = (lhs.screen().cell(y, x).unwrap(), rhs.screen().cell(y, x).unwrap());
                 assert_eq!(a.bgcolor(), b.bgcolor(), "background differs at {x},{y}");
-                assert_eq!(a.contents().trim_end(), b.contents().trim_end(), "glyph differs at {x},{y}");
+                assert_eq!(
+                    a.contents().trim_end(),
+                    b.contents().trim_end(),
+                    "glyph differs at {x},{y}"
+                );
             }
         }
     }

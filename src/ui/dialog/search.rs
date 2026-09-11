@@ -222,7 +222,8 @@ impl SearchReplaceDialog {
         if col < inner.x || col >= inner.x + inner.width {
             return None;
         }
-        let caret_at = |value: &str| (col.saturating_sub(inner.x) as usize).min(value.chars().count());
+        let caret_at =
+            |value: &str| (col.saturating_sub(inner.x) as usize).min(value.chars().count());
         // Search field (one row below its label).
         if row == inner.y + 1 {
             self.focus = 0;
@@ -278,9 +279,9 @@ impl SearchReplaceDialog {
     fn params(&self) -> SearchReplaceParams {
         // Map the search mode to a regex flag, converting wildcards.
         let (search, regex) = match self.mode {
-            1 => (self.search.clone(), true),                // Regular expression
-            3 => (wildcard_to_regex(&self.search), true),    // Wildcard search
-            _ => (self.search.clone(), false),               // Normal / Hex (literal)
+            1 => (self.search.clone(), true),             // Regular expression
+            3 => (wildcard_to_regex(&self.search), true), // Wildcard search
+            _ => (self.search.clone(), false),            // Normal / Hex (literal)
         };
         SearchReplaceParams {
             replace: self.replace,
@@ -315,8 +316,14 @@ impl SearchReplaceDialog {
         y += 1;
         let search_focused = matches!(self.cur(), SrFocus::Search);
         if let Some(p) = draw_input_field_ex(
-            f, line_at(y), &self.search, self.search_cursor,
-            search_focused, false, search_focused && self.search_selected, theme,
+            f,
+            line_at(y),
+            &self.search,
+            self.search_cursor,
+            search_focused,
+            false,
+            search_focused && self.search_selected,
+            theme,
         ) {
             caret = Some(p);
         }
@@ -329,8 +336,14 @@ impl SearchReplaceDialog {
             y += 1;
             let repl_focused = matches!(self.cur(), SrFocus::Repl);
             if let Some(p) = draw_input_field_ex(
-                f, line_at(y), &self.replacement, self.repl_cursor,
-                repl_focused, false, repl_focused && self.repl_selected, theme,
+                f,
+                line_at(y),
+                &self.replacement,
+                self.repl_cursor,
+                repl_focused,
+                false,
+                repl_focused && self.repl_selected,
+                theme,
             ) {
                 caret = Some(p);
             }
@@ -342,7 +355,11 @@ impl SearchReplaceDialog {
         let radios = ["Normal", "Regular expression", "Hexadecimal", "Wildcard search"];
         let checks = ["Case sensitive", "Backwards", "In selection", "Whole words", "All charsets"];
         let check_vals = [
-            self.case_sensitive, self.backwards, self.in_selection, self.whole_words, self.all_charsets,
+            self.case_sensitive,
+            self.backwards,
+            self.in_selection,
+            self.whole_words,
+            self.all_charsets,
         ];
         let half = inner.width / 2;
         for row in 0..5u16 {
@@ -354,7 +371,10 @@ impl SearchReplaceDialog {
                 let focused = matches!(self.cur(), SrFocus::Mode(m) if m == row as usize);
                 f.render_widget(
                     Paragraph::new(Line::from(radio_span(
-                        radios[row as usize], self.mode == row as usize, focused, theme,
+                        radios[row as usize],
+                        self.mode == row as usize,
+                        focused,
+                        theme,
                     )))
                     .style(base),
                     Rect { x: inner.x, y: ry, width: half, height: 1 },
@@ -363,7 +383,10 @@ impl SearchReplaceDialog {
             let focused = matches!(self.cur(), SrFocus::Check(c) if c == row as usize);
             f.render_widget(
                 Paragraph::new(Line::from(check_span(
-                    checks[row as usize], check_vals[row as usize], focused, theme,
+                    checks[row as usize],
+                    check_vals[row as usize],
+                    focused,
+                    theme,
                 )))
                 .style(base),
                 Rect { x: inner.x + half, y: ry, width: inner.width - half, height: 1 },
@@ -381,7 +404,10 @@ impl SearchReplaceDialog {
             if !gfx_button(f, gfx.as_deref_mut(), Slot::Button(i as u16), r, &label, hot, theme) {
                 let style = if hot { theme.button_focused } else { theme.button };
                 let text = if hot { format!("[< {label} >]") } else { format!("[  {label}  ]") };
-                f.render_widget(Paragraph::new(Line::from(Span::styled(text, style))).style(base), r);
+                f.render_widget(
+                    Paragraph::new(Line::from(Span::styled(text, style))).style(base),
+                    r,
+                );
             }
         }
 

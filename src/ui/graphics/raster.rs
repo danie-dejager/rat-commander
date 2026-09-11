@@ -18,11 +18,8 @@ use std::sync::LazyLock;
 /// is baked as anti-aliased pixels so it survives every graphics protocol —
 /// terminal cell text drawn *over* a graphics image is not shown by Kitty/Sixel.
 static FONT: LazyLock<fontdue::Font> = LazyLock::new(|| {
-    fontdue::Font::from_bytes(
-        epaint_default_fonts::UBUNTU_LIGHT,
-        fontdue::FontSettings::default(),
-    )
-    .expect("bundled Ubuntu font parses")
+    fontdue::Font::from_bytes(epaint_default_fonts::UBUNTU_LIGHT, fontdue::FontSettings::default())
+        .expect("bundled Ubuntu font parses")
 });
 
 /// An opaque RGB triple, matching the terminal's truecolor cells.
@@ -133,11 +130,7 @@ pub fn gradient_bar(
                 continue; // leave the background showing through the corner
             }
             let t = if w > 1 { x as f64 / (w - 1) as f64 } else { 0.0 };
-            let c = if (x as f64) < fill_px {
-                shade(fill(t), gloss)
-            } else {
-                empty
-            };
+            let c = if (x as f64) < fill_px { shade(fill(t), gloss) } else { empty };
             // Anti-alias the fill's leading edge.
             let c = if (x as f64) < fill_px && fill_px - x as f64 <= 1.0 {
                 over(empty, c, fill_px - x as f64)
@@ -266,7 +259,15 @@ pub fn area_spark(
 /// An indeterminate progress bar: a rounded track in `track` with a bright
 /// `band` block, centered at horizontal fraction `pos`, sweeping back and forth.
 /// `block` is the block's width as a fraction of the bar.
-pub fn sweep_bar(w: u32, h: u32, pos: f64, block: f64, band: Rgb, track: Rgb, bg: Rgb) -> RgbaImage {
+pub fn sweep_bar(
+    w: u32,
+    h: u32,
+    pos: f64,
+    block: f64,
+    band: Rgb,
+    track: Rgb,
+    bg: Rgb,
+) -> RgbaImage {
     let mut img = RgbaImage::from_pixel(w.max(1), h.max(1), Rgba([bg.0, bg.1, bg.2, 255]));
     let (w, h) = (img.width(), img.height());
     let radius = (h as f64 / 2.0).min(w as f64 / 2.0);
@@ -321,7 +322,15 @@ pub fn fill_rect(img: &mut RgbaImage, x: u32, y: u32, w: u32, h: u32, color: Rgb
 /// to mark the focused button. The label is drawn separately as crisp cell text
 /// by the caller, so every script renders (the 8×8 font is ASCII-only).
 #[allow(clippy::too_many_arguments)]
-pub fn button(w: u32, h: u32, fill: Rgb, glow: Option<Rgb>, bg: Rgb, anim: usize, animated: bool) -> RgbaImage {
+pub fn button(
+    w: u32,
+    h: u32,
+    fill: Rgb,
+    glow: Option<Rgb>,
+    bg: Rgb,
+    anim: usize,
+    animated: bool,
+) -> RgbaImage {
     let mut img = RgbaImage::from_pixel(w.max(1), h.max(1), Rgba([bg.0, bg.1, bg.2, 255]));
     let (w, h) = (img.width(), img.height());
     // Too small to shape a pill: fall back to a solid block.
@@ -352,11 +361,7 @@ pub fn button(w: u32, h: u32, fill: Rgb, glow: Option<Rgb>, bg: Rgb, anim: usize
         (ex * ex + ey * ey).sqrt() - r
     };
     // The glow gently pulses on animated themes, matching the progress bars.
-    let gstr = if animated {
-        0.4 + 0.45 * ((anim as f64 * 0.12).sin() * 0.5 + 0.5)
-    } else {
-        0.6
-    };
+    let gstr = if animated { 0.4 + 0.45 * ((anim as f64 * 0.12).sin() * 0.5 + 0.5) } else { 0.6 };
     let glow_r = r + 3.0;
     for y in 0..h {
         let py = y as f64;
@@ -431,7 +436,15 @@ pub fn hsv(h: f64, s: f64, v: f64) -> Rgb {
 /// font and alpha-composited, so the text looks smooth at any size. Text baked
 /// this way survives every graphics protocol, unlike cell text drawn over an
 /// image. Off-image pixels are clipped.
-pub fn draw_text(img: &mut RgbaImage, x: i32, y: i32, text: &str, fg: Rgb, plate: Option<Rgb>, px: f32) {
+pub fn draw_text(
+    img: &mut RgbaImage,
+    x: i32,
+    y: i32,
+    text: &str,
+    fg: Rgb,
+    plate: Option<Rgb>,
+    px: f32,
+) {
     let font = &*FONT;
     let (iw, ih) = (img.width() as i32, img.height() as i32);
     let ascent = font.horizontal_line_metrics(px).map(|m| m.ascent).unwrap_or(px * 0.8);
@@ -643,7 +656,8 @@ mod tests {
         let bg = (0, 0, 0);
         let up = vec![1.0; 8];
         let down = vec![1.0; 8];
-        let img = mirror_bars(20, 30, &up, &down, 1.0, (0, 0, 255), (255, 0, 0), (80, 80, 80), bg, 0.5);
+        let img =
+            mirror_bars(20, 30, &up, &down, 1.0, (0, 0, 255), (255, 0, 0), (80, 80, 80), bg, 0.5);
         let axis_y = 15u32; // h * 0.5
         // The axis line is present.
         assert_eq!(img.get_pixel(10, axis_y).0[0], 80);
@@ -657,7 +671,8 @@ mod tests {
         let bg = (0, 0, 0);
         let low = area_spark(4, 20, &[0.1], 1.0, |_| (0, 200, 0), bg);
         let high = area_spark(4, 20, &[0.9], 1.0, |_| (0, 200, 0), bg);
-        let filled = |img: &RgbaImage, x: u32| (0..img.height()).filter(|&y| !is_bg(img, x, y, bg)).count();
+        let filled =
+            |img: &RgbaImage, x: u32| (0..img.height()).filter(|&y| !is_bg(img, x, y, bg)).count();
         assert!(filled(&high, 2) > filled(&low, 2), "higher value → more filled pixels");
     }
 
@@ -721,8 +736,8 @@ mod tests {
         let lit = button(80, 24, fill, Some(glow), bg, 0, false);
         // Sample a column at the far left edge, above/below the body center where
         // the halo bleeds into the padding.
-        let edge_glows = (0..lit.height())
-            .any(|y| !is_bg(&lit, 1, y, bg) && is_bg(&plain, 1, y, bg));
+        let edge_glows =
+            (0..lit.height()).any(|y| !is_bg(&lit, 1, y, bg) && is_bg(&plain, 1, y, bg));
         assert!(edge_glows, "focus glow tints the padding around the body");
     }
 

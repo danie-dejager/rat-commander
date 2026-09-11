@@ -88,11 +88,7 @@ async fn find_duplicates(
     tx: &AppSender,
 ) -> (Vec<String>, Vec<String>) {
     let key = |name: &str| {
-        if crit.case_sensitive {
-            name.to_string()
-        } else {
-            name.to_lowercase()
-        }
+        if crit.case_sensitive { name.to_string() } else { name.to_lowercase() }
     };
     // Index the right panel's files by their match key (name, or lower-cased
     // name for a case-insensitive comparison).

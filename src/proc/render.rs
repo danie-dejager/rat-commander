@@ -1,7 +1,7 @@
 //! Rendering of the [`ProcView`] full-screen process explorer.
 
 use super::{ProcMode, ProcSort, ProcView};
-use crate::ui::graphics::{raster, Gfx, Slot};
+use crate::ui::graphics::{Gfx, Slot, raster};
 use crate::ui::theme::Theme;
 use crate::util::bytes::human_size;
 use crate::util::text::{ellipsize, pad_left, pad_right};
@@ -15,13 +15,24 @@ use ratatui::widgets::{Axis, Block, BorderType, Borders, Chart, Dataset, GraphTy
 /// Block glyphs for fractional vertical-bar cells (0/8 .. 8/8 filled).
 const LEVELS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
-pub fn render(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme, mut gfx: Option<&mut Gfx>) {
+pub fn render(
+    f: &mut Frame,
+    area: Rect,
+    pv: &mut ProcView,
+    theme: &Theme,
+    mut gfx: Option<&mut Gfx>,
+) {
     let mut block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Plain)
         .border_style(Style::default().fg(theme.panel_border_active).bg(theme.panel_bg))
         .title(Span::styled(
-            format!(" {} — {} {} ", crate::l10n::trd("Process Explorer"), pv.procs.len(), crate::l10n::trd("processes")),
+            format!(
+                " {} — {} {} ",
+                crate::l10n::trd("Process Explorer"),
+                pv.procs.len(),
+                crate::l10n::trd("processes")
+            ),
             Style::default()
                 .fg(theme.panel_border_active)
                 .bg(theme.panel_bg)
@@ -63,7 +74,13 @@ pub fn render(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme, mut g
     render_footer(f, rows[2], pv, theme);
 }
 
-fn render_graphs(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme, mut gfx: Option<&mut Gfx>) {
+fn render_graphs(
+    f: &mut Frame,
+    area: Rect,
+    pv: &ProcView,
+    theme: &Theme,
+    mut gfx: Option<&mut Gfx>,
+) {
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
@@ -88,14 +105,16 @@ fn render_body(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme, gfx:
 }
 
 /// Stack the memory, disk and network sparkline panels in the left column.
-fn render_sys_panels(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme, mut gfx: Option<&mut Gfx>) {
+fn render_sys_panels(
+    f: &mut Frame,
+    area: Rect,
+    pv: &ProcView,
+    theme: &Theme,
+    mut gfx: Option<&mut Gfx>,
+) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Ratio(1, 3),
-            Constraint::Ratio(1, 3),
-            Constraint::Ratio(1, 3),
-        ])
+        .constraints([Constraint::Ratio(1, 3), Constraint::Ratio(1, 3), Constraint::Ratio(1, 3)])
         .split(area);
     render_mem_panel(f, rows[0], pv, theme, gfx.as_deref_mut());
     render_disk_panel(f, rows[1], pv, theme, gfx.as_deref_mut());
@@ -118,14 +137,21 @@ fn titled(f: &mut Frame, area: Rect, title: String, theme: &Theme) -> Rect {
     inner
 }
 
-fn render_cpu_chart(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme, gfx: Option<&mut Gfx>) {
+fn render_cpu_chart(
+    f: &mut Frame,
+    area: Rect,
+    pv: &ProcView,
+    theme: &Theme,
+    gfx: Option<&mut Gfx>,
+) {
     let inner = titled(f, area, format!(" CPU  {:>3.0}% ", pv.cpu_last()), theme);
     if inner.width < 2 || inner.height < 2 {
         return;
     }
     if pv.cpu_history.len() < 2 {
         f.render_widget(
-            Paragraph::new(Line::from(format!("  {}", crate::l10n::trd("measuring…")))).style(theme.panel_base()),
+            Paragraph::new(Line::from(format!("  {}", crate::l10n::trd("measuring…"))))
+                .style(theme.panel_base()),
             inner,
         );
         return;
@@ -133,36 +159,35 @@ fn render_cpu_chart(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme, gfx
 
     // Graphics path: a smooth filled line graph with the animated theme gradient.
     if let Some(g) = gfx
-        && g.available() {
-            let samples: Vec<f64> = pv.cpu_history.iter().map(|&v| v as f64).collect();
-            let (pw, ph) = g.px_size(inner);
-            let img = raster::line_graph(
-                pw,
-                ph,
-                &samples,
-                100.0,
-                |t| theme.gradient_rgb(t),
-                raster::rgb(theme.panel_bg),
-            );
-            g.draw(f, inner, Slot::ProcCpu, img);
-            return;
-        }
+        && g.available()
+    {
+        let samples: Vec<f64> = pv.cpu_history.iter().map(|&v| v as f64).collect();
+        let (pw, ph) = g.px_size(inner);
+        let img = raster::line_graph(
+            pw,
+            ph,
+            &samples,
+            100.0,
+            |t| theme.gradient_rgb(t),
+            raster::rgb(theme.panel_bg),
+        );
+        g.draw(f, inner, Slot::ProcCpu, img);
+        return;
+    }
 
-    let data: Vec<(f64, f64)> = pv
-        .cpu_history
-        .iter()
-        .enumerate()
-        .map(|(i, &v)| (i as f64, v as f64))
-        .collect();
+    let data: Vec<(f64, f64)> =
+        pv.cpu_history.iter().enumerate().map(|(i, &v)| (i as f64, v as f64)).collect();
     let x_max = (data.len() - 1).max(1) as f64;
     // Animated truecolor line color (shifts over time), else a solid accent.
     let line_color = theme.gradient_at(0, 1);
     let base = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
-    let datasets = vec![Dataset::default()
-        .marker(symbols::Marker::Braille)
-        .graph_type(GraphType::Line)
-        .style(Style::default().fg(line_color).bg(theme.panel_bg))
-        .data(&data)];
+    let datasets = vec![
+        Dataset::default()
+            .marker(symbols::Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(Style::default().fg(line_color).bg(theme.panel_bg))
+            .data(&data),
+    ];
     let chart = Chart::new(datasets)
         .style(theme.panel_base())
         .x_axis(Axis::default().style(base).bounds([0.0, x_max]))
@@ -175,7 +200,13 @@ fn render_cpu_chart(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme, gfx
     f.render_widget(chart, inner);
 }
 
-fn render_cores(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme, mut gfx: Option<&mut Gfx>) {
+fn render_cores(
+    f: &mut Frame,
+    area: Rect,
+    pv: &ProcView,
+    theme: &Theme,
+    mut gfx: Option<&mut Gfx>,
+) {
     // Show the CPU model name on the panel border (falling back to "Cores").
     let title = if pv.cpu_name.is_empty() {
         format!(" {} ({}) ", crate::l10n::trd("Cores"), pv.ncores)
@@ -184,10 +215,7 @@ fn render_cores(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme, mut gfx
     };
     let inner = titled(f, area, title, theme);
     if pv.cores.is_empty() || inner.height == 0 || inner.width < 8 {
-        f.render_widget(
-            Paragraph::new(Line::from("  n/a")).style(theme.panel_base()),
-            inner,
-        );
+        f.render_widget(Paragraph::new(Line::from("  n/a")).style(theme.panel_base()), inner);
         return;
     }
 
@@ -249,7 +277,10 @@ fn draw_core_cell(
             px,
             cell.y,
             pct,
-            Style::default().fg(load_color(value, theme)).bg(theme.panel_bg).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(load_color(value, theme))
+                .bg(theme.panel_bg)
+                .add_modifier(Modifier::BOLD),
         );
     }
 
@@ -260,21 +291,22 @@ fn draw_core_cell(
 
     // Graphics path: a filled load-colored sparkline over the graph columns.
     if let Some(g) = gfx
-        && g.available() {
-            let hist: Vec<f64> =
-                history.map(|h| h.iter().map(|&v| v as f64).collect()).unwrap_or_default();
-            let (pw, ph) = g.px_size(graph_rect);
-            let img = raster::area_spark(
-                pw,
-                ph,
-                &hist,
-                100.0,
-                |v| raster::load_rgb(v * 100.0),
-                raster::rgb(theme.panel_bg),
-            );
-            g.draw(f, graph_rect, Slot::ProcCore(idx as u16), img);
-            return;
-        }
+        && g.available()
+    {
+        let hist: Vec<f64> =
+            history.map(|h| h.iter().map(|&v| v as f64).collect()).unwrap_or_default();
+        let (pw, ph) = g.px_size(graph_rect);
+        let img = raster::area_spark(
+            pw,
+            ph,
+            &hist,
+            100.0,
+            |v| raster::load_rgb(v * 100.0),
+            raster::rgb(theme.panel_bg),
+        );
+        g.draw(f, graph_rect, Slot::ProcCore(idx as u16), img);
+        return;
+    }
 
     // Cell fallback: recent load as block glyphs, right-aligned (latest right).
     let mut samples = vec![0.0f32; graph_w];
@@ -294,28 +326,47 @@ fn draw_core_cell(
         } else {
             (LEVELS[level.min(8)], load_color(s, theme))
         };
-        buf.set_string(gx + gi as u16, cell.y, ch.to_string(), Style::default().fg(color).bg(theme.panel_bg));
+        buf.set_string(
+            gx + gi as u16,
+            cell.y,
+            ch.to_string(),
+            Style::default().fg(color).bg(theme.panel_bg),
+        );
     }
 }
 
-fn render_mem_panel(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme, gfx: Option<&mut Gfx>) {
-    let pct = if pv.mem_total > 0 {
-        100.0 * pv.mem_used as f32 / pv.mem_total as f32
-    } else {
-        0.0
-    };
-    let title = format!(
-        " Mem {pct:.0}%  {}/{} ",
-        human_size(pv.mem_used),
-        human_size(pv.mem_total)
-    );
+fn render_mem_panel(
+    f: &mut Frame,
+    area: Rect,
+    pv: &ProcView,
+    theme: &Theme,
+    gfx: Option<&mut Gfx>,
+) {
+    let pct = if pv.mem_total > 0 { 100.0 * pv.mem_used as f32 / pv.mem_total as f32 } else { 0.0 };
+    let title =
+        format!(" Mem {pct:.0}%  {}/{} ", human_size(pv.mem_used), human_size(pv.mem_total));
     let inner = titled(f, area, title, theme);
     // Memory sparkline is load-colored (green→red) by each sample's value.
     let samples: Vec<f64> = pv.mem_history.iter().copied().collect();
-    draw_sparkline(f, inner, &samples, 100.0, &|v| load_color(v as f32, theme), Slot::ProcMem, theme, gfx);
+    draw_sparkline(
+        f,
+        inner,
+        &samples,
+        100.0,
+        &|v| load_color(v as f32, theme),
+        Slot::ProcMem,
+        theme,
+        gfx,
+    );
 }
 
-fn render_disk_panel(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme, gfx: Option<&mut Gfx>) {
+fn render_disk_panel(
+    f: &mut Frame,
+    area: Rect,
+    pv: &ProcView,
+    theme: &Theme,
+    gfx: Option<&mut Gfx>,
+) {
     // ▲ writes (grow upward), ▼ reads (grow downward) from the centre line.
     let title = format!(
         " Disk ▼{}/s ▲{}/s ",
@@ -327,22 +378,43 @@ fn render_disk_panel(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme, gf
     let write: Vec<f64> = pv.disk_write_history.iter().copied().collect();
     // Shared scale so reads and writes are directly comparable.
     let max = peak(&read).max(peak(&write));
-    draw_mirror_bars(f, inner, (&write, theme.header_fg), (&read, theme.exec_fg), max, Slot::ProcDisk, theme, gfx);
+    draw_mirror_bars(
+        f,
+        inner,
+        (&write, theme.header_fg),
+        (&read, theme.exec_fg),
+        max,
+        Slot::ProcDisk,
+        theme,
+        gfx,
+    );
 }
 
-fn render_net_panel(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme, gfx: Option<&mut Gfx>) {
+fn render_net_panel(
+    f: &mut Frame,
+    area: Rect,
+    pv: &ProcView,
+    theme: &Theme,
+    gfx: Option<&mut Gfx>,
+) {
     // ▲ uploads (grow upward), ▼ downloads (grow downward) from the centre line.
-    let title = format!(
-        " Net ▼{}/s ▲{}/s ",
-        human_size(pv.net_down as u64),
-        human_size(pv.net_up as u64)
-    );
+    let title =
+        format!(" Net ▼{}/s ▲{}/s ", human_size(pv.net_down as u64), human_size(pv.net_up as u64));
     let inner = titled(f, area, title, theme);
     let down: Vec<f64> = pv.net_down_history.iter().copied().collect();
     let up: Vec<f64> = pv.net_up_history.iter().copied().collect();
     // Shared scale so the upload/download halves are directly comparable.
     let max = peak(&down).max(peak(&up));
-    draw_mirror_bars(f, inner, (&up, theme.header_fg), (&down, theme.panel_border_active), max, Slot::ProcNet, theme, gfx);
+    draw_mirror_bars(
+        f,
+        inner,
+        (&up, theme.header_fg),
+        (&down, theme.panel_border_active),
+        max,
+        Slot::ProcNet,
+        theme,
+        gfx,
+    );
 }
 
 /// The peak of `samples`, floored at 1.0 so a flat/empty series doesn't divide
@@ -371,19 +443,20 @@ fn draw_sparkline(
 
     // Graphics path: a filled area sparkline colored per sample by `colorer`.
     if let Some(g) = gfx
-        && g.available() {
-            let (pw, ph) = g.px_size(area);
-            let img = raster::area_spark(
-                pw,
-                ph,
-                samples,
-                max,
-                |v| raster::rgb(colorer(v * max)),
-                raster::rgb(theme.panel_bg),
-            );
-            g.draw(f, area, slot, img);
-            return;
-        }
+        && g.available()
+    {
+        let (pw, ph) = g.px_size(area);
+        let img = raster::area_spark(
+            pw,
+            ph,
+            samples,
+            max,
+            |v| raster::rgb(colorer(v * max)),
+            raster::rgb(theme.panel_bg),
+        );
+        g.draw(f, area, slot, img);
+        return;
+    }
 
     let levels = h * 8;
     let n = samples.len();
@@ -397,11 +470,8 @@ fn draw_sparkline(
         for row in 0..h {
             let from_bottom = h - 1 - row;
             let cell = filled.saturating_sub(from_bottom * 8).min(8);
-            let (ch, color) = if cell == 0 {
-                (' ', theme.panel_border)
-            } else {
-                (LEVELS[cell], colorer(v))
-            };
+            let (ch, color) =
+                if cell == 0 { (' ', theme.panel_border) } else { (LEVELS[cell], colorer(v)) };
             buf.set_string(
                 area.x + col as u16,
                 area.y + row as u16,
@@ -436,23 +506,24 @@ fn draw_mirror_bars(
 
     // Graphics path: a smooth center-axis mirrored bar graph.
     if let Some(g) = gfx
-        && g.available() {
-            let (pw, ph) = g.px_size(area);
-            let img = raster::mirror_bars(
-                pw,
-                ph,
-                up,
-                down,
-                max,
-                raster::rgb(up_color),
-                raster::rgb(down_color),
-                raster::rgb(theme.panel_border),
-                raster::rgb(theme.panel_bg),
-                0.5,
-            );
-            g.draw(f, area, slot, img);
-            return;
-        }
+        && g.available()
+    {
+        let (pw, ph) = g.px_size(area);
+        let img = raster::mirror_bars(
+            pw,
+            ph,
+            up,
+            down,
+            max,
+            raster::rgb(up_color),
+            raster::rgb(down_color),
+            raster::rgb(theme.panel_border),
+            raster::rgb(theme.panel_bg),
+            0.5,
+        );
+        g.draw(f, area, slot, img);
+        return;
+    }
 
     // One row is reserved for the horizontal centre axis; the remaining rows
     // split into an upper band (grows up) and a lower band (grows down). With an
@@ -466,11 +537,7 @@ fn draw_mirror_bars(
     let bg = theme.panel_bg;
     let axis_style = Style::default().fg(theme.panel_border).bg(bg);
     let frac = |v: f64, levels: usize| -> usize {
-        if max > 0.0 {
-            ((v / max).clamp(0.0, 1.0) * levels as f64).round() as usize
-        } else {
-            0
-        }
+        if max > 0.0 { ((v / max).clamp(0.0, 1.0) * levels as f64).round() as usize } else { 0 }
     };
     let buf = f.buffer_mut();
     for col in 0..w {
@@ -515,10 +582,8 @@ fn draw_mirror_bars(
 
 /// A centered top-border title showing battery charge: "BAT[+] 86% ▆▆▆▆░░".
 fn battery_title(pct: u8, charging: bool, theme: &Theme) -> Line<'static> {
-    let header = Style::default()
-        .fg(theme.header_fg)
-        .bg(theme.panel_bg)
-        .add_modifier(Modifier::BOLD);
+    let header =
+        Style::default().fg(theme.header_fg).bg(theme.panel_bg).add_modifier(Modifier::BOLD);
     // Full at 100% = green, empty = red.
     let color = load_color(100.0 - pct as f32, theme);
     const CELLS: usize = 6;
@@ -576,11 +641,7 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
     let cmd_w = left_w.saturating_sub(PID_W + PROG_W + 2).max(4);
 
     let arrow = |k: ProcSort| -> &'static str {
-        if pv.sort == k {
-            if pv.reverse { " ▼" } else { " ▲" }
-        } else {
-            ""
-        }
+        if pv.sort == k { if pv.reverse { " ▼" } else { " ▲" } } else { "" }
     };
 
     // --- header ---
@@ -610,19 +671,12 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
             header,
-            Style::default()
-                .fg(theme.header_fg)
-                .bg(theme.panel_bg)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(theme.header_fg).bg(theme.panel_bg).add_modifier(Modifier::BOLD),
         ))),
         Rect { height: 1, ..area },
     );
 
-    let body = Rect {
-        y: area.y + 1,
-        height: area.height - 1,
-        ..area
-    };
+    let body = Rect { y: area.y + 1, height: area.height - 1, ..area };
     let rows = body.height as usize;
     pv.view_rows = rows;
     // Keep the cursor visible.
@@ -639,11 +693,7 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
         let p = &pv.procs[row.proc_idx];
         let cur = pv.cursor_active && idx == pv.cursor;
         let row_style = if cur { theme.cursor } else { normal };
-        let row_bg = if cur {
-            theme.cursor.bg.unwrap_or(theme.panel_bg)
-        } else {
-            theme.panel_bg
-        };
+        let row_bg = if cur { theme.cursor.bg.unwrap_or(theme.panel_bg) } else { theme.panel_bg };
         // Left region (mode-dependent) then the shared Threads/User/MemB columns
         // and the trailing separator before the sparkline.
         let left_field = if tree {
@@ -722,9 +772,15 @@ fn render_footer(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme) {
     // Without a cursor there is nothing to move, fold or kill, so the bar
     // advertises only what actually works and how to get the cursor back.
     let hint = match (pv.cursor_active, pv.mode) {
-        (false, _) => "↑↓ cursor   ⇥ tree/flat   c CPU  m Mem  t Thr  n Prog  u User  p PID   r reverse   +/- rate   Esc close",
-        (true, ProcMode::Flat) => "↑↓ move   ⇥ tree   c CPU  m Mem  t Thr  n Prog  u User  p PID   r reverse   +/- rate   k kill  K force   Esc no cursor",
-        (true, ProcMode::Tree) => "↑↓ move   ⇥ flat   →←⏎ fold  * all   c CPU  m Mem  t Thr  n Prog  u User  p PID   r rev   +/- rate   k kill  Esc no cursor",
+        (false, _) => {
+            "↑↓ cursor   ⇥ tree/flat   c CPU  m Mem  t Thr  n Prog  u User  p PID   r reverse   +/- rate   Esc close"
+        }
+        (true, ProcMode::Flat) => {
+            "↑↓ move   ⇥ tree   c CPU  m Mem  t Thr  n Prog  u User  p PID   r reverse   +/- rate   k kill  K force   Esc no cursor"
+        }
+        (true, ProcMode::Tree) => {
+            "↑↓ move   ⇥ flat   →←⏎ fold  * all   c CPU  m Mem  t Thr  n Prog  u User  p PID   r rev   +/- rate   k kill  Esc no cursor"
+        }
     };
     // Highlighted bar (matching the F-key row) so the hints are clearly visible.
     let line = pad_right(&format!(" {hint}"), area.width as usize);
@@ -782,8 +838,19 @@ mod tests {
 
         // Upload-only: a full bar fills the TOP band; the bottom band stays clear.
         let mut t = Terminal::new(TestBackend::new(3, 4)).unwrap();
-        t.draw(|f| draw_mirror_bars(f, area, (&[1.0], up_c), (&[], down_c), 1.0, Slot::ProcDisk, &theme, None))
-            .unwrap();
+        t.draw(|f| {
+            draw_mirror_bars(
+                f,
+                area,
+                (&[1.0], up_c),
+                (&[], down_c),
+                1.0,
+                Slot::ProcDisk,
+                &theme,
+                None,
+            )
+        })
+        .unwrap();
         let b = t.backend().buffer();
         assert_eq!(b[(cx, 0)].fg, up_c, "top band carries the up colour");
         assert_ne!(b[(cx, 0)].symbol(), " ", "top band draws a bar glyph");
@@ -792,8 +859,19 @@ mod tests {
 
         // Download-only: a full bar fills the BOTTOM band; the top band stays clear.
         let mut t = Terminal::new(TestBackend::new(3, 4)).unwrap();
-        t.draw(|f| draw_mirror_bars(f, area, (&[], up_c), (&[1.0], down_c), 1.0, Slot::ProcDisk, &theme, None))
-            .unwrap();
+        t.draw(|f| {
+            draw_mirror_bars(
+                f,
+                area,
+                (&[], up_c),
+                (&[1.0], down_c),
+                1.0,
+                Slot::ProcDisk,
+                &theme,
+                None,
+            )
+        })
+        .unwrap();
         let b = t.backend().buffer();
         assert_eq!(b[(cx, 3)].bg, down_c, "bottom band carries the down colour");
         assert_ne!(b[(cx, 0)].fg, up_c, "top band is clear with no uploads");

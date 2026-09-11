@@ -72,8 +72,7 @@ impl AppState {
         };
         // Decide direction from the entry under the cursor: if it is staged,
         // unstage the whole set; otherwise stage it.
-        let cursor_staged = self
-            .panels[side]
+        let cursor_staged = self.panels[side]
             .current_entry()
             .and_then(|e| git.state_of(&e.name))
             .is_some_and(|s| s.is_staged());
@@ -109,8 +108,7 @@ impl AppState {
             return self.show_error("Not a git repository");
         };
         let root = git.root.clone();
-        let Some(entry) = self
-            .panels[side]
+        let Some(entry) = self.panels[side]
             .current_entry()
             .filter(|e| e.kind == VfsKind::File && e.name != "..")
             .cloned()
@@ -120,8 +118,7 @@ impl AppState {
         let name = entry.name.clone();
         let work_path = self.panels[side].cwd.join(&name);
         // Path of the file relative to the repo root (for `git show HEAD:<rel>`).
-        let rel = self
-            .panels[side]
+        let rel = self.panels[side]
             .cwd
             .path
             .join(&name)

@@ -145,7 +145,13 @@ pub fn pull_args(rebase: bool) -> Vec<String> {
 /// `git push` with mutually-exclusive force flags — `--force-with-lease` is the
 /// safe one and wins when both are ticked, since it refuses to clobber work that
 /// arrived on the remote after the last fetch.
-pub fn push_args(remote: &str, branch: &str, force: bool, lease: bool, upstream: bool) -> Vec<String> {
+pub fn push_args(
+    remote: &str,
+    branch: &str,
+    force: bool,
+    lease: bool,
+    upstream: bool,
+) -> Vec<String> {
     let mut a = argv(&["push", "--progress"]);
     if lease {
         a.push("--force-with-lease".into());
@@ -377,10 +383,8 @@ mod tests {
 
     /// A throwaway repo with one commit on a known branch, plus a second branch.
     fn make_repo() -> Option<std::path::PathBuf> {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let dir = std::env::temp_dir().join(format!("rc_gitops_{}_{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir).ok()?;
         let git = |args: &[&str]| {

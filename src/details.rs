@@ -6,6 +6,7 @@
 //! filled in by a background task and refreshed in place via
 //! [`AppEvent::DetailsTally`](crate::app::event::AppEvent::DetailsTally).
 
+use crate::syntax::ColorRun;
 use crate::ui::theme::Theme;
 use crate::util::bytes::{format_time, human_size};
 use crate::vfs::VfsKind;
@@ -14,7 +15,6 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
-use crate::syntax::ColorRun;
 use std::time::SystemTime;
 
 /// Per-panel details state: what to show and the background scan bookkeeping.
@@ -164,17 +164,19 @@ fn render_file(f: &mut Frame, area: Rect, fi: &FileInfo, theme: &Theme) -> usize
         VfsKind::Other => "Special",
         VfsKind::File => "File",
     };
-    let mut rows: Vec<(&str, String)> = vec![
-        ("Name", fi.name.clone()),
-        ("In", fi.dir.clone()),
-        ("Type", crate::l10n::trd(kind)),
-    ];
+    let mut rows: Vec<(&str, String)> =
+        vec![("Name", fi.name.clone()), ("In", fi.dir.clone()), ("Type", crate::l10n::trd(kind))];
     if let Some(t) = &fi.symlink_target {
         rows.push(("Links to", t.clone()));
     }
     rows.push((
         "Size",
-        format!("{}   ({} {})", human_size(fi.size), group_digits(fi.size), crate::l10n::trd("bytes")),
+        format!(
+            "{}   ({} {})",
+            human_size(fi.size),
+            group_digits(fi.size),
+            crate::l10n::trd("bytes")
+        ),
     ));
     if let Some(m) = fi.mode {
         rows.push(("Access", format!("{}  ({:04o})", rwx(m), m & 0o7777)));
@@ -203,17 +205,23 @@ fn render_tally(f: &mut Frame, area: Rect, t: &Tally, theme: &Theme) -> usize {
     let rows: Vec<(&str, String)> = vec![
         ("", t.label.clone()),
         ("", String::new()),
-        ("Total size", format!("{}   ({} {})", human_size(t.total), group_digits(t.total), crate::l10n::trd("bytes"))),
+        (
+            "Total size",
+            format!(
+                "{}   ({} {})",
+                human_size(t.total),
+                group_digits(t.total),
+                crate::l10n::trd("bytes")
+            ),
+        ),
         ("Files", group_digits(t.files)),
         ("Directories", group_digits(t.dirs)),
     ];
     draw_rows(f, area, &rows, label, value);
     let mut used = rows.len();
     if t.scanning {
-        let dim = Style::default()
-            .fg(theme.header_fg)
-            .bg(theme.panel_bg)
-            .add_modifier(Modifier::ITALIC);
+        let dim =
+            Style::default().fg(theme.header_fg).bg(theme.panel_bg).add_modifier(Modifier::ITALIC);
         let y = area.y + rows.len() as u16 + 1;
         if y < area.y + area.height {
             f.render_widget(
@@ -246,7 +254,10 @@ fn render_preview(
         header.push('─');
     }
     let header: String = header.chars().take(area.width as usize).collect();
-    f.render_widget(Paragraph::new(Line::from(Span::styled(header, rule))), Rect { height: 1, ..area });
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(header, rule))),
+        Rect { height: 1, ..area },
+    );
 
     let content = Rect { y: area.y + 1, height: area.height.saturating_sub(1), ..area };
     if content.height == 0 {
@@ -339,11 +350,17 @@ fn highlight_line(text: &str, runs: &[ColorRun], base: Color, bg: Color) -> Line
         if i >= end {
             continue;
         }
-        spans.push(Span::styled(chars[i..end].iter().collect::<String>(), Style::default().fg(*color).bg(bg)));
+        spans.push(Span::styled(
+            chars[i..end].iter().collect::<String>(),
+            Style::default().fg(*color).bg(bg),
+        ));
         i = end;
     }
     if i < chars.len() {
-        spans.push(Span::styled(chars[i..].iter().collect::<String>(), Style::default().fg(base).bg(bg)));
+        spans.push(Span::styled(
+            chars[i..].iter().collect::<String>(),
+            Style::default().fg(base).bg(bg),
+        ));
     }
     Line::from(spans)
 }
@@ -359,7 +376,10 @@ fn render_preview_names(f: &mut Frame, area: Rect, names: &[String], fg: Color, 
         lines.push(Line::from(Span::styled(format!(" {n}"), style)));
     }
     if names.len() > shown {
-        let dim = Style::default().fg(theme.panel_border).bg(theme.panel_bg).add_modifier(Modifier::ITALIC);
+        let dim = Style::default()
+            .fg(theme.panel_border)
+            .bg(theme.panel_bg)
+            .add_modifier(Modifier::ITALIC);
         lines.push(Line::from(Span::styled(format!(" … {} more", names.len() - shown), dim)));
     }
     f.render_widget(Paragraph::new(lines).style(Style::default().bg(theme.panel_bg)), area);
@@ -372,13 +392,15 @@ fn render_preview_tree(f: &mut Frame, area: Rect, rows: &[PreviewTreeLine], them
     let shown = if rows.len() > n { n.saturating_sub(1) } else { rows.len() };
     for r in rows.iter().take(shown) {
         let indent = "  ".repeat(r.depth as usize);
-        let (marker, fg) =
-            if r.is_dir { ('/', theme.dir_fg) } else { (' ', theme.panel_fg) };
+        let (marker, fg) = if r.is_dir { ('/', theme.dir_fg) } else { (' ', theme.panel_fg) };
         let text = format!(" {indent}{marker}{}", r.name);
         lines.push(Line::from(Span::styled(text, Style::default().fg(fg).bg(theme.panel_bg))));
     }
     if rows.len() > shown {
-        let dim = Style::default().fg(theme.panel_border).bg(theme.panel_bg).add_modifier(Modifier::ITALIC);
+        let dim = Style::default()
+            .fg(theme.panel_border)
+            .bg(theme.panel_bg)
+            .add_modifier(Modifier::ITALIC);
         lines.push(Line::from(Span::styled(format!(" … {} more", rows.len() - shown), dim)));
     }
     f.render_widget(Paragraph::new(lines).style(Style::default().bg(theme.panel_bg)), area);
@@ -400,10 +422,7 @@ fn draw_rows(f: &mut Frame, area: Rect, rows: &[(&str, String)], label: Style, v
         let spans = if l.is_empty() {
             vec![Span::styled((*v).clone(), value.add_modifier(Modifier::BOLD))]
         } else {
-            vec![
-                Span::styled(format!("{:>lw$} : ", l), label),
-                Span::styled((*v).clone(), value),
-            ]
+            vec![Span::styled(format!("{:>lw$} : ", l), label), Span::styled((*v).clone(), value)]
         };
         f.render_widget(
             Paragraph::new(Line::from(spans)),
@@ -476,9 +495,13 @@ mod tests {
 
     #[test]
     fn renders_text_preview_below_metadata() {
-        let mut data = DetailsData { kind: DetailsKind::File(file_info("code.rs")), ..Default::default() };
+        let mut data =
+            DetailsData { kind: DetailsKind::File(file_info("code.rs")), ..Default::default() };
         data.preview = Preview::Text(vec![
-            PreviewLine { text: "fn main() {}".into(), runs: vec![(2, Color::Red), (10, Color::Blue)] },
+            PreviewLine {
+                text: "fn main() {}".into(),
+                runs: vec![(2, Color::Red), (10, Color::Blue)],
+            },
             PreviewLine { text: "// a comment".into(), runs: vec![] },
         ]);
         let (text, rect) = screen(&data, false);
@@ -492,7 +515,8 @@ mod tests {
     #[test]
     fn image_preview_reserves_rect_with_graphics_and_draws_blocks_without() {
         let img = image::RgbaImage::from_pixel(6, 6, image::Rgba([200, 100, 40, 255]));
-        let mut data = DetailsData { kind: DetailsKind::File(file_info("pic.png")), ..Default::default() };
+        let mut data =
+            DetailsData { kind: DetailsKind::File(file_info("pic.png")), ..Default::default() };
         data.preview = Preview::Image(PreviewImage {
             img: img.clone(),
             sig: 7,
@@ -504,7 +528,10 @@ mod tests {
         let (text, rect) = screen(&data, true);
         assert!(rect.is_some(), "pixel preview reserves a target rect");
         assert!(!text.contains('▀'), "no half-blocks when pixel graphics handle it");
-        assert!(text.contains("Camera") && text.contains("Canon EOS 5D"), "exif summary shown: {text:?}");
+        assert!(
+            text.contains("Camera") && text.contains("Canon EOS 5D"),
+            "exif summary shown: {text:?}"
+        );
 
         // Without graphics, it draws half-block cell art.
         data.preview = Preview::Image(PreviewImage { img, sig: 7, exif: vec![] });
@@ -515,7 +542,8 @@ mod tests {
 
     #[test]
     fn renders_tree_and_archive_previews() {
-        let mut data = DetailsData { kind: DetailsKind::File(file_info("dir")), ..Default::default() };
+        let mut data =
+            DetailsData { kind: DetailsKind::File(file_info("dir")), ..Default::default() };
         data.preview = Preview::Tree(vec![
             PreviewTreeLine { depth: 0, name: "src".into(), is_dir: true },
             PreviewTreeLine { depth: 1, name: "main.rs".into(), is_dir: false },

@@ -1,13 +1,13 @@
 //! Local-filesystem [`Vfs`] backend.
 
 use super::{BoxRead, BoxWrite, Capabilities, Vfs, VfsEntry, VfsKind, VfsPath, WriteMeta};
-use crate::util::Result;
 #[cfg(unix)]
 use crate::util::Error;
+use crate::util::Result;
 use std::fs::Metadata;
+use std::time::SystemTime;
 #[cfg(unix)]
 use std::time::{Duration, UNIX_EPOCH};
-use std::time::SystemTime;
 use tokio::fs;
 
 /// The local disk. All operations run on tokio's blocking-friendly `fs` API.
@@ -131,10 +131,8 @@ impl Vfs for LocalFs {
                 Err(_) => continue, // racing deletion / permission — skip
             };
             let (target, broken) = if meta.file_type().is_symlink() {
-                let t = fs::read_link(de.path())
-                    .await
-                    .ok()
-                    .map(|p| p.to_string_lossy().into_owned());
+                let t =
+                    fs::read_link(de.path()).await.ok().map(|p| p.to_string_lossy().into_owned());
                 // `metadata` follows the link; an error means it's dangling.
                 let broken = fs::metadata(de.path()).await.is_err();
                 (t, broken)
@@ -149,10 +147,8 @@ impl Vfs for LocalFs {
     async fn stat(&self, path: &VfsPath) -> Result<VfsEntry> {
         let meta = fs::symlink_metadata(path.as_path()).await?;
         let (target, broken) = if meta.file_type().is_symlink() {
-            let t = fs::read_link(path.as_path())
-                .await
-                .ok()
-                .map(|p| p.to_string_lossy().into_owned());
+            let t =
+                fs::read_link(path.as_path()).await.ok().map(|p| p.to_string_lossy().into_owned());
             let broken = fs::metadata(path.as_path()).await.is_err();
             (t, broken)
         } else {
@@ -168,11 +164,7 @@ impl Vfs for LocalFs {
 
     async fn open_write(&self, path: &VfsPath, meta: WriteMeta) -> Result<BoxWrite> {
         let f = if meta.append {
-            fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(path.as_path())
-                .await?
+            fs::OpenOptions::new().create(true).append(true).open(path.as_path()).await?
         } else {
             fs::File::create(path.as_path()).await?
         };
@@ -305,9 +297,8 @@ impl Vfs for LocalFs {
         let p = path.path.clone();
         let usage = tokio::task::spawn_blocking(move || {
             // statvfs the path; fall back to the root if the path is gone.
-            let st = nix::sys::statvfs::statvfs(&p)
-                .or_else(|_| nix::sys::statvfs::statvfs("/"))
-                .ok()?;
+            let st =
+                nix::sys::statvfs::statvfs(&p).or_else(|_| nix::sys::statvfs::statvfs("/")).ok()?;
             let frsize = st.fragment_size() as u64;
             let total = st.blocks() as u64 * frsize;
             // Blocks available to unprivileged users (matches `df`).

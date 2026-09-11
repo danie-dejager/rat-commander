@@ -16,7 +16,7 @@
 //! registered per prefix on demand and serves every container of that prefix.
 
 use crate::util::{Error, Result};
-use crate::vfs::membuf::{pipe_upload, MemReader};
+use crate::vfs::membuf::{MemReader, pipe_upload};
 use crate::vfs::remote::perms_to_mode;
 use crate::vfs::{BoxRead, BoxWrite, Capabilities, Vfs, VfsEntry, VfsKind, VfsPath, WriteMeta};
 use std::collections::HashMap;
@@ -58,10 +58,7 @@ struct ExtfsTree {
 impl ExtfsTree {
     fn read_dir(&self, inner: &str) -> Result<Vec<VfsEntry>> {
         let norm = normalize_inner(inner);
-        let children = self
-            .dirs
-            .get(&norm)
-            .ok_or_else(|| Error::NotFound(norm.clone()))?;
+        let children = self.dirs.get(&norm).ok_or_else(|| Error::NotFound(norm.clone()))?;
         Ok(children.iter().map(|c| self.entry_of(c)).collect())
     }
 
@@ -119,11 +116,7 @@ fn dir_entry(name: &str, mtime: Option<SystemTime>) -> VfsEntry {
 fn normalize_inner(inner: &str) -> String {
     let trimmed = inner.replace('\\', "/");
     let trimmed = trimmed.trim_matches('/');
-    if trimmed.is_empty() {
-        "/".to_string()
-    } else {
-        format!("/{trimmed}")
-    }
+    if trimmed.is_empty() { "/".to_string() } else { format!("/{trimmed}") }
 }
 
 fn base_name(inner: &str) -> String {
@@ -139,9 +132,7 @@ fn parent_inner(inner: &str) -> String {
 
 /// The local-disk file backing an extfs path (its `container`).
 fn container_of(path: &VfsPath) -> Result<&PathBuf> {
-    path.container
-        .as_ref()
-        .ok_or_else(|| Error::InvalidPath("not an extfs path".to_string()))
+    path.container.as_ref().ok_or_else(|| Error::InvalidPath("not an extfs path".to_string()))
 }
 
 /// The member name to pass to the script: relative to the mount root (MC passes
@@ -165,20 +156,13 @@ pub struct ExtfsFs {
 
 impl ExtfsFs {
     pub fn new(prefix: String, script: PathBuf) -> Self {
-        ExtfsFs {
-            prefix,
-            script,
-            cache: Mutex::new(HashMap::new()),
-        }
+        ExtfsFs { prefix, script, cache: Mutex::new(HashMap::new()) }
     }
 
     /// Get (or rebuild) the tree for `container`, keyed on its mtime so external
     /// or our-own changes invalidate the cache automatically.
     async fn tree(&self, container: &Path) -> Result<Arc<ExtfsTree>> {
-        let cur_mtime = tokio::fs::metadata(container)
-            .await
-            .ok()
-            .and_then(|m| m.modified().ok());
+        let cur_mtime = tokio::fs::metadata(container).await.ok().and_then(|m| m.modified().ok());
         {
             let cache = self.cache.lock().unwrap();
             if let Some(t) = cache.get(container)
@@ -207,14 +191,8 @@ impl ExtfsFs {
                 insert_extfs_path(&mut dirs, &e);
             }
         }
-        let tree = Arc::new(ExtfsTree {
-            mtime: cur_mtime,
-            dirs,
-        });
-        self.cache
-            .lock()
-            .unwrap()
-            .insert(container.to_path_buf(), tree.clone());
+        let tree = Arc::new(ExtfsTree { mtime: cur_mtime, dirs });
+        self.cache.lock().unwrap().insert(container.to_path_buf(), tree.clone());
         Ok(tree)
     }
 
@@ -235,10 +213,7 @@ impl ExtfsFs {
             self.invalidate(container);
             Ok(())
         } else {
-            Err(Error::other(format!(
-                "extfs '{}' {cmd} failed (exit {status})",
-                self.prefix
-            )))
+            Err(Error::other(format!("extfs '{}' {cmd} failed (exit {status})", self.prefix)))
         }
     }
 }
@@ -380,11 +355,7 @@ fn parse_extfs_line(line: &str) -> Option<ExtfsListEntry> {
     // DATETIME starts at token 5. A compound date (`MM-DD-YYYY hh:mm`,
     // `YYYY/MM/DD HH:MM:SS`, `YYYY-MM-DD hh:mm`) spans 2 tokens; the classic
     // `Mon DD hh:mm[:ss]` / `Mon DD YYYY` spans 3.
-    let name_start = if toks[5].contains('-') || toks[5].contains('/') {
-        7
-    } else {
-        8
-    };
+    let name_start = if toks[5].contains('-') || toks[5].contains('/') { 7 } else { 8 };
     if toks.len() <= name_start {
         return None;
     }
@@ -427,11 +398,8 @@ fn insert_extfs_path(dirs: &mut HashMap<String, Vec<ChildMeta>>, entry: &ExtfsLi
     let mut parent = "/".to_string();
     for (i, comp) in comps.iter().enumerate() {
         let is_last = i == comps.len() - 1;
-        let child_norm = if parent == "/" {
-            format!("/{comp}")
-        } else {
-            format!("{parent}/{comp}")
-        };
+        let child_norm =
+            if parent == "/" { format!("/{comp}") } else { format!("{parent}/{comp}") };
         let kind = if is_last { entry.kind } else { VfsKind::Dir };
         let (csize, cmode, ctarget) = if is_last {
             (entry.size, entry.mode, entry.symlink_target.clone())
@@ -526,17 +494,11 @@ mod tests {
         // Mon DD YYYY
         assert_eq!(parse("-rw-r--r-- 1 u g 10 Jan  5  2020 a.txt").path, "a.txt");
         // Mon DD hh:mm:ss
-        assert_eq!(
-            parse("-rw-r--r-- 1 u g 10 Jan  5 21:19:03 a.txt").path,
-            "a.txt"
-        );
+        assert_eq!(parse("-rw-r--r-- 1 u g 10 Jan  5 21:19:03 a.txt").path, "a.txt");
         // MM-DD-YYYY hh:mm
         assert_eq!(parse("-rw-r--r-- 1 u g 10 03-30-2000 21:19 a.txt").path, "a.txt");
         // uzip's YYYY/MM/DD HH:MM:SS
-        assert_eq!(
-            parse("-rw-r--r-- 1 u g 10 2000/03/30 21:19:27 a.txt").path,
-            "a.txt"
-        );
+        assert_eq!(parse("-rw-r--r-- 1 u g 10 2000/03/30 21:19:27 a.txt").path, "a.txt");
         // ISO YYYY-MM-DD hh:mm
         assert_eq!(parse("-rw-r--r-- 1 u g 10 2000-03-30 21:19 a.txt").path, "a.txt");
     }
@@ -588,10 +550,7 @@ mod tests {
         };
 
         // Build a small zip in a scratch dir.
-        let nanos = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nanos = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
         let root = std::env::temp_dir().join(format!("rc_extfs_it_{}_{nanos}", std::process::id()));
         std::fs::create_dir_all(root.join("somedir")).unwrap();
         std::fs::write(root.join("somedir/a.txt"), b"alpha content").unwrap();
@@ -613,25 +572,15 @@ mod tests {
 
         // Root listing.
         let root_p = VfsPath::extfs("uzip", &container, "/");
-        let mut names: Vec<String> = fs
-            .read_dir(&root_p)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|e| e.name)
-            .collect();
+        let mut names: Vec<String> =
+            fs.read_dir(&root_p).await.unwrap().into_iter().map(|e| e.name).collect();
         names.sort();
         assert_eq!(names, vec!["readme", "somedir"]);
 
         // Nested listing.
         let sub = VfsPath::extfs("uzip", &container, "/somedir");
-        let subnames: Vec<String> = fs
-            .read_dir(&sub)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|e| e.name)
-            .collect();
+        let subnames: Vec<String> =
+            fs.read_dir(&sub).await.unwrap().into_iter().map(|e| e.name).collect();
         assert!(subnames.contains(&"a.txt".to_string()));
 
         // copyout via open_read returns the exact bytes.
@@ -661,22 +610,21 @@ mod tests {
             return;
         };
 
-        let nanos = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nanos = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
         let root = std::env::temp_dir().join(format!("rc_extfs_wt_{}_{nanos}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("seed"), b"seed").unwrap();
         let container = root.join("w.zip");
-        assert!(std::process::Command::new("zip")
-            .current_dir(&root)
-            .arg("w.zip")
-            .arg("seed")
-            .output()
-            .unwrap()
-            .status
-            .success());
+        assert!(
+            std::process::Command::new("zip")
+                .current_dir(&root)
+                .arg("w.zip")
+                .arg("seed")
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
 
         let fs = ExtfsFs::new("uzip".to_string(), script);
 
@@ -692,12 +640,13 @@ mod tests {
             .into_iter()
             .map(|e| e.name)
             .collect();
-        assert!(names.contains(&"added.txt".to_string()), "copyin should add the member: {names:?}");
+        assert!(
+            names.contains(&"added.txt".to_string()),
+            "copyin should add the member: {names:?}"
+        );
 
         // rm the seed member.
-        fs.remove_file(&VfsPath::extfs("uzip", &container, "/seed"))
-            .await
-            .unwrap();
+        fs.remove_file(&VfsPath::extfs("uzip", &container, "/seed")).await.unwrap();
         let after: Vec<String> = fs
             .read_dir(&VfsPath::extfs("uzip", &container, "/"))
             .await
@@ -721,24 +670,13 @@ mod tests {
         ] {
             insert_extfs_path(&mut dirs, &parse(line));
         }
-        let tree = ExtfsTree {
-            mtime: None,
-            dirs,
-        };
-        let mut root: Vec<String> = tree
-            .read_dir("/")
-            .unwrap()
-            .into_iter()
-            .map(|e| e.name)
-            .collect();
+        let tree = ExtfsTree { mtime: None, dirs };
+        let mut root: Vec<String> =
+            tree.read_dir("/").unwrap().into_iter().map(|e| e.name).collect();
         root.sort();
         assert_eq!(root, vec!["data", "readme"]);
-        let mut sub: Vec<String> = tree
-            .read_dir("/data")
-            .unwrap()
-            .into_iter()
-            .map(|e| e.name)
-            .collect();
+        let mut sub: Vec<String> =
+            tree.read_dir("/data").unwrap().into_iter().map(|e| e.name).collect();
         sub.sort();
         assert_eq!(sub, vec!["a.txt", "b.txt"]);
         assert_eq!(tree.stat("/readme").unwrap().kind, VfsKind::File);

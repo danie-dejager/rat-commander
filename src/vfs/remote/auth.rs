@@ -34,20 +34,13 @@ pub(crate) fn default_key_paths() -> Vec<PathBuf> {
 /// so a typo surfaces as an error instead of silently falling back.
 pub(crate) fn candidate_keys(creds: &RemoteCreds) -> Vec<PathBuf> {
     let explicit = creds.key_file.trim();
-    if explicit.is_empty() {
-        default_key_paths()
-    } else {
-        vec![expand_tilde(explicit)]
-    }
+    if explicit.is_empty() { default_key_paths() } else { vec![expand_tilde(explicit)] }
 }
 
 /// Whether this key file is encrypted and so needs a passphrase before it can
 /// be used. Cheap: the format check fails before any KDF work is done.
 pub(crate) fn needs_passphrase(path: &Path) -> bool {
-    matches!(
-        russh::keys::load_secret_key(path, None),
-        Err(russh::keys::Error::KeyIsEncrypted)
-    )
+    matches!(russh::keys::load_secret_key(path, None), Err(russh::keys::Error::KeyIsEncrypted))
 }
 
 /// The name of the first candidate key that needs a passphrase, if any. Used as
@@ -57,10 +50,7 @@ pub(crate) fn first_encrypted_key(creds: &RemoteCreds) -> Option<String> {
     if !matches!(creds.protocol, super::Protocol::Sftp | super::Protocol::Scp) {
         return None;
     }
-    candidate_keys(creds)
-        .into_iter()
-        .find(|p| needs_passphrase(p))
-        .map(|p| display_path(&p))
+    candidate_keys(creds).into_iter().find(|p| needs_passphrase(p)).map(|p| display_path(&p))
 }
 
 /// Authenticate `handle` as `creds.user`. Returns once some method succeeds.
@@ -83,10 +73,7 @@ pub(crate) async fn authenticate(handle: &mut SshHandle, creds: &RemoteCreds) ->
                 continue;
             };
             tried.push(format!("agent:{}", short_comment(&comment)));
-            match handle
-                .authenticate_publickey_with(&creds.user, key, rsa_hash, &mut agent)
-                .await
-            {
+            match handle.authenticate_publickey_with(&creds.user, key, rsa_hash, &mut agent).await {
                 Ok(result) if result.success() => return Ok(()),
                 Ok(result) => remember_remaining(&result, &mut remaining),
                 // A broken agent shouldn't stop the key/password fallbacks.
@@ -126,9 +113,8 @@ pub(crate) async fn authenticate(handle: &mut SshHandle, creds: &RemoteCreds) ->
     // 3. The password. Skipped only when the server has explicitly told us it
     //    won't take one — otherwise every connection to a key-only host would
     //    end on a pointless rejected attempt (and burn one of its MaxAuthTries).
-    let password_offered = remaining
-        .as_ref()
-        .is_none_or(|m| m.contains(&russh::MethodKind::Password));
+    let password_offered =
+        remaining.as_ref().is_none_or(|m| m.contains(&russh::MethodKind::Password));
     if password_offered {
         tried.push("password".to_string());
         let result = handle
@@ -146,7 +132,10 @@ pub(crate) async fn authenticate(handle: &mut SshHandle, creds: &RemoteCreds) ->
     )))
 }
 
-fn remember_remaining(result: &russh::client::AuthResult, out: &mut Option<Vec<russh::MethodKind>>) {
+fn remember_remaining(
+    result: &russh::client::AuthResult,
+    out: &mut Option<Vec<russh::MethodKind>>,
+) {
     if let russh::client::AuthResult::Failure { remaining_methods, .. } = result {
         *out = Some(remaining_methods.to_vec());
     }
@@ -154,8 +143,7 @@ fn remember_remaining(result: &russh::client::AuthResult, out: &mut Option<Vec<r
 
 /// Connect to the running SSH agent, if there is one.
 #[cfg(unix)]
-async fn agent_client()
--> Option<russh::keys::agent::client::AgentClient<tokio::net::UnixStream>> {
+async fn agent_client() -> Option<russh::keys::agent::client::AgentClient<tokio::net::UnixStream>> {
     russh::keys::agent::client::AgentClient::connect_env().await.ok()
 }
 
@@ -238,11 +226,10 @@ aNbaT1L+sT5Oo+M8cFWUAAAAB3JjLXRlc3QBAgMEBQY=\n\
 -----END OPENSSH PRIVATE KEY-----\n";
 
     fn tmp_dir(tag: &str) -> PathBuf {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("rc_auth_{tag}_{}_{nanos}", std::process::id()));
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("rc_auth_{tag}_{}_{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

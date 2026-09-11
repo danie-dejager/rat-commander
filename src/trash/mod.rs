@@ -215,11 +215,7 @@ fn suffixed(base: &str, attempt: u32) -> String {
 
 /// The `.trashinfo` file body.
 fn trashinfo_body(original: &Path, deleted_at: String) -> String {
-    format!(
-        "[Trash Info]\nPath={}\nDeletionDate={}\n",
-        encode_path(original),
-        deleted_at
-    )
+    format!("[Trash Info]\nPath={}\nDeletionDate={}\n", encode_path(original), deleted_at)
 }
 
 /// Percent-encode a path for the `Path=` field: everything outside RFC 2396's
@@ -363,10 +359,8 @@ mod tests {
     use super::*;
 
     fn tmp_dir(tag: &str) -> PathBuf {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let dir =
             std::env::temp_dir().join(format!("rc_trash_{tag}_{}_{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

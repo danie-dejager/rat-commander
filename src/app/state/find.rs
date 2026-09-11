@@ -43,7 +43,13 @@ impl AppState {
         }
         if let Some(ed) = self.editor.as_mut() {
             if ed.is_hex() {
-                ed.apply_hex_search_replace(p.replace, &p.search, &p.replacement, p.hex, p.backwards);
+                ed.apply_hex_search_replace(
+                    p.replace,
+                    &p.search,
+                    &p.replacement,
+                    p.hex,
+                    p.backwards,
+                );
                 return;
             }
             ed.apply_search_replace(
@@ -62,16 +68,23 @@ impl AppState {
     /// Launch a cancellable find-file search; a progress dialog shows the
     /// current path and lets the user abort. Results arrive via `FindDone`.
     pub(in crate::app::state) fn start_find(&mut self, p: FindParams) {
-        let matcher =
-            match crate::panel::selection::NameMatcher::build(&p.file_name, p.case_sensitive, p.shell) {
-                Ok(m) => m,
-                Err(e) => return self.show_error(format!("Invalid pattern: {e}")),
-            };
+        let matcher = match crate::panel::selection::NameMatcher::build(
+            &p.file_name,
+            p.case_sensitive,
+            p.shell,
+        ) {
+            Ok(m) => m,
+            Err(e) => return self.show_error(format!("Invalid pattern: {e}")),
+        };
         // Reject an unusable content pattern here rather than in the walker, where
         // it would just silently find nothing.
         if !p.content.is_empty()
             && crate::viewer::search::Needle::build(
-                &p.content, p.regex_content, p.case_sensitive, false, false,
+                &p.content,
+                p.regex_content,
+                p.case_sensitive,
+                false,
+                false,
             )
             .is_none()
         {
@@ -89,14 +102,7 @@ impl AppState {
         // Find tasks never prompt for overwrite; an unused reply channel keeps
         // the handle shape uniform.
         let (reply, _reply_rx) = tokio::sync::mpsc::channel(1);
-        self.tasks.insert(
-            id,
-            TaskHandle {
-                id,
-                cancel: cancel.clone(),
-                reply,
-            },
-        );
+        self.tasks.insert(id, TaskHandle { id, cancel: cancel.clone(), reply });
         self.dialog = Some(Dialog::Progress(ProgressDialog::find(id)));
 
         let progress = move |tx2: AppSender, cur: String, found: usize| {
@@ -170,7 +176,10 @@ impl AppState {
     /// Panelize find-file results (with a `..` entry that returns to browsing).
     /// Results may be local or remote; the panel keeps the backend the matches
     /// live on so navigating into a result — or back out via `..` — works.
-    pub(in crate::app::state) fn panelize_results(&mut self, results: Vec<crate::app::event::FindHit>) {
+    pub(in crate::app::state) fn panelize_results(
+        &mut self,
+        results: Vec<crate::app::event::FindHit>,
+    ) {
         if results.is_empty() {
             return self.show_error("No files found");
         }
@@ -225,5 +234,4 @@ impl AppState {
         p.backend = backend;
         p.set_results(entries, vpaths);
     }
-
 }

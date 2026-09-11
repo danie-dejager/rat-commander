@@ -60,7 +60,11 @@ impl UserMenuDialog {
             width: rect.width.saturating_sub(2),
             height: rect.height.saturating_sub(2),
         };
-        if col < inner.x || col >= inner.x + inner.width || row < inner.y || row >= inner.y + inner.height {
+        if col < inner.x
+            || col >= inner.x + inner.width
+            || row < inner.y
+            || row >= inner.y + inner.height
+        {
             return DialogResult::None;
         }
         let idx = first + (row - inner.y) as usize;
@@ -94,14 +98,9 @@ impl UserMenuDialog {
             KeyCode::Enter => self.submit_current(),
             KeyCode::Char(c) => {
                 // Activate the entry whose hotkey matches (exact, then loose).
-                if let Some(i) = self
-                    .entries
-                    .iter()
-                    .position(|e| e.hotkey == c)
-                    .or_else(|| {
-                        self.entries
-                            .iter()
-                            .position(|e| e.hotkey.eq_ignore_ascii_case(&c))
+                if let Some(i) =
+                    self.entries.iter().position(|e| e.hotkey == c).or_else(|| {
+                        self.entries.iter().position(|e| e.hotkey.eq_ignore_ascii_case(&c))
                     })
                 {
                     self.cursor = i;
@@ -126,11 +125,7 @@ impl UserMenuDialog {
 
         let rows = inner.height as usize;
         // Window the list so the cursor stays visible.
-        let first = if self.cursor < rows {
-            0
-        } else {
-            self.cursor + 1 - rows
-        };
+        let first = if self.cursor < rows { 0 } else { self.cursor + 1 - rows };
 
         let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
         let hotkey_style = Style::default()
@@ -140,7 +135,8 @@ impl UserMenuDialog {
 
         let mut lines: Vec<Line> = Vec::with_capacity(rows);
         for (idx, e) in self.entries.iter().enumerate().skip(first).take(rows) {
-            let title = crate::util::text::ellipsize(&e.title, inner.width.saturating_sub(6) as usize);
+            let title =
+                crate::util::text::ellipsize(&e.title, inner.width.saturating_sub(6) as usize);
             if idx == self.cursor {
                 let text = format!(" {}  {}", e.hotkey, title);
                 let mut padded = text;
@@ -155,10 +151,6 @@ impl UserMenuDialog {
                 ]));
             }
         }
-        f.render_widget(
-            Paragraph::new(lines).style(Style::default().bg(theme.dialog_bg)),
-            inner,
-        );
+        f.render_widget(Paragraph::new(lines).style(Style::default().bg(theme.dialog_bg)), inner);
     }
 }
-
