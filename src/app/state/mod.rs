@@ -273,6 +273,8 @@ pub struct AppState {
     pub trim: crate::ui::trim::Trimmer,
     /// `graphics` preference to restore if the settings dialog is cancelled.
     graphics_backup: Option<String>,
+    /// 3D view style to restore if the settings dialog is cancelled.
+    space3d_backup: Option<crate::config::Space3dStyle>,
     /// The F2 user menu — entries + pattern mode, from the config `menu` file.
     user_menu: UserMenu,
     /// File-association rules (loaded from the config `rc.ext` file), consulted

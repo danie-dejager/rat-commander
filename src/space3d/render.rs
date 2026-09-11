@@ -6,7 +6,7 @@
 //! draws it itself: as half-block cells on a truecolor terminal, or as an ASCII
 //! luminance ramp without one.
 
-use super::{Space3d, raster3d};
+use super::{Space3d, Space3dStyle, raster3d};
 use crate::ui::graphics::raster;
 use crate::ui::theme::Theme;
 use image::RgbaImage;
@@ -47,7 +47,7 @@ pub fn render(
         return None;
     }
 
-    let accent = raster::rgb(theme.panel_border_active);
+    let pal = super::ScenePalette::from_theme(theme);
 
     if graphics {
         // The root layer knows the pixel size it will build at, so it sets the
@@ -68,7 +68,7 @@ pub fn render(
     // and the bounds recorded below must match what is actually drawn.
     sp.set_viewport(w, h);
     sp.bounds_px = (w, h);
-    let boxes = sp.boxes(accent);
+    let boxes = sp.boxes(&pal);
     sp.bounds = raster3d::project_bounds(w, h, &boxes, sp.cam.eye(), sp.cam.target);
     // The names are *not* baked here. Baking exists because cell text drawn over
     // a Kitty/Sixel image is never shown — but in the cell-art modes the cells
@@ -188,6 +188,14 @@ fn scene(
     bake: bool,
 ) -> (RgbaImage, Vec<raster3d::LabelSlot>) {
     let bg = raster::rgb(theme.panel_bg);
+    let sky = sky_for(sp, theme);
+    // Over a ground plane the links have to read against grass, not against the
+    // panel background — so they take the platform's own pale colour rather
+    // than a mix of a background that is nowhere on screen.
+    let link_c = match sky {
+        Some(_) => super::ScenePalette::from_theme(theme).platform,
+        None => raster::over(bg, raster::rgb(theme.panel_fg), 0.45),
+    };
     let (img, _, slots) = raster3d::render_scene(
         w,
         h,
@@ -200,13 +208,80 @@ fn scene(
         // The links are structure, not content: drawn midway between the
         // background and the text so the tree's shape reads without the lines
         // competing with the boxes they connect.
-        raster::over(bg, raster::rgb(theme.panel_fg), 0.45),
+        link_c,
         // The same colour the other panel paints its own cursor row with, so
         // the two read as the same cursor in two places.
         raster::rgb(theme.cursor.bg.unwrap_or(theme.panel_border_active)),
+        sky,
         bake,
     );
     (img, slots)
+}
+
+/// The backdrop for the current style: an open sky over a ground plane in the
+/// fsn style, nothing at all in Cubes.
+///
+/// Theme-tinted rather than fsn's own fixed blue-over-green. The sky is built
+/// from the theme's own accent and the ground from its directory colour, both
+/// pushed well down in brightness and saturation — a scene lit like an outdoor
+/// one, in whatever palette is loaded.
+fn sky_for(sp: &Space3d, theme: &Theme) -> Option<raster3d::Sky> {
+    if sp.style != Space3dStyle::Fsn {
+        return None;
+    }
+    let accent = raster::rgb(theme.panel_border_active);
+    let bg = raster::rgb(theme.panel_bg);
+    // A pale band where the sky meets the ground and a deeper vault overhead:
+    // that vertical spread is most of what makes a flat wash read as open air.
+    // Mixed from the panel background, so a dark theme gets a night sky rather
+    // than a daylit one and the scene still belongs to the theme it sits in.
+    let horizon = raster::shade(raster::over(bg, accent, 0.22), 1.80);
+    let top = raster::shade(raster::over(bg, accent, 0.62), 0.60);
+
+    // The ground takes the sky's *opposite* hue.
+    //
+    // What makes fsn's world read as a world is that its ground is green under
+    // a blue sky — two colours that cannot be mistaken for one another. A
+    // ground mixed from the same theme colour as the sky comes out a shade of
+    // it, and the join then looks like a seam between two washes rather than
+    // like land meeting air. Rotating the hue keeps the scene tied to the theme
+    // while guaranteeing the two halves separate; since UI accents are so often
+    // blue, in practice this lands on fsn's own green by itself.
+    // Measured off the sky that actually gets drawn rather than off the raw
+    // accent, which the mix with the background has already moved.
+    let (h, sat, _) = to_hsv(top);
+    // A quarter-turn back down the wheel: blue sky, green ground — fsn's own
+    // relationship, and the one the eye reads as "outdoors".
+    let gh = (h - 95.0 + 360.0) % 360.0;
+    let gs = (sat * 1.05).clamp(0.38, 0.82);
+
+    Some(raster3d::Sky {
+        top,
+        horizon,
+        // Hazed toward the horizon with distance: that aerial perspective is
+        // what turns a flat wash into a plane receding to the skyline.
+        ground_far: raster::over(raster::hsv(gh, gs * 0.80, 0.44), horizon, 0.34),
+        ground_near: raster::hsv(gh, gs, 0.20),
+    })
+}
+
+/// RGB to hue/saturation/value, the inverse of [`raster::hsv`]. Hue in degrees.
+fn to_hsv(c: raster::Rgb) -> (f64, f64, f64) {
+    let (r, g, b) = (c.0 as f64 / 255.0, c.1 as f64 / 255.0, c.2 as f64 / 255.0);
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let d = max - min;
+    let h = if d < 1e-6 {
+        0.0
+    } else if max == r {
+        60.0 * (((g - b) / d) % 6.0)
+    } else if max == g {
+        60.0 * ((b - r) / d + 2.0)
+    } else {
+        60.0 * ((r - g) / d + 4.0)
+    };
+    let s = if max < 1e-6 { 0.0 } else { d / max };
+    ((h + 360.0) % 360.0, s, max)
 }
 
 /// A cheap signature of everything the image depends on, so a settled camera
@@ -235,6 +310,10 @@ pub fn signature(
     sp.selected.hash(&mut hsh);
     raster::rgb(theme.panel_bg).hash(&mut hsh);
     raster::rgb(theme.panel_border_active).hash(&mut hsh);
+    // The style changes the backdrop and the shapes, neither of which is
+    // visible in the box list alone — without this the cached image would
+    // survive a switch between the two looks.
+    (sp.style == Space3dStyle::Fsn).hash(&mut hsh);
     // The boxes as they will actually be drawn, quantised: a sub-pixel step of
     // a growing box must not force a full rebuild on every crawl update.
     for b in boxes {
@@ -243,6 +322,8 @@ pub fn signature(
         b.selected.hash(&mut hsh);
         b.cursor.hash(&mut hsh);
         b.dim.hash(&mut hsh);
+        b.shape.hash(&mut hsh);
+        b.color.hash(&mut hsh);
         // Quantised, so a fade in progress redraws but a settled one does not.
         ((b.fade * 64.0) as i32).hash(&mut hsh);
         for v in [b.min, b.max] {

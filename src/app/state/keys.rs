@@ -809,7 +809,7 @@ impl AppState {
             self.panels[side].tree = None;
         }
         if fmt == ViewFormat::Space3d {
-            self.panels[side].build_space3d();
+            self.panels[side].build_space3d(self.config.space3d_style);
         } else {
             self.panels[side].space3d = None;
             self.panels[side].scene_area = None;

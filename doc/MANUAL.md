@@ -1688,6 +1688,13 @@ subdirectory before deciding to go there.
 the view has nothing to show while the other panel is on an archive, FTP or SFTP
 directory, and `Alt-T` skips over the format on a remote panel.
 
+### Styles (Settings → Visual → 3D style)
+
+- **Cubes** (the default) — the tree described above: shaded boxes hanging in the
+  panel's background, children fanned out on rings below their parent.
+
+- **Spare no expense** — an homage to **fsn**, the 3D file system navigator that
+  shipped with SGI's IRIX (and briefly starred in *Jurassic Park*). 
 
 ## Disk explorer
 
@@ -1979,6 +1986,9 @@ falls back to a regular text button so it stays readable. It uses the
 xterm/VTE, iTerm2 and similar all get the richer rendering — and falls back
 automatically to the classic cell rendering everywhere else, so nothing is lost
 on a plain terminal.
+
+The **3D style** setting chooses which of the two looks the panel's **3D view**
+draws — **Cubes** or **Spare no expense**. See *3D view → Styles* above.
 
 The **Graphics** setting controls this: **Auto** (default — use pixel graphics if
 the terminal supports them, else cells), **Off** (always use cells), or a forced

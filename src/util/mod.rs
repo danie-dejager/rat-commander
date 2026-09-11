@@ -5,6 +5,7 @@ pub mod bytes;
 pub mod checksum;
 pub mod clipboard;
 pub mod error;
+pub mod filetype;
 pub mod img;
 pub mod qr;
 pub mod scroll;

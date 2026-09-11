@@ -1069,9 +1069,19 @@ fn settings_dialog_renders_three_group_boxes() {
         "settings should show the program version"
     );
     // A representative field from each group is present.
-    for field in ["Reshape RTL text", "External editor", "Theme", "Nerd Font symbols", "Graphics"] {
+    for field in
+        ["Reshape RTL text", "External editor", "Theme", "Nerd Font symbols", "Graphics", "3D style"]
+    {
         assert!(s.contains(field), "settings should show the '{field}' field");
     }
+    // The Visual group is two columns wide, so a left-column field and a
+    // right-column one share a row. Nothing else pins that, and losing it would
+    // silently make the dialog three rows taller.
+    let row = s.lines().find(|l| l.contains("Theme")).expect("the Theme row");
+    assert!(
+        row.contains("Nerd Font symbols"),
+        "Theme and Nerd Font symbols should share a row in the two-column Visual group: {row}"
+    );
 }
 
 #[test]
@@ -1377,18 +1387,20 @@ fn chown_form_mouse_focuses_the_clicked_text_field() {
 
 #[test]
 fn settings_form_mouse_toggles_grouped_checkbox() {
-    // Settings uses three group boxes; "Truecolor (gradients)" is the second
-    // field of the Visual group, "Command prompt" its fifth and "Nerd Font
-    // symbols" its sixth. Box 72x24 at {4,0}: the Visual box starts at y=11, so
-    // its rows run y=12..19.
+    // Settings uses three group boxes and the Visual one is two columns wide,
+    // filled column-major. Box 76x21 at {2,1}: the Visual box starts at y=12, so
+    // its five rows run y=13..17, the left column spanning x=4..38 and the right
+    // x=41..75. "Truecolor (gradients)" is the second field of the left column
+    // and "Command prompt" its fifth; "Nerd Font symbols" heads the right one —
+    // so this also covers clicking a field in the second column.
     let area = Rect::new(0, 0, 80, 24);
     let cfg = crate::config::Config::default();
     let mut dlg = Dialog::Form(FormDialog::settings(&cfg, true)); // truecolor starts on
-    assert!(matches!(dlg.handle_click(area, 10, 13), DialogResult::None));
-    assert!(matches!(dlg.handle_click(area, 10, 16), DialogResult::None));
+    assert!(matches!(dlg.handle_click(area, 10, 14), DialogResult::None));
     assert!(matches!(dlg.handle_click(area, 10, 17), DialogResult::None));
-    // Click OK (button row y = 0 + 24 - 2 = 22, left half).
-    match dlg.handle_click(area, 10, 22) {
+    assert!(matches!(dlg.handle_click(area, 45, 13), DialogResult::None));
+    // Click OK (button row y = 1 + 21 - 2 = 20, left half).
+    match dlg.handle_click(area, 10, 20) {
         DialogResult::Submit(Submit::Settings(v)) => {
             assert!(!v.truecolor, "clicking the checkbox turned truecolor off");
             assert!(!v.command_prompt, "clicking the checkbox hid the command prompt");
@@ -1520,9 +1532,10 @@ fn settings_group_counts_match_the_field_counts() {
     );
 }
 
-/// The Settings box is exactly as tall as a classic 80x24 terminal. If a field
-/// or group is added it overflows, `centered` clips the bottom, and the
-/// OK/Cancel row silently becomes unclickable — so this pins the fit.
+/// The Settings box has to fit a classic 80x24 terminal. If a field or group is
+/// added and it overflows, `centered` clips the bottom and the OK/Cancel row
+/// silently becomes unclickable — so this pins the fit, and the slack the
+/// two-column Visual group buys back.
 #[test]
 fn the_settings_dialog_still_fits_an_80x24_terminal() {
     use ratatui::layout::Rect;
@@ -1531,11 +1544,55 @@ fn the_settings_dialog_still_fits_an_80x24_terminal() {
     let rect = FormDialog::settings(&cfg, true).outer_rect(area);
     assert!(
         rect.height <= area.height,
-        "the Settings dialog needs {} rows but only {} are available — put new \
-         booleans in the command palette's toggle list instead",
+        "the Settings dialog needs {} rows but only {} are available — widen a \
+         group to another column, or put new booleans in the command palette's \
+         toggle list instead",
         rect.height,
         area.height
     );
     // And the button row must land inside the box that actually gets drawn.
     assert!(rect.y + rect.height <= area.y + area.height);
+    // The two-column Visual group should leave real headroom, not merely fit:
+    // spending it again would put us back where we started.
+    assert!(
+        rect.height <= area.height - 2,
+        "the two-column layout should leave slack, but the box is {} of {} rows",
+        rect.height,
+        area.height
+    );
+    // Both columns must fit the longest row a chooser can produce — in German,
+    // "Design: Midnight Commander Dark ▾" is 33 cells.
+    assert!(
+        rect.width >= 74,
+        "a two-column group needs a wide enough box, got {}",
+        rect.width
+    );
+}
+
+/// The 3D style is the last field of the Visual group, and the settings submit
+/// arm reads its fields by hard-coded index — so a field inserted above it would
+/// silently hand the wrong value to every setting after the insertion point.
+#[test]
+fn the_settings_form_round_trips_the_3d_style() {
+    use crate::config::Space3dStyle;
+    let cfg = crate::config::Config {
+        space3d_style: Space3dStyle::Fsn,
+        ..crate::config::Config::default()
+    };
+    let mut d = Dialog::Form(FormDialog::settings(&cfg, true));
+    // Click OK: box 76x21 at {2,1}, so the button row is y = 1 + 21 - 2 = 20.
+    match d.handle_click(Rect::new(0, 0, 80, 24), 10, 20) {
+        DialogResult::Submit(Submit::Settings(v)) => {
+            assert_eq!(
+                v.space3d_style,
+                Space3dStyle::Fsn,
+                "the form gives back what it was given"
+            );
+            // A spot-check either side of it, so a shifted index shows up here.
+            assert_eq!(v.brief_columns, cfg.brief_columns);
+            assert_eq!(v.theme, cfg.theme);
+            assert_eq!(v.nerd_font, cfg.nerd_font);
+        }
+        _ => panic!("the settings form should submit settings"),
+    }
 }

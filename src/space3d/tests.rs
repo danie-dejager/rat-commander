@@ -23,6 +23,21 @@ fn cache(kids: &[(&str, u64)], grandkids: &[(&str, &str, u64)]) -> SizeTree {
     t
 }
 
+/// A palette for the box-list tests, which care about geometry and flags
+/// rather than colour.
+fn pal() -> ScenePalette {
+    ScenePalette {
+        accent: (255, 255, 255),
+        platform: (240, 240, 240),
+        file: (200, 200, 200),
+        archive: (255, 85, 255),
+        doc: (170, 85, 0),
+        image: (85, 255, 255),
+        media: (85, 255, 85),
+        exec: (85, 255, 85),
+    }
+}
+
 fn view_on(focus: &str, t: &SizeTree) -> Space3d {
     let mut sp = Space3d::new(PathBuf::from(focus));
     sp.sync_from(t);
@@ -99,7 +114,7 @@ fn the_directory_above_is_a_signpost_not_the_subject() {
         up.target_half < node(&sp, "a").target_half,
         "the signpost is smaller than the directory it points at"
     );
-    assert!(sp.boxes((255, 255, 255))[0].dim, "and it is drawn faded back");
+    assert!(sp.boxes(&pal())[0].dim, "and it is drawn faded back");
 }
 
 #[test]
@@ -421,7 +436,7 @@ fn the_cursor_highlight_marks_the_directory_the_other_panel_points_at() {
     let marked: Vec<&str> =
         sp.nodes.iter().filter(|n| n.is_cursor).map(|n| n.name.as_str()).collect();
     assert_eq!(marked, ["bbb"], "exactly the directory under the cursor");
-    assert!(sp.boxes((255, 255, 255)).iter().any(|b| b.cursor), "and it is drawn lit");
+    assert!(sp.boxes(&pal()).iter().any(|b| b.cursor), "and it is drawn lit");
 
     // Moving the cursor moves the highlight, and only the highlight.
     let cam = sp.cam;
@@ -541,7 +556,7 @@ fn a_new_box_is_invisible_on_the_frame_it_appears() {
 
     let fuller = cache(&[("a", 100), ("b", 200)], &[]);
     sp.sync_from(&fuller);
-    let b = sp.boxes((255, 255, 255));
+    let b = sp.boxes(&pal());
     let newcomer = b.iter().find(|x| x.name == "b").expect("the new box");
     assert_eq!(newcomer.fade, 0.0, "drawn fully transparent before it animates");
     assert!(newcomer.max.y - newcomer.min.y < 1e-6, "and at no size");
@@ -575,7 +590,7 @@ fn a_departing_box_fades_out_where_it_stood() {
     sp.sync_from(&gone);
     assert!(!sp.nodes.iter().any(|n| n.name == "b"), "out of the tree at once");
     assert_eq!(sp.ghosts.len(), 1, "but still on screen, fading");
-    let g = sp.boxes((255, 255, 255)).into_iter().find(|x| x.name == "b").expect("ghost box");
+    let g = sp.boxes(&pal()).into_iter().find(|x| x.name == "b").expect("ghost box");
     assert!(g.fade > 0.5, "starting from where it was");
     let centre = crate::space3d::vec3::v3(
         (g.min.x + g.max.x) * 0.5,
@@ -600,7 +615,7 @@ fn a_fading_box_cannot_be_selected_or_clicked() {
     assert_eq!(sp.ghosts.len(), 1);
 
     // Hand-place bounds for every drawn box, the ghost included.
-    let boxes = sp.boxes((255, 255, 255));
+    let boxes = sp.boxes(&pal());
     sp.bounds = (0..boxes.len()).map(|i| Some((i as f32 * 20.0, 0.0, i as f32 * 20.0 + 10.0, 10.0))).collect();
     let ghost_i = boxes.len() - 1;
     let x = ghost_i as f32 * 20.0 + 5.0;
@@ -619,7 +634,7 @@ fn a_directory_that_comes_straight_back_does_not_ghost_itself() {
     // Back again before it finished fading: it must be drawn once, as itself.
     sp.sync_from(&full);
     assert!(sp.ghosts.is_empty(), "its ghost was cancelled");
-    let drawn = sp.boxes((255, 255, 255));
+    let drawn = sp.boxes(&pal());
     assert_eq!(
         drawn.iter().filter(|x| x.name == "b").count(),
         1,
@@ -706,7 +721,7 @@ fn the_view_refits_to_the_shape_of_the_panel() {
         let mut sp = view_on("/r", &t);
         sp.set_viewport(w, h);
         settle(&mut sp);
-        let boxes = sp.boxes((255, 255, 255));
+        let boxes = sp.boxes(&pal());
         let bounds = raster3d::project_bounds(w, h, &boxes, sp.cam.eye(), sp.cam.target);
 
         // Everything the camera is framing — the current directory and what is
@@ -931,4 +946,300 @@ fn only_local_paths_are_crawlable() {
     let mut remote = VfsPath::local(PathBuf::from("/tmp"));
     remote.scheme = "sftp".into();
     assert!(!is_crawlable(&remote), "the crawler walks the real filesystem only");
+}
+
+// -- the fsn style ----------------------------------------------------------
+
+/// A cache holding `/r` with `kids` subdirectories, each carrying one file, and
+/// `files` sitting directly in `/r` itself.
+fn cache_with_files(kids: &[(&str, u64)], files: &[(&str, u64)]) -> SizeTree {
+    let mut t = SizeTree::new();
+    let r = t.ensure(Path::new("/r"));
+    t.mark_listed(r);
+    for (name, size) in files {
+        t.add_file(r, &PathBuf::from("/r").join(name), *size);
+    }
+    for (name, size) in kids {
+        let p = PathBuf::from("/r").join(name);
+        let id = t.ensure(&p);
+        t.mark_listed(id);
+        t.add_file(id, &p.join("f"), *size);
+    }
+    t
+}
+
+fn fsn_on(focus: &str, t: &SizeTree) -> Space3d {
+    let mut sp = Space3d::new(PathBuf::from(focus));
+    sp.set_style(Space3dStyle::Fsn);
+    sp.sync_from(t);
+    sp
+}
+
+#[test]
+fn the_classic_look_is_what_you_get_unless_you_ask_for_the_other_one() {
+    let t = cache(&[("a", 10)], &[]);
+    assert_eq!(view_on("/r", &t).style, Space3dStyle::Cubes);
+}
+
+#[test]
+fn every_fsn_platform_stands_on_the_ground_rather_than_hanging_in_space() {
+    // The whole point of the style: one plane, and everything on it. The Cubes
+    // layout drops each level below the last, which is what this must not do.
+    let t = cache(&[("a", 10), ("b", 20)], &[("a", "a1", 5)]);
+    let sp = fsn_on("/r", &t);
+    for n in &sp.nodes {
+        assert_eq!(n.target.y, 0.0, "{} floats at y={}", n.name, n.target.y);
+    }
+    let boxes = sp.boxes(&pal());
+    for b in &boxes {
+        assert!(b.min.y >= 0.0, "nothing may sink below the ground plane");
+    }
+}
+
+#[test]
+fn contents_recede_from_the_camera_one_row_per_level() {
+    let t = cache(&[("a", 10)], &[("a", "a1", 5)]);
+    let sp = fsn_on("/r", &t);
+    let z = |name: &str| node(&sp, name).target.z;
+    assert!(z("a") > z("r"), "a child sits further away than its parent");
+    assert!(z("a1") > z("a"), "and a grandchild further still");
+}
+
+#[test]
+fn the_signpost_above_sits_behind_the_focus_not_in_front_of_it() {
+    // It says where you are; it must not stand between the camera and the
+    // directory the view is actually about.
+    let t = cache(&[("a", 10)], &[]);
+    let mut sp = fsn_on("/r/a", &t);
+    sp.sync_from(&t);
+    let up = node(&sp, "r");
+    let focus = node(&sp, "a");
+    assert!(up.context, "the parent is drawn as context");
+    assert!(
+        up.target.z < focus.target.z,
+        "and nearer the camera than the focus"
+    );
+}
+
+#[test]
+fn sibling_subtrees_are_laid_side_by_side_and_never_overlap() {
+    let t = cache(
+        &[("a", 10), ("b", 20), ("c", 30)],
+        &[("a", "a1", 5), ("b", "b1", 5)],
+    );
+    let sp = fsn_on("/r", &t);
+    let mut spans: Vec<(f32, f32, &str)> = sp
+        .nodes
+        .iter()
+        .filter(|n| n.parent == Some(node_index(&sp, "r")))
+        .map(|n| {
+            (
+                n.target.x - n.target_plat,
+                n.target.x + n.target_plat,
+                n.name.as_str(),
+            )
+        })
+        .collect();
+    spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+    for w in spans.windows(2) {
+        assert!(w[0].1 <= w[1].0, "{} overlaps {}", w[0].2, w[1].2);
+    }
+}
+
+#[test]
+fn a_platform_carries_the_files_that_sit_directly_in_its_directory() {
+    let t = cache_with_files(&[("sub", 10)], &[("one.txt", 4096), ("two.zip", 8192)]);
+    let sp = fsn_on("/r", &t);
+    let names: Vec<&str> = node(&sp, "r")
+        .files
+        .iter()
+        .map(|f| f.name.as_str())
+        .collect();
+    assert!(
+        names.contains(&"one.txt") && names.contains(&"two.zip"),
+        "got {names:?}"
+    );
+    // The crawler's list is of the largest files in the whole *subtree*, so the
+    // ones belonging to a subdirectory have to be filtered back out — otherwise
+    // a directory would stand its children's contents on its own platform.
+    assert!(
+        !names.iter().any(|n| n.contains('/')),
+        "only its own files: {names:?}"
+    );
+}
+
+#[test]
+fn the_classic_look_draws_no_files_at_all() {
+    let t = cache_with_files(&[("sub", 10)], &[("one.txt", 4096)]);
+    let sp = view_on("/r", &t);
+    assert!(
+        sp.nodes.iter().all(|n| n.files.is_empty()),
+        "Cubes draws directories alone"
+    );
+}
+
+#[test]
+fn file_solids_are_scenery_and_cannot_be_selected_or_clicked() {
+    // `bounds` is indexed in step with `boxes`, and navigation only ever looks
+    // at the first `nodes.len()` of it. If the solids were not strictly at the
+    // tail, clicking one would select an unrelated directory.
+    let t = cache_with_files(&[("sub", 10)], &[("a.txt", 4096), ("b.zip", 8192)]);
+    let mut sp = fsn_on("/r", &t);
+    settle(&mut sp);
+    let boxes = sp.boxes(&pal());
+    assert!(
+        boxes.len() > sp.nodes.len(),
+        "there are solids beyond the directories"
+    );
+    for b in &boxes[sp.nodes.len()..] {
+        assert!(
+            !b.selected && !b.cursor && !b.focus,
+            "a solid is never the selection"
+        );
+    }
+    // Every directory box comes first, in node order.
+    for (i, n) in sp.nodes.iter().enumerate() {
+        assert_eq!(boxes[i].name, n.name, "box {i} must still be node {i}");
+    }
+}
+
+#[test]
+fn only_the_focus_and_its_children_stand_files_on_their_platforms() {
+    // Two hundred platforms each carrying a grid would be an unreadable carpet
+    // and a great deal to rasterize every frame.
+    let t = cache(&[("a", 10)], &[("a", "a1", 5)]);
+    let sp = fsn_on("/r", &t);
+    assert!(
+        node(&sp, "a1").files.is_empty(),
+        "a grandchild carries none"
+    );
+}
+
+#[test]
+fn a_file_solid_is_shaped_and_coloured_by_what_kind_of_file_it_is() {
+    use crate::space3d::raster3d::Shape;
+    let p = pal();
+    assert_eq!(file_look("zip", &p), (Shape::Drum, p.archive));
+    assert_eq!(file_look("pdf", &p), (Shape::Sheet, p.doc));
+    assert_eq!(file_look("png", &p), (Shape::Frustum, p.image));
+    assert_eq!(file_look("mp3", &p), (Shape::Wedge, p.media));
+    assert_eq!(file_look("exe", &p), (Shape::Pyramid, p.exec));
+    // Anything the theme has no accent for is a plain block in the plain colour.
+    assert_eq!(file_look("rs", &p), (Shape::Block, p.file));
+    assert_eq!(file_look("", &p), (Shape::Block, p.file));
+}
+
+#[test]
+fn a_file_solids_height_follows_its_size_but_stays_within_bounds() {
+    assert!(
+        file_height(0) >= FILE_H_MIN,
+        "an empty file still has a solid to see"
+    );
+    assert!(
+        file_height(u64::MAX) <= FILE_H_MAX,
+        "and a huge one is not a skyscraper"
+    );
+    assert!(
+        file_height(10_000_000) > file_height(1_000),
+        "bigger files stand taller"
+    );
+}
+
+#[test]
+fn the_file_grid_covers_its_platform_whatever_it_is_holding() {
+    // A grid that did not scale with the platform would leave a big directory
+    // showing a handful of specks marooned on a wide slab.
+    for n in [1usize, 4, 9, 16] {
+        let cols = grid_cols(n);
+        let step = grid_step(PLATFORM_MAX, cols);
+        let spanned = cols as f32 * step;
+        assert!(
+            spanned <= PLATFORM_MAX * 2.0,
+            "{n} files overflow the platform"
+        );
+        if n > 1 {
+            assert!(
+                spanned > PLATFORM_MAX * 0.5,
+                "{n} files leave the platform mostly bare"
+            );
+        }
+    }
+}
+
+#[test]
+fn links_run_across_the_ground_between_the_platforms_they_join() {
+    let t = cache(&[("a", 10)], &[]);
+    let mut sp = fsn_on("/r", &t);
+    // Settled: while a newly-found box is still growing out of its parent, its
+    // link is legitimately collapsed to a point at the parent's own position.
+    settle(&mut sp);
+    let links = sp.links();
+    assert!(!links.is_empty(), "the child is joined to its parent");
+    for (p, c) in &links {
+        assert!(
+            p.y > 0.0 && p.y <= PLATFORM_H,
+            "a link skims the ground, not the sky"
+        );
+        assert!((p.y - c.y).abs() < 1e-6, "and stays level along its length");
+        assert!(c.z > p.z, "running away from the camera, parent to child");
+    }
+}
+
+#[test]
+fn switching_style_re_lays_the_scene_out_and_re_aims_the_camera() {
+    let t = cache(&[("a", 10), ("b", 20)], &[]);
+    let mut sp = view_on("/r", &t);
+    settle(&mut sp);
+    let (cubes_pitch, _) = (sp.goal_angles().1, 0);
+    assert!(
+        sp.nodes.iter().any(|n| n.target.y != 0.0),
+        "the classic tree hangs below its root"
+    );
+
+    sp.set_style(Space3dStyle::Fsn);
+    sp.sync_from(&t);
+    settle(&mut sp);
+    assert!(
+        sp.nodes.iter().all(|n| n.target.y == 0.0),
+        "the fsn scene stands on the ground"
+    );
+    assert!(
+        sp.goal_angles().1 < cubes_pitch,
+        "and the camera drops to look across the ground rather than down on it"
+    );
+}
+
+#[test]
+fn setting_the_style_it_already_has_changes_nothing() {
+    let t = cache(&[("a", 10)], &[]);
+    let mut sp = fsn_on("/r", &t);
+    settle(&mut sp);
+    let before = (sp.cam, sp.nodes.len());
+    sp.set_style(Space3dStyle::Fsn);
+    assert_eq!(
+        (sp.cam, sp.nodes.len()),
+        before,
+        "a no-op switch must not re-aim anything"
+    );
+    assert!(sp.settled, "nor restart the animation");
+}
+
+#[test]
+fn the_camera_stays_above_the_ground_at_every_angle_it_allows() {
+    // The ground is painted as a backdrop rather than rasterized, which is only
+    // correct while the eye is above it. `PITCH_MIN` is what guarantees that.
+    let t = cache(&[("a", 10)], &[]);
+    let mut sp = fsn_on("/r", &t);
+    for _ in 0..40 {
+        sp.orbit(0.3, -0.3);
+    }
+    settle(&mut sp);
+    assert!(
+        sp.cam.pitch >= PITCH_MIN,
+        "pitch is clamped above the horizontal"
+    );
+    assert!(
+        sp.cam.eye().y > sp.cam.target.y - 1e-3,
+        "so the eye never drops under the plane"
+    );
 }

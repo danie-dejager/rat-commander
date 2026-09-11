@@ -1,9 +1,9 @@
 //! Squarified treemap layout (Bruls, Huizing & van Wijk).
 //!
-//! Shared by the 2D disk explorer, which rounds the result to character cells,
-//! and the 3D space view, which uses the floating-point rectangles directly as
-//! a floor plan. Keeping one implementation means the two views are recognisably
-//! the same picture from two angles.
+//! Used by the disk explorer, which rounds the floating-point result to
+//! character cells. The 3D view does not use it: both of its styles lay their
+//! boxes out as a tree — on rings below each parent in the Cubes style, in rows
+//! across the ground in the fsn one — rather than as a subdivided rectangle.
 
 /// A floating-point rectangle: the layout's native output, before any rounding.
 #[derive(Debug, Clone, Copy, PartialEq)]

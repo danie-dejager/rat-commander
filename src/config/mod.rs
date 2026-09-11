@@ -105,6 +105,38 @@ impl WrapMode {
     }
 }
 
+/// Which look the panel's 3D view draws (Settings → Visual → "3D style").
+///
+/// Both styles come from the same renderer and the same size cache; only the
+/// layout, the shapes and the background differ. See `crate::space3d`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Space3dStyle {
+    /// Shaded cubes hanging in the panel background, children on rings below
+    /// their parent.
+    #[default]
+    Cubes,
+    /// SGI IRIX `fsn`: platforms standing on a ground plane under a sky
+    /// gradient, the files on them drawn as solids shaped by type.
+    Fsn,
+}
+
+impl Space3dStyle {
+    /// The two styles in dialog order, with the labels the form shows. These
+    /// double as the stored chooser values, so they are never translated.
+    pub const ALL: [(Space3dStyle, &'static str); 2] =
+        [(Space3dStyle::Cubes, "Cubes"), (Space3dStyle::Fsn, "Spare no expense")];
+
+    pub fn label(self) -> &'static str {
+        Self::ALL.iter().find(|(m, _)| *m == self).map(|(_, l)| *l).unwrap_or("Cubes")
+    }
+
+    /// The style a dialog label selects (unknown text falls back to `Cubes`).
+    pub fn from_label(label: &str) -> Self {
+        Self::ALL.iter().find(|(_, l)| *l == label).map(|(m, _)| *m).unwrap_or(Space3dStyle::Cubes)
+    }
+}
+
 /// The internal editor's behaviour settings (Options → General in the editor's
 /// F9 menu), persisted so they survive a restart.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -254,6 +286,11 @@ pub struct Config {
     /// (`history` file next to this config). `0` disables it. (Missing from an
     /// old config → the struct default, `100`.)
     pub command_history_max: usize,
+    /// Which look the panel's 3D view draws. (Missing from an old config → the
+    /// struct default, `Cubes`.) Must stay **above** `panels`: `Config::save`
+    /// writes TOML, where a scalar key cannot follow an array of tables.
+    #[serde(default)]
+    pub space3d_style: Space3dStyle,
     /// Per-panel view format and sort order, remembered across sessions
     /// (index 0 = left panel, 1 = right panel).
     #[serde(default)]
@@ -332,6 +369,7 @@ impl Default for Config {
             strip_trailing_spaces: true,
             brief_columns: 2,
             command_history_max: 100,
+            space3d_style: Space3dStyle::default(),
             panels: [PanelView::default(); 2],
             recent_remotes: Vec::new(),
             bookmarks: Vec::new(),
@@ -601,6 +639,8 @@ mod tests {
         let back: Config = toml::from_str("theme = \"Nord\"\n").unwrap();
         assert_eq!(back.panels[0].format, crate::panel::ViewFormat::Full);
         assert_eq!(back.brief_columns, 2);
+        // …and one predating the 3D style field keeps the classic look.
+        assert_eq!(back.space3d_style, Space3dStyle::Cubes);
         // …including one predating the editor's own options table.
         assert_eq!(back.editor_options, EditorOptions::default());
     }
@@ -619,6 +659,36 @@ mod tests {
         assert_eq!(back.editor_options, c.editor_options);
         // The wrap mode is stored by name, so the file stays readable by hand.
         assert!(text.contains("wrap_mode = \"typewriter\""), "{text}");
+    }
+
+    #[test]
+    fn space3d_style_round_trips_through_toml() {
+        let mut c = Config::default();
+        assert_eq!(c.space3d_style, Space3dStyle::Cubes, "the classic look is the default");
+        c.space3d_style = Space3dStyle::Fsn;
+
+        let text = toml::to_string_pretty(&c).unwrap();
+        let back: Config = toml::from_str(&text).unwrap();
+        assert_eq!(back.space3d_style, Space3dStyle::Fsn);
+        // Stored by name, so the file stays readable (and editable) by hand.
+        assert!(text.contains("space3d_style = \"fsn\""), "{text}");
+        // It has to be written before `panels`, which serializes as an array of
+        // tables — TOML has no way back to a scalar key once a table has begun,
+        // so a field placed after it would make `Config::save` fail outright.
+        assert!(
+            text.find("space3d_style").unwrap() < text.find("[[panels]]").unwrap(),
+            "space3d_style must be written before the panels tables:\n{text}"
+        );
+    }
+
+    #[test]
+    fn space3d_style_labels_map_both_ways() {
+        for (style, label) in Space3dStyle::ALL {
+            assert_eq!(Space3dStyle::from_label(label), style);
+            assert_eq!(style.label(), label);
+        }
+        // Anything unrecognized falls back to the classic look.
+        assert_eq!(Space3dStyle::from_label("nonsense"), Space3dStyle::Cubes);
     }
 
     #[test]

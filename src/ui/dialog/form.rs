@@ -28,28 +28,46 @@ fn graphics_pref(label: &str) -> String {
     .to_string()
 }
 
-/// The Settings form's three visual groups: `(title, field count)`, in the
-/// order the fields are built in [`FormDialog::settings`]. The field counts must
-/// sum to the number of settings fields.
+/// Cells between the columns of a multi-column group. The columns are equal
+/// width and any remainder of an odd interior falls in here, so a long value in
+/// the left column can never bleed into the right one.
+const GROUP_COL_GUTTER: u16 = 2;
+
+/// The Settings form's three visual groups: `(title, field count, columns)`, in
+/// the order the fields are built in [`FormDialog::settings`]. The field counts
+/// must sum to the number of settings fields.
 ///
-/// **This form is exactly 24 rows tall, which is the whole of a classic 80x24
-/// terminal.** Adding a field (or a group, which costs two rows more) overflows
-/// it, and `centered` then clips the OK/Cancel row off the bottom where it
-/// cannot be clicked. New booleans go in the command palette's toggle list
-/// instead — see `BoolSetting` — unless something here is removed first.
-const SETTINGS_GROUPS: &[(&str, usize)] = &[
-    ("Language", 2),
-    ("Edit/View", 4),
-    ("Visual", 8),
+/// A group with more than one column fills **column-major**: the first
+/// `ceil(count / columns)` fields run down the left column, the next down the
+/// one beside it. That is what keeps `Down`/`Tab` reading as *down*, because
+/// focus movement is purely `index ± 1` — see [`Form::focus_next`].
+///
+/// **This form has to fit a classic 80x24 terminal**, and `centered` silently
+/// clips the OK/Cancel row off the bottom where it cannot be clicked if it does
+/// not. Its height is `Σ(ceil(count / columns) + 2) + 4`, so a field added to a
+/// one-column group still costs a row and a whole new group costs two more; the
+/// two-column Visual group is what buys the headroom.
+const SETTINGS_GROUPS: &[(&str, usize, usize)] = &[
+    ("Language", 2, 1),
+    ("Edit/View", 4, 1),
+    ("Visual", 9, 2),
 ];
 
 /// The editor-options form's groups, in the order [`FormDialog::editor_options`]
-/// builds its fields. The counts must sum to the number of fields.
-const EDITOR_OPTION_GROUPS: &[(&str, usize)] = &[
-    ("Wrap mode", 1),
-    ("Tabulation", 3),
-    ("Other options", 10),
+/// builds its fields: `(title, field count, columns)`. The counts must sum to
+/// the number of fields.
+const EDITOR_OPTION_GROUPS: &[(&str, usize, usize)] = &[
+    ("Wrap mode", 1, 1),
+    ("Tabulation", 3, 1),
+    ("Other options", 10, 1),
 ];
+
+/// Rows a group of `count` fields occupies when spread over `cols` columns; the
+/// last column may be short. Never zero, so an empty group still has an
+/// interior to draw.
+fn group_row_count(count: usize, cols: usize) -> u16 {
+    count.div_ceil(cols.max(1)).max(1) as u16
+}
 
 // ---------------------------------------------------------------------------
 // Form dialog (settings, chmod, chown, symlink)
@@ -347,6 +365,17 @@ impl FormDialog {
                 "Brief view columns",
                 (1..=6).map(|n| n.to_string()).collect(),
                 &cfg.brief_columns.to_string(),
+            ),
+            // Appended last so the submit arm's hard-coded field indices below
+            // keep their meaning, and last in the Visual group is also where a
+            // new field belongs on screen — the foot of the right column.
+            Field::choice(
+                "3D style",
+                crate::config::Space3dStyle::ALL
+                    .iter()
+                    .map(|(_, l)| (*l).to_string())
+                    .collect(),
+                cfg.space3d_style.label(),
             ),
         ]);
         FormDialog {
@@ -670,6 +699,13 @@ impl FormDialog {
         self.choice_value("Graphics").map(graphics_pref)
     }
 
+    /// The currently-selected 3D view style in the settings form (for live
+    /// preview), or `None` if not the settings form.
+    pub fn space3d_choice(&self) -> Option<crate::config::Space3dStyle> {
+        self.choice_value("3D style")
+            .map(crate::config::Space3dStyle::from_label)
+    }
+
     /// The value of the settings `Check` field labelled `label_key` (for live
     /// preview), or `None` if this isn't the settings form.
     pub fn check_value(&self, label_key: &str) -> Option<bool> {
@@ -959,6 +995,7 @@ impl FormDialog {
                 nerd_font: fields[11].as_bool(),
                 graphics: graphics_pref(fields[12].as_text()),
                 brief_columns: fields[13].as_text().parse().unwrap_or(2).clamp(1, 6),
+                space3d_style: crate::config::Space3dStyle::from_label(fields[14].as_text()),
             }),
             FormPurpose::Confirmations => Submit::Confirmations(ConfirmValues {
                 delete: fields[0].as_bool(),
@@ -1148,11 +1185,18 @@ impl FormDialog {
     /// keeps the compact one-row-per-field box.
     fn outer_dims(&self, area: Rect) -> (u16, u16) {
         if let Some(groups) = self.groups() {
-            // Each group box = its fields + 2 border rows; plus a spacer and the
-            // hint/button row inside, and the outer border.
-            let group_rows: u16 = groups.iter().map(|(_, c)| *c as u16 + 2).sum();
+            // Each group box = the rows its fields need once spread over its
+            // columns, + 2 border rows; plus a spacer and the hint/button row
+            // inside, and the outer border.
+            let group_rows: u16 = groups
+                .iter()
+                .map(|(_, n, cols)| group_row_count(*n, *cols) + 2)
+                .sum();
             let height = group_rows + 1 /* spacer */ + 1 /* hint */ + 2 /* border */;
-            let w = 72u16.min(area.width.saturating_sub(4));
+            // 76 rather than 72 so a two-column half still holds the longest
+            // row a chooser can produce — in German, "Design: Midnight
+            // Commander Dark ▾" is 33 cells.
+            let w = 76u16.min(area.width.saturating_sub(4));
             (w, height)
         } else {
             let height = self.form.fields.len() as u16 + 4;
@@ -1167,16 +1211,20 @@ impl FormDialog {
         centered(area, w, h)
     }
 
-    /// The titled groups this form's fields are laid out in, or `None` for the
-    /// flat one-row-per-field forms.
     /// Total fields the group table claims, for the test that keeps it in step
     /// with the real field list. `None` when this form has no groups.
+    ///
+    /// The counts do double duty: they also drive the column split in
+    /// [`FormDialog::field_rows`], so a table that drifts out of step with the
+    /// real field list would mis-place rows as well as mis-size the dialog.
     #[cfg(test)]
     pub(crate) fn group_field_total(&self) -> Option<usize> {
-        self.groups().map(|g| g.iter().map(|(_, n)| *n).sum())
+        self.groups().map(|g| g.iter().map(|(_, n, _)| *n).sum())
     }
 
-    fn groups(&self) -> Option<&'static [(&'static str, usize)]> {
+    /// The titled groups this form's fields are laid out in, or `None` for the
+    /// flat one-row-per-field forms.
+    fn groups(&self) -> Option<&'static [(&'static str, usize, usize)]> {
         match self.purpose {
             FormPurpose::Settings => Some(SETTINGS_GROUPS),
             FormPurpose::EditorOptions => Some(EDITOR_OPTION_GROUPS),
@@ -1189,36 +1237,53 @@ impl FormDialog {
         let groups = self.groups().unwrap_or(&[]);
         let mut boxes = Vec::with_capacity(groups.len());
         let mut y = inner.y;
-        for (title, count) in groups {
-            let box_h = *count as u16 + 2;
+        for (title, count, cols) in groups {
+            let box_h = group_row_count(*count, *cols) + 2;
             boxes.push((*title, Rect { x: inner.x, y, width: inner.width, height: box_h }));
             y += box_h;
         }
         boxes
     }
 
-    /// The on-screen row rect for each field. Settings rows sit inside their
-    /// group box (inset by the border); other forms stack one row per field.
+    /// The on-screen row rect for each field, in field order. Grouped rows sit
+    /// inside their group box (inset by the border); other forms stack one
+    /// full-width row per field.
+    ///
+    /// A multi-column group is filled **column-major**, so field order still
+    /// walks down one column and then down the next — which is what `Down` and
+    /// `Tab` do, since focus movement is only ever `index ± 1`. The row count
+    /// comes from the group's declared field count rather than from the box
+    /// height, so a half-filled last column leaves no phantom rect for a click
+    /// to land on.
     fn field_rows(&self, inner: Rect) -> Vec<Rect> {
-        if self.groups().is_some() {
-            let mut rows = Vec::with_capacity(self.form.fields.len());
-            for (_, brect) in self.group_boxes(inner) {
-                let inner_box = Rect {
-                    x: brect.x + 1,
-                    y: brect.y + 1,
-                    width: brect.width.saturating_sub(2),
-                    height: brect.height.saturating_sub(2),
-                };
-                for k in 0..inner_box.height {
-                    rows.push(Rect { y: inner_box.y + k, height: 1, ..inner_box });
-                }
-            }
-            rows
-        } else {
-            (0..self.form.fields.len())
+        let Some(groups) = self.groups() else {
+            return (0..self.form.fields.len())
                 .map(|i| Rect { y: inner.y + i as u16, height: 1, ..inner })
-                .collect()
+                .collect();
+        };
+        let mut rows = Vec::with_capacity(self.form.fields.len());
+        for ((_, count, cols), (_, brect)) in groups.iter().zip(self.group_boxes(inner)) {
+            let inner_box = Rect {
+                x: brect.x + 1,
+                y: brect.y + 1,
+                width: brect.width.saturating_sub(2),
+                height: brect.height.saturating_sub(2),
+            };
+            let cols = (*cols).max(1) as u16;
+            let per_col = group_row_count(*count, cols as usize) as usize;
+            let gutter = if cols > 1 { GROUP_COL_GUTTER } else { 0 };
+            let col_w = inner_box.width.saturating_sub(gutter * (cols - 1)) / cols;
+            for k in 0..*count {
+                let (c, r) = (k / per_col, k % per_col);
+                rows.push(Rect {
+                    x: inner_box.x + c as u16 * (col_w + gutter),
+                    y: inner_box.y + r as u16,
+                    width: col_w,
+                    height: 1,
+                });
+            }
         }
+        rows
     }
 
     pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
@@ -1449,15 +1514,16 @@ impl FormDialog {
         // An open Choice dropdown is drawn last, so it overlays everything it
         // spills across — the button/hint row and the dialog border included.
         // (It is sized against the screen, not the dialog, so a long list can
-        // reach well past the box; see `choice_dropdown_geom`.) The scroll offset
+        // reach well past the box, and it takes its own field's column; see
+        // `choice_dropdown_geom`.) The scroll offset
         // `top` is nudged only when the highlight leaves the window, so the cursor
         // moves freely within it.
         for (i, field) in self.form.fields.iter_mut().enumerate() {
             if let Field::Choice { options, sel, top, open: true, .. } = field {
-                let field_y = rows[i].y;
-                let visible = choice_visible_rows(inner, area, field_y, options.len());
+                let frect = rows[i];
+                let visible = choice_visible_rows(frect, area, options.len());
                 *top = crate::util::scroll::scroll_to_visible(*top, *sel, visible);
-                render_choice_dropdown(f, inner, area, field_y, options, *sel, *top, theme);
+                render_choice_dropdown(f, frect, area, options, *sel, *top, theme);
             }
         }
 
@@ -1494,9 +1560,9 @@ impl FormDialog {
             .iter()
             .position(|f| matches!(f, Field::Choice { open: true, .. }))
         {
-            let field_y = rows[fi].y;
+            let frect = rows[fi];
             if let Some(Field::Choice { options, idx, open, sel, top, .. }) = self.form.fields.get_mut(fi) {
-                let (rect, visible) = choice_dropdown_geom(inner, area, field_y, options.len());
+                let (rect, visible) = choice_dropdown_geom(frect, area, options.len());
                 let (list_x, list_y, list_w) = (rect.x + 1, rect.y + 1, rect.width.saturating_sub(2));
                 if row >= list_y
                     && row < list_y + visible as u16
@@ -1658,34 +1724,33 @@ impl FormDialog {
 /// It is sized against the whole `screen`, not the dialog interior, so a long
 /// list (say, every branch in a repository) is not squeezed into the few rows a
 /// small dialog happens to have — it overlays the dialog's border and whatever is
-/// behind it. Horizontally it stays aligned with `inner`, under its own field.
-fn choice_dropdown_geom(inner: Rect, screen: Rect, field_y: u16, options_len: usize) -> (Rect, usize) {
-    let below = (screen.y + screen.height).saturating_sub(field_y + 1) as usize; // rows under the field
-    let above = field_y.saturating_sub(screen.y) as usize; // rows over the field
+/// behind it. Horizontally it takes `field`'s own x and width, so in a
+/// multi-column group it drops under the column it belongs to rather than under
+/// the dialog's left edge.
+fn choice_dropdown_geom(field: Rect, screen: Rect, options_len: usize) -> (Rect, usize) {
+    let below = (screen.y + screen.height).saturating_sub(field.y + 1) as usize; // rows under the field
+    let above = field.y.saturating_sub(screen.y) as usize; // rows over the field
     let want = options_len + 2; // options + top/bottom border
     // Prefer dropping down; flip up only when down can't fit and up has more room.
     let open_up = below < want && above > below;
     let room = if open_up { above } else { below };
     let visible = options_len.min(room.saturating_sub(2).max(1)).max(1);
     let box_h = (visible + 2) as u16;
-    let y = if open_up { field_y.saturating_sub(box_h) } else { field_y + 1 };
-    (Rect { x: inner.x, y, width: inner.width, height: box_h }, visible)
+    let y = if open_up { field.y.saturating_sub(box_h) } else { field.y + 1 };
+    (Rect { x: field.x, y, width: field.width, height: box_h }, visible)
 }
 
-/// Number of option rows visible in a Choice dropdown whose field is at `field_y`.
-fn choice_visible_rows(inner: Rect, screen: Rect, field_y: u16, options_len: usize) -> usize {
-    choice_dropdown_geom(inner, screen, field_y, options_len).1
+/// Number of option rows visible in the dropdown of the Choice field at `field`.
+fn choice_visible_rows(field: Rect, screen: Rect, options_len: usize) -> usize {
+    choice_dropdown_geom(field, screen, options_len).1
 }
 
-
-/// Draw a Choice field's scrollable dropdown just below its row (at `field_y`),
+/// Draw a Choice field's scrollable dropdown just below its row (`field`),
 /// showing options from `top` with `sel` highlighted.
-#[allow(clippy::too_many_arguments)]
 fn render_choice_dropdown(
     f: &mut Frame,
-    inner: Rect,
+    field: Rect,
     screen: Rect,
-    field_y: u16,
     options: &[String],
     sel: usize,
     top: usize,
@@ -1694,7 +1759,7 @@ fn render_choice_dropdown(
     if options.is_empty() {
         return;
     }
-    let (rect, visible) = choice_dropdown_geom(inner, screen, field_y, options.len());
+    let (rect, visible) = choice_dropdown_geom(field, screen, options.len());
     f.render_widget(Clear, rect);
     let block = Block::default()
         .borders(Borders::ALL)
@@ -1730,7 +1795,8 @@ mod choice_geom_tests {
         // A short dialog (7 rows) near the top of a tall screen, field on row 3.
         let screen = Rect::new(0, 0, 80, 40);
         let inner = Rect::new(10, 2, 40, 5);
-        let (rect, visible) = choice_dropdown_geom(inner, screen, 3, 30);
+        let field = Rect::new(inner.x, 3, inner.width, 1);
+        let (rect, visible) = choice_dropdown_geom(field, screen, 30);
         // All 30 options fit below the field on this screen, even though the
         // dialog interior ends at row 7 — the list is not clipped to the box.
         assert_eq!(visible, 30, "the whole list is shown, not just the dialog's rows");
@@ -1740,15 +1806,29 @@ mod choice_geom_tests {
         );
         assert!(rect.y + rect.height <= screen.y + screen.height, "but stays on screen");
         // It stays aligned with its field horizontally.
-        assert_eq!((rect.x, rect.width), (inner.x, inner.width));
+        assert_eq!((rect.x, rect.width), (field.x, field.width));
+    }
+
+    #[test]
+    fn dropdown_opens_under_the_column_its_field_is_in() {
+        // A field in the right-hand column of a two-column group: the list has
+        // to drop under *it*, not under the dialog's left edge.
+        let screen = Rect::new(0, 0, 80, 24);
+        let field = Rect::new(41, 16, 35, 1);
+        let (rect, _) = choice_dropdown_geom(field, screen, 2);
+        assert_eq!(
+            (rect.x, rect.width),
+            (field.x, field.width),
+            "the dropdown takes its own field's column"
+        );
     }
 
     #[test]
     fn dropdown_flips_above_the_field_when_below_is_cramped() {
         // Field near the bottom of the screen: more room above than below.
         let screen = Rect::new(0, 0, 80, 24);
-        let inner = Rect::new(5, 16, 40, 6);
-        let (rect, visible) = choice_dropdown_geom(inner, screen, 21, 20);
+        let field = Rect::new(5, 21, 40, 1);
+        let (rect, visible) = choice_dropdown_geom(field, screen, 20);
         assert!(rect.y < 21, "opens upward");
         assert!(visible >= 1);
         assert!(rect.y >= screen.y, "stays on screen");
@@ -1758,8 +1838,8 @@ mod choice_geom_tests {
     fn dropdown_is_clamped_to_the_screen_not_the_dialog() {
         // A huge list on a short screen: bounded by the screen's rows.
         let screen = Rect::new(0, 0, 80, 12);
-        let inner = Rect::new(0, 1, 30, 4);
-        let (rect, visible) = choice_dropdown_geom(inner, screen, 2, 500);
+        let field = Rect::new(0, 2, 30, 1);
+        let (rect, visible) = choice_dropdown_geom(field, screen, 500);
         assert!(visible < 500, "clamped");
         assert!(rect.y + rect.height <= screen.y + screen.height, "never runs off screen");
         assert!(visible >= 1, "always shows at least one option");

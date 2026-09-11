@@ -242,7 +242,7 @@ fn draw_body(f: &mut Frame, state: &mut AppState) {
             // refills rather than cropping or stranding the scene.
             sp.set_viewport(pw, ph);
             sp.bounds_px = (pw, ph);
-            let boxes = sp.boxes(crate::ui::graphics::raster::rgb(theme.panel_border_active));
+            let boxes = sp.boxes(&crate::space3d::ScenePalette::from_theme(&theme));
             // Record where each box landed, in the same raster the image is
             // built in, so a click lands on what the user sees.
             sp.bounds = crate::space3d::raster3d::project_bounds(
@@ -533,6 +533,34 @@ mod feature_tests {
 
     /// With graphics available the 3D panel hands its area to the root layer,
     /// which builds and ships the raster — and only rebuilds it when something
+    /// The 3D style is a setting, so it has to travel from the config all the
+    /// way into the panel's own scene — and keep doing so when it changes, which
+    /// is what makes the Settings dropdown preview live.
+    #[tokio::test]
+    async fn the_configured_3d_style_reaches_the_panel_and_follows_a_change() {
+        use crate::config::Space3dStyle;
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+        st.config.space3d_style = Space3dStyle::Fsn;
+        st.panels[0].format = crate::panel::ViewFormat::Space3d;
+        st.panels[0].build_space3d(st.config.space3d_style);
+        assert_eq!(
+            st.panels[0].space3d.as_ref().map(|s| s.style),
+            Some(Space3dStyle::Fsn),
+            "the very first frame is drawn in the configured style"
+        );
+
+        // Now change the setting under it, as the settings preview does.
+        st.config.space3d_style = Space3dStyle::Cubes;
+        st.update_space3d();
+        assert_eq!(
+            st.panels[0].space3d.as_ref().map(|s| s.style),
+            Some(Space3dStyle::Cubes),
+            "and a change is pushed in on the next loop iteration"
+        );
+    }
+
     /// the image depends on has actually changed.
     #[tokio::test]
     async fn the_root_layer_composites_the_3d_panel_and_caches_it() {
@@ -542,7 +570,7 @@ mod feature_tests {
         st.truecolor = true;
         st.gfx = Some(crate::ui::graphics::Gfx::test_halfblocks());
         st.panels[0].format = crate::panel::ViewFormat::Space3d;
-        st.panels[0].build_space3d();
+        st.panels[0].build_space3d(st.config.space3d_style);
 
         let mut sp = st.panels[0].space3d.take().expect("3D state");
         // A small hand-made cache, animated to rest so the boxes are at their
@@ -581,12 +609,12 @@ mod feature_tests {
         let theme = frame_theme(&st);
         let sp = st.panels[0].space3d.as_ref().unwrap();
         let (pw, ph) = crate::space3d::render::raster_size(sp.bounds_px);
-        let accent = crate::ui::graphics::raster::rgb(theme.panel_border_active);
-        let sig = crate::space3d::render::signature(sp, &sp.boxes(accent), pw, ph, &theme);
+        let pal = crate::space3d::ScenePalette::from_theme(&theme);
+        let sig = crate::space3d::render::signature(sp, &sp.boxes(&pal), pw, ph, &theme);
         let _ = drawn(&mut st).await;
         let sp = st.panels[0].space3d.as_ref().unwrap();
         assert_eq!(
-            crate::space3d::render::signature(sp, &sp.boxes(accent), pw, ph, &theme),
+            crate::space3d::render::signature(sp, &sp.boxes(&pal), pw, ph, &theme),
             sig,
             "a settled scene keeps the same signature, so the image is not rebuilt"
         );
@@ -602,7 +630,7 @@ mod feature_tests {
         st.truecolor = true;
         st.gfx = Some(crate::ui::graphics::Gfx::test_halfblocks());
         st.panels[0].format = crate::panel::ViewFormat::Space3d;
-        st.panels[0].build_space3d();
+        st.panels[0].build_space3d(st.config.space3d_style);
 
         let _ = drawn(&mut st).await;
         assert!(st.panels[0].scene_area.is_some(), "graphics path while nothing is up");

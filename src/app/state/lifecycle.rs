@@ -129,6 +129,7 @@ impl AppState {
             gfx: None,
             trim: Default::default(),
             graphics_backup: None,
+            space3d_backup: None,
             user_menu: usermenu::load_or_create(),
             ext_rules: crate::ext::ExtRules::load_or_create(),
             pending_run: None,
@@ -369,7 +370,7 @@ impl AppState {
                 self.panels[i].build_tree().await;
             }
             if self.panels[i].is_space3d() {
-                self.panels[i].build_space3d();
+                self.panels[i].build_space3d(self.config.space3d_style);
             }
         }
     }

@@ -31,6 +31,15 @@ impl AppState {
         {
             g.apply_pref(&pref);
         }
+        // The 3D style previews through the config itself: `update_space3d`
+        // pushes it into the panels on the next loop iteration, and that runs
+        // while a dialog is up.
+        if let Some(Dialog::Form(fd)) = &self.dialog
+            && let Some(style) = fd.space3d_choice()
+            && style != self.config.space3d_style
+        {
+            self.config.space3d_style = style;
+        }
     }
 
     pub(in crate::app::state) async fn handle_dialog_result(&mut self, res: DialogResult) -> Flow {
@@ -70,6 +79,9 @@ impl AppState {
                 {
                     g.apply_pref(&pref);
                 }
+                if let Some(style) = self.space3d_backup.take() {
+                    self.config.space3d_style = style;
+                }
                 Flow::Continue
             }
             DialogResult::Submit(s) => {
@@ -78,6 +90,7 @@ impl AppState {
                 self.lang_backup = None; // keep any previewed language
                 self.reshape_backup = None; // keep any previewed reshape toggle
                 self.graphics_backup = None; // keep any previewed graphics mode
+                self.space3d_backup = None; // keep any previewed 3D style
                 // The command palette can run any action (including ones that
                 // return their own Flow, like View → external viewer or Quit), so
                 // it is dispatched here rather than through `handle_submit`.
@@ -319,6 +332,7 @@ impl AppState {
                 self.set_command_prompt(v.command_prompt);
                 self.config.nerd_font = v.nerd_font;
                 self.config.brief_columns = v.brief_columns;
+                self.config.space3d_style = v.space3d_style;
                 self.truecolor = v.truecolor;
                 // Apply the chosen language (store English as the default => None).
                 crate::l10n::set_active_by_name(&v.language);
@@ -702,6 +716,7 @@ impl AppState {
         self.lang_backup = Some(crate::l10n::active_name());
         self.reshape_backup = Some(crate::l10n::reshape_rtl_enabled());
         self.graphics_backup = Some(self.config.graphics.clone());
+        self.space3d_backup = Some(self.config.space3d_style);
         self.dialog = Some(Dialog::Form(FormDialog::settings(&self.config, self.truecolor)));
     }
 

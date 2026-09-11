@@ -32,6 +32,12 @@ impl AppState {
             if self.panels[viewer].format != crate::panel::ViewFormat::Space3d {
                 continue;
             }
+            // Before the crawlability check, so switching the setting re-forms
+            // the scene even on a panel whose source is currently remote.
+            let style = self.config.space3d_style;
+            if let Some(sp) = self.panels[viewer].space3d.as_mut() {
+                sp.set_style(style);
+            }
             let source = 1 - viewer;
             // Only a real filesystem can be crawled, so a remote or archive
             // panel leaves the view showing whatever it last had.

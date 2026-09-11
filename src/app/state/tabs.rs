@@ -87,7 +87,7 @@ impl AppState {
         if self.panels[side].format == crate::panel::ViewFormat::Tree {
             self.panels[side].build_tree().await;
         } else if self.panels[side].is_space3d() {
-            self.panels[side].build_space3d();
+            self.panels[side].build_space3d(self.config.space3d_style);
         }
     }
 

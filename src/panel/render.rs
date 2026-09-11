@@ -336,38 +336,12 @@ fn name_style(e: &VfsEntry, marked: bool, theme: &Theme) -> Style {
 }
 
 /// Map a file extension to its category accent color, if any.
+///
+/// The extension tables live in [`crate::util::filetype`] so the 3D view's fsn
+/// style, which also shapes its file solids by category, cannot drift from what
+/// the listing paints.
 fn category_color(ext: &str, theme: &Theme) -> Option<Color> {
-    let e = ext.to_ascii_lowercase();
-    let e = e.as_str();
-    const ARCHIVE: &[&str] = &[
-        "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "tbz2", "tbz", "xz", "txz", "zst", "lz",
-        "lzma", "z", "deb", "rpm", "jar", "war", "apk", "cab", "arj", "lha", "lzh", "iso", "dmg",
-        "pkg", "msi", "xz2",
-    ];
-    const DOCUMENT: &[&str] = &[
-        "txt", "md", "rst", "pdf", "doc", "docx", "odt", "rtf", "xls", "xlsx", "ods", "ppt",
-        "pptx", "odp", "csv", "tex", "epub", "djvu", "mobi", "log", "json", "xml", "yaml", "yml",
-        "toml", "ini", "cfg", "conf", "html", "htm", "css",
-    ];
-    const IMAGE: &[&str] = &[
-        "jpg", "jpeg", "png", "gif", "bmp", "svg", "webp", "tiff", "tif", "ico", "ppm", "pgm",
-        "xpm", "heic", "heif", "raw", "cr2", "nef", "psd", "xcf",
-    ];
-    const MEDIA: &[&str] = &[
-        "wav", "mp3", "flac", "ogg", "oga", "opus", "aac", "m4a", "wma", "mid", "midi", "aiff",
-        "mp4", "mkv", "avi", "mov", "webm", "flv", "wmv", "m4v", "mpg", "mpeg", "3gp", "ts", "vob",
-    ];
-    if ARCHIVE.contains(&e) {
-        Some(theme.archive_fg)
-    } else if DOCUMENT.contains(&e) {
-        Some(theme.doc_fg)
-    } else if IMAGE.contains(&e) {
-        Some(theme.image_fg)
-    } else if MEDIA.contains(&e) {
-        Some(theme.media_fg)
-    } else {
-        None
-    }
+    crate::util::filetype::categorize(ext).map(|c| crate::util::filetype::category_color(c, theme))
 }
 
 /// The `ls -F`-style classify character placed before each name so types are

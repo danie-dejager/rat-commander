@@ -4463,6 +4463,8 @@ async fn enter_and_backspace_in_the_3d_view_walk_the_other_panel() {
             is_focus: false,
             is_cursor: false,
             context: false,
+            files: Vec::new(),
+            target_plat: 0.1,
         });
         sp.selected = sp.nodes.len() - 1;
     }

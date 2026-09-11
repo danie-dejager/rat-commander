@@ -301,9 +301,15 @@ impl Panel {
     /// Which directory it *shows* is not this panel's own cwd — like the Details
     /// and Tree formats, the 3D view describes the other panel, and
     /// `AppState::update_space3d` points it there every loop iteration.
-    pub fn build_space3d(&mut self) {
+    pub fn build_space3d(&mut self, style: crate::config::Space3dStyle) {
         if self.space3d.is_none() {
             self.space3d = Some(crate::space3d::Space3d::new(self.cwd.path.clone()));
+        }
+        // Applied here as well as from `update_space3d`, so the very first frame
+        // is drawn in the configured style rather than flipping to it a loop
+        // iteration later.
+        if let Some(sp) = self.space3d.as_mut() {
+            sp.set_style(style);
         }
     }
 

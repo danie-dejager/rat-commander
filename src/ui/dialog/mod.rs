@@ -385,6 +385,8 @@ pub struct SettingsValues {
     pub graphics: String,
     /// Number of columns in the Brief view.
     pub brief_columns: usize,
+    /// Which look the panel's 3D view draws.
+    pub space3d_style: crate::config::Space3dStyle,
 }
 
 /// Values collected by the Confirmations form (which actions need confirming).

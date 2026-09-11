@@ -151,15 +151,20 @@ The installed executable is named **`rc`** for quick typing.
   refused. On an **SFTP/SCP** panel, the command line and **Ctrl-O** run a shell
   on the **remote host** over the same SSH connection — its output on the same
   console backdrop, no second login.
-- **3D view** — a panel format that draws a **tree of boxes joined by lines**:
-  the directory the *other* panel is in and two levels of its **contents**, each
-  box sized (log-scaled and clamped, so nothing vanishes) by what that directory
-  holds, with a single faded box above as a signpost to where you are. Navigate on the other panel and the camera **flies** to
-  the new location; move that panel's cursor over a subdirectory and its box
-  **lights up**, so you can see where you are about to go. True-pixel on a graphics terminal, half-blocks or an ASCII
-  ramp elsewhere. Sizes stream in from a **background crawler** shared with the
-  disk explorer, so the tree builds itself while the scan runs and a directory is
-  walked **once per session**, not once per keypress.
+- **3D view** — a panel format that draws the directory the *other* panel is in
+  and two levels of its **contents**, each box sized (log-scaled and clamped, so
+  nothing vanishes) by what that directory holds, with a single faded box above
+  as a signpost to where you are. Navigate on the other panel and the camera
+  **flies** to the new location; move that panel's cursor over a subdirectory and
+  its box **lights up**, so you can see where you are about to go. Two styles,
+  chosen in Settings → Visual: **Cubes**, a tree of boxes joined by lines, and
+  **Spare no expense**, an homage to IRIX's *fsn* — pale platforms standing on a
+  ground plane under a sky gradient, joined by lines running over the ground,
+  with the files on them drawn as solids **shaped and coloured by file type**.
+  True-pixel on a graphics terminal, half-blocks or an ASCII ramp elsewhere.
+  Sizes stream in from a **background crawler** shared with the disk explorer, so
+  the tree builds itself while the scan runs and a directory is walked **once per
+  session**, not once per keypress.
 - **Disk explorer** (treemap of disk usage), **process explorer** (btop-style
   system monitor), and a **disk manager** (Linux) to mount/unmount/format/sync
   drives and **flash or image** raw disk images.
