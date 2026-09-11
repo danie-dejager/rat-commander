@@ -294,7 +294,17 @@ impl AppState {
         match sig {
             DiskSignal::Stay => {}
             DiskSignal::Close => self.diskview = None,
-            DiskSignal::Rescan => self.start_disk_scan(),
+            // Navigation, not a rescan: the crawler is re-pointed, and any
+            // subtree it already finished is reused as-is.
+            DiskSignal::Rescan => {
+                if let Some(dv) = self.diskview.as_mut() {
+                    dv.synced_at = u64::MAX;
+                    let cwd = dv.cwd.clone();
+                    self.size_focus(&cwd);
+                    self.sizes_focus = Some(cwd);
+                    self.refresh_size_views();
+                }
+            }
             DiskSignal::GoTo(path) => {
                 self.diskview = None;
                 let backend = self.registry.local();
@@ -334,36 +344,8 @@ impl AppState {
         } else {
             std::env::current_dir().unwrap_or_else(|_| home_dir())
         };
+        self.size_focus(&cwd);
         self.diskview = Some(DiskView::new(cwd));
-        self.start_disk_scan();
-    }
-
-    /// Kick off a background scan of the disk explorer's current directory.
-    pub(in crate::app::state) fn start_disk_scan(&mut self) {
-        let Some(dv) = self.diskview.as_mut() else {
-            return;
-        };
-        dv.generation = dv.generation.wrapping_add(1);
-        dv.scanning = true;
-        dv.scan_done = 0;
-        dv.scan_total = 0;
-        dv.entries.clear();
-        dv.selected = 0;
-        let generation = dv.generation;
-        let cwd = dv.cwd.clone();
-        let tx = self.tx.clone();
-        tokio::spawn(async move {
-            let txp = tx.clone();
-            let entries = tokio::task::spawn_blocking(move || {
-                crate::disk::scan_dir_with(&cwd, |done, total| {
-                    // Progress is advisory; drop updates if the channel is full.
-                    let _ = txp.try_send(AppEvent::DiskScanProgress { generation, done, total });
-                })
-            })
-            .await
-            .unwrap_or_default();
-            let _ = tx.send(AppEvent::DiskScanned { generation, entries }).await;
-        });
     }
 
     /// Kill a process (from the explorer), then refresh the listing.

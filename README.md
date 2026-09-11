@@ -18,7 +18,7 @@ The installed executable is named **`rc`** for quick typing.
 
 ## What it can do
 
-- **Two panels** with **full**, **brief**, **details** and **tree** view formats,
+- **Two panels** with **full**, **brief**, **details**, **tree** and **3D** view formats,
   vertical or horizontal split, configurable sort, multi-file selection, type
   markers and file-type colors. Full **mouse** support. The **details** view adds
   a background-loaded **preview** of the other panel's item — a syntax-highlighted
@@ -148,6 +148,15 @@ The installed executable is named **`rc`** for quick typing.
   refused. On an **SFTP/SCP** panel, the command line and **Ctrl-O** run a shell
   on the **remote host** over the same SSH connection — its output on the same
   console backdrop, no second login.
+- **3D view** — a panel format that draws a **tree of boxes joined by lines**:
+  the directory the *other* panel is in and two levels of its **contents**, each
+  box sized (log-scaled and clamped, so nothing vanishes) by what that directory
+  holds, with a single faded box above as a signpost to where you are. Navigate on the other panel and the camera **flies** to
+  the new location; move that panel's cursor over a subdirectory and its box
+  **lights up**, so you can see where you are about to go. True-pixel on a graphics terminal, half-blocks or an ASCII
+  ramp elsewhere. Sizes stream in from a **background crawler** shared with the
+  disk explorer, so the tree builds itself while the scan runs and a directory is
+  walked **once per session**, not once per keypress.
 - **Disk explorer** (treemap of disk usage), **process explorer** (btop-style
   system monitor), and a **disk manager** (Linux) to mount/unmount/format/sync
   drives and **flash or image** raw disk images.
@@ -224,7 +233,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Alt-H` | Directory history: pick any visited directory from a list |
 | `Alt-I` | Point the other panel at this panel's directory |
 | `Alt-O` | Show the cursor's directory on the other panel, and step down one entry |
-| `Alt-T` | Cycle view format (full / brief / details / tree) |
+| `Alt-T` | Cycle view format (full / brief / details / tree / 3D) |
 | `Alt-Shift-I` | Set / clear the panel's persistent listing filter |
 | `Alt-Shift-H` | Shell history window (recall a command without running it) |
 | `Alt-G` | Open the **Git menu** (status, log, commit, push/pull, checkout, …) |

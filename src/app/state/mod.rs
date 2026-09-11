@@ -194,6 +194,13 @@ pub struct AppState {
     pub procview: Option<ProcView>,
     /// The full-screen disk-usage explorer, when open.
     pub diskview: Option<DiskView>,
+    /// The shared directory-size cache and its background crawler. Spawned
+    /// lazily the first time something wants sizes (the disk explorer or a 3D
+    /// panel), so sessions that use neither never start the task.
+    pub sizes: Option<crate::sizes::crawl::Crawler>,
+    /// The directory the crawler was last pointed at, so a redraw doesn't
+    /// re-publish the same focus every frame.
+    sizes_focus: Option<std::path::PathBuf>,
     /// The full-screen side-by-side file comparison view, when open.
     pub diffview: Option<DiffView>,
     /// The full-screen disk-mounter tool, when open.
@@ -301,6 +308,9 @@ pub struct AppState {
     /// The (panel, entry) last toggled by a right-drag paint, so each entry is
     /// inverted only once as the drag passes over it.
     paint_last: Option<(usize, usize)>,
+    /// Where the pointer was on the previous drag event over a 3D panel, so the
+    /// orbit can be driven by how far it moved rather than where it landed.
+    drag_orbit: Option<(usize, u16, u16)>,
     /// The last left click (panel, entry, when), for double-click detection: a
     /// second click on the same entry within [`DOUBLE_CLICK`] opens it like Enter.
     last_click: Option<(usize, usize, Instant)>,
@@ -583,6 +593,7 @@ mod sendfile;
 mod syncdirs;
 mod tabs;
 mod watch;
+mod sizes;
 
 /// Read a file fully into memory (capped just above the viewer limit).
 async fn load_file(backend: &std::sync::Arc<dyn Vfs>, path: &VfsPath) -> crate::util::Result<Vec<u8>> {

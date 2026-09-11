@@ -86,6 +86,8 @@ impl AppState {
         let _ = self.panels[side].reload_keeping(target.cursor_name.as_deref()).await;
         if self.panels[side].format == crate::panel::ViewFormat::Tree {
             self.panels[side].build_tree().await;
+        } else if self.panels[side].is_space3d() {
+            self.panels[side].build_space3d();
         }
     }
 

@@ -202,7 +202,12 @@ fn draw_body(f: &mut Frame, state: &mut AppState) {
         None
     };
     // Whether the terminal-graphics layer can draw a pixel-image preview.
-    let gfx_on = state.gfx.as_ref().is_some_and(|g| g.available());
+    // Pixel images are suppressed while a dialog or the menu is up (a repainted
+    // image would bleed over them), so the panels must be told that too — the 3D
+    // view then draws its cell fallback in place instead of leaving a hole.
+    let gfx_on = state.dialog.is_none()
+        && state.menu.is_none()
+        && state.gfx.as_ref().is_some_and(|g| g.available());
     for (i, area_opt, qs) in [(0, left_area, left_qs), (1, right_area, right_qs)] {
         if let Some(pa) = area_opt {
             render_panel(
@@ -222,6 +227,32 @@ fn draw_body(f: &mut Frame, state: &mut AppState) {
     // that the panels are laid out. Skipped while a dialog or the menu is up, so a
     // repainted image can't bleed over them (as with the net-view diagram above).
     if state.dialog.is_none() && state.menu.is_none() {
+        // The 3D view's raster. `panels` and `gfx` are disjoint fields, so both
+        // can be borrowed at once; the panel renderer only recorded the target
+        // rect, because it has no access to `Gfx` itself.
+        let AppState { panels, gfx, .. } = &mut *state;
+        for (i, panel) in panels.iter_mut().enumerate() {
+            let (Some(area), Some(sp), Some(g)) =
+                (panel.scene_area, panel.space3d.as_mut(), gfx.as_mut())
+            else {
+                continue;
+            };
+            let (pw, ph) = crate::space3d::render::raster_size(g.px_size(area));
+            // Re-frame for the shape it is being drawn into, so a resized panel
+            // refills rather than cropping or stranding the scene.
+            sp.set_viewport(pw, ph);
+            sp.bounds_px = (pw, ph);
+            let boxes = sp.boxes(crate::ui::graphics::raster::rgb(theme.panel_border_active));
+            // Record where each box landed, in the same raster the image is
+            // built in, so a click lands on what the user sees.
+            sp.bounds = crate::space3d::raster3d::project_bounds(
+                pw, ph, &boxes, sp.cam.eye(), sp.cam.target,
+            );
+            let sig = crate::space3d::render::signature(sp, &boxes, pw, ph, &theme);
+            g.draw_cached(f, area, crate::ui::graphics::Slot::Space3d(i as u16), sig, || {
+                crate::space3d::render::rasterize(sp, &boxes, pw, ph, &theme)
+            });
+        }
         for i in 0..2 {
             if let Some(area) = state.panels[i].preview_image_area
                 && let crate::details::Preview::Image(pi) = &state.details[i].preview
@@ -498,6 +529,92 @@ mod feature_tests {
         let top = (0..b.area.height).find(|&y| row_has(y, "┌")).expect("a panel top border");
         let bottom = (0..b.area.height).rfind(|&y| row_has(y, "└")).expect("a panel bottom border");
         bottom - top + 1
+    }
+
+    /// With graphics available the 3D panel hands its area to the root layer,
+    /// which builds and ships the raster — and only rebuilds it when something
+    /// the image depends on has actually changed.
+    #[tokio::test]
+    async fn the_root_layer_composites_the_3d_panel_and_caches_it() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+        st.truecolor = true;
+        st.gfx = Some(crate::ui::graphics::Gfx::test_halfblocks());
+        st.panels[0].format = crate::panel::ViewFormat::Space3d;
+        st.panels[0].build_space3d();
+
+        let mut sp = st.panels[0].space3d.take().expect("3D state");
+        // A small hand-made cache, animated to rest so the boxes are at their
+        // final size and the camera is settled.
+        let mut tree = crate::sizes::SizeTree::new();
+        let root = sp.focus.clone();
+        let r = tree.ensure(&root);
+        tree.mark_listed(r);
+        for (name, size) in [("alpha", 9_000_000u64), ("beta", 2_000_000)] {
+            let p = root.join(name);
+            let id = tree.ensure(&p);
+            tree.mark_listed(id);
+            tree.add_file(id, &p.join("f"), size);
+        }
+        sp.sync_from(&tree);
+        let mut now = std::time::Instant::now();
+        for _ in 0..500 {
+            now += std::time::Duration::from_millis(33);
+            sp.advance(now);
+        }
+        assert!(!sp.needs_frames(), "a settled camera stops asking for frames");
+        st.panels[0].space3d = Some(sp);
+
+        let _ = drawn(&mut st).await;
+        assert!(
+            st.panels[0].scene_area.is_some(),
+            "the panel handed its area to the root layer"
+        );
+        assert!(
+            st.panels[0].space3d.as_ref().is_some_and(|s| !s.bounds.is_empty()),
+            "and the projected box bounds were recorded for hit-testing"
+        );
+
+        // The signature must be stable across frames while nothing moves —
+        // otherwise the raster would be rebuilt at the frame rate.
+        let theme = frame_theme(&st);
+        let sp = st.panels[0].space3d.as_ref().unwrap();
+        let (pw, ph) = crate::space3d::render::raster_size(sp.bounds_px);
+        let accent = crate::ui::graphics::raster::rgb(theme.panel_border_active);
+        let sig = crate::space3d::render::signature(sp, &sp.boxes(accent), pw, ph, &theme);
+        let _ = drawn(&mut st).await;
+        let sp = st.panels[0].space3d.as_ref().unwrap();
+        assert_eq!(
+            crate::space3d::render::signature(sp, &sp.boxes(accent), pw, ph, &theme),
+            sig,
+            "a settled scene keeps the same signature, so the image is not rebuilt"
+        );
+    }
+
+    /// A dialog suppresses pixel images, so the 3D panel must draw its cell
+    /// fallback in place rather than leaving a hole behind the dialog.
+    #[tokio::test]
+    async fn the_3d_panel_falls_back_to_cells_while_a_dialog_is_up() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+        st.truecolor = true;
+        st.gfx = Some(crate::ui::graphics::Gfx::test_halfblocks());
+        st.panels[0].format = crate::panel::ViewFormat::Space3d;
+        st.panels[0].build_space3d();
+
+        let _ = drawn(&mut st).await;
+        assert!(st.panels[0].scene_area.is_some(), "graphics path while nothing is up");
+
+        st.dialog = Some(crate::ui::dialog::Dialog::Confirm(
+            crate::ui::dialog::ConfirmDialog::quit(),
+        ));
+        let _ = drawn(&mut st).await;
+        assert!(
+            st.panels[0].scene_area.is_none(),
+            "with a dialog up the panel draws itself instead of deferring"
+        );
     }
 
     #[tokio::test]

@@ -93,7 +93,7 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
             "Edit &menu file...",
         ],
         &[
-            "&Full view", "&Brief view", "&Details view", "Tree v&iew", "Sort: &Name",
+            "&Full view", "&Brief view", "&Details view", "Tree v&iew", "&3D view", "Sort: &Name",
             "Sort: &Extension", "Sort: &Size", "Sort: &Modify time", "Sort: &Unsorted",
             "&Reverse order", "SFT&P connection...", "F&TP connection...", "S&CP connection...",
             "Go &local (keep session)",

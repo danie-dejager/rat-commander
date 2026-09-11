@@ -56,20 +56,23 @@ pub fn render_panel(
     } else {
         theme.panel_border
     };
-    // The Details view has no listing of its own (it describes the *other*
-    // panel), so its title is the fixed "Details view" label rather than a path.
+    // The Details and 3D views have no listing of their own (they describe the
+    // *other* panel), so their titles are fixed labels rather than a path — the
+    // panel's own directory is not what is on screen, and showing it just names
+    // wherever the panel happened to be when the view was switched on.
     // In Tree view the title tracks the directory last committed with Enter (not
     // the fixed tree-root path).
     let mut title_path = match (panel.format, panel.tree.as_ref()) {
         (ViewFormat::Details, _) => {
             crate::l10n::tr("&Details view").chars().filter(|&c| c != '&').collect()
         }
+        (ViewFormat::Space3d, _) => crate::l10n::trd("3D Directory View"),
         (ViewFormat::Tree, Some(t)) => t.current.display(),
         _ => panel.cwd.display(),
     };
     // Surface an active listing filter in the title so hidden entries are obvious
-    // (not in Details view, which has no filterable listing).
-    if panel.format != ViewFormat::Details
+    // (not in the views that have no filterable listing of their own).
+    if !matches!(panel.format, ViewFormat::Details | ViewFormat::Space3d)
         && let Some(filter) = &panel.filter
     {
         title_path = format!("{title_path}  [{filter}]");
@@ -160,6 +163,7 @@ pub fn render_panel(
         ViewFormat::Full => render_full(f, list_area, panel, active, theme, nerd),
         ViewFormat::Brief => render_brief(f, list_area, panel, active, theme, brief_columns, nerd),
         ViewFormat::Tree => render_tree(f, list_area, panel, active, theme),
+        ViewFormat::Space3d => render_space3d(f, list_area, panel, theme, graphics),
         ViewFormat::Details => unreachable!("Details is rendered earlier and returns"),
     }
 
@@ -185,6 +189,9 @@ pub fn render_panel(
         }
         // One tree row per body line; `panel_point` maps a click to a tree row.
         ViewFormat::Tree => (list_area, false, 1usize, 1usize, list_area.width),
+        // The 3D view hit-tests against projected box bounds rather than rows,
+        // but the body rect is still what tells `panel_at` a click landed here.
+        ViewFormat::Space3d => (list_area, false, 1usize, 1usize, list_area.width),
     };
     // The tree scrolls independently of the flat listing, so hit-testing must use
     // the tree's own offset.
@@ -602,6 +609,21 @@ fn render_brief(
     f.render_widget(Paragraph::new(lines), area);
 }
 
+/// Render the 3D view, or note where the root layer should composite its image.
+fn render_space3d(f: &mut Frame, area: Rect, panel: &mut Panel, theme: &Theme, graphics: bool) {
+    panel.scene_area = None;
+    let Some(sp) = panel.space3d.as_mut() else {
+        // A non-local panel has nothing crawlable to show.
+        let p = Paragraph::new(Line::from(Span::styled(
+            crate::l10n::trd("3D view needs a local directory"),
+            Style::default().fg(theme.panel_fg).bg(theme.panel_bg),
+        )));
+        f.render_widget(p, area);
+        return;
+    };
+    panel.scene_area = crate::space3d::render::render(f, area, sp, theme, graphics);
+}
+
 /// Draw the directory tree: one indented row per visible node, an expander
 /// glyph (`▾`/`▸`) marking open/closed branches, the cursor row highlighted.
 fn render_tree(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme: &Theme) {
@@ -716,6 +738,40 @@ fn render_mini_status(f: &mut Frame, area: Rect, panel: &Panel, theme: &Theme, n
             .as_ref()
             .and_then(|t| t.selected_path())
             .map(|p| p.display())
+            .unwrap_or_default();
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(pad_right(&ellipsize(&text, width), width), style))),
+            area,
+        );
+        return;
+    }
+
+    // 3D view: name the box the cursor is on, with its size and share of the
+    // directory total — the same readout the disk explorer gives.
+    if panel.format == ViewFormat::Space3d {
+        let text = panel
+            .space3d
+            .as_ref()
+            .map(|sp| match sp.selected_node() {
+                Some(d) => {
+                    let more = if d.partial { "…" } else { "" };
+                    // The share is of the directory above, which is meaningful
+                    // wherever the cursor is; the tree's own root has none.
+                    match sp.selected_share() {
+                        // A real but tiny share reads as "0%", which looks like
+                        // a measurement that failed rather than a small number.
+                        Some(pct) if pct > 0.0 && pct < 0.5 => {
+                            format!("{}  {}{}  <1%", d.name, human_size(d.size), more)
+                        }
+                        Some(pct) => {
+                            format!("{}  {}{}  {:.0}%", d.name, human_size(d.size), more, pct)
+                        }
+                        None => format!("{}  {}{}", d.name, human_size(d.size), more),
+                    }
+                }
+                None if sp.scanning => crate::l10n::trd("Scanning…"),
+                None => crate::l10n::trd("(no subdirectories)"),
+            })
             .unwrap_or_default();
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(pad_right(&ellipsize(&text, width), width), style))),
@@ -1050,6 +1106,247 @@ mod tests {
         assert_eq!(b[(1, 0)].symbol(), "◀");
         assert_eq!(b[(b.area.width - 2, 0)].symbol(), "▶");
         assert!(top.contains("[*.rs]"), "active filter surfaced in the title: {top:?}");
+    }
+
+    /// Build a panel sitting in the 3D view over a small hand-made size cache.
+    fn space3d_panel(truecolor: bool) -> (Panel, Theme) {
+        let mut theme = Theme::mc();
+        theme.truecolor = truecolor;
+        let backend = crate::vfs::registry::Registry::default().local();
+        let mut panel = Panel::new(backend, crate::vfs::VfsPath::local("/tmp"));
+        panel.format = ViewFormat::Space3d;
+        let mut sp = crate::space3d::Space3d::new(std::path::PathBuf::from("/tmp"));
+        let mut tree = crate::sizes::SizeTree::new();
+        let r = tree.ensure(std::path::Path::new("/tmp"));
+        tree.mark_listed(r);
+        for (name, size) in [("alpha", 9_000_000u64), ("beta", 3_000_000), ("gamma", 400_000)] {
+            let p = std::path::PathBuf::from("/tmp").join(name);
+            let id = tree.ensure(&p);
+            tree.mark_listed(id);
+            tree.add_file(id, &p.join("f"), size);
+        }
+        sp.sync_from(&tree);
+        // Run the size animation to completion so the boxes have their real
+        // heights rather than starting from zero.
+        let mut now = std::time::Instant::now();
+        for _ in 0..500 {
+            now += std::time::Duration::from_millis(33);
+            sp.advance(now);
+        }
+        panel.space3d = Some(sp);
+        (panel, theme)
+    }
+
+    fn screen(t: &ratatui::Terminal<ratatui::backend::TestBackend>) -> String {
+        let b = t.backend().buffer();
+        let mut s = String::new();
+        for y in 0..b.area.height {
+            for x in 0..b.area.width {
+                s.push_str(b[(x, y)].symbol());
+            }
+        }
+        s
+    }
+
+    /// Without a graphics protocol the 3D view draws itself as half-block cells.
+    #[test]
+    fn space3d_draws_half_blocks_on_a_truecolor_terminal() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let (mut panel, theme) = space3d_panel(true);
+        let mut t = Terminal::new(TestBackend::new(70, 22)).unwrap();
+        t.draw(|f| {
+            render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false)
+        })
+        .unwrap();
+        let s = screen(&t);
+        assert!(s.contains('▀'), "the scene is drawn as half-block cells");
+        assert!(panel.scene_area.is_none(), "nothing is deferred to the root layer");
+        // The cursor starts on the focus — the directory the other panel is on —
+        // and the mini-status names whatever it is on.
+        assert!(s.contains("tmp"), "mini-status names the selected directory");
+    }
+
+    /// In the cell-art modes the names are drawn as ordinary terminal text, not
+    /// baked into the raster: a name downsampled into half-blocks is an
+    /// illegible smudge, and here the cells are ours to write on.
+    #[test]
+    fn space3d_labels_are_real_text_in_the_cell_modes() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        for truecolor in [true, false] {
+            let (mut panel, theme) = space3d_panel(truecolor);
+            let mut t = Terminal::new(TestBackend::new(90, 30)).unwrap();
+            t.draw(|f| {
+                render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false)
+            })
+            .unwrap();
+            let s = screen(&t);
+            // The body carries the directory names as readable characters.
+            assert!(s.contains("alpha"), "no text label (truecolor={truecolor})");
+        }
+    }
+
+    /// Names get the room the box actually offers, rather than being clipped to
+    /// a few characters.
+    #[test]
+    fn space3d_labels_are_not_cut_short_when_there_is_room() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let mut theme = Theme::mc();
+        theme.truecolor = true;
+        let backend = crate::vfs::registry::Registry::default().local();
+        let mut panel = Panel::new(backend, crate::vfs::VfsPath::local("/tmp"));
+        panel.format = ViewFormat::Space3d;
+        let mut sp = crate::space3d::Space3d::new(std::path::PathBuf::from("/tmp"));
+        let mut tree = crate::sizes::SizeTree::new();
+        let r = tree.ensure(std::path::Path::new("/tmp"));
+        tree.mark_listed(r);
+        for (name, size) in [("Photographs", 9_000_000u64), ("Downloads", 8_000_000)] {
+            let p = std::path::PathBuf::from("/tmp").join(name);
+            let id = tree.ensure(&p);
+            tree.mark_listed(id);
+            tree.add_file(id, &p.join("f"), size);
+        }
+        sp.sync_from(&tree);
+        let mut now = std::time::Instant::now();
+        for _ in 0..500 {
+            now += std::time::Duration::from_millis(33);
+            sp.advance(now);
+        }
+        panel.space3d = Some(sp);
+
+        let mut t = Terminal::new(TestBackend::new(120, 34)).unwrap();
+        t.draw(|f| {
+            render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false)
+        })
+        .unwrap();
+        let s = screen(&t);
+        assert!(s.contains("Photographs"), "an 11-character name fits whole: {s:?}");
+    }
+
+    /// On a graphics terminal the names must stay baked into the image: cell
+    /// text drawn over a Kitty/Sixel raster is never shown.
+    #[test]
+    fn space3d_labels_are_not_cell_text_under_graphics() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let (mut panel, theme) = space3d_panel(true);
+        let mut t = Terminal::new(TestBackend::new(90, 30)).unwrap();
+        t.draw(|f| {
+            render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, true, false)
+        })
+        .unwrap();
+        let s = screen(&t);
+        // The mini-status still names the selection; the scene body does not.
+        let body: String = {
+            let b = t.backend().buffer();
+            let mut out = String::new();
+            for y in 2..b.area.height - 3 {
+                for x in 1..b.area.width - 1 {
+                    out.push_str(b[(x, y)].symbol());
+                }
+            }
+            out
+        };
+        assert!(!body.contains("alpha"), "the scene body must not carry cell text");
+        assert!(s.contains("tmp"), "but the mini-status still reads");
+    }
+
+    /// The 3D view describes the *other* panel, so its own directory is not what
+    /// is on screen — showing it in the title just names wherever this panel
+    /// happened to be when the view was switched on.
+    #[test]
+    fn space3d_titles_itself_rather_than_naming_a_stale_directory() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let (mut panel, theme) = space3d_panel(true);
+        panel.cwd = crate::vfs::VfsPath::local("/some/where/else");
+        panel.filter = Some("*.rs".into());
+        let mut t = Terminal::new(TestBackend::new(70, 22)).unwrap();
+        t.draw(|f| {
+            render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false)
+        })
+        .unwrap();
+        let b = t.backend().buffer();
+        let top: String = (0..b.area.width).map(|x| b[(x, 0)].symbol()).collect();
+        assert!(top.contains("3D Directory View"), "got title {top:?}");
+        assert!(!top.contains("else"), "the panel's own directory is not named");
+        assert!(!top.contains("*.rs"), "nor a filter that cannot apply to it");
+    }
+
+    /// With graphics available the panel only claims the area; the root layer
+    /// composites the pixel image, so no cell art is drawn.
+    #[test]
+    fn space3d_defers_to_the_root_layer_when_graphics_are_available() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let (mut panel, theme) = space3d_panel(true);
+        let mut t = Terminal::new(TestBackend::new(70, 22)).unwrap();
+        t.draw(|f| {
+            render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, true, false)
+        })
+        .unwrap();
+        assert!(panel.scene_area.is_some(), "the target rect is handed to the root layer");
+        assert!(!screen(&t).contains('▀'), "and no cell art is drawn over it");
+    }
+
+    /// Without truecolor, half-blocks would be a smear of approximated colours,
+    /// so an ASCII luminance ramp is drawn instead.
+    #[test]
+    fn space3d_falls_back_to_an_ascii_ramp_without_truecolor() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let (mut panel, theme) = space3d_panel(false);
+        let mut t = Terminal::new(TestBackend::new(70, 22)).unwrap();
+        t.draw(|f| {
+            render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false)
+        })
+        .unwrap();
+        let s = screen(&t);
+        assert!(!s.contains('▀'), "no half-blocks without truecolor");
+        assert!(
+            s.contains('#') || s.contains('%') || s.contains('@') || s.contains('*'),
+            "the luminance ramp is drawn"
+        );
+    }
+
+    /// A panel too narrow for a legible scene says so instead of drawing mush.
+    #[test]
+    fn space3d_in_a_tiny_panel_says_so_and_does_not_panic() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let (mut panel, theme) = space3d_panel(true);
+        for (w, h) in [(14u16, 6u16), (5, 3), (3, 3)] {
+            let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
+            t.draw(|f| {
+                render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false)
+            })
+            .unwrap();
+        }
+        // At a size that still has room for the message, it is shown.
+        let mut t = Terminal::new(TestBackend::new(20, 8)).unwrap();
+        t.draw(|f| {
+            render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false)
+        })
+        .unwrap();
+        assert!(screen(&t).contains("too small"), "the panel explains itself");
+    }
+
+    /// A non-local panel has no crawlable sizes, so it explains rather than
+    /// rendering an empty floor.
+    #[test]
+    fn space3d_on_a_remote_panel_explains_itself() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let (mut panel, theme) = space3d_panel(true);
+        panel.space3d = None; // as `build_space3d` leaves it for a remote cwd
+        let mut t = Terminal::new(TestBackend::new(70, 22)).unwrap();
+        t.draw(|f| {
+            render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false, false)
+        })
+        .unwrap();
+        assert!(screen(&t).contains("local directory"), "says why there is nothing to draw");
     }
 
     #[test]

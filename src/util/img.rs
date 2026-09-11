@@ -168,6 +168,39 @@ pub fn render_halfblocks(f: &mut Frame, area: Rect, img: &RgbaImage, bg: Color) 
     }
 }
 
+/// Present `img` as an ASCII luminance ramp, one character per cell — the
+/// fallback for terminals without 24-bit colour, where the half-block art would
+/// be a smear of approximated colours.
+///
+/// The darkest character is `'.'` rather than a space on purpose: a run of
+/// spaces at the end of a row is erased by the trailing-space trimmer, which
+/// would punch holes in a dark part of the scene.
+pub fn render_ascii_ramp(f: &mut Frame, area: Rect, img: &RgbaImage, theme: &crate::ui::theme::Theme) {
+    use image::imageops::FilterType;
+    const RAMP: [char; 10] = ['.', ':', '-', '=', '+', '*', '#', '%', '@', '█'];
+    let (cols, rows) = (area.width as u32, area.height as u32);
+    if cols == 0 || rows == 0 {
+        return;
+    }
+    let small = image::imageops::resize(img, cols, rows, FilterType::Triangle);
+    let style = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
+    for y in 0..rows {
+        let mut spans: Vec<Span> = Vec::with_capacity(cols as usize);
+        for x in 0..cols {
+            let p = small.get_pixel(x, y);
+            // Rec. 601 luma, which tracks perceived brightness well enough for
+            // a ten-step ramp.
+            let lum = (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) / 255.0;
+            let i = ((lum * RAMP.len() as f32) as usize).min(RAMP.len() - 1);
+            spans.push(Span::styled(RAMP[i].to_string(), style));
+        }
+        f.render_widget(
+            Paragraph::new(Line::from(spans)),
+            Rect { x: area.x, y: area.y + y as u16, width: area.width, height: 1 },
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -22,6 +22,8 @@ mod proc;
 mod rename;
 mod send;
 mod shell;
+mod sizes;
+mod space3d;
 mod syntax;
 mod trash;
 mod ui;

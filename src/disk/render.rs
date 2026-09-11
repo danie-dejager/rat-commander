@@ -11,12 +11,27 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
 pub fn render(f: &mut Frame, area: Rect, dv: &mut DiskView, theme: &Theme, gfx: Option<&mut Gfx>) {
-    let title = format!(
-        " {} — {}  ({}) ",
-        crate::l10n::trd("Disk Explorer"),
-        dv.cwd.display(),
-        human_gb(dv.total())
-    );
+    // While the crawler is still working the title carries the readout, so the
+    // treemap itself stays visible and usable from the very first frame instead
+    // of being replaced by a progress bar.
+    let title = if dv.scanning {
+        format!(
+            " {} — {}  ({} · {} {} {}) ",
+            crate::l10n::trd("Disk Explorer"),
+            dv.cwd.display(),
+            human_gb(dv.total()),
+            crate::l10n::trd("Scanning…"),
+            dv.dirs_seen,
+            crate::l10n::trd("directories")
+        )
+    } else {
+        format!(
+            " {} — {}  ({}) ",
+            crate::l10n::trd("Disk Explorer"),
+            dv.cwd.display(),
+            human_gb(dv.total())
+        )
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Plain)
@@ -49,14 +64,14 @@ pub fn render(f: &mut Frame, area: Rect, dv: &mut DiskView, theme: &Theme, gfx: 
 
     dv.rects.clear();
     dv.file_rects.clear();
-    if dv.scanning {
-        render_header(f, header, None, None, 0, theme);
-        render_scanning(f, body, dv.scan_done, dv.scan_total, theme, gfx);
-        return;
-    }
     if dv.entries.is_empty() {
         render_header(f, header, None, None, 0, theme);
-        center_text(f, body, &crate::l10n::trd("(no subdirectories)"), theme);
+        let msg = if dv.scanning {
+            crate::l10n::trd("Scanning…")
+        } else {
+            crate::l10n::trd("(no subdirectories)")
+        };
+        center_text(f, body, &msg, theme);
         return;
     }
     if dv.selected >= dv.entries.len() {
@@ -72,8 +87,15 @@ pub fn render(f: &mut Frame, area: Rect, dv: &mut DiskView, theme: &Theme, gfx: 
     let mut files = match gfx {
         // Graphics terminal: draw the whole treemap as one image of nested
         // "pillow" boxes, then overlay the text labels on top.
-        Some(g) if g.available() => {
-            render_treemap_graphics(f, body, &dv.entries, &rects, cur, theme, g)
+        // A full-screen pillow-shaded raster is built on the main thread, so
+        // past a few megapixels (a 4K terminal) the cell boxes are the better
+        // trade even where graphics are available.
+        Some(g) if g.available() && {
+            let (iw, ih) = g.px_size(body);
+            iw as u64 * ih as u64 <= MAX_TREEMAP_PX
+        } =>
+        {
+            render_treemap_graphics(f, body, &dv.entries, &rects, cur, theme, g, dv.image_epoch)
         }
         // Fallback: classic character-cell boxes.
         _ => {
@@ -86,6 +108,10 @@ pub fn render(f: &mut Frame, area: Rect, dv: &mut DiskView, theme: &Theme, gfx: 
     };
     dv.file_rects = std::mem::take(&mut files);
 }
+
+/// Largest treemap raster we will build on the main thread, in pixels. Beyond
+/// this the character-cell boxes are drawn instead.
+const MAX_TREEMAP_PX: u64 = 4_000_000;
 
 /// Where the cursor is, as the renderer needs it: which box, and which of its
 /// file rows if the list has the cursor rather than the treemap.
@@ -200,84 +226,6 @@ fn render_footer(f: &mut Frame, area: Rect, theme: &Theme) {
         Paragraph::new(Line::from(Span::styled(line, theme.fkey_label)))
             .style(theme.fkey_label),
         area,
-    );
-}
-
-/// Show scanning progress: a centered label and a horizontal progress bar. The
-/// bar is determinate once the subdirectory count is known, indeterminate (just
-/// a label) before that.
-fn render_scanning(
-    f: &mut Frame,
-    area: Rect,
-    done: usize,
-    total: usize,
-    theme: &Theme,
-    gfx: Option<&mut Gfx>,
-) {
-    let label = if total > 0 {
-        format!("{} {done} / {total} {}", crate::l10n::trd("Scanning…"), crate::l10n::trd("directories"))
-    } else {
-        crate::l10n::trd("Scanning… (enumerating directories)")
-    };
-    let mid = area.y + area.height / 2;
-    f.render_widget(
-        Paragraph::new(Line::from(label))
-            .alignment(Alignment::Center)
-            .style(theme.panel_base()),
-        Rect { y: mid.saturating_sub(1), height: 1, ..area },
-    );
-
-    if total == 0 {
-        return;
-    }
-    // A centered bar ~60% of the body width.
-    let bar_w = (area.width as usize * 3 / 5).clamp(10, area.width as usize);
-    let bar_x = area.x + (area.width as usize - bar_w) as u16 / 2;
-    let ratio = (done as f32 / total as f32).clamp(0.0, 1.0);
-
-    // Graphics path: a gradient pill in the panel accent color.
-    if let Some(g) = gfx
-        && g.available() {
-            let bar_area = Rect { x: bar_x, y: mid + 1, height: 1, width: bar_w as u16 };
-            let (pw, ph) = g.px_size(bar_area);
-            let base = raster::rgb(theme.panel_border_active);
-            let dark = raster::over((0, 0, 0), base, 0.55);
-            let bright = raster::over(base, (255, 255, 255), 0.30);
-            let img = raster::gradient_bar(
-                pw,
-                ph,
-                ratio as f64,
-                |t| raster::over(dark, bright, t),
-                raster::rgb(theme.panel_border),
-                raster::rgb(theme.panel_bg),
-            );
-            g.draw(f, bar_area, Slot::DiskScanBar, img);
-            f.render_widget(
-                Paragraph::new(Line::from(format!("{:.0}%", ratio * 100.0)))
-                    .style(theme.panel_base()),
-                Rect { x: bar_x + bar_w as u16 + 1, y: mid + 1, height: 1, width: 5 },
-            );
-            return;
-        }
-
-    let filled = (ratio * bar_w as f32).round() as usize;
-    let mut spans = Vec::with_capacity(bar_w + 1);
-    for i in 0..bar_w {
-        // Use the same animated pulse fill as the file-copy progress bars.
-        let (ch, color) = if i < filled {
-            ('█', crate::ui::dialog::pulse_fill(theme, theme.panel_border_active, i, bar_w))
-        } else {
-            ('░', theme.panel_border)
-        };
-        spans.push(Span::styled(ch.to_string(), Style::default().fg(color).bg(theme.panel_bg)));
-    }
-    spans.push(Span::styled(
-        format!(" {:.0}%", ratio * 100.0),
-        Style::default().fg(theme.panel_fg).bg(theme.panel_bg),
-    ));
-    f.render_widget(
-        Paragraph::new(Line::from(spans)).style(theme.panel_base()),
-        Rect { x: bar_x, y: mid + 1, height: 1, width: area.width - (bar_x - area.x) },
     );
 }
 
@@ -452,6 +400,7 @@ fn render_treemap_graphics(
     cur: Cursor,
     theme: &Theme,
     g: &mut Gfx,
+    epoch: u64,
 ) -> Vec<(usize, usize, Rect)> {
     let (cw, ch) = g.cell();
     let (iw, ih) = g.px_size(body);
@@ -462,21 +411,22 @@ fn render_treemap_graphics(
     // a cheap signature of those inputs so `draw_cached` rebuilds only on change —
     // otherwise a burst of redraws (e.g. after the terminal regains focus) would
     // rebuild the full-screen image on the main thread and peg a core for seconds.
+    //
+    // While a crawl is running the sizes change continuously, so the box sizes
+    // are deliberately *not* part of the signature: `epoch` stands in for them
+    // and only advances a few times a second. Without that the image would be
+    // rebuilt on every progress update, which is exactly the core-pegging this
+    // cache exists to prevent.
     let sig = {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        (iw, ih, cw, ch, cur.box_i, cur.file).hash(&mut h);
+        (iw, ih, cw, ch, cur.box_i, cur.file, epoch).hash(&mut h);
         raster::rgb(theme.panel_bg).hash(&mut h);
         accent.hash(&mut h);
         raster::rgb(cursor_accent(theme)).hash(&mut h);
         for (entry, rect) in entries.iter().zip(rects) {
             entry.name.hash(&mut h);
-            entry.size.hash(&mut h);
             (rect.x, rect.y, rect.width, rect.height).hash(&mut h);
-            for fe in entry.files.iter().take(TOP_ROWS) {
-                fe.rel.hash(&mut h);
-                fe.size.hash(&mut h);
-            }
         }
         h.finish()
     };
@@ -760,32 +710,30 @@ fn darken(c: ratatui::style::Color, t: f32) -> ratatui::style::Color {
 }
 
 // ---------------------------------------------------------------------------
-// Squarified treemap (Bruls, Huizing & van Wijk)
+// Treemap layout
 // ---------------------------------------------------------------------------
 
-struct FRect {
-    x: f64,
-    y: f64,
-    w: f64,
-    h: f64,
-}
-
 /// Lay out `entries` (already sorted largest-first) as a treemap filling `area`,
-/// returning one integer rect per entry in the same order.
+/// returning one integer rect per entry in the same order. The squarified layout
+/// itself lives in [`crate::util::treemap`], shared with the 3D space view so
+/// both draw the same floor plan.
 fn treemap(entries: &[DiskEntry], area: Rect) -> Vec<Rect> {
     let n = entries.len();
     if n == 0 || area.width == 0 || area.height == 0 {
         return vec![Rect { width: 0, height: 0, ..area }; n];
     }
-    let total: u64 = entries.iter().map(|e| e.size).sum();
-    // A floor so even small/empty directories stay visible and navigable.
-    let base = (total / n as u64 / 12).max(1);
-    let weights: Vec<f64> = entries.iter().map(|e| (e.size + base) as f64).collect();
-    let wsum: f64 = weights.iter().sum();
-    let total_area = area.width as f64 * area.height as f64;
-    let areas: Vec<f64> = weights.iter().map(|w| w / wsum * total_area).collect();
-
-    let frects = squarify(&areas, area.x as f64, area.y as f64, area.width as f64, area.height as f64);
+    let sizes: Vec<u64> = entries.iter().map(|e| e.size).collect();
+    let areas = crate::util::treemap::size_areas(
+        &sizes,
+        area.width as f64 * area.height as f64,
+    );
+    let frects = crate::util::treemap::squarify(
+        &areas,
+        area.x as f64,
+        area.y as f64,
+        area.width as f64,
+        area.height as f64,
+    );
     let x_max = (area.x + area.width) as f64;
     let y_max = (area.y + area.height) as f64;
     frects
@@ -803,85 +751,6 @@ fn treemap(entries: &[DiskEntry], area: Rect) -> Vec<Rect> {
             }
         })
         .collect()
-}
-
-fn squarify(areas: &[f64], x: f64, y: f64, w: f64, h: f64) -> Vec<FRect> {
-    let mut out: Vec<FRect> = Vec::with_capacity(areas.len());
-    let mut rect = FRect { x, y, w, h };
-    let mut row: Vec<f64> = Vec::new();
-    let mut i = 0;
-    while i < areas.len() {
-        let length = rect.w.min(rect.h);
-        if length <= 0.0 {
-            // No space left; emit zero rects for the remainder.
-            for _ in i..areas.len() {
-                out.push(FRect { x: rect.x, y: rect.y, w: 0.0, h: 0.0 });
-            }
-            return out;
-        }
-        let a = areas[i];
-        row.push(a);
-        let with = worst(&row, length);
-        row.pop();
-        let without = if row.is_empty() { f64::MAX } else { worst(&row, length) };
-        if row.is_empty() || without >= with {
-            row.push(a);
-            i += 1;
-        } else {
-            layout_row(&row, &mut rect, &mut out);
-            row.clear();
-        }
-    }
-    if !row.is_empty() {
-        layout_row(&row, &mut rect, &mut out);
-    }
-    out
-}
-
-/// Worst (largest) aspect ratio in a row laid along side `length`.
-fn worst(row: &[f64], length: f64) -> f64 {
-    let sum: f64 = row.iter().sum();
-    if sum <= 0.0 || length <= 0.0 {
-        return f64::MAX;
-    }
-    let max = row.iter().cloned().fold(f64::MIN, f64::max);
-    let min = row.iter().cloned().fold(f64::MAX, f64::min);
-    let l2 = length * length;
-    let s2 = sum * sum;
-    f64::max(l2 * max / s2, s2 / (l2 * min))
-}
-
-fn layout_row(row: &[f64], rect: &mut FRect, out: &mut Vec<FRect>) {
-    let sum: f64 = row.iter().sum();
-    if sum <= 0.0 {
-        for _ in row {
-            out.push(FRect { x: rect.x, y: rect.y, w: 0.0, h: 0.0 });
-        }
-        return;
-    }
-    if rect.w >= rect.h {
-        // Lay the row as a column down the left edge.
-        let col_w = sum / rect.h;
-        let mut yy = rect.y;
-        for &a in row {
-            let cell_h = a / col_w;
-            out.push(FRect { x: rect.x, y: yy, w: col_w, h: cell_h });
-            yy += cell_h;
-        }
-        rect.x += col_w;
-        rect.w -= col_w;
-    } else {
-        // Lay the row across the top edge.
-        let row_h = sum / rect.w;
-        let mut xx = rect.x;
-        for &a in row {
-            let cell_w = a / row_h;
-            out.push(FRect { x: xx, y: rect.y, w: cell_w, h: row_h });
-            xx += cell_w;
-        }
-        rect.y += row_h;
-        rect.h -= row_h;
-    }
 }
 
 #[cfg(test)]
@@ -904,15 +773,20 @@ mod tests {
         assert_ne!(accent, theme.cursor_fg, "cursor_fg is cursor *text*, not an accent color");
     }
 
+    /// A scan in progress no longer hides the treemap behind a progress bar:
+    /// whatever has been sized so far is drawn and can be navigated, and the
+    /// title carries the readout instead.
     #[test]
-    fn scanning_shows_a_progress_bar() {
-        use crate::disk::DiskView;
+    fn scanning_still_draws_its_boxes() {
+        use crate::disk::{DiskEntry, DiskView};
         use ratatui::Terminal;
         use ratatui::backend::TestBackend;
         let mut dv = DiskView::new(std::path::PathBuf::from("/tmp"));
         dv.scanning = true;
-        dv.scan_done = 3;
-        dv.scan_total = 12;
+        dv.entries = vec![
+            DiskEntry { name: "alpha".into(), size: 8_000_000, files: Vec::new() },
+            DiskEntry { name: "beta".into(), size: 2_000_000, files: Vec::new() },
+        ];
         let theme = crate::ui::theme::Theme::mc();
         let mut t = Terminal::new(TestBackend::new(80, 20)).unwrap();
         t.draw(|f| render(f, f.area(), &mut dv, &theme, None)).unwrap();
@@ -923,9 +797,32 @@ mod tests {
                 s.push_str(b[(x, y)].symbol());
             }
         }
-        assert!(s.contains("3 / 12 directories"), "progress label");
-        assert!(s.contains('█') && s.contains('░'), "determinate bar drawn");
-        assert!(s.contains("25%"), "percentage shown");
+        assert!(s.contains("alpha"), "partial results are drawn while scanning");
+        assert!(s.contains("beta"), "every sized box is drawn");
+        assert!(!dv.rects.is_empty(), "and stays navigable (rects recorded)");
+        assert!(s.contains("Scanning"), "the title says a scan is still running");
+    }
+
+    /// With nothing sized yet there is still no progress bar — just a label, so
+    /// the layout doesn't jump when the first boxes arrive.
+    #[test]
+    fn an_empty_scan_shows_a_label_not_a_bar() {
+        use crate::disk::DiskView;
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let mut dv = DiskView::new(std::path::PathBuf::from("/tmp"));
+        dv.scanning = true;
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(80, 20)).unwrap();
+        t.draw(|f| render(f, f.area(), &mut dv, &theme, None)).unwrap();
+        let b = t.backend().buffer();
+        let mut s = String::new();
+        for y in 0..b.area.height {
+            for x in 0..b.area.width {
+                s.push_str(b[(x, y)].symbol());
+            }
+        }
+        assert!(!s.contains('░'), "no progress bar track is drawn any more");
     }
 
     /// The renderer records where every file row landed (so the mouse and the

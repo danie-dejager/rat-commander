@@ -60,12 +60,9 @@ pub struct DiskView {
     pub cwd: PathBuf,
     pub entries: Vec<DiskEntry>,
     pub selected: usize,
+    /// The crawler has not finished sizing this directory's subtree yet. The
+    /// boxes are drawn regardless — this only drives the "scanning…" readout.
     pub scanning: bool,
-    /// Scan progress: immediate subdirectories sized (`done`) of the total.
-    pub scan_done: usize,
-    pub scan_total: usize,
-    /// Bumps on every scan so stale background results can be ignored.
-    pub generation: u64,
     /// Box rectangles from the last render, for spatial arrow navigation.
     pub rects: Vec<Rect>,
     /// Which half of the explorer has the cursor.
@@ -85,6 +82,23 @@ pub struct DiskView {
     /// file row actually drawn. Drives mouse hit-testing and bounds the cursor,
     /// so it can only step onto files that are really on screen.
     pub file_rects: Vec<(usize, usize, Rect)>,
+    /// Name of the selected box. The cursor is restored by *name* after every
+    /// refresh: `selected` is a bare index, and a live crawl re-sorts the boxes
+    /// underneath it, so an index alone would drift onto a different directory.
+    sel_name: Option<String>,
+    /// When the box order was last allowed to change. Sizes update continuously,
+    /// but re-sorting on every one of them makes the boxes shuffle under the
+    /// cursor, so the order is only allowed to settle once a second.
+    last_order: Option<std::time::Instant>,
+    /// Bumped whenever the treemap raster is allowed to be rebuilt. The graphics
+    /// treemap is expensive enough that rebuilding it on every size change would
+    /// peg a core, so its cache signature keys off this instead of the sizes.
+    pub image_epoch: u64,
+    /// The crawler's directory counter at the last sync, so an idle explorer
+    /// doesn't rebuild its box list every frame.
+    pub synced_at: u64,
+    /// Directories the crawler has read so far, shown while scanning.
+    pub dirs_seen: u64,
 }
 
 impl DiskView {
@@ -94,15 +108,90 @@ impl DiskView {
             entries: Vec::new(),
             selected: 0,
             scanning: true,
-            scan_done: 0,
-            scan_total: 0,
-            generation: 0,
             rects: Vec::new(),
             focus: Focus::Boxes,
             file_sel: 0,
             nav: None,
             file_rects: Vec::new(),
+            sel_name: None,
+            last_order: None,
+            image_epoch: 0,
+            synced_at: u64::MAX,
+            dirs_seen: 0,
         }
+    }
+
+    /// Re-project the boxes from the shared size cache. Called whenever the
+    /// crawler has made progress, so the treemap fills in live instead of
+    /// waiting behind a progress bar.
+    pub fn sync_from(&mut self, tree: &crate::sizes::SizeTree) {
+        let fresh = tree.children_of(&self.cwd);
+        let (_, complete) = tree.total_of(&self.cwd);
+        self.scanning = !complete;
+        self.dirs_seen = tree.dirs_seen;
+
+        // Let the order settle only once a second. In between, sizes are updated
+        // in place and newcomers are appended, so boxes grow where they are
+        // instead of jumping around.
+        let now = std::time::Instant::now();
+        let reorder = match self.last_order {
+            None => true,
+            Some(t) => now.duration_since(t) >= std::time::Duration::from_secs(1),
+        };
+        if reorder || self.entries.is_empty() {
+            self.last_order = Some(now);
+            self.entries = fresh
+                .into_iter()
+                .map(|c| DiskEntry { name: c.name, size: c.total, files: c.top_files })
+                .collect();
+        } else {
+            let mut by_name: std::collections::HashMap<String, crate::sizes::DirInfo> =
+                fresh.into_iter().map(|c| (c.name.clone(), c)).collect();
+            for e in self.entries.iter_mut() {
+                if let Some(c) = by_name.remove(&e.name) {
+                    e.size = c.total;
+                    e.files = c.top_files;
+                }
+            }
+            // Directories the crawler has only just discovered: appended now,
+            // sorted into place at the next reorder.
+            let mut added: Vec<DiskEntry> = by_name
+                .into_values()
+                .map(|c| DiskEntry { name: c.name, size: c.total, files: c.top_files })
+                .collect();
+            added.sort_by(|a, b| b.size.cmp(&a.size).then(a.name.cmp(&b.name)));
+            self.entries.extend(added);
+        }
+
+        self.restore_selection();
+        // A finished scan always gets a final raster; while scanning, at most
+        // four per second.
+        if complete || reorder {
+            self.image_epoch = self.image_epoch.wrapping_add(1);
+        }
+    }
+
+    /// Put the cursor back on the directory it was on, by name.
+    fn restore_selection(&mut self) {
+        match self.sel_name.as_deref() {
+            Some(name) => {
+                self.selected = self
+                    .entries
+                    .iter()
+                    .position(|e| e.name == name)
+                    .unwrap_or(0);
+            }
+            None => {
+                self.selected = self.selected.min(self.entries.len().saturating_sub(1));
+                self.sel_name = self.entries.get(self.selected).map(|e| e.name.clone());
+            }
+        }
+    }
+
+    /// Remember which directory the cursor is on, so a refresh can find it
+    /// again after the boxes re-sort.
+    pub fn remember_selection(&mut self) {
+        self.sel_name = self.entries.get(self.selected).map(|e| e.name.clone());
     }
 
     /// Total size across all boxes (the current directory's subtree total).
@@ -182,6 +271,7 @@ impl DiskView {
         self.focus = Focus::Boxes;
         self.file_sel = 0;
         self.nav = None;
+        self.sel_name = None;
     }
 
     /// Tab: swap the cursor between the treemap and the file list. Moving into
@@ -294,6 +384,7 @@ impl DiskView {
     /// forgets the travel line the arrows were following.
     pub fn click(&mut self, i: usize, col: u16, row: u16) {
         self.selected = i;
+        self.remember_selection();
         self.nav = None;
         match self.file_at(col, row).filter(|(e, _)| *e == i) {
             Some((_, k)) => {
@@ -340,6 +431,7 @@ impl DiskView {
         self.nav = Some((axis, line));
         if let Some(next) = neighbour(&self.rects, from, dir, line) {
             self.selected = next;
+            self.remember_selection();
             self.file_sel = 0;
         }
     }
@@ -430,7 +522,7 @@ pub fn human_gb(bytes: u64) -> String {
 // ---------------------------------------------------------------------------
 
 /// How many of the largest files to remember per box, for the in-box listing.
-const TOP_FILES: usize = 32;
+pub(crate) const TOP_FILES: usize = 32;
 
 
 /// Scan the immediate subdirectories of `dir`, computing each one's total
@@ -511,13 +603,13 @@ fn subtree_stats(path: &Path) -> (u64, Vec<FileEntry>) {
 
 /// Bytes a file occupies on disk: allocated blocks on Unix, apparent size else.
 #[cfg(unix)]
-fn on_disk_len(meta: &std::fs::Metadata) -> u64 {
+pub(crate) fn on_disk_len(meta: &std::fs::Metadata) -> u64 {
     use std::os::unix::fs::MetadataExt;
     meta.blocks() * 512
 }
 
 #[cfg(not(unix))]
-fn on_disk_len(meta: &std::fs::Metadata) -> u64 {
+pub(crate) fn on_disk_len(meta: &std::fs::Metadata) -> u64 {
     meta.len()
 }
 

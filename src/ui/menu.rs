@@ -191,6 +191,7 @@ impl MenuBarState {
                 item("&Brief view", MenuAction::SetFormat(side, ViewFormat::Brief)),
                 item("&Details view", MenuAction::SetFormat(side, ViewFormat::Details)),
                 item("Tree v&iew", MenuAction::SetFormat(side, ViewFormat::Tree)),
+                item("&3D view", MenuAction::SetFormat(side, ViewFormat::Space3d)),
                 sep(),
                 item("Sort: &Name", MenuAction::SetSort(side, SortKey::Name)),
                 item("Sort: &Extension", MenuAction::SetSort(side, SortKey::Extension)),

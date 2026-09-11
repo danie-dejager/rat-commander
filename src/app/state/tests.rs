@@ -1063,10 +1063,15 @@ async fn tree_view_enter_navigates_inactive_panel() {
     // The active (tree) panel did not itself navigate.
     assert_eq!(st.panels[0].cwd, VfsPath::local(&root), "tree panel stays put");
 
-    // Alt-T once more leaves Tree view and drops the tree.
+    // Alt-T once more leaves Tree view for the 3D view, dropping the tree…
     st.handle_key(alt_t).await;
-    assert_eq!(st.panels[0].format, ViewFormat::Full, "Tree → Full completes the cycle");
+    assert_eq!(st.panels[0].format, ViewFormat::Space3d, "Tree → 3D");
     assert!(st.panels[0].tree.is_none(), "leaving Tree view drops the tree");
+    assert!(st.panels[0].space3d.is_some(), "the 3D view builds its state");
+    // …and once more completes the cycle back to Full.
+    st.handle_key(alt_t).await;
+    assert_eq!(st.panels[0].format, ViewFormat::Full, "3D → Full completes the cycle");
+    assert!(st.panels[0].space3d.is_none(), "leaving the 3D view drops its state");
     // Back in a normal view the console line tracks the active panel again.
     assert_eq!(st.console_cwd(), VfsPath::local(&root), "console follows the active panel");
 
@@ -4379,6 +4384,203 @@ fn temp_dir(tag: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("rc_{tag}_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
+}
+
+/// The 3D view describes the *other* panel, so it has to keep following that
+/// panel after the focus moves over there — which is the normal way to use it.
+#[tokio::test]
+async fn the_3d_view_follows_the_other_panel_even_when_it_is_the_active_one() {
+    let root = temp_dir("space3d_follow");
+    for name in ["alpha", "beta"] {
+        std::fs::create_dir_all(root.join(name)).unwrap();
+        std::fs::write(root.join(name).join("f"), vec![0u8; 4096]).unwrap();
+    }
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    // Left panel shows the 3D view; the right panel is the one being driven.
+    let backend = st.registry.local();
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[1].cwd = VfsPath::local(&root);
+    st.panels[1].backend = backend;
+    st.init().await;
+    st.set_format(0, ViewFormat::Space3d).await;
+
+    st.update_space3d();
+    assert_eq!(
+        st.panels[0].space3d.as_ref().map(|s| s.focus.clone()),
+        Some(root.clone()),
+        "the view starts on the other panel's directory"
+    );
+
+    // Now the user tabs to the right panel and walks into a subdirectory. The
+    // 3D panel is no longer the active one — it must still follow.
+    st.active = 1;
+    st.panels[1].cwd = VfsPath::local(root.join("alpha"));
+    st.update_space3d();
+    assert_eq!(
+        st.panels[0].space3d.as_ref().map(|s| s.focus.clone()),
+        Some(root.join("alpha")),
+        "the view followed the other panel after the focus moved away from it"
+    );
+    // And the crawler is pointed there too, rather than being left behind on
+    // whatever the active panel happens to be.
+    st.update_sizes();
+    assert_eq!(
+        st.sizes_focus.as_deref(),
+        Some(root.join("alpha").as_path()),
+        "the crawler follows an inactive panel's 3D view"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Enter and Backspace in the 3D view drive the *other* panel, the way Enter
+/// does in Tree view — which is also what moves the view's own focus.
+#[tokio::test]
+async fn enter_and_backspace_in_the_3d_view_walk_the_other_panel() {
+    let root = temp_dir("space3d_enter");
+    std::fs::create_dir_all(root.join("alpha")).unwrap();
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[1].cwd = VfsPath::local(&root);
+    st.init().await;
+    st.set_format(0, ViewFormat::Space3d).await;
+    st.active = 0;
+    st.update_space3d();
+    st.update_sizes();
+
+    // Point the selection at "alpha" and press Enter.
+    let target = root.join("alpha");
+    if let Some(sp) = st.panels[0].space3d.as_mut() {
+        sp.nodes.push(crate::space3d::SceneNode {
+            name: "alpha".into(),
+            path: target.clone(),
+            size: 0,
+            parent: Some(0),
+            target: crate::space3d::vec3::v3(0.0, -1.0, 0.0),
+            target_half: 0.1,
+            partial: false,
+            is_focus: false,
+            is_cursor: false,
+            context: false,
+        });
+        sp.selected = sp.nodes.len() - 1;
+    }
+    st.space3d_enter().await;
+    assert_eq!(st.panels[1].cwd.path, target, "Enter moved the other panel");
+    assert_eq!(st.active, 0, "and left the focus on the 3D panel");
+
+    st.space3d_up().await;
+    assert_eq!(st.panels[1].cwd.path, root, "Backspace walked the other panel back up");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The highlight follows the other panel's cursor, and only lands on something
+/// the scene can actually draw.
+#[tokio::test]
+async fn the_3d_view_highlights_the_directory_under_the_other_panels_cursor() {
+    let root = temp_dir("space3d_cursor");
+    std::fs::create_dir_all(root.join("alpha")).unwrap();
+    std::fs::write(root.join("zzz.txt"), b"hi").unwrap();
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[1].cwd = VfsPath::local(&root);
+    st.init().await;
+    st.set_format(0, ViewFormat::Space3d).await;
+
+    let cursor_of = |st: &AppState| st.panels[0].space3d.as_ref().and_then(|s| s.cursor.clone());
+    let put_cursor_on = |st: &mut AppState, name: &str| {
+        let i = st.panels[1].entries.iter().position(|e| e.name == name).expect(name);
+        st.panels[1].cursor = i;
+    };
+
+    put_cursor_on(&mut st, "alpha");
+    st.update_space3d();
+    assert_eq!(cursor_of(&st), Some(root.join("alpha")), "a directory is highlighted");
+
+    // A file has no box, so nothing is highlighted.
+    put_cursor_on(&mut st, "zzz.txt");
+    st.update_space3d();
+    assert_eq!(cursor_of(&st), None, "a file highlights nothing");
+
+    // Neither does "..", which leads out of the tree entirely.
+    put_cursor_on(&mut st, "..");
+    st.update_space3d();
+    assert_eq!(cursor_of(&st), None, "`..` highlights nothing");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Dragging with either button turns the scene; releasing ends it.
+#[tokio::test]
+async fn dragging_over_the_3d_panel_orbits_the_camera() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let root = temp_dir("space3d_drag");
+    std::fs::create_dir_all(root.join("alpha")).unwrap();
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[1].cwd = VfsPath::local(&root);
+    st.init().await;
+    st.set_format(0, ViewFormat::Space3d).await;
+
+    // `handle_mouse` maps against the area of the last frame drawn.
+    let mut t = Terminal::new(TestBackend::new(120, 30)).unwrap();
+    t.draw(|f| crate::ui::draw(f, &mut st)).unwrap();
+    let hit = st.panels[0].hit.expect("panel geometry");
+    let (cx, cy) = (hit.body.x + hit.body.width / 2, hit.body.y + hit.body.height / 2);
+
+    let ev = |kind, col, row| MouseEvent {
+        kind,
+        column: col,
+        row,
+        modifiers: ratatui::crossterm::event::KeyModifiers::NONE,
+    };
+    let angles = |st: &AppState| st.panels[0].space3d.as_ref().unwrap().goal_angles();
+    let yaw = |st: &AppState| angles(st).0;
+    let pitch = |st: &AppState| angles(st).1;
+
+    for button in [MouseButton::Left, MouseButton::Right] {
+        let (y0, p0) = (yaw(&st), pitch(&st));
+        st.handle_mouse(ev(MouseEventKind::Down(button), cx, cy)).await;
+        st.handle_mouse(ev(MouseEventKind::Drag(button), cx + 8, cy + 3)).await;
+        assert!(yaw(&st) != y0, "{button:?} drag turned the scene");
+        assert!(pitch(&st) != p0, "and tilted it");
+
+        // Releasing ends the drag: a later move with no button does nothing.
+        let (y1, p1) = (yaw(&st), pitch(&st));
+        st.handle_mouse(ev(MouseEventKind::Up(button), cx + 8, cy + 3)).await;
+        st.handle_mouse(ev(MouseEventKind::Drag(button), cx + 30, cy + 9)).await;
+        assert_eq!(yaw(&st), y1, "no orbit after the button came up");
+        assert_eq!(pitch(&st), p1);
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A remote panel has nothing crawlable, so the 3D view opposite it holds
+/// whatever it last showed rather than blanking.
+#[tokio::test]
+async fn a_remote_other_panel_leaves_the_3d_view_alone() {
+    let root = temp_dir("space3d_remote");
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[1].cwd = VfsPath::local(&root);
+    st.init().await;
+    st.set_format(0, ViewFormat::Space3d).await;
+    st.update_space3d();
+    let before = st.panels[0].space3d.as_ref().map(|s| s.focus.clone());
+
+    st.panels[1].cwd.scheme = "sftp".into();
+    st.update_space3d();
+    assert_eq!(
+        st.panels[0].space3d.as_ref().map(|s| s.focus.clone()),
+        before,
+        "a remote directory cannot be sized, so the view keeps what it had"
+    );
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 /// F9 → Command → "Go to line…" raises the prompt, and submitting it moves the

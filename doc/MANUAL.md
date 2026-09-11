@@ -181,7 +181,7 @@ A quick **Alt** + digit does the same.
   directory instead) — so holding `Alt-O` walks a listing while the other panel
   keeps pace
 - `Alt-T` — Cycle the active panel's **view format** (full → brief → details →
-  tree)
+  tree → 3D)
 - `Ctrl-\` — Open the **directory hotlist** (your bookmarked directories): jump
   to one, add the current directory, or remove one — see *The directory hotlist*
   below
@@ -199,7 +199,7 @@ A quick **Alt** + digit does the same.
 - `Ctrl-R` — Re-read (refresh) the active panel — usually unnecessary now, see
   *Auto-refreshing panels* below
 - `Ctrl-E` — Toggle reverse sort order (choose the sort key from the panel menu)
-- `Alt-T` — Cycle the view format (full → brief → details → tree)
+- `Alt-T` — Cycle the view format (full → brief → details → tree → 3D)
 - `Ctrl-X` — Toggle vertical / horizontal split
 - `Ctrl-U` — Swap the two panels
 - `Ctrl-F1` / `Ctrl-F2` — Hide (and show again) the left / right panel,
@@ -457,7 +457,7 @@ many are tagged and their combined size.
 
 ## View formats and sorting
 
-Each panel can show its listing three ways; cycle them with **Ctrl-W** or pick
+Each panel can show its listing five ways; cycle them with **Alt-T** or pick
 one from the **Left** / **Right** menu:
 
 - **Full** — one file per row with name, size and modification time.
@@ -490,6 +490,9 @@ one from the **Left** / **Right** menu:
 - **Tree** — the directory structure is visualized as a tree, arrow keys navigate,
   pressing enter changes the opposite panel's directory and opens up the directory
   structure underneath.
+- **3D** — a **tree of boxes joined by lines**, showing what is inside the
+  directory the *other* panel is in, each box sized by what that directory holds.
+  See *3D view* below.
 
 **Sorting** is configurable from the **Left** / **Right** menu; **Ctrl-E** toggles
 reverse order. The keys are: Unsorted, Name, Extension, Size,
@@ -1653,6 +1656,39 @@ and never hides anything.
   preserved and reappear when the filter is cleared.
 
 
+## 3D view
+
+*`Alt-T` until the 3D mode is active, or Left / Right menu → 3D view*
+
+A panel view format that draws a directory and its neighbourhood as a **tree of
+boxes joined by lines**, seen in perspective.
+
+**Useful for** taking in the shape of a directory tree — how deep it goes, how it
+branches, and where the weight sits — without leaving the panel you are working
+in.
+
+**This view shows the contents of the *other* panel.** Like the Details and Tree formats, the 3D view
+does not show its own directory: it shows wherever the **opposite** panel is. Walk
+around over there and the tree re-forms around your new location while the camera
+**flies to it** — it never cuts, so it stays clear which box became which.
+
+**Boxes reflect their size on disk**. 
+
+**Operation.** The **arrows** move the selection between neighbouring boxes as
+they appear on screen, and **Enter** points the *other* panel at the selected
+directory — which, since the view follows that panel, is also what sends the
+camera there. **Backspace** walks that panel back up. **Alt-arrows** orbit the camera,
+**`+`/`-`** zoom, and **Home** returns to the default overview and framing. With the
+**mouse**, click a box to select it, **drag with either button held** to turn the
+scene, and use the **wheel** to zoom. Two levels of
+contents are drawn without being asked for, so you can see what is inside a
+subdirectory before deciding to go there.
+
+**Local directories only.** The sizes come from walking the real filesystem, so
+the view has nothing to show while the other panel is on an archive, FTP or SFTP
+directory, and `Alt-T` skips over the format on a remote panel.
+
+
 ## Disk explorer
 
 *Command menu → Disk explorer…*
@@ -1662,6 +1698,14 @@ box's area is proportional to a subdirectory's total on-disk size, labeled with
 the name and a human-readable size.
 
 **Useful for** finding what is using your disk space.
+
+**It fills in while it scans.** The treemap is drawn from the first frame and is
+navigable straight away — there is no progress bar to wait behind. The title
+carries the running total and the number of directories read so far, and the boxes
+grow as the crawl proceeds. The scan is **shared and cached**: descending into a
+subdirectory that was already measured as part of its parent is instant, and so is
+coming back up. Kernel filesystems (`/proc`, `/sys`, `/dev`, `/run`) are never
+walked, and symlinks are never followed or counted.
 
 **Operation.** Boxes that are large enough also show their **biggest files**
 inside, each with its size, so you can spot space hogs without diving in. On a

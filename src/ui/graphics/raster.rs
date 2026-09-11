@@ -61,13 +61,13 @@ pub fn over(bg: Rgb, fg: Rgb, a: f64) -> Rgb {
 }
 
 /// Scale a color's brightness by `f` (for gloss / shading). `f > 1` brightens.
-fn shade(c: Rgb, f: f64) -> Rgb {
+pub(crate) fn shade(c: Rgb, f: f64) -> Rgb {
     let s = |x: u8| (x as f64 * f).round().clamp(0.0, 255.0) as u8;
     (s(c.0), s(c.1), s(c.2))
 }
 
 #[inline]
-fn put(img: &mut RgbaImage, x: u32, y: u32, c: Rgb) {
+pub(crate) fn put(img: &mut RgbaImage, x: u32, y: u32, c: Rgb) {
     if x < img.width() && y < img.height() {
         img.put_pixel(x, y, Rgba([c.0, c.1, c.2, 255]));
     }

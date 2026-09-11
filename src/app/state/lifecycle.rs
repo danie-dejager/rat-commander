@@ -96,6 +96,8 @@ impl AppState {
             force_clear: false,
             procview: None,
             diskview: None,
+            sizes: None,
+            sizes_focus: None,
             diffview: None,
             mountview: None,
             netview: None,
@@ -139,6 +141,7 @@ impl AppState {
             stashed_progress: None,
             last_area: Rect::new(0, 0, 0, 0),
             paint_last: None,
+            drag_orbit: None,
             last_click: None,
             details: Default::default(),
             git_key: [String::new(), String::new()],
@@ -332,9 +335,28 @@ impl AppState {
             || self.netview.is_some()
             || !self.tasks.is_empty()
             || matches!(self.dialog, Some(Dialog::Busy(_)))
-            || self.diskview.as_ref().is_some_and(|d| d.scanning)
+            || self.sizes_running()
             // A debounced panel reload is still waiting to fire.
             || self.watch_pending()
+    }
+
+    /// Whether the ~30 fps frame ticker should run: only while a 3D panel has
+    /// something actually moving. A settled camera over a finished crawl returns
+    /// false, so an idle 3D panel costs no more CPU than an idle Full view.
+    pub fn wants_frames(&self) -> bool {
+        self.panels
+            .iter()
+            .any(|p| p.space3d.as_ref().is_some_and(|s| s.needs_frames()))
+    }
+
+    /// Advance the 3D views' camera and box-size animations.
+    pub fn on_frame(&mut self) {
+        let now = std::time::Instant::now();
+        for p in self.panels.iter_mut() {
+            if let Some(sp) = p.space3d.as_mut() {
+                sp.advance(now);
+            }
+        }
     }
 
     /// Load both panels' directories.
@@ -345,6 +367,9 @@ impl AppState {
         for i in 0..2 {
             if self.panels[i].is_tree() {
                 self.panels[i].build_tree().await;
+            }
+            if self.panels[i].is_space3d() {
+                self.panels[i].build_space3d();
             }
         }
     }
@@ -630,29 +655,11 @@ impl AppState {
             AppEvent::DetailsPreview { viewer, generation, preview } => {
                 self.apply_details_preview(viewer, generation, *preview);
             }
-            AppEvent::DiskScanProgress { generation, done, total } => {
-                if let Some(dv) = self.diskview.as_mut()
-                    && dv.generation == generation
-                    && dv.scanning
-                {
-                    dv.scan_done = done;
-                    dv.scan_total = total;
-                }
-            }
             AppEvent::NetworkScanned { generation, result } => {
                 self.apply_network_scanned(generation, result);
             }
             AppEvent::ReverseDnsResolved { ip, host } => {
                 self.apply_reverse_dns(ip, host);
-            }
-            AppEvent::DiskScanned { generation, entries } => {
-                if let Some(dv) = self.diskview.as_mut()
-                    && dv.generation == generation
-                {
-                    dv.entries = entries;
-                    dv.scanning = false;
-                    dv.reset_cursor();
-                }
             }
             AppEvent::SendPrepared { name, result } => {
                 self.on_send_prepared(name, result);

@@ -99,6 +99,14 @@ async fn run_loop(
     // ~100 ms tick drives animations and the system-status sampler.
     let mut ticker = tokio::time::interval(std::time::Duration::from_millis(100));
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // ~30 fps tick drives the 3D view's camera lerp, and only runs while
+    // something is actually moving. It is a second interval rather than a faster
+    // shared one so the theme's gradient animation keeps its existing 10 Hz
+    // cadence. `Skip` matters here: while the guard below is false the interval
+    // is not polled, and without it the missed ticks would burst-fire the
+    // moment the camera starts moving.
+    let mut frames = tokio::time::interval(std::time::Duration::from_millis(33));
+    frames.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     // Persistent Ctrl-O shells, kept alive across toggles: the local subshell plus
     // one per open SFTP/SCP session (opened on demand).
@@ -138,6 +146,11 @@ async fn run_loop(
         // Detect a panel directory change and (re)start its background git-status
         // scan; cheap when nothing changed.
         state.update_git();
+        // Point each 3D panel at the other panel's directory, then point the
+        // size crawler at whatever needs sizing and re-project the views from
+        // its cache. All cheap when nothing has moved.
+        state.update_space3d();
+        state.update_sizes();
         // Arm/re-arm the filesystem watchers behind the panels' auto-refresh;
         // cheap when neither panel has moved.
         state.update_watches();
@@ -223,6 +236,9 @@ async fn run_loop(
             }
             Some(app_event) = rx.recv() => {
                 state.apply_event(app_event).await;
+            }
+            _ = frames.tick(), if state.wants_frames() => {
+                state.on_frame();
             }
             _ = ticker.tick(), if state.wants_ticks() => {
                 state.on_tick();

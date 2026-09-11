@@ -27,7 +27,6 @@ pub enum Slot {
     TransferTotalBar,
     TransferSpeed,
     Indeterminate,
-    DiskScanBar,
     ProcCpu,
     ProcMem,
     ProcDisk,
@@ -40,6 +39,8 @@ pub enum Slot {
     NetRate,
     /// The network-explorer overview diagram (service-card grid).
     NetDiagram,
+    /// The 3D directory view's raster, per panel side.
+    Space3d(u16),
     /// A Details-view image-thumbnail preview, per panel side.
     DetailsPreview(u16),
     /// The F3 fullscreen image viewer.

@@ -85,6 +85,7 @@ impl AppState {
             cmd("&Brief view", MenuAction::SetFormat(side, ViewFormat::Brief)),
             cmd("&Details view", MenuAction::SetFormat(side, ViewFormat::Details)),
             cmd("Tree v&iew", MenuAction::SetFormat(side, ViewFormat::Tree)),
+            cmd("&3D view", MenuAction::SetFormat(side, ViewFormat::Space3d)),
             cmd("Sort: &Name", MenuAction::SetSort(side, SortKey::Name)),
             cmd("Sort: &Extension", MenuAction::SetSort(side, SortKey::Extension)),
             cmd("Sort: &Size", MenuAction::SetSort(side, SortKey::Size)),

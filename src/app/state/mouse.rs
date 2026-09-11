@@ -194,6 +194,10 @@ impl AppState {
                     } else {
                         self.go_forward(side).await;
                     }
+                } else if self.begin_drag_orbit(col, row) {
+                    // Pressing on a 3D panel arms an orbit; the click still
+                    // picks a box, so a press-and-release selects as before.
+                    self.panel_point(col, row, PointAction::Cursor);
                 } else if let Some((pi, idx)) = self.panel_point(col, row, PointAction::Cursor) {
                     // A second click on the same entry within the window opens it,
                     // exactly like pressing Enter (descend a dir, open a file).
@@ -215,16 +219,63 @@ impl AppState {
                 }
             }
             MouseEventKind::Drag(MouseButton::Left) => {
+                if self.drag_orbit_step(col, row) {
+                    return Flow::Continue;
+                }
                 self.panel_point(col, row, PointAction::Cursor);
             }
-            MouseEventKind::Down(MouseButton::Right) | MouseEventKind::Drag(MouseButton::Right) => {
+            MouseEventKind::Down(MouseButton::Right) => {
+                // Arm an orbit rather than painting a selection: a 3D panel has
+                // no marks to paint.
+                if self.begin_drag_orbit(col, row) {
+                    return Flow::Continue;
+                }
                 self.panel_point(col, row, PointAction::InvertPaint);
             }
+            MouseEventKind::Drag(MouseButton::Right) => {
+                if self.drag_orbit_step(col, row) {
+                    return Flow::Continue;
+                }
+                self.panel_point(col, row, PointAction::InvertPaint);
+            }
+            MouseEventKind::Up(_) => self.drag_orbit = None,
             MouseEventKind::ScrollDown => self.panel_wheel(col, row, true),
             MouseEventKind::ScrollUp => self.panel_wheel(col, row, false),
             _ => {}
         }
         Flow::Continue
+    }
+
+    /// Start tracking a drag over a 3D panel, so moving the pointer orbits the
+    /// camera. Returns whether the pointer was over one.
+    fn begin_drag_orbit(&mut self, col: u16, row: u16) -> bool {
+        match self.panel_at(col, row).filter(|&i| self.panels[i].is_space3d()) {
+            Some(i) => {
+                self.active = i;
+                self.drag_orbit = Some((i, col, row));
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Continue an armed orbit: turn how far the pointer moved into a change of
+    /// angle. Returns whether the drag was handled.
+    fn drag_orbit_step(&mut self, col: u16, row: u16) -> bool {
+        let Some((i, px, py)) = self.drag_orbit else {
+            return false;
+        };
+        let (dx, dy) = (col as i32 - px as i32, row as i32 - py as i32);
+        self.drag_orbit = Some((i, col, row));
+        if dx == 0 && dy == 0 {
+            return true;
+        }
+        if let Some(sp) = self.panels[i].space3d.as_mut() {
+            // A cell is about twice as tall as it is wide, so the same pointer
+            // travel covers twice the angle vertically unless the rates differ.
+            sp.orbit(dx as f32 * -0.05, dy as f32 * 0.05);
+        }
+        true
     }
 
     /// The panel whose rendered area contains `(col, row)`. A hidden panel — and
@@ -254,6 +305,13 @@ impl AppState {
         let Some(pi) = self.panel_at(col, row) else {
             return;
         };
+        // In the 3D view the wheel zooms the camera rather than scrolling a list.
+        if self.panels[pi].is_space3d() {
+            if let Some(sp) = self.panels[pi].space3d.as_mut() {
+                sp.zoom(if down { 1.18 } else { 0.85 });
+            }
+            return;
+        }
         let p = &mut self.panels[pi];
         // `page` is the screenful the renderer measured (rows × columns in the
         // Brief grid) — the very step PgUp/PgDn take.
@@ -276,6 +334,23 @@ impl AppState {
         let pi = self.panel_at(col, row)?;
         self.active = pi;
         let p = &mut self.panels[pi];
+        // 3D view: hit-test the click against the projected box silhouettes from
+        // the last frame. There is nothing to mark, so every action just moves
+        // the selection.
+        if p.format == ViewFormat::Space3d {
+            let hit = p.hit?;
+            let sp = p.space3d.as_mut()?;
+            // Cell coordinates → raster pixels, in whatever resolution the last
+            // frame's bounds were measured in.
+            let (bw, bh) = sp.bounds_px;
+            if hit.body.width == 0 || hit.body.height == 0 || bw == 0 || bh == 0 {
+                return None;
+            }
+            let fx = (col.saturating_sub(hit.body.x)) as f32 / hit.body.width as f32;
+            let fy = (row.saturating_sub(hit.body.y)) as f32 / hit.body.height as f32;
+            sp.pick(fx * bw as f32, fy * bh as f32);
+            return Some((pi, 0));
+        }
         // Tree view: map the click to a tree row and move the tree cursor. There
         // is no marking in the tree, so any action just positions the cursor.
         if p.format == ViewFormat::Tree {

@@ -11,5 +11,6 @@ pub mod scroll;
 pub mod sysinfo;
 pub mod temp;
 pub mod text;
+pub mod treemap;
 
 pub use error::{Error, Result};

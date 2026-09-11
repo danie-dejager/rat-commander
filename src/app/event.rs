@@ -3,7 +3,6 @@
 //! Terminal input is handled separately (read directly in the loop); this
 //! channel carries only asynchronous results so the loop never blocks on I/O.
 
-use crate::disk::DiskEntry;
 use crate::net::Scan;
 use crate::ops::progress::{ConflictInfo, DeniedInfo, ProgressUpdate, TaskId, TaskOutcome};
 use crate::util::checksum::ChecksumReport;
@@ -110,19 +109,6 @@ pub enum AppEvent {
         files: u64,
         dirs: u64,
         done: bool,
-    },
-    /// Progress of an in-flight disk-explorer scan: `done` of `total` immediate
-    /// subdirectories sized so far. `generation` guards against stale updates.
-    DiskScanProgress {
-        generation: u64,
-        done: usize,
-        total: usize,
-    },
-    /// A disk-explorer background scan finished; `generation` lets the view drop
-    /// results from a directory it has already navigated away from.
-    DiskScanned {
-        generation: u64,
-        entries: Vec<DiskEntry>,
     },
     /// A network-explorer `ss` scan finished; `generation` lets the view drop a
     /// result from a scan it has already superseded.

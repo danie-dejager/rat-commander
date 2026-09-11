@@ -35,7 +35,6 @@ mod usermenu;
 
 // Shared widget helpers used by `src/disk/render.rs` and kept accessible at the
 // dialog module root.
-pub(crate) use widgets::pulse_fill;
 pub use widgets::centered;
 
 // Re-exported so the in-module test suite (`mod tests`) can reach these via

@@ -75,16 +75,21 @@ pub enum ViewFormat {
     /// A navigable directory tree rooted at the backend/drive root; Enter opens
     /// a branch and points the *other* panel at the selected directory.
     Tree,
+    /// A 3D view of the subdirectories, each drawn as a box whose volume
+    /// corresponds to its total size on disk. Local directories only — the
+    /// sizes come from a filesystem crawl.
+    Space3d,
 }
 
 impl ViewFormat {
-    /// Cycle Full → Brief → Details → Tree → Full (Ctrl-W).
+    /// Cycle Full → Brief → Details → Tree → 3D → Full (Alt-T).
     pub fn toggle(self) -> Self {
         match self {
             ViewFormat::Full => ViewFormat::Brief,
             ViewFormat::Brief => ViewFormat::Details,
             ViewFormat::Details => ViewFormat::Tree,
-            ViewFormat::Tree => ViewFormat::Full,
+            ViewFormat::Tree => ViewFormat::Space3d,
+            ViewFormat::Space3d => ViewFormat::Full,
         }
     }
 }
@@ -147,6 +152,12 @@ pub struct Panel {
     /// with pixel graphics, the renderer records the target rect here so the root
     /// draw can composite the image (via `Gfx`) after the panels are laid out.
     pub preview_image_area: Option<Rect>,
+    /// 3D view state, built on entering that format (mirrors `tree`).
+    pub space3d: Option<crate::space3d::Space3d>,
+    /// Where the 3D view wants its pixel image composited, when the terminal has
+    /// graphics. Same deferred handoff as `preview_image_area`, because the
+    /// panel renderer has no access to `Gfx`.
+    pub scene_area: Option<Rect>,
     /// Saved positions for this panel's other tabs. Always non-empty: entry
     /// `tab` is *this* panel's own position, kept in step on every switch, so
     /// the list can be rendered without special-casing the active one.
@@ -191,6 +202,8 @@ impl Panel {
             fwd_arrow: None,
             git: None,
             preview_image_area: None,
+            space3d: None,
+            scene_area: None,
             tabs: vec![first_tab],
             tab: 0,
             tab_hits: Vec::new(),
@@ -233,6 +246,8 @@ impl Panel {
         self.error = None;
         self.result_paths = None;
         self.tree = None;
+        self.space3d = None;
+        self.scene_area = None;
         self.git = None;
         self.disk = None;
     }
@@ -276,6 +291,22 @@ impl Panel {
     }
 
     /// Whether the panel is currently showing the directory tree.
+    /// Whether this panel is showing the 3D view.
+    pub fn is_space3d(&self) -> bool {
+        self.format == ViewFormat::Space3d
+    }
+
+    /// Create the 3D view's state if it is missing.
+    ///
+    /// Which directory it *shows* is not this panel's own cwd — like the Details
+    /// and Tree formats, the 3D view describes the other panel, and
+    /// `AppState::update_space3d` points it there every loop iteration.
+    pub fn build_space3d(&mut self) {
+        if self.space3d.is_none() {
+            self.space3d = Some(crate::space3d::Space3d::new(self.cwd.path.clone()));
+        }
+    }
+
     pub fn is_tree(&self) -> bool {
         self.format == ViewFormat::Tree
     }
@@ -402,6 +433,12 @@ impl Panel {
     }
 
     pub fn move_cursor(&mut self, delta: isize) {
+        if self.format == ViewFormat::Space3d {
+            if let Some(sp) = self.space3d.as_mut() {
+                sp.step(0.0, delta.signum() as f32);
+            }
+            return;
+        }
         if self.format == ViewFormat::Tree {
             if let Some(tree) = self.tree.as_mut() {
                 tree.move_cursor(delta);

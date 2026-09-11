@@ -343,6 +343,12 @@ impl AppState {
             return Flow::Continue;
         }
 
+        // The 3D view claims the arrows (to move between boxes) and the orbit /
+        // zoom keys before the normal panel bindings see them.
+        if self.panels[self.active].is_space3d() && self.space3d_key(key) {
+            return Flow::Continue;
+        }
+
         match key.code {
             // -- Panel visibility (Norton-Commander style) --
             // Ctrl-F1 / Ctrl-F2 hide the left / right panel; Ctrl-F4 toggles the
@@ -463,6 +469,8 @@ impl AppState {
                 }
                 if self.panels[self.active].is_tree() {
                     self.tree_enter().await;
+                } else if self.panels[self.active].is_space3d() {
+                    self.space3d_enter().await;
                 } else {
                     return self.enter_dir().await;
                 }
@@ -492,6 +500,15 @@ impl AppState {
                 } else if cmdline {
                     self.cmd.move_right();
                 }
+            }
+            // In the 3D view Backspace walks up a level — and, like Enter, it
+            // walks the *other* panel, since that is the one the view describes.
+            // Only with an empty command line, so it still deletes a character
+            // when there is one to delete.
+            KeyCode::Backspace
+                if self.panels[self.active].is_space3d() && self.cmd.is_empty() =>
+            {
+                self.space3d_up().await;
             }
             KeyCode::Backspace if cmdline => self.cmd.backspace(),
             KeyCode::Delete if cmdline => self.cmd.delete(),
@@ -539,10 +556,20 @@ impl AppState {
             KeyCode::Char('I') if alt && !ctrl => self.open_panel_filter(),
             // Alt-O shows the cursor's directory on the other panel and steps on.
             KeyCode::Char('o') if alt && !ctrl => self.chdir_other_panel().await,
-            // Alt-T cycles the listing type (full / brief / details / tree).
+            // Alt-T cycles the listing type (full / brief / details / tree / 3D).
             KeyCode::Char('t') if alt && !ctrl => {
                 let side = self.active;
-                let next = self.panels[side].format.toggle();
+                // Skip any format this panel can't show — otherwise the cycle
+                // would stick on a remote panel, which has no 3D view.
+                let mut next = self.panels[side].format.toggle();
+                for _ in 0..4 {
+                    if next != ViewFormat::Space3d
+                        || crate::space3d::is_crawlable(&self.panels[side].cwd)
+                    {
+                        break;
+                    }
+                    next = next.toggle();
+                }
                 self.set_format(side, next).await;
             }
             // Git: Ctrl-G stages/unstages, Alt-G opens the Git menu, and Alt-D
@@ -769,12 +796,76 @@ impl AppState {
     /// Switch panel `side` to `fmt`, building or dropping its directory tree as
     /// Tree view is entered or left.
     pub(in crate::app::state) async fn set_format(&mut self, side: usize, fmt: ViewFormat) {
+        // The 3D view's sizes come from walking the real filesystem, so it has
+        // nothing to show for an archive, FTP or SFTP panel.
+        if fmt == ViewFormat::Space3d && !crate::space3d::is_crawlable(&self.panels[side].cwd) {
+            self.show_error(crate::l10n::tr("3D view needs a local directory"));
+            return;
+        }
         self.panels[side].format = fmt;
         if fmt == ViewFormat::Tree {
             self.panels[side].build_tree().await;
         } else {
             self.panels[side].tree = None;
         }
+        if fmt == ViewFormat::Space3d {
+            self.panels[side].build_space3d();
+        } else {
+            self.panels[side].space3d = None;
+            self.panels[side].scene_area = None;
+        }
+    }
+
+    /// Enter in the 3D view: point the *other* panel at the selected directory,
+    /// mirroring what Enter does in Tree view. The 3D view describes that panel,
+    /// so this also moves the focus and sends the camera flying to it.
+    pub(in crate::app::state) async fn space3d_enter(&mut self) {
+        let Some(path) = self.panels[self.active]
+            .space3d
+            .as_ref()
+            .and_then(|sp| sp.selected_node().map(|n| n.path.clone()))
+        else {
+            return;
+        };
+        let other = self.other_index();
+        let backend = self.registry.local();
+        self.panels[other].try_enter(VfsPath::local(path), backend, None).await;
+    }
+
+    /// Backspace in the 3D view: walk the *other* panel up a level.
+    pub(in crate::app::state) async fn space3d_up(&mut self) {
+        let other = self.other_index();
+        let Some(parent) = self.panels[other].cwd.path.parent().map(Path::to_path_buf) else {
+            return;
+        };
+        let backend = self.registry.local();
+        self.panels[other].try_enter(VfsPath::local(parent), backend, None).await;
+    }
+
+    /// Keys the 3D view handles itself. Returns true when one was consumed, so
+    /// the normal panel bindings don't also act on it.
+    pub(in crate::app::state) fn space3d_key(&mut self, key: KeyEvent) -> bool {
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
+        let Some(sp) = self.panels[self.active].space3d.as_mut() else {
+            return false;
+        };
+        match key.code {
+            // Alt-arrows orbit, leaving the plain arrows to move the selection.
+            KeyCode::Left if alt => sp.orbit(-0.16, 0.0),
+            KeyCode::Right if alt => sp.orbit(0.16, 0.0),
+            KeyCode::Up if alt => sp.orbit(0.0, 0.10),
+            KeyCode::Down if alt => sp.orbit(0.0, -0.10),
+            KeyCode::Char('+') | KeyCode::Char('=') => sp.zoom(0.85),
+            KeyCode::Char('-') | KeyCode::Char('_') => sp.zoom(1.18),
+            KeyCode::Home => sp.reset_view(),
+            // Plain arrows step between boxes on screen.
+            KeyCode::Left => sp.step(-1.0, 0.0),
+            KeyCode::Right => sp.step(1.0, 0.0),
+            KeyCode::Up => sp.step(0.0, -1.0),
+            KeyCode::Down => sp.step(0.0, 1.0),
+            _ => return false,
+        }
+        true
     }
 
     /// Enter on a Tree-view row: open/close the branch under the cursor and point
