@@ -226,6 +226,11 @@ impl AppState {
                             self.tree_enter().await;
                             return Flow::Continue;
                         }
+                        // On an Activity log row, it shows the file, as Enter does.
+                        if self.panels[self.active].activity.is_some() {
+                            self.activity_enter().await;
+                            return Flow::Continue;
+                        }
                         return self.enter_dir().await;
                     }
                     self.last_click = Some((pi, idx, now));
@@ -427,6 +432,12 @@ impl AppState {
             if let Some(t) = p.tree.as_mut() {
                 t.cursor = idx;
             }
+            return Some((pi, idx));
+        }
+        // Activity log: a click picks a row; there is nothing to mark.
+        if let Some(log) = p.activity.as_mut() {
+            let idx = p.hit?.index_at(col, row, log.visible_len())?;
+            log.cursor = idx;
             return Some((pi, idx));
         }
         let idx = p.hit?.index_at(col, row, p.entries.len())?;

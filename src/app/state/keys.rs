@@ -354,6 +354,12 @@ impl AppState {
             return Flow::Continue;
         }
 
+        // The Activity log's own keys (Enter, Insert, Delete); its arrows go
+        // through the ordinary cursor movement below.
+        if self.panels[self.active].activity.is_some() && self.activity_key(key).await {
+            return Flow::Continue;
+        }
+
         // The time machine's own keys, checked before the 3D view's so that a
         // scrub is never mistaken for a move between boxes. Kept out of
         // `space3d_key` because these need `&mut self` for the fetch channel.

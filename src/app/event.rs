@@ -40,10 +40,9 @@ pub enum AppEvent {
     /// wake the render loop so the backdrop repaints. Carries no data — the
     /// output is already in the shared emulator.
     ConsoleOutput,
-    /// Something changed inside a watched panel directory. Carries the path that
-    /// changed, so only the panel actually showing that directory is re-read —
-    /// a write on one side must not cost a re-listing on the other.
-    DirChanged { path: std::path::PathBuf },
+    /// The filesystem watcher has collected events in the app's inbox (see
+    /// `app::state::watch`). One wake-up per batch, however many events.
+    FsActivity,
     /// A throttled progress snapshot from the ops engine.
     Progress(ProgressUpdate),
     /// A copy/move hit an existing destination; the engine is paused awaiting the

@@ -355,15 +355,16 @@ pub struct AppState {
     /// first time a watchable directory is shown. `None` when auto-refresh is
     /// off, or when the platform refused to give us one.
     pub(in crate::app::state) watcher: Option<notify::RecommendedWatcher>,
-    /// The directory each panel is currently watching (`""` = not watching), so
-    /// `update_watches` can notice a change without asking the watcher.
+    /// The directory each panel wants watched (`""` = none), which events are
+    /// matched against.
     pub(in crate::app::state) watch_key: [String; 2],
-    /// Whether each panel's watch is the **recursive** one, armed when the other
-    /// panel is drawing this tree in 3D. Tracked separately from the key so
-    /// switching that panel into (or out of) the 3D format re-arms the watch,
-    /// rather than leaving it on whichever mode the directory happened to get
-    /// when it was first shown.
-    pub(in crate::app::state) watch_deep: [bool; 2],
+    /// What the watcher is actually subscribed to: directory → recursive.
+    pub(in crate::app::state) watch_armed: std::collections::BTreeMap<PathBuf, bool>,
+    /// Watches the system refused, `(directory, recursive)`, not to be asked
+    /// for again while they are still wanted.
+    pub(in crate::app::state) watch_refused: std::collections::HashSet<(PathBuf, bool)>,
+    /// Where the watcher's thread leaves events for the render loop.
+    pub(in crate::app::state) fs_inbox: std::sync::Arc<watch::FsInbox>,
     /// When each panel was last told its directory changed. The reload waits for
     /// [`watch::DEBOUNCE`] of quiet so one command causes one re-listing.
     pub(in crate::app::state) watch_dirty: [Option<Instant>; 2],
@@ -606,6 +607,7 @@ fn detect_truecolor() -> bool {
         .unwrap_or(false)
 }
 
+mod activity;
 mod checksum;
 mod details;
 mod dialogs;
@@ -628,7 +630,7 @@ mod sizes;
 mod syncdirs;
 mod tabs;
 mod viewer_editor;
-mod watch;
+pub mod watch;
 
 /// Read a file fully into memory (capped just above the viewer limit).
 async fn load_file(

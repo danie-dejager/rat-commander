@@ -117,7 +117,7 @@ impl AppState {
     fn activity_target(&self, source: usize) -> Option<(PathBuf, Vec<String>)> {
         let p = &self.panels[source];
         if !self.config.details_activity
-            || p.format == ViewFormat::Details
+            || !p.format.has_listing()
             || !p.cwd.is_plain_local()
             || p.git.is_none()
         {
@@ -164,7 +164,7 @@ impl AppState {
     /// (navigation, cursor move, or selection edit) triggers a recompute.
     fn details_key(&self, source: usize) -> String {
         let p = &self.panels[source];
-        if p.format == ViewFormat::Details {
+        if !p.format.has_listing() {
             return "\u{0}details".to_string(); // source isn't a normal listing
         }
         let cursor = p.current_entry().map(|e| e.name.as_str()).unwrap_or("");
@@ -184,7 +184,7 @@ impl AppState {
         // Decide what to show (immutable borrow of the source panel only).
         let (cwd, backend, plan) = {
             let p = &self.panels[source];
-            let plan = if p.format == ViewFormat::Details {
+            let plan = if !p.format.has_listing() {
                 Plan::Empty
             } else if !p.selection.is_empty() {
                 let roots: Vec<(String, VfsKind, u64)> = p
@@ -261,7 +261,7 @@ impl AppState {
         let (backend, spec) = {
             let p = &self.panels[source];
             // No preview for a Details source, a multi-item selection, or `..`.
-            let spec = if p.format == ViewFormat::Details || !p.selection.is_empty() {
+            let spec = if !p.format.has_listing() || !p.selection.is_empty() {
                 None
             } else {
                 p.current_entry()

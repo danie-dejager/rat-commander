@@ -62,6 +62,15 @@ pub fn render_panel(
         (ViewFormat::Details, _) => {
             crate::l10n::tr("&Details view").chars().filter(|&c| c != '&').collect()
         }
+        // The log is of the other panel's tree, so that is the path it names.
+        (ViewFormat::Activity, _) => {
+            let label: String =
+                crate::l10n::tr("&Activity log").chars().filter(|&c| c != '&').collect();
+            match panel.activity.as_ref().and_then(|a| a.root.as_ref()) {
+                Some(root) => format!("{label}: {}", root.display()),
+                None => label,
+            }
+        }
         // Under the time machine the title names the commit the scene is of,
         // which is the one thing a scrub changes and the track has no room for.
         (ViewFormat::Space3d, _) => match panel.scrub.as_ref() {
@@ -168,6 +177,12 @@ pub fn render_panel(
         ViewFormat::Brief => render_brief(f, list_area, panel, active, theme, brief_columns, nerd),
         ViewFormat::Tree => render_tree(f, list_area, panel, active, theme),
         ViewFormat::Space3d => render_space3d(f, list_area, panel, theme, graphics),
+        ViewFormat::Activity => {
+            if let Some(log) = panel.activity.as_mut() {
+                let now = std::time::Instant::now();
+                panel.page = crate::activity::render::render(f, list_area, log, active, theme, now);
+            }
+        }
         ViewFormat::Details => unreachable!("Details is rendered earlier and returns"),
     }
 
@@ -192,11 +207,14 @@ pub fn render_panel(
         // The 3D view hit-tests against projected box bounds rather than rows,
         // but the body rect is still what tells `panel_at` a click landed here.
         ViewFormat::Space3d => (list_area, false, 1usize, 1usize, list_area.width),
+        // One log row per body line.
+        ViewFormat::Activity => (list_area, false, 1usize, 1usize, list_area.width),
     };
     // The tree scrolls independently of the flat listing, so hit-testing must use
     // the tree's own offset.
     let offset = match (panel.format, panel.tree.as_ref()) {
         (ViewFormat::Tree, Some(t)) => t.offset,
+        (ViewFormat::Activity, _) => panel.activity.as_ref().map_or(0, |a| a.offset),
         _ => panel.offset,
     };
     panel.hit = Some(crate::panel::PanelHit { area, body, brief, offset, columns, rows, cell_w });
@@ -746,6 +764,14 @@ fn render_mini_status(f: &mut Frame, area: Rect, panel: &Panel, theme: &Theme, n
             ))),
             area,
         );
+        return;
+    }
+
+    // Activity log: the event rate, and whether it is paused.
+    if panel.format == ViewFormat::Activity {
+        if let Some(log) = panel.activity.as_ref() {
+            crate::activity::render::render_status(f, area, log, theme);
+        }
         return;
     }
 

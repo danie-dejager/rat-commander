@@ -157,7 +157,9 @@ impl AppState {
             find_hit_lines: HashMap::new(),
             watcher: None,
             watch_key: [String::new(), String::new()],
-            watch_deep: [false, false],
+            watch_armed: Default::default(),
+            watch_refused: Default::default(),
+            fs_inbox: Default::default(),
             watch_dirty: [None, None],
             edit_only: false,
             kbd_enhanced: false,
@@ -369,6 +371,8 @@ impl AppState {
             || self.sizes_running()
             // The screensaver animates on the tick.
             || self.saver.is_some()
+            // An Activity log's ages and event rate move on by themselves.
+            || self.activity_shown()
             // A followed file is polled for growth on the tick.
             || self.viewer.as_ref().is_some_and(|v| v.following())
             // A debounced panel reload is still waiting to fire.
@@ -551,7 +555,7 @@ impl AppState {
             // Console output already landed in the shared emulator; receiving the
             // event is enough to trigger the next repaint (loop top redraws).
             AppEvent::ConsoleOutput => {}
-            AppEvent::DirChanged { path } => self.note_dir_changed(&path),
+            AppEvent::FsActivity => self.drain_fs_inbox(),
             AppEvent::Progress(u) => {
                 // Fold the speed sample into the *task's* history first. It records
                 // whether or not anyone is watching, so a transfer sent to the

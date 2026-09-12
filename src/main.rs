@@ -1,6 +1,7 @@
 //! rat-commander — a self-contained Norton/Midnight-Commander-style file
 //! manager built on Ratatui.
 
+mod activity;
 mod app;
 mod config;
 mod console;

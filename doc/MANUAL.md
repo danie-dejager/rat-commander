@@ -519,6 +519,9 @@ one from the **Left** / **Right** menu:
 - **3D** — a **tree of boxes joined by lines**, showing what is inside the
   directory the *other* panel is in, each box sized by what that directory holds.
   See *3D view* below.
+- **Activity log** — a live list of what is being created, written, removed and
+  renamed anywhere under the *other* panel's directory. Chosen from the **Left** /
+  **Right** menu (it is not in the `Alt-T` cycle). See *Activity log* below.
 
 **Sorting** is configurable from the **Left** / **Right** menu; **Ctrl-E** toggles
 reverse order. The keys are: Unsorted, Name, Extension, Size,
@@ -1815,8 +1818,9 @@ events but only one re-listing, about a third of a second after things go quiet.
 **What is not watched.** Only plain **local** directories. A **remote** (SFTP /
 FTP / SCP) panel and the inside of an **archive** have nothing the operating
 system can watch, and a panel showing **find-file results** is a list rather than
-a directory — re-reading it would throw the results away. Watching is
-non-recursive, so a change deep inside a subdirectory does not re-read the parent.
+a directory — re-reading it would throw the results away. A listing only
+re-reads for changes in the directory itself, not deeper down; the whole tree is
+watched only while a 3D view or an Activity log on the other panel is drawing it.
 
 **Turning it off.** Toggle *Auto-refresh panels* in the command palette
 (`Ctrl-P`), or set `auto_refresh = false` in `config.toml`. Worth doing on a
@@ -1980,6 +1984,55 @@ directory, and `Alt-T` skips over the format on a remote panel.
 
 - **Spare no expense** — an homage to **fsn**, the 3D file system navigator that
   shipped with SGI's IRIX (and briefly starred in *Jurassic Park*). 
+
+## Activity log
+
+*Left / Right menu → Activity log* (also in the command palette)
+
+A panel format that lists, **live**, what changes anywhere under the directory
+the **other** panel is in: files created, written, removed and renamed, however
+deep. Newest at the top.
+
+**Useful for** answering "what is this installer writing?", "which files does
+this build touch?", or "is anything still being written to this disk?" — point
+the other panel at the directory in question and watch.
+
+**Reading it.** Each row is how long ago it happened, a mark, and the path
+relative to the watched directory — the file name bright, the directories dim:
+
+| Mark | Meaning |
+| --- | --- |
+| `+` | created (a directory ends in `/`) |
+| `~` | modified |
+| `✓` | written: a file opened for writing was closed, so it is complete |
+| `-` | removed |
+| `→` | renamed (`old → new`) |
+| `↑` / `↓` | moved out of / into the watched tree |
+
+Bursts are **folded**: a file written to four hundred times in a row reads as one
+row with `×400` on the end, and a new file that is still being written keeps
+saying it is new. The status line under the list shows the events per second
+now and a sparkline of the last minute.
+
+**Operation.**
+
+| Key | |
+| --- | --- |
+| `↑ ↓` / `PgUp PgDn` / `Home End` (or the mouse) | Move through the rows |
+| `Enter` (or a double-click) | Show the file in the other panel — its directory, with the cursor on it — and make that panel active. For a file that is gone, its directory. |
+| `Insert` | Pause: new events are held back so the rows stand still to be read (the status line counts them); `Insert` again takes them all in |
+| `Delete` | Clear the log |
+| `Alt-Shift-I` | Filter the rows, like a listing filter: `*.rs`, or plain text matched anywhere in the path |
+
+The log follows the other panel: point that panel somewhere else and it starts
+again there. It works whether or not *Auto-refresh panels* is on.
+
+**Limits.** Only **local** directories can be watched. It watches the whole tree
+under the directory, which on Linux costs an inotify watch per subdirectory; on a
+tree too big for the limit (`fs.inotify.max_user_watches`) the log says so and
+falls back to the directory itself rather than failing silently. The operating
+system reports *what* changed, not *which program* changed it.
+
 
 ## Disk explorer
 

@@ -92,6 +92,10 @@ The installed executable is named **`rc`** for quick typing.
   you are and the title names the commit. Sizes come from git, so a commit's tree
   is walked once and revisited for free — dragging across two hundred commits
   costs a handful of reads, not one apiece.
+- **Activity log** — a panel format listing, live, everything created, written,
+  removed and renamed anywhere under the other panel's directory: *what is this
+  installer writing?* Bursts fold into one row with a count, a sparkline shows
+  the event rate, `Enter` jumps the other panel to the file, `Insert` pauses.
 - **A landscape that reacts** — while a 3D panel is up, the directories in it
   **light up as things are written into them**, fading out again over about a
   second. Point one panel at a build directory, put the other in 3D, and you can

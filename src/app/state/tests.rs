@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::state::watch::{FsEvent, FsKind};
 use crate::util::async_bridge;
 
 #[tokio::test]
@@ -1840,6 +1841,55 @@ async fn mouse_click_on_menu_bar_opens_menu() {
     assert!(st.menu.is_some(), "clicking the menu bar should open a menu");
 }
 
+/// An Activity log asks for a recursive watch on the other panel's tree — even
+/// with auto-refresh off, which then still does not reload any listing — and
+/// Enter on a row points the other panel at the file.
+#[tokio::test]
+async fn an_activity_log_watches_the_other_tree_and_enter_shows_the_file() {
+    use crate::panel::ViewFormat;
+    let root = temp_dir("activity_log");
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.config.auto_refresh = false;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.active = 1;
+    st.set_format(1, ViewFormat::Activity).await;
+    st.update_activity_logs();
+    st.update_watches();
+    assert_eq!(st.watch_armed.get(&root), Some(&true), "the tree is watched recursively");
+    assert_eq!(st.panels[1].activity.as_ref().unwrap().root.as_deref(), Some(root.as_path()));
+
+    st.note_fs_event(&FsEvent::new(FsKind::Modify, root.join("src/main.rs")));
+    assert!(!st.watch_pending(), "auto-refresh is off: no reload is stamped");
+    assert_eq!(st.panels[1].activity.as_ref().unwrap().visible_len(), 1);
+
+    st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+    assert_eq!(st.active, 0, "the other panel takes over");
+    assert_eq!(st.panels[0].cwd.path, root.join("src"));
+    assert_eq!(st.panels[0].current_entry().map(|e| e.name.as_str()), Some("main.rs"));
+    // The log follows the other panel into the directory it now shows.
+    st.update_activity_logs();
+    assert_eq!(
+        st.panels[1].activity.as_ref().unwrap().root.as_deref(),
+        Some(root.join("src").as_path())
+    );
+
+    // Alt-T leaves the log for the listing cycle, and never lands on it.
+    st.active = 1;
+    for _ in 0..8 {
+        st.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::ALT)).await;
+        assert_ne!(st.panels[1].format, ViewFormat::Activity);
+    }
+    st.update_activity_logs();
+    assert!(st.panels[1].activity.is_none(), "and the log is dropped with it");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[tokio::test]
 async fn a_watched_directory_change_reloads_the_panel_after_the_debounce() {
     let nanos =
@@ -1856,10 +1906,13 @@ async fn a_watched_directory_change_reloads_the_panel_after_the_debounce() {
     st.panels[0].reload().await.unwrap();
     st.update_watches();
     assert_eq!(st.watch_key[0], root.to_string_lossy(), "the local panel is watched");
+    // The events below are fed in by hand; the real watcher's own reports of
+    // the same write would race them (the live tests in `watch` cover it).
+    st.watcher = None;
 
     // A file appears behind our back, and the watcher reports it.
     std::fs::write(root.join("b.txt"), b"y").unwrap();
-    st.apply_event(AppEvent::DirChanged { path: root.join("b.txt") }).await;
+    st.note_fs_event(&FsEvent::new(FsKind::Create, root.join("b.txt")));
     assert!(st.watch_pending(), "the change is stamped, not acted on yet");
     assert!(st.wants_ticks(), "and the loop keeps ticking so it can fire");
     assert!(!st.panels[0].entries.iter().any(|e| e.name == "b.txt"), "not reloaded yet");
@@ -1876,7 +1929,7 @@ async fn a_watched_directory_change_reloads_the_panel_after_the_debounce() {
     st.panels[0].set_results(Vec::new(), Vec::new());
     st.update_watches();
     assert_eq!(st.watch_key[0], "", "a panelized panel is not watched");
-    st.apply_event(AppEvent::DirChanged { path: root.join("b.txt") }).await;
+    st.note_fs_event(&FsEvent::new(FsKind::Modify, root.join("b.txt")));
     assert!(!st.watch_pending(), "and an event for it is ignored");
 
     std::fs::remove_dir_all(&root).ok();

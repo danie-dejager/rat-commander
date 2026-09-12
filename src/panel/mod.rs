@@ -79,17 +79,29 @@ pub enum ViewFormat {
     /// corresponds to its total size on disk. Local directories only — the
     /// sizes come from a filesystem crawl.
     Space3d,
+    /// No own listing: a live log of what changes anywhere under the *other*
+    /// panel's directory. Chosen from the menu only — not part of the Alt-T
+    /// cycle, since it is a tool to reach for rather than a way to list files.
+    Activity,
 }
 
 impl ViewFormat {
-    /// Cycle Full → Brief → Details → Tree → 3D → Full (Alt-T).
+    /// Whether the panel shows a listing of its own directory — not the Details
+    /// view or the Activity log, which describe the other panel instead (so
+    /// their hidden listing's cursor points at nothing anyone can see).
+    pub fn has_listing(self) -> bool {
+        !matches!(self, ViewFormat::Details | ViewFormat::Activity)
+    }
+
+    /// Cycle Full → Brief → Details → Tree → 3D → Full (Alt-T). The Activity log
+    /// steps back into the cycle at the start.
     pub fn toggle(self) -> Self {
         match self {
             ViewFormat::Full => ViewFormat::Brief,
             ViewFormat::Brief => ViewFormat::Details,
             ViewFormat::Details => ViewFormat::Tree,
             ViewFormat::Tree => ViewFormat::Space3d,
-            ViewFormat::Space3d => ViewFormat::Full,
+            ViewFormat::Space3d | ViewFormat::Activity => ViewFormat::Full,
         }
     }
 }
@@ -165,6 +177,8 @@ pub struct Panel {
     pub preview_image_area: Option<Rect>,
     /// 3D view state, built on entering that format (mirrors `tree`).
     pub space3d: Option<crate::space3d::Space3d>,
+    /// The Activity log, while this panel shows one.
+    pub activity: Option<crate::activity::ActivityLog>,
     /// Where the 3D view wants its pixel image composited, when the terminal has
     /// graphics. Same deferred handoff as `preview_image_area`, because the
     /// panel renderer has no access to `Gfx`.
@@ -220,6 +234,7 @@ impl Panel {
             git: None,
             preview_image_area: None,
             space3d: None,
+            activity: None,
             scene_area: None,
             scrub: None,
             scrub_area: None,
@@ -479,6 +494,10 @@ impl Panel {
             }
             return;
         }
+        if let Some(log) = self.activity.as_mut() {
+            log.move_cursor(delta);
+            return;
+        }
         if self.entries.is_empty() {
             return;
         }
@@ -500,6 +519,10 @@ impl Panel {
             }
             return;
         }
+        if let Some(log) = self.activity.as_mut() {
+            log.cursor = 0;
+            return;
+        }
         self.cursor = 0;
     }
 
@@ -508,6 +531,10 @@ impl Panel {
             if let Some(tree) = self.tree.as_mut() {
                 tree.move_end();
             }
+            return;
+        }
+        if let Some(log) = self.activity.as_mut() {
+            log.move_end();
             return;
         }
         if !self.entries.is_empty() {
@@ -600,13 +627,13 @@ impl Panel {
 /// A compiled panel-filter matcher: a case-insensitive shell glob when the
 /// pattern uses glob metacharacters (`*?[`), otherwise a case-insensitive
 /// substring match (so typing `test` shows every name containing `test`).
-enum FilterMatch {
+pub(crate) enum FilterMatch {
     Glob(globset::GlobMatcher),
     Substr(String),
 }
 
 impl FilterMatch {
-    fn new(pattern: &str) -> Self {
+    pub(crate) fn new(pattern: &str) -> Self {
         let has_meta = pattern.contains(['*', '?', '[']);
         // A plain word is matched anywhere in the name (`*word*`); a pattern with
         // metacharacters is used as written.
@@ -618,7 +645,7 @@ impl FilterMatch {
         }
     }
 
-    fn matches(&self, name: &str) -> bool {
+    pub(crate) fn matches(&self, name: &str) -> bool {
         match self {
             FilterMatch::Glob(g) => g.is_match(name),
             FilterMatch::Substr(s) => name.to_lowercase().contains(s.as_str()),
