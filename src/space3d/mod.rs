@@ -73,6 +73,21 @@ impl CamPose {
 
 /// Seconds for an animation to cover ~63 % of the distance left.
 const TAU: f32 = 0.20;
+/// The longest a single frame may advance the animations by, in seconds.
+///
+/// A frame is honoured for as long as it really took up to this: on a graphics
+/// terminal one frame re-transmits the whole image, and a slow one has to move
+/// the camera that much further, or the animation slows down along with the
+/// terminal and trails ever further behind the pointer orbiting it. The ceiling
+/// only keeps a genuine stall from finishing a flight in a single jump.
+const MAX_STEP: f32 = 0.25;
+/// The step the first frame after an idle spell advances by, in seconds.
+///
+/// Nothing called [`Space3d::advance`] while the view stood still, so the time
+/// since it last ran is how long it sat idle, not how long a frame took.
+/// Charging that to the frame that sets it moving again would open every
+/// motion with a lurch.
+const IDLE_STEP: f32 = 1.0 / 30.0;
 /// Seconds for a directory's activity glow to fade to ~37 % of its brightness.
 ///
 /// Slower than [`TAU`] on purpose: the glow is there to be *noticed* across a
@@ -384,6 +399,9 @@ pub struct Space3d {
     goal: CamPose,
     settled: bool,
     last: Instant,
+    /// Whether the last [`Space3d::advance`] left the view asking for no more
+    /// frames — so the gap before the next one is idle time (see [`IDLE_STEP`]).
+    idle: bool,
     /// When the scene's image was last rebuilt, and how many more frames a
     /// rebuild held back by [`MIN_REPAINT`] should keep asking for — see
     /// [`Space3d::claim_repaint`].
@@ -444,6 +462,7 @@ impl Space3d {
             goal,
             settled: false,
             last: Instant::now(),
+            idle: false,
             // A view that has never been painted must not have its first paint
             // held back, so it starts a full interval in the past. `checked_sub`
             // because `Instant` is monotonic from boot and subtracting past
@@ -1097,13 +1116,14 @@ impl Space3d {
     /// Advance the camera, node positions and box sizes toward their targets.
     ///
     /// Exponential smoothing on a wall-clock delta, so it behaves the same at
-    /// 10 fps and at 30 — which matters because this app's frame rate is
+    /// 4 fps and at 30 — which matters because this app's frame rate is
     /// event-driven and varies widely.
     pub fn advance(&mut self, now: Instant) {
         // The frame a held-back paint was asking for has come round; whether the
         // draw that follows collects it or not, it is one frame less owed.
         self.repaint_owed = self.repaint_owed.saturating_sub(1);
-        let dt = (now - self.last).as_secs_f32().clamp(0.0, 0.1);
+        let cap = if self.idle { IDLE_STEP } else { MAX_STEP };
+        let dt = now.saturating_duration_since(self.last).as_secs_f32().min(cap);
         self.last = now;
         if dt <= 0.0 {
             return;
@@ -1189,6 +1209,7 @@ impl Space3d {
             self.cam = self.goal;
             self.settled = true;
         }
+        self.idle = !self.needs_frames();
     }
 
     fn drawn(&self, i: usize) -> (V3, f32) {

@@ -12,8 +12,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::crossterm::event::{
     DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyEventKind,
-    KeyboardEnhancementFlags, MouseEventKind, PopKeyboardEnhancementFlags,
-    PushKeyboardEnhancementFlags,
+    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use ratatui::crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -206,22 +205,19 @@ async fn run_loop(term: &mut Term, state: &mut AppState, rx: &mut AppReceiver) -
                             }
                         }
                         Some(Ok(Event::Mouse(me))) => {
-                            // The wheel is happy in a batch: it only asks which
-                            // panel it is over, and no amount of scrolling moves
-                            // a panel. Everything else the pointer does is
-                            // answered against the hit-test geometry the last
-                            // frame recorded — so if anything earlier in this
-                            // batch has moved the world, that has to be redrawn
-                            // before we ask where the pointer landed, or the
-                            // click lands on the wrong file. Then the batch ends.
-                            let wheel = matches!(
-                                me.kind,
-                                MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
-                            );
-                            if !wheel && taken > 0 {
+                            // The wheel, bare motion and a 3D orbit are happy in
+                            // a batch (see `AppState::mouse_folds`). Everything
+                            // else the pointer does is answered against the
+                            // hit-test geometry the last frame recorded — so if
+                            // anything earlier in this batch has moved the world,
+                            // that has to be redrawn before we ask where the
+                            // pointer landed, or the click lands on the wrong
+                            // file. Then the batch ends.
+                            let folds = state.mouse_folds(&me);
+                            if !folds && taken > 0 {
                                 refresh_and_draw(term, state)?;
                             }
-                            act!('main, state.handle_mouse(me).await) && wheel
+                            act!('main, state.handle_mouse(me).await) && folds
                         }
                         Some(Ok(Event::Resize(cols, rows))) => {
                             // Keep the console emulator and every live shell PTY the

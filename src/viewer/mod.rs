@@ -784,6 +784,15 @@ impl ViewerState {
         self.show_model.then_some(self.model.as_ref()).flatten()
     }
 
+    /// Whether a drag is under way that [`handle_mouse`] answers by orbiting the
+    /// model — the pointer's travel since the press, which the viewer recorded
+    /// itself, rather than anything the last frame drew.
+    ///
+    /// [`handle_mouse`]: ViewerState::handle_mouse
+    pub fn orbiting(&self) -> bool {
+        !self.outline_open && self.active_model().is_some() && self.drag_from.is_some()
+    }
+
     /// Build the byte map, once. Sampled rather than read whole (see
     /// [`fingerprint`]), so this is bounded work even on a multi-gigabyte image
     /// and can run on the spot rather than going through a background task.
@@ -2321,6 +2330,24 @@ mod tests {
         let held = v.active_model().unwrap().cam.yaw;
         v.handle_mouse(at(MouseEventKind::Drag(MouseButton::Left), 90, 10));
         assert!((v.active_model().unwrap().cam.yaw - held).abs() < 1e-6);
+    }
+
+    #[test]
+    fn only_a_drag_on_the_displayed_model_counts_as_an_orbit() {
+        let bytes = stl_bytes();
+        let mut v = ViewerState::new("part.stl".into(), bytes.clone());
+        v.set_model(ViewerModel::new(crate::mesh::load(&bytes, "part.stl").unwrap()));
+        let at =
+            |kind, col, row| MouseEvent { kind, column: col, row, modifiers: KeyModifiers::NONE };
+        assert!(!v.orbiting(), "nothing is pressed");
+        v.handle_mouse(at(MouseEventKind::Down(MouseButton::Left), 20, 10));
+        assert!(v.orbiting(), "a press on the model arms an orbit");
+        v.handle_mouse(at(MouseEventKind::Up(MouseButton::Left), 20, 10));
+        assert!(!v.orbiting(), "and releasing ends it");
+
+        v.handle_mouse(at(MouseEventKind::Down(MouseButton::Left), 20, 10));
+        v.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE));
+        assert!(!v.orbiting(), "the raw bytes have no camera to turn");
     }
 
     #[test]

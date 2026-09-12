@@ -4674,6 +4674,59 @@ async fn dragging_over_the_3d_panel_orbits_the_camera() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// An orbit is measured from the pointer's own travel, so the input batch may
+/// fold its drag reports into a single frame. A drag over a listing moves the
+/// cursor onto whatever the last frame drew under the pointer, so it may not.
+#[tokio::test]
+async fn only_an_orbit_drag_folds_into_the_input_batch() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let root = temp_dir("space3d_fold");
+    std::fs::create_dir_all(root.join("alpha")).unwrap();
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[1].cwd = VfsPath::local(&root);
+    st.init().await;
+    st.set_format(0, ViewFormat::Space3d).await;
+
+    let mut t = Terminal::new(TestBackend::new(120, 30)).unwrap();
+    t.draw(|f| crate::ui::draw(f, &mut st)).unwrap();
+    let centre = |i: usize| {
+        let hit = st.panels[i].hit.expect("panel geometry");
+        (hit.body.x + hit.body.width / 2, hit.body.y + hit.body.height / 2)
+    };
+    let ((sx, sy), (lx, ly)) = (centre(0), centre(1));
+    let ev = |kind, col, row| MouseEvent {
+        kind,
+        column: col,
+        row,
+        modifiers: ratatui::crossterm::event::KeyModifiers::NONE,
+    };
+    let left = MouseButton::Left;
+
+    assert!(st.mouse_folds(&ev(MouseEventKind::Moved, sx, sy)), "bare motion does nothing");
+    assert!(!st.mouse_folds(&ev(MouseEventKind::Down(left), sx, sy)), "a press hit-tests");
+    assert!(!st.mouse_folds(&ev(MouseEventKind::Drag(left), sx, sy)), "no orbit is armed yet");
+
+    st.handle_mouse(ev(MouseEventKind::Down(left), sx, sy)).await;
+    assert!(st.mouse_folds(&ev(MouseEventKind::Drag(left), sx + 8, sy + 3)), "an orbit folds");
+    assert!(st.mouse_folds(&ev(MouseEventKind::Up(left), sx + 8, sy + 3)), "and so does its end");
+    st.handle_mouse(ev(MouseEventKind::Up(left), sx + 8, sy + 3)).await;
+    assert!(!st.mouse_folds(&ev(MouseEventKind::Drag(left), sx, sy)), "released");
+
+    for button in [MouseButton::Left, MouseButton::Right] {
+        st.handle_mouse(ev(MouseEventKind::Down(button), lx, ly)).await;
+        assert!(
+            !st.mouse_folds(&ev(MouseEventKind::Drag(button), lx, ly + 1)),
+            "a {button:?} drag over the listing moves or marks what is under it"
+        );
+        st.handle_mouse(ev(MouseEventKind::Up(button), lx, ly + 1)).await;
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// A remote panel has nothing crawlable, so the 3D view opposite it holds
 /// whatever it last showed rather than blanking.
 #[tokio::test]

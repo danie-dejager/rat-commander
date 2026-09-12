@@ -908,14 +908,44 @@ fn smoothing_is_frame_rate_independent() {
         let mut clock = Clock::new();
         clock.settle(&mut sp);
         sp.orbit(1.0, 0.0);
+        // The frame that wakes an idle view takes an ordinary step whatever the
+        // gap before it (see the test below), so every run shares that one.
+        clock.step(&mut sp, 33);
         for _ in 0..steps {
             clock.step(&mut sp, step_ms);
         }
         sp.cam.yaw
     };
+    // 5 fps is a graphics terminal swallowing a re-transmitted image per frame:
+    // the camera must not fall behind the pointer turning it just because the
+    // terminal is slow.
+    let slowest = run(200, 3); // 600 ms in 3 frames
     let slow = run(100, 6); // 600 ms in 6 frames
     let fast = run(20, 30); // 600 ms in 30 frames
     assert!((slow - fast).abs() < 0.02, "10 fps {slow} vs 50 fps {fast}");
+    assert!((slowest - fast).abs() < 0.02, "5 fps {slowest} vs 50 fps {fast}");
+}
+
+#[test]
+fn a_view_waking_from_idle_opens_with_an_ordinary_step() {
+    // Nothing advances a view that has stopped asking for frames, so the gap
+    // before the frame that wakes it is idle time, not frame time. Charged to
+    // that frame, it would open every orbit with a jump.
+    let t = cache(&[("a", 100)], &[]);
+    let first_step = |gap_ms: u64| {
+        let mut sp = view_on("/r", &t);
+        let mut clock = Clock::new();
+        clock.settle(&mut sp);
+        let start = sp.cam.yaw;
+        sp.orbit(1.0, 0.0);
+        clock.step(&mut sp, gap_ms);
+        (sp.cam.yaw - start).abs()
+    };
+    let (prompt, late) = (first_step(33), first_step(5_000));
+    assert!(late > 0.0, "the waking frame still moves the camera");
+    // Not exactly equal: the ordinary step is a nominal 30 fps frame, the
+    // prompt one a real 33 ms. Charging the idle gap would have moved it ~0.4.
+    assert!((late - prompt).abs() < 0.005, "after 5 s idle {late} vs at once {prompt}");
 }
 
 #[test]

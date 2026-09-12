@@ -252,6 +252,61 @@ impl AppState {
         Flow::Continue
     }
 
+    /// Whether `ev` is answered without the hit-test geometry the last frame
+    /// recorded, which lets the input batch in `app::run_loop` fold it into one
+    /// frame together with the events around it instead of drawing first.
+    ///
+    /// That matters most for an orbit. The terminal reports a drag once per cell
+    /// the pointer crosses, and on a graphics terminal every frame of a 3D view
+    /// re-transmits its whole image: drawing one per report let the reports
+    /// queue up faster than they were answered, and the camera went on turning
+    /// long after the button came up.
+    pub fn mouse_folds(&self, ev: &MouseEvent) -> bool {
+        match ev.kind {
+            // The wheel only asks which panel it is over, and no amount of
+            // scrolling moves a panel. Nothing answers bare pointer motion or
+            // a sideways scroll at all.
+            MouseEventKind::ScrollUp
+            | MouseEventKind::ScrollDown
+            | MouseEventKind::ScrollLeft
+            | MouseEventKind::ScrollRight
+            | MouseEventKind::Moved => true,
+            // An orbit turns the pointer's travel into an angle, measured from a
+            // position it recorded itself.
+            MouseEventKind::Drag(_) | MouseEventKind::Up(_) => self.orbiting(),
+            MouseEventKind::Down(_) => false,
+        }
+    }
+
+    /// Whether a drag in progress reaches a 3D camera — the viewer's model or a
+    /// 3D panel — rather than moving a cursor or marking files.
+    ///
+    /// Follows the routing order of [`handle_mouse`]: whatever claims the mouse
+    /// ahead of these two takes the drag from them.
+    ///
+    /// [`handle_mouse`]: AppState::handle_mouse
+    fn orbiting(&self) -> bool {
+        if self.dialog.is_some()
+            || self.menu.is_some()
+            || self.mountview.is_some()
+            || self.editor.is_some()
+        {
+            return false;
+        }
+        if let Some(v) = &self.viewer {
+            return v.orbiting();
+        }
+        if self.theme_editor.is_some()
+            || self.diskview.is_some()
+            || self.netview.is_some()
+            || self.procview.is_some()
+            || self.diffview.is_some()
+        {
+            return false;
+        }
+        self.drag_orbit.is_some()
+    }
+
     /// Start tracking a drag over a 3D panel, so moving the pointer orbits the
     /// camera. Returns whether the pointer was over one.
     fn begin_drag_orbit(&mut self, col: u16, row: u16) -> bool {
