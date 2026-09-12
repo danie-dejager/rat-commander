@@ -5487,12 +5487,18 @@ async fn receive_over_lan_saves_into_the_panel_directory_until_closed() {
 
     st.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
     assert!(st.dialog.is_none() && st.receive_server.is_none(), "closing stops the server");
-    let refused = tokio::time::timeout(
-        Duration::from_secs(2),
-        tokio::net::TcpStream::connect(("127.0.0.1", port)),
-    )
-    .await;
-    assert!(!matches!(refused, Ok(Ok(_))), "nothing listens any more");
+    // The aborted accept loop lets go of its socket once the runtime next gets a
+    // turn, so give it a moment rather than expect it the same instant.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut refused = false;
+    while Instant::now() < deadline {
+        if tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_err() {
+            refused = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(refused, "nothing listens any more");
     let _ = std::fs::remove_dir_all(&root);
 }
 
