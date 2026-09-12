@@ -24,6 +24,14 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 /// Render the entire UI for one frame, then paint the theme's per-element
 /// gradients over the finished picture (see [`gradient`]).
 pub fn draw(f: &mut Frame, state: &mut AppState) {
+    // The screensaver covers everything: no panels, dialogs, pictures or
+    // gradients underneath it.
+    if let Some(saver) = state.saver.as_mut() {
+        let area = f.area();
+        state.last_area = area;
+        saver.render(f.buffer_mut(), area);
+        return;
+    }
     gradient::reset();
     draw_body(f, state);
     // The theme editor draws its preview with the theme *being edited* and
@@ -544,6 +552,29 @@ mod feature_tests {
         let mut t = Terminal::new(TestBackend::new(120, 30)).unwrap();
         t.draw(|f| draw(f, state)).unwrap();
         t
+    }
+
+    /// The screensaver covers the whole screen: no panels, bars or dialogs.
+    #[tokio::test]
+    async fn the_screensaver_draws_over_everything() {
+        let (tx, _rx) = crate::util::async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+        st.config.screensaver = crate::config::SaverKind::Starfield;
+        assert!(panel_count(&drawn(&mut st).await) > 0);
+        st.dialog = Some(crate::ui::dialog::Dialog::Message(
+            crate::ui::dialog::MessageDialog::error("still there underneath"),
+        ));
+        st.start_saver();
+        let t = drawn(&mut st).await;
+        let text = text_of(&t);
+        assert_eq!(panel_count(&t), 0, "no panels");
+        assert!(!text.contains("underneath") && !text.contains("Help"), "no dialog, no F-key bar");
+        let buf = t.backend().buffer();
+        assert!(
+            buf.content().iter().all(|c| c.bg == crate::saver::BLACK),
+            "all black behind the stars"
+        );
     }
 
     /// Each rendered panel contributes exactly one top-left border corner, so

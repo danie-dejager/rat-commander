@@ -10,6 +10,13 @@ impl AppState {
     /// menus and dialogs; right clicks/drags mark files; the wheel scrolls the
     /// panel under the pointer.
     pub async fn handle_mouse(&mut self, ev: MouseEvent) -> Flow {
+        // As for keys: moving the mouse counts as being there, and over the
+        // screensaver it only takes the screensaver down.
+        self.last_input = Instant::now();
+        if self.saver.is_some() {
+            self.stop_saver();
+            return Flow::Continue;
+        }
         let area = self.last_area;
         let (col, row) = (ev.column, ev.row);
         let left_down = matches!(ev.kind, MouseEventKind::Down(MouseButton::Left));

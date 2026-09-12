@@ -9,6 +9,14 @@ impl AppState {
     /// (panels, editor, viewer); dialogs and the pulldown menu keep Esc as an
     /// immediate cancel.
     pub async fn handle_key(&mut self, key: KeyEvent) -> Flow {
+        // Any key restarts the idle count — and, over the screensaver, does
+        // nothing but take it down: the Esc or Enter that wakes the screen must
+        // not also abort the copy still running behind it.
+        self.last_input = Instant::now();
+        if self.saver.is_some() {
+            self.stop_saver();
+            return Flow::Continue;
+        }
         // An active quick search captures every key (including Alt+letter, so a
         // held-Alt sequence like Alt+H+I+G extends the query rather than each
         // Alt+letter restarting it). Esc/Enter/other keys exit it via its handler.
@@ -225,6 +233,7 @@ impl AppState {
             MenuAction::Checksum => self.open_checksum(),
             MenuAction::SendFile => self.send_file(),
             MenuAction::ReceiveFiles => self.receive_files(),
+            MenuAction::Screensaver => self.start_saver(),
             MenuAction::CopyToClipboard(what) => self.copy_paths_to_clipboard(what),
             // The Git submenu's parent never acts on its own — opening it is
             // handled inside the menu bar.

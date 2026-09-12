@@ -2856,6 +2856,7 @@ dependencies = [
  "unrar",
  "vt100",
  "walkdir",
+ "windows-sys 0.61.2",
  "xz2",
  "zip",
 ]

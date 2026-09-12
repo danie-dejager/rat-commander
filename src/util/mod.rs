@@ -8,6 +8,7 @@ pub mod error;
 pub mod filetype;
 pub mod http;
 pub mod img;
+pub mod localtime;
 pub mod qr;
 pub mod rng;
 pub mod scroll;

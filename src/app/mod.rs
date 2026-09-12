@@ -129,6 +129,9 @@ async fn run_loop(term: &mut Term, state: &mut AppState, rx: &mut AppReceiver) -
             drop(events);
             let result = $call.await;
             events = EventStream::new();
+            // Time away in a shell or an external editor is not idle time: the
+            // screensaver must not greet the user on the way back.
+            state.last_input = std::time::Instant::now();
             result?
         }};
     }
@@ -258,6 +261,11 @@ async fn run_loop(term: &mut Term, state: &mut AppState, rx: &mut AppReceiver) -
             }
             _ = frames.tick(), if state.wants_frames() => {
                 state.on_frame();
+            }
+            // The screensaver's idle timer. A timer of its own, not the ticker:
+            // with the status widget and animations off nothing else ticks.
+            _ = tokio::time::sleep_until(state.saver_deadline().into()), if state.saver_armed() => {
+                state.start_saver();
             }
             _ = ticker.tick(), if state.wants_ticks() => {
                 state.on_tick();

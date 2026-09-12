@@ -48,7 +48,7 @@ const GROUP_COL_GUTTER: u16 = 2;
 /// one-column group still costs a row and a whole new group costs two more; the
 /// two-column Visual group is what buys the headroom.
 const SETTINGS_GROUPS: &[(&str, usize, usize)] =
-    &[("Language", 2, 1), ("Edit/View", 4, 1), ("Visual", 9, 2)];
+    &[("Language", 2, 1), ("Edit/View", 4, 1), ("Visual", 11, 2)];
 
 /// The editor-options form's groups, in the order [`FormDialog::editor_options`]
 /// builds its fields: `(title, field count, columns)`. The counts must sum to
@@ -367,6 +367,20 @@ impl FormDialog {
                 "3D style",
                 crate::config::Space3dStyle::ALL.iter().map(|(_, l)| (*l).to_string()).collect(),
                 cfg.space3d_style.label(),
+            ),
+            // Appended after the 3D style for the same reason it was.
+            Field::choice(
+                "Screensaver",
+                crate::config::SAVER_MINUTES
+                    .iter()
+                    .map(|&m| crate::config::saver_minutes_label(m))
+                    .collect(),
+                &crate::config::saver_minutes_label(cfg.screensaver_minutes),
+            ),
+            Field::choice(
+                "Screensaver style",
+                crate::config::SaverKind::ALL.iter().map(|(_, l)| (*l).to_string()).collect(),
+                cfg.screensaver.label(),
             ),
         ]);
         FormDialog {
@@ -982,6 +996,8 @@ impl FormDialog {
                 graphics: graphics_pref(fields[12].as_text()),
                 brief_columns: fields[13].as_text().parse().unwrap_or(2).clamp(1, 6),
                 space3d_style: crate::config::Space3dStyle::from_label(fields[14].as_text()),
+                screensaver_minutes: crate::config::saver_minutes_from_label(fields[15].as_text()),
+                screensaver: crate::config::SaverKind::from_label(fields[16].as_text()),
             }),
             FormPurpose::Confirmations => Submit::Confirmations(ConfirmValues {
                 delete: fields[0].as_bool(),

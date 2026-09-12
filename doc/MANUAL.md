@@ -2174,6 +2174,40 @@ on a device or partition opens a save browser to choose a directory and file
 name (defaulting to `<device>.img`), then streams the device out to that file.
 
 
+## Screensaver
+
+*Options → Settings… → Screensaver* (off by default), or *Start screensaver* in
+the command palette to see one now.
+
+After a set time — 1 to 30 minutes — with no key pressed and the mouse left
+alone, the screen gives way to an animation, the way Norton Commander's did. Any
+key or mouse movement brings everything back exactly as it was.
+
+- **Starfield** — Norton Commander's own: flying forward through stars that
+  stream out of the middle of the screen, brightening as they pass.
+- **Matrix** — streams of glyphs raining down, each with a bright head and a
+  green trail fading behind it.
+- **Clock** — the time, in large digits, drifting around the screen and changing
+  colour each time it bounces off an edge. It is the one place the program shows
+  **local** time rather than UTC.
+- **Pipes** — pipes growing and turning across the screen until it fills up, then
+  starting over.
+- **Random** — a different one each time.
+
+**Notes.**
+
+- The key that wakes the screen does **nothing else**: an Esc, Enter or `q` that
+  would abort a copy running behind a progress dialog is spent on waking up.
+- If something needs an answer while the screensaver is up — a copy stopping to
+  ask about a file that already exists, say — the screensaver makes way for the
+  question, so it is on screen when you come back.
+- Time spent in the subshell (`Ctrl-O`), a command's output or an external editor
+  doesn't count as idle.
+- It draws **text only**, advancing ten times a second, so it costs next to
+  nothing — but over a slow remote connection even that is traffic nobody is
+  watching, which is why it starts out turned off.
+
+
 ## Windows: drive letters
 
 On Windows the **Drive / connection picker** (**Alt-F1** / **Alt-F2**, or the
@@ -2241,7 +2275,9 @@ viewer** command (used instead of the built-in ones), and choose whether to use
 the internal viewer/editor. When the external editor field is left blank, `rc`
 falls back to the **`$VISUAL`** then **`$EDITOR`** environment variable; the
 external viewer likewise falls back to **`$PAGER`**. Only if none of those is set
-does the built-in tool run.
+does the built-in tool run. **Screensaver** and **Screensaver style** set how
+long the program waits before its screensaver starts, and which one it plays
+(see *Screensaver*).
 
 The **Theme**, **Language** and **Graphics** fields are dropdowns: press
 **Enter** to open the scrollable list, **↑/↓** (or the mouse wheel) to move

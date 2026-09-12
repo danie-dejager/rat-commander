@@ -415,6 +415,9 @@ pub struct SettingsValues {
     pub brief_columns: usize,
     /// Which look the panel's 3D view draws.
     pub space3d_style: crate::config::Space3dStyle,
+    /// Idle minutes before the screensaver starts; 0 is off.
+    pub screensaver_minutes: u16,
+    pub screensaver: crate::config::SaverKind,
 }
 
 /// Values collected by the Confirmations form (which actions need confirming).

@@ -1070,16 +1070,17 @@ fn settings_dialog_renders_three_group_boxes() {
         "Nerd Font symbols",
         "Graphics",
         "3D style",
+        "Screensaver style",
     ] {
         assert!(s.contains(field), "settings should show the '{field}' field");
     }
     // The Visual group is two columns wide, so a left-column field and a
     // right-column one share a row. Nothing else pins that, and losing it would
-    // silently make the dialog three rows taller.
+    // silently make the dialog several rows taller.
     let row = s.lines().find(|l| l.contains("Theme")).expect("the Theme row");
     assert!(
-        row.contains("Nerd Font symbols"),
-        "Theme and Nerd Font symbols should share a row in the two-column Visual group: {row}"
+        row.contains("Graphics"),
+        "Theme and Graphics should share a row in the two-column Visual group: {row}"
     );
 }
 
@@ -1385,19 +1386,20 @@ fn chown_form_mouse_focuses_the_clicked_text_field() {
 #[test]
 fn settings_form_mouse_toggles_grouped_checkbox() {
     // Settings uses three group boxes and the Visual one is two columns wide,
-    // filled column-major. Box 76x21 at {2,1}: the Visual box starts at y=12, so
-    // its five rows run y=13..17, the left column spanning x=4..38 and the right
-    // x=41..75. "Truecolor (gradients)" is the second field of the left column
-    // and "Command prompt" its fifth; "Nerd Font symbols" heads the right one —
-    // so this also covers clicking a field in the second column.
+    // filled column-major. Box 76x22 at {2,1}: the Visual box starts at y=12, so
+    // its six rows run y=13..18, the left column spanning x=4..38 and the right
+    // x=41..75. "Truecolor (gradients)" is the second field of the left column,
+    // "Command prompt" its fifth and "Nerd Font symbols" its sixth; the right
+    // column's "3D style" (a chooser) is clicked too, so this covers a field in
+    // the second column without opening anything.
     let area = Rect::new(0, 0, 80, 24);
     let cfg = crate::config::Config::default();
     let mut dlg = Dialog::Form(FormDialog::settings(&cfg, true)); // truecolor starts on
     assert!(matches!(dlg.handle_click(area, 10, 14), DialogResult::None));
     assert!(matches!(dlg.handle_click(area, 10, 17), DialogResult::None));
-    assert!(matches!(dlg.handle_click(area, 45, 13), DialogResult::None));
-    // Click OK (button row y = 1 + 21 - 2 = 20, left half).
-    match dlg.handle_click(area, 10, 20) {
+    assert!(matches!(dlg.handle_click(area, 10, 18), DialogResult::None));
+    // Click OK (button row y = 1 + 22 - 2 = 21, left half).
+    match dlg.handle_click(area, 10, 21) {
         DialogResult::Submit(Submit::Settings(v)) => {
             assert!(!v.truecolor, "clicking the checkbox turned truecolor off");
             assert!(!v.command_prompt, "clicking the checkbox hid the command prompt");
@@ -1588,21 +1590,25 @@ fn the_settings_dialog_still_fits_an_80x24_terminal() {
     assert!(rect.width >= 74, "a two-column group needs a wide enough box, got {}", rect.width);
 }
 
-/// The 3D style is the last field of the Visual group, and the settings submit
-/// arm reads its fields by hard-coded index — so a field inserted above it would
-/// silently hand the wrong value to every setting after the insertion point.
+/// The 3D style and the screensaver are the last fields of the Visual group,
+/// and the settings submit arm reads its fields by hard-coded index — so a field
+/// inserted above them would silently hand the wrong value to every setting
+/// after the insertion point.
 #[test]
-fn the_settings_form_round_trips_the_3d_style() {
-    use crate::config::Space3dStyle;
+fn the_settings_form_round_trips_the_3d_style_and_the_screensaver() {
+    use crate::config::{SaverKind, Space3dStyle};
     let cfg = crate::config::Config {
         space3d_style: Space3dStyle::Fsn,
+        screensaver_minutes: 15,
+        screensaver: SaverKind::Pipes,
         ..crate::config::Config::default()
     };
     let mut d = Dialog::Form(FormDialog::settings(&cfg, true));
-    // Click OK: box 76x21 at {2,1}, so the button row is y = 1 + 21 - 2 = 20.
-    match d.handle_click(Rect::new(0, 0, 80, 24), 10, 20) {
+    // Click OK: box 76x22 at {2,1}, so the button row is y = 1 + 22 - 2 = 21.
+    match d.handle_click(Rect::new(0, 0, 80, 24), 10, 21) {
         DialogResult::Submit(Submit::Settings(v)) => {
             assert_eq!(v.space3d_style, Space3dStyle::Fsn, "the form gives back what it was given");
+            assert_eq!((v.screensaver_minutes, v.screensaver), (15, SaverKind::Pipes));
             // A spot-check either side of it, so a shifted index shows up here.
             assert_eq!(v.brief_columns, cfg.brief_columns);
             assert_eq!(v.theme, cfg.theme);

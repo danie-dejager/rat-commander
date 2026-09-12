@@ -398,6 +398,15 @@ pub struct AppState {
     /// Each Details view's pending or running activity count, aborted (which
     /// kills its `git log`) when the view moves on before it finishes.
     activity_task: [Option<tokio::task::JoinHandle<()>>; 2],
+    /// When the user last pressed a key or moved the mouse, which the
+    /// screensaver's idle timer counts from.
+    pub last_input: Instant,
+    /// The screensaver, while it is up.
+    pub saver: Option<crate::saver::Saver>,
+    /// Which dialog was open when the screensaver started: a different one
+    /// appearing (a copy stopping to ask about an overwrite) ends it, so the
+    /// question is on screen for whoever comes back.
+    saver_dialog: Option<std::mem::Discriminant<Dialog>>,
 }
 
 /// How long a lone Esc is held, waiting for a digit, before it is delivered as

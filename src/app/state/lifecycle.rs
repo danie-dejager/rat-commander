@@ -169,6 +169,9 @@ impl AppState {
             blame_gen: 0,
             activity_cache: std::collections::VecDeque::new(),
             activity_task: [None, None],
+            last_input: Instant::now(),
+            saver: None,
+            saver_dialog: None,
         }
     }
 
@@ -318,6 +321,16 @@ impl AppState {
             mv.refresh();
             dirty = true;
         }
+        // The screensaver animates on this tick, and makes way for a dialog that
+        // appeared while it was up.
+        if self.saver.is_some() {
+            if self.dialog.as_ref().map(std::mem::discriminant) != self.saver_dialog {
+                self.stop_saver();
+            } else if let Some(s) = self.saver.as_mut() {
+                s.step();
+            }
+            dirty = true;
+        }
         // Follow mode: pick up whatever was appended to the viewed file.
         if let Some(v) = self.viewer.as_mut()
             && v.poll_follow()
@@ -354,6 +367,8 @@ impl AppState {
             || !self.tasks.is_empty()
             || matches!(self.dialog, Some(Dialog::Busy(_)))
             || self.sizes_running()
+            // The screensaver animates on the tick.
+            || self.saver.is_some()
             // A followed file is polled for growth on the tick.
             || self.viewer.as_ref().is_some_and(|v| v.following())
             // A debounced panel reload is still waiting to fire.
@@ -368,7 +383,40 @@ impl AppState {
     /// something actually moving. A settled camera over a finished crawl returns
     /// false, so an idle 3D panel costs no more CPU than an idle Full view.
     pub fn wants_frames(&self) -> bool {
-        self.panels.iter().any(|p| p.space3d.as_ref().is_some_and(|s| s.needs_frames()))
+        // Nothing behind the screensaver is on screen to animate.
+        self.saver.is_none()
+            && self.panels.iter().any(|p| p.space3d.as_ref().is_some_and(|s| s.needs_frames()))
+    }
+
+    /// Whether the screensaver is waiting to start: it is turned on, and not
+    /// already up.
+    pub fn saver_armed(&self) -> bool {
+        self.config.screensaver_minutes > 0 && self.saver.is_none()
+    }
+
+    /// When the screensaver starts if nothing is pressed before then.
+    pub fn saver_deadline(&self) -> Instant {
+        self.last_input + Duration::from_secs(u64::from(self.config.screensaver_minutes) * 60)
+    }
+
+    /// Put the screensaver up (idle timeout, or the palette's "Start
+    /// screensaver").
+    pub fn start_saver(&mut self) {
+        self.saver = Some(crate::saver::Saver::new(
+            self.config.screensaver,
+            crate::util::rng::Rng::seeded(),
+        ));
+        self.saver_dialog = self.dialog.as_ref().map(std::mem::discriminant);
+        // A full repaint on the way in and out: Sixel and iTerm2 pictures stay
+        // on screen until their cells are actually rewritten.
+        self.force_clear = true;
+    }
+
+    pub fn stop_saver(&mut self) {
+        if self.saver.take().is_some() {
+            self.force_clear = true;
+        }
+        self.last_input = Instant::now();
     }
 
     /// Advance the 3D views' camera and box-size animations.

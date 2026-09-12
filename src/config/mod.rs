@@ -134,6 +134,58 @@ impl Space3dStyle {
     }
 }
 
+/// Which animation the screensaver plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SaverKind {
+    /// A different one each time it starts.
+    #[default]
+    Random,
+    /// Norton Commander's: flying through a field of stars.
+    Starfield,
+    /// Columns of glyphs raining down.
+    Matrix,
+    /// A big clock drifting around the screen.
+    Clock,
+    /// Pipes growing across the screen.
+    Pipes,
+}
+
+impl SaverKind {
+    /// The choices in dialog order, with the labels the form shows (and stores,
+    /// so they are never translated).
+    pub const ALL: [(SaverKind, &'static str); 5] = [
+        (SaverKind::Random, "Random"),
+        (SaverKind::Starfield, "Starfield"),
+        (SaverKind::Matrix, "Matrix"),
+        (SaverKind::Clock, "Clock"),
+        (SaverKind::Pipes, "Pipes"),
+    ];
+
+    pub fn label(self) -> &'static str {
+        Self::ALL.iter().find(|(k, _)| *k == self).map(|(_, l)| *l).unwrap_or("Random")
+    }
+
+    /// The kind a dialog label selects (unknown text falls back to `Random`).
+    pub fn from_label(label: &str) -> Self {
+        Self::ALL.iter().find(|(_, l)| *l == label).map(|(k, _)| *k).unwrap_or(SaverKind::Random)
+    }
+}
+
+/// The screensaver idle times offered in Settings, in minutes; 0 is off.
+pub const SAVER_MINUTES: [u16; 7] = [0, 1, 2, 5, 10, 15, 30];
+
+/// How the Settings form shows an idle time.
+pub fn saver_minutes_label(minutes: u16) -> String {
+    if minutes == 0 { "Off".to_string() } else { format!("{minutes} min") }
+}
+
+/// The idle time a Settings label stands for (`"Off"` and anything else unreadable
+/// is 0).
+pub fn saver_minutes_from_label(label: &str) -> u16 {
+    label.split(' ').next().and_then(|n| n.parse().ok()).unwrap_or(0)
+}
+
 /// The internal editor's behaviour settings (Options → General in the editor's
 /// F9 menu), persisted so they survive a restart.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -300,6 +352,12 @@ pub struct Config {
     /// repository may make worth turning off. (Missing from an old config → on.)
     #[serde(default = "crate::config::default_true")]
     pub details_activity: bool,
+    /// Minutes without a key press or mouse movement before the screensaver
+    /// starts; 0 turns it off (the default: on a remote session its redrawing
+    /// costs bandwidth nobody is watching).
+    pub screensaver_minutes: u16,
+    /// Which animation the screensaver plays.
+    pub screensaver: SaverKind,
     /// Per-panel view format and sort order, remembered across sessions
     /// (index 0 = left panel, 1 = right panel).
     #[serde(default)]
@@ -381,6 +439,8 @@ impl Default for Config {
             space3d_style: Space3dStyle::default(),
             space3d_activity: true,
             details_activity: true,
+            screensaver_minutes: 0,
+            screensaver: SaverKind::default(),
             panels: [PanelView::default(); 2],
             recent_remotes: Vec::new(),
             bookmarks: Vec::new(),
@@ -663,6 +723,21 @@ mod tests {
         assert_eq!(back.editor_options, c.editor_options);
         // The wrap mode is stored by name, so the file stays readable by hand.
         assert!(text.contains("wrap_mode = \"typewriter\""), "{text}");
+    }
+
+    #[test]
+    fn the_screensaver_settings_round_trip_and_default_to_off() {
+        let mut c = Config::default();
+        assert_eq!(c.screensaver_minutes, 0, "off unless asked for");
+        c.screensaver_minutes = 10;
+        c.screensaver = SaverKind::Matrix;
+        let text = toml::to_string_pretty(&c).unwrap();
+        let back: Config = toml::from_str(&text).unwrap();
+        assert_eq!((back.screensaver_minutes, back.screensaver), (10, SaverKind::Matrix));
+        assert!(text.contains("screensaver = \"matrix\""), "{text}");
+        assert!(text.find("screensaver").unwrap() < text.find("[[panels]]").unwrap());
+        assert_eq!(saver_minutes_from_label(&saver_minutes_label(15)), 15);
+        assert_eq!(saver_minutes_from_label("Off"), 0);
     }
 
     #[test]

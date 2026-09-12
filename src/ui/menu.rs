@@ -44,6 +44,8 @@ pub enum MenuAction {
     /// Take files from a nearby device into the active panel's directory over
     /// the LAN (QR code).
     ReceiveFiles,
+    /// Start the screensaver now (command palette).
+    Screensaver,
     /// Opens the Git submenu (File → Git, or Alt-G). Never runs an action itself.
     GitMenu,
     /// Stage / unstage the file(s) under the cursor (git) — the Ctrl-G toggle.

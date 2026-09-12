@@ -148,6 +148,10 @@ nix = { version = "0.31.3", features = ["fs", "user", "signal", "process", "term
 # this adds no new crate.
 [target.'cfg(windows)'.dependencies]
 crossterm_winapi = "0.9.1"
+# The local time of day for the screensaver's clock (`GetLocalTime`). Already in
+# the Windows tree through `directories` and `if-addrs`; this only names the
+# bindings it needs.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_SystemInformation"] }
 
 [profile.release]
 strip = true

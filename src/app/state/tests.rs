@@ -5443,6 +5443,76 @@ async fn receive_over_lan_saves_into_the_panel_directory_until_closed() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// The screensaver's idle timer only runs when it is turned on, counting from
+/// the last key press or mouse movement.
+#[tokio::test]
+async fn the_screensaver_is_armed_only_when_turned_on() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    assert!(!st.saver_armed(), "off by default");
+    st.config.screensaver_minutes = 5;
+    assert!(st.saver_armed());
+    assert_eq!(st.saver_deadline() - st.last_input, Duration::from_secs(300));
+    st.start_saver();
+    assert!(!st.saver_armed(), "not while it is up");
+    assert!(st.wants_ticks(), "it animates on the tick");
+    assert!(st.force_clear, "pictures behind it are wiped");
+
+    // Moving the mouse takes it down and restarts the count.
+    let before = st.last_input;
+    st.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Moved,
+        column: 3,
+        row: 3,
+        modifiers: KeyModifiers::NONE,
+    })
+    .await;
+    assert!(st.saver.is_none() && st.last_input >= before);
+}
+
+/// The key that wakes the screen does nothing else: over a running copy's
+/// progress dialog, an Esc must not become "abort", nor be held as the first
+/// half of an Esc-digit function key.
+#[tokio::test]
+async fn a_key_over_the_screensaver_only_takes_it_down() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    let (reply, _r) = tokio::sync::mpsc::channel(1);
+    let cancel = crate::ops::CancelToken::new();
+    st.tasks.insert(5, crate::ops::TaskHandle { id: 5, cancel: cancel.clone(), reply });
+    st.task_progress.insert(
+        5,
+        BgTransfer {
+            verb: "Copying",
+            update: Some(progress_update(5, "Copying", 40, 80)),
+            schemes: vec![],
+            chart: Default::default(),
+        },
+    );
+    st.dialog = Some(Dialog::Progress(st.progress_dialog_for(5)));
+    st.start_saver();
+
+    st.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
+    assert!(st.saver.is_none(), "the screen is back");
+    assert!(matches!(st.dialog, Some(Dialog::Progress(_))), "the progress dialog stays");
+    assert!(!cancel.is_cancelled(), "the copy carries on");
+    assert!(st.pending_esc.is_none(), "and no Esc is left waiting for a digit");
+}
+
+/// A question appearing while nobody is looking (a copy stopping to ask about
+/// an overwrite) ends the screensaver, so it is on screen when they come back.
+#[tokio::test]
+async fn a_dialog_appearing_ends_the_screensaver() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.start_saver();
+    assert!(st.on_tick());
+    assert!(st.saver.is_some(), "nothing changed: it keeps playing");
+    st.show_error("Overwrite?");
+    st.on_tick();
+    assert!(st.saver.is_none());
+}
+
 /// A Details view of a file in a work tree counts the commits that touched it
 /// into a calendar — after the cursor has rested, and from the cache when it
 /// comes back — and makes no calendar outside one.
