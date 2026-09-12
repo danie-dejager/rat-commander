@@ -224,6 +224,7 @@ impl AppState {
             MenuAction::Compress => self.open_compress(),
             MenuAction::Checksum => self.open_checksum(),
             MenuAction::SendFile => self.send_file(),
+            MenuAction::ReceiveFiles => self.receive_files(),
             MenuAction::CopyToClipboard(what) => self.copy_paths_to_clipboard(what),
             // The Git submenu's parent never acts on its own — opening it is
             // handled inside the menu bar.

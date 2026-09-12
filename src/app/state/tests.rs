@@ -5387,6 +5387,62 @@ async fn ctrl_tab_and_ctrl_pageup_down_cycle_tabs() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// File → Receive over LAN opens a QR dialog serving an upload page for the
+/// active panel's directory; a file sent to it lands there, and closing the
+/// dialog takes the server down.
+#[tokio::test]
+async fn receive_over_lan_saves_into_the_panel_directory_until_closed() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let root = temp_dir("receive_menu");
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.config.auto_refresh = false;
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+
+    st.run_menu_action(MenuAction::ReceiveFiles).await;
+    let Some(Dialog::Receive(d)) = &st.dialog else { panic!("the Receive dialog opens") };
+    // http://<ip>:<port>/<token>/ — talk to it on loopback.
+    let rest = d.url.trim_start_matches("http://");
+    let (host_port, path) = rest.split_once('/').unwrap();
+    let port: u16 = host_port.rsplit(':').next().unwrap().parse().unwrap();
+    let token = path.trim_end_matches('/');
+    assert_eq!(token.len(), 32, "an unguessable token");
+
+    let mut sock = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    let req =
+        format!("PUT /{token}/upload?name=note.txt HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello");
+    sock.write_all(req.as_bytes()).await.unwrap();
+    let mut resp = String::new();
+    sock.read_to_string(&mut resp).await.unwrap();
+    assert!(resp.starts_with("HTTP/1.1 201"), "{resp}");
+    loop {
+        let ev = tokio::time::timeout(Duration::from_secs(5), rx.recv()).await.unwrap().unwrap();
+        let done = matches!(ev, AppEvent::FileReceived { .. });
+        st.apply_event(ev).await;
+        if done {
+            break;
+        }
+    }
+    assert!(matches!(&st.dialog, Some(Dialog::Receive(d)) if d.received == 1));
+    assert!(
+        st.panels[0].entries.iter().any(|e| e.name == "note.txt"),
+        "without auto-refresh the panel is re-read for it"
+    );
+
+    st.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
+    assert!(st.dialog.is_none() && st.receive_server.is_none(), "closing stops the server");
+    let refused = tokio::time::timeout(
+        Duration::from_secs(2),
+        tokio::net::TcpStream::connect(("127.0.0.1", port)),
+    )
+    .await;
+    assert!(!matches!(refused, Ok(Ok(_))), "nothing listens any more");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// A Details view of a file in a work tree counts the commits that touched it
 /// into a calendar — after the cursor has rested, and from the cache when it
 /// comes back — and makes no calendar outside one.

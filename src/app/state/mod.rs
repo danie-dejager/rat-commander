@@ -19,7 +19,7 @@ use crate::ui::dialog::{
     DirHistoryDialog, DriveDialog, DupCriteria, FileBrowserDialog, FindDialog, FindParams,
     FlashTargetDialog, FormDialog, GitOutputDialog, GotoDialog, HotlistDialog, HotlistOutcome,
     ImageSaveDialog, InputDialog, InputPurpose, MessageDialog, MultiRenameDialog, OverwriteDialog,
-    PaletteAction, PaletteCategory, PaletteEntry, ProgressDialog, SaveAsDialog,
+    PaletteAction, PaletteCategory, PaletteEntry, ProgressDialog, ReceiveDialog, SaveAsDialog,
     SearchReplaceDialog, SearchReplaceParams, SelectDialog, SendFileDialog, ShellHistoryDialog,
     SpeedChart, Submit, SyncPreviewDialog, TabPickerDialog, UserMenuDialog,
 };
@@ -380,6 +380,9 @@ pub struct AppState {
     /// The running "Send file over LAN" HTTP server, alive while its dialog is
     /// open; aborted (and its temp zip removed) when the dialog closes.
     send_server: Option<crate::send::SendServer>,
+    /// The running "Receive files over LAN" server, alive while its dialog is
+    /// open.
+    receive_server: Option<crate::receive::ReceiveServer>,
     /// The task behind a cancellable Busy spinner (a git network op or sync
     /// planning), so Esc on that spinner can abort it — otherwise an unreachable
     /// remote would hang with no escape.
@@ -609,6 +612,7 @@ mod mouse;
 mod navigation;
 mod net;
 mod palette;
+mod receive;
 mod remote;
 mod sendfile;
 mod sizes;

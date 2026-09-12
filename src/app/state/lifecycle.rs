@@ -163,6 +163,7 @@ impl AppState {
             kbd_enhanced: false,
             subshell_disabled,
             send_server: None,
+            receive_server: None,
             busy_task: None,
             blame_task: None,
             blame_gen: 0,
@@ -692,6 +693,17 @@ impl AppState {
             }
             AppEvent::SendPrepared { name, result } => {
                 self.on_send_prepared(name, result);
+            }
+            AppEvent::ReceiveProgress { name, received, total } => {
+                if let Some(Dialog::Receive(d)) = &mut self.dialog {
+                    d.on_progress(name, received, total);
+                }
+            }
+            AppEvent::FileReceived { name, bytes } => self.on_file_received(name, bytes).await,
+            AppEvent::ReceiveFailed { name, error } => {
+                if let Some(Dialog::Receive(d)) = &mut self.dialog {
+                    d.on_failed(name, error);
+                }
             }
             AppEvent::FileSent => {
                 self.on_file_sent();

@@ -127,6 +127,11 @@ The installed executable is named **`rc`** for quick typing.
   cell art as a fallback). Select several files or a directory and they are
   zipped first (with a progress bar); the box shows a live download count and the
   server stops when you close it.
+- **Receive over LAN** (File menu) — the other way round: scan the QR code with a
+  phone and pick photos or files on the page it opens, and they land in the
+  active panel's directory, with progress on both ends. The URL carries a random
+  token, a taken name gets a ` (1)` instead of being overwritten, and a transfer
+  that is cut off leaves nothing behind.
 - **Auto-refreshing panels** — a panel re-reads itself when something else changes
   the directory it is showing, so a build or a `git checkout` in another window
   shows up without `Ctrl-R`.

@@ -20,6 +20,7 @@ mod ops;
 mod panel;
 mod priv_ops;
 mod proc;
+mod receive;
 mod rename;
 mod send;
 mod shell;

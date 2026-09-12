@@ -119,6 +119,12 @@ pub enum AppEvent {
     /// A device fully downloaded the shared file from the LAN send server; the
     /// open Send dialog bumps its download counter.
     FileSent,
+    /// Receive over LAN: an upload in flight has `received` of its `total` bytes.
+    ReceiveProgress { name: String, received: u64, total: u64 },
+    /// Receive over LAN: a file arrived whole and was saved as `name`.
+    FileReceived { name: String, bytes: u64 },
+    /// Receive over LAN: an upload failed and nothing was kept.
+    ReceiveFailed { name: String, error: String },
     /// A directory-sync plan finished being computed (both trees walked and
     /// diffed). Nothing has been changed yet — the plan is shown for approval.
     SyncPlanned { result: Result<Box<crate::ops::sync::SyncPlan>, String> },

@@ -125,6 +125,9 @@ kamadak-exif = "0.6.1"
 # interface enumeration to pick a LAN IP. Both pure Rust (no C, cross-compile OK).
 qrcode = { version = "0.14.1", default-features = false }
 if-addrs = "0.15.0"
+# OS randomness for the unguessable token in a Receive-over-LAN upload URL.
+# Already compiled as part of the tree (ratatui-image → rand), so no new crate.
+getrandom = "0.2"
 # Anti-aliased text baked into the terminal-graphics images (dialog button
 # labels, disk-explorer treemap labels). `fontdue` is a pure-Rust glyph
 # rasterizer (no C, ARM-cross-compile safe); `epaint_default_fonts` supplies the

@@ -85,6 +85,7 @@ pub async fn run(startup: crate::Startup, last_dir_file: Option<std::path::PathB
     }
     // Stop any running "Send file over LAN" server and delete its temp archive.
     state.stop_send_server();
+    state.stop_receive_server();
     restore_terminal(&mut term, state.kbd_enhanced)?;
     result
 }

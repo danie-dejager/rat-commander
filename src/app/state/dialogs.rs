@@ -51,6 +51,11 @@ impl AppState {
                 if matches!(self.dialog, Some(Dialog::SendFile(_))) {
                     self.stop_send_server();
                 }
+                // Closing the Receive dialog stops its server, aborting (and
+                // cleaning up after) any upload still in flight.
+                if matches!(self.dialog, Some(Dialog::Receive(_))) {
+                    self.stop_receive_server();
+                }
                 // A cancellable Busy spinner (git network op / sync planning)
                 // aborts the task it was waiting on.
                 if matches!(self.dialog, Some(Dialog::Busy(_)))

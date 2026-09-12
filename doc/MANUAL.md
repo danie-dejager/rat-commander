@@ -859,6 +859,46 @@ Commander starts a small one-shot HTTP server and shows the download URL as a
   port will stop the download.
 
 
+## Receive files over the LAN
+
+*File menu → Receive over LAN…* (also in the command palette).
+
+The other way round: take files **from** a phone, tablet or laptop on the same
+network into the directory the active panel shows — photos off a phone without
+a cable, a cloud service or an app. Rat Commander serves a small upload page
+and shows its address as a **QR code**; scan it, choose files, and they arrive.
+
+**Operation.**
+
+- Go to the directory the files should land in, and choose **Receive over LAN**.
+- Scan the **QR code** (or type the URL) on the other device. The page it opens
+  has one button, **Choose files** — on a phone that also offers the camera and
+  the photo library — and sends what you pick one after another, each with its
+  own progress bar and, when done, the name it was saved as.
+- The dialog shows the URL, where the files are going, and the file on its way
+  with a progress bar and its speed; after that, how many files have arrived,
+  their total size and the last one's name.
+- A file with a name already taken is **never overwritten**: it is saved as
+  `photo (1).jpg`, `photo (2).jpg`, and so on.
+- Press **Esc**, **Enter**, or click to **close** the dialog. That stops the
+  server at once; an upload still running is abandoned, and nothing of it is
+  kept.
+
+**Notes.**
+
+- Every URL carries a **random token**, and the server answers nothing else —
+  someone on the network who hasn't seen the code can't find the page, let alone
+  send to it. Like Send, it is plain HTTP on your LAN: fine for a home or office
+  network, not a way to pass files across the internet.
+- A file is written under a hidden `.rc-upload-….part` name and only moved into
+  place once it has arrived whole, so a half-received file never appears under
+  its real name, and one cut off by a dropped connection, a phone that went to
+  sleep, or closing the dialog leaves nothing behind. An upload that would not fit on the
+  disk is refused before it starts.
+- Names are reduced to a plain file name, so nothing can be written outside the
+  directory. Only **local** directories can receive.
+
+
 ## The viewer (F3)
 
 A read-only file viewer with text and hex modes, search,

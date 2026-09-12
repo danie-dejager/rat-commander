@@ -2820,6 +2820,7 @@ dependencies = [
  "flate2",
  "fontdue",
  "futures",
+ "getrandom 0.2.17",
  "globset",
  "if-addrs",
  "image",

@@ -12,11 +12,15 @@
 
 use crate::app::event::AppEvent;
 use crate::util::async_bridge::AppSender;
+use crate::util::http::{header_filename, read_head, respond, url_encode};
 use std::net::{IpAddr, Ipv4Addr, UdpSocket};
 use std::path::{Path, PathBuf};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
+
+/// How long a connection may sit silent before it is dropped.
+const IDLE: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// A running send server plus the bookkeeping needed to tear it down.
 pub struct SendServer {
@@ -77,37 +81,25 @@ pub fn start(
 /// `Ok(true)` when a GET body was fully written (a completed download), `Ok(false)`
 /// for a HEAD / favicon probe / 404, and `Err` on a socket failure.
 async fn serve_one(mut stream: TcpStream, path: &Path, name: &str) -> std::io::Result<bool> {
-    // Read up to the blank line that ends the request headers (with a cap so a
-    // client that never sends one can't grow this unbounded).
-    let mut req = Vec::new();
-    let mut buf = [0u8; 2048];
-    loop {
-        let n = stream.read(&mut buf).await?;
-        if n == 0 {
-            break;
-        }
-        req.extend_from_slice(&buf[..n]);
-        if req.windows(4).any(|w| w == b"\r\n\r\n") || req.len() > 64 * 1024 {
-            break;
-        }
-    }
-    let head = String::from_utf8_lossy(&req);
-    let mut parts = head.split_whitespace();
-    let method = parts.next().unwrap_or("");
-    let target = parts.next().unwrap_or("/");
-    let is_head = method.eq_ignore_ascii_case("HEAD");
+    // Read up to the blank line that ends the request headers (capped, and
+    // given up on if the client goes quiet).
+    let Some((head, _body)) = read_head(&mut stream, IDLE).await? else {
+        return Ok(false);
+    };
+    let target = head.target.as_str();
+    let is_head = head.method.eq_ignore_ascii_case("HEAD");
 
     // A browser auto-fetches /favicon.ico; 404 it so it isn't counted as a
     // download of the file.
     if target == "/favicon.ico" {
-        write_status(&mut stream, "404 Not Found", b"Not found").await?;
+        respond(&mut stream, "404 Not Found", "text/plain", b"Not found").await?;
         return Ok(false);
     }
 
     let mut file = match tokio::fs::File::open(path).await {
         Ok(f) => f,
         Err(_) => {
-            write_status(&mut stream, "404 Not Found", b"Not found").await?;
+            respond(&mut stream, "404 Not Found", "text/plain", b"Not found").await?;
             return Ok(false);
         }
     };
@@ -137,40 +129,6 @@ async fn serve_one(mut stream: TcpStream, path: &Path, name: &str) -> std::io::R
     }
     stream.flush().await?;
     Ok(true)
-}
-
-/// Write a tiny `text/plain` status response (used for 404s).
-async fn write_status(stream: &mut TcpStream, status: &str, body: &[u8]) -> std::io::Result<()> {
-    let resp = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
-    );
-    stream.write_all(resp.as_bytes()).await?;
-    stream.write_all(body).await?;
-    stream.flush().await
-}
-
-/// Sanitize a download name for a `Content-Disposition` header value: keep only
-/// the base name and drop quotes / backslashes / control characters that would
-/// break the header or let a name escape into a path.
-fn header_filename(name: &str) -> String {
-    let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
-    base.chars().filter(|c| !c.is_control() && *c != '"' && *c != '\\').collect()
-}
-
-/// Percent-encode a file's base name for use in a URL path.
-fn url_encode(name: &str) -> String {
-    let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
-    let mut out = String::with_capacity(base.len());
-    for b in base.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
 }
 
 /// The download URL to advertise (and encode in the QR): `http://<ip>:<port>/<name>`,
@@ -227,20 +185,6 @@ mod tests {
         assert_eq!(u, "http://192.168.1.7:8080/my%20file.zip");
         let u6 = url_for(IpAddr::V6(Ipv6Addr::LOCALHOST), 9000, "a.txt");
         assert_eq!(u6, "http://[::1]:9000/a.txt");
-    }
-
-    #[test]
-    fn url_encode_keeps_base_name_and_escapes_specials() {
-        assert_eq!(url_encode("/tmp/dir/Report (final).pdf"), "Report%20%28final%29.pdf");
-        assert_eq!(url_encode("plain-name_1.0.tar.gz"), "plain-name_1.0.tar.gz");
-    }
-
-    #[test]
-    fn header_filename_strips_dangerous_chars() {
-        // Path separators reduce to the base name; a stray quote is dropped.
-        assert_eq!(header_filename("../etc/pass\"wd"), "passwd");
-        assert_eq!(header_filename("a\\b\\c.txt"), "c.txt");
-        assert_eq!(header_filename("photo.jpg"), "photo.jpg");
     }
 
     #[test]

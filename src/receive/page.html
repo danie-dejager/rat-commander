@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Send to Rat Commander</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f4f5f7; --card: #fff; --fg: #1d2330; --dim: #5d6576;
+          --line: #d9dde5; --accent: #1f6feb; --ok: #1a7f37; --bad: #cf222e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1218; --card: #181c25; --fg: #e6e9ef; --dim: #9aa3b5; --line: #2a3040;
+            --accent: #4c8dff; --ok: #3fb950; --bad: #ff6b6b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 36rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+  h1 { font-size: 1.35rem; margin: 0 0 .25rem; }
+  .dir { color: var(--dim); margin: 0 0 1.25rem; overflow-wrap: anywhere; }
+  .dir b { color: var(--fg); font-weight: 600; }
+  .pick { display: block; text-align: center; padding: 1.1rem; border-radius: .8rem;
+          background: var(--accent); color: #fff; font-weight: 600; font-size: 1.1rem; cursor: pointer; }
+  .pick input { display: none; }
+  ul { list-style: none; padding: 0; margin: 1.25rem 0 0; }
+  li { background: var(--card); border: 1px solid var(--line); border-radius: .7rem;
+       padding: .7rem .85rem; margin-bottom: .6rem; }
+  .name { font-weight: 600; overflow-wrap: anywhere; }
+  .state { color: var(--dim); font-size: .9rem; overflow-wrap: anywhere; }
+  .ok .state { color: var(--ok); }
+  .bad .state { color: var(--bad); }
+  progress { width: 100%; height: .5rem; margin: .45rem 0 .2rem; accent-color: var(--accent); }
+  .ok progress, .bad progress { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Send files to Rat Commander</h1>
+  <p class="dir">Saving into <b>{{DIR}}</b></p>
+  <label class="pick"><input id="files" type="file" multiple>Choose files</label>
+  <ul id="list"></ul>
+</main>
+<script>
+  const list = document.getElementById("list");
+  const input = document.getElementById("files");
+  const human = (n) => {
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let i = 0;
+    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+    return (i ? n.toFixed(1) : n) + " " + units[i];
+  };
+  // One file at a time: a phone on Wi-Fi gains nothing from racing uploads,
+  // and each keeps a readable progress bar.
+  input.addEventListener("change", async () => {
+    const files = [...input.files];
+    input.value = "";
+    const rows = files.map((file) => {
+      const li = document.createElement("li");
+      li.innerHTML = '<div class="name"></div><progress max="1" value="0"></progress><div class="state"></div>';
+      li.querySelector(".name").textContent = file.name;
+      li.querySelector(".state").textContent = "Waiting · " + human(file.size);
+      list.prepend(li);
+      return [file, li];
+    });
+    for (const [file, li] of rows) await send(file, li);
+  });
+  function send(file, li) {
+    return new Promise((done) => {
+      const bar = li.querySelector("progress");
+      const state = li.querySelector(".state");
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", "upload?name=" + encodeURIComponent(file.name));
+      xhr.upload.onprogress = (e) => {
+        if (!e.lengthComputable) return;
+        bar.value = e.loaded / e.total;
+        state.textContent = human(e.loaded) + " of " + human(e.total);
+      };
+      xhr.onload = () => {
+        const ok = xhr.status === 201;
+        li.classList.add(ok ? "ok" : "bad");
+        state.textContent = ok ? "Saved as " + xhr.responseText : "Failed: " + xhr.responseText;
+        done();
+      };
+      xhr.onerror = () => {
+        li.classList.add("bad");
+        state.textContent = "Failed: the connection was lost";
+        done();
+      };
+      xhr.send(file);
+    });
+  }
+</script>
+</body>
+</html>

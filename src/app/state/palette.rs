@@ -35,6 +35,7 @@ impl AppState {
             cmd("Com&press...", MenuAction::Compress),
             cmd("Chec&ksum...", MenuAction::Checksum),
             cmd("Send over &LAN...", MenuAction::SendFile),
+            cmd("Receive over L&AN...", MenuAction::ReceiveFiles),
             cmd("Cop&y path to clipboard", MenuAction::CopyToClipboard(ClipTarget::FullPath)),
             cmd("Copy file name to clipboard", MenuAction::CopyToClipboard(ClipTarget::Name)),
             cmd(

@@ -81,6 +81,7 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
             "Com&press...",
             "Chec&ksum...",
             "Send over &LAN...",
+            "Receive over L&AN...",
             "Cop&y path to clipboard",
             "&Git",
             "&Background operations...",

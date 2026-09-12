@@ -25,6 +25,7 @@ mod multirename;
 mod overwrite;
 mod palette;
 mod progress;
+mod receive;
 mod saveas;
 mod search;
 mod select;
@@ -65,6 +66,7 @@ pub use palette::{
     BoolSetting, CommandPaletteDialog, PaletteAction, PaletteCategory, PaletteEntry,
 };
 pub use progress::{BusyDialog, ProgressDialog, SpeedChart};
+pub use receive::ReceiveDialog;
 pub use saveas::SaveAsDialog;
 pub use search::{SearchReplaceDialog, SearchReplaceParams};
 pub use select::SelectDialog;
@@ -124,6 +126,8 @@ pub enum Dialog {
     Hotlist(HotlistDialog),
     /// The "Send file over LAN" QR-code sharing dialog.
     SendFile(SendFileDialog),
+    /// The "Receive files over LAN" QR-code upload dialog.
+    Receive(ReceiveDialog),
     /// Raw `git` command output (scrollable, with a Close button).
     GitOutput(GitOutputDialog),
     /// The directory-sync plan, shown before any of it runs.
@@ -461,6 +465,7 @@ impl Dialog {
             Dialog::CommandPalette(d) => d.handle_key(key),
             Dialog::Hotlist(d) => d.handle_key(key),
             Dialog::SendFile(d) => d.handle_key(key),
+            Dialog::Receive(d) => d.handle_key(key),
             Dialog::GitOutput(d) => d.handle_key(key),
             Dialog::SyncPreview(d) => d.handle_key(key),
             Dialog::DirHistory(d) => d.handle_key(key),
@@ -501,6 +506,7 @@ impl Dialog {
             Dialog::CommandPalette(d) => d.render(f, area, theme),
             Dialog::Hotlist(d) => d.render(f, area, theme),
             Dialog::SendFile(d) => d.render(f, area, theme, gfx),
+            Dialog::Receive(d) => d.render(f, area, theme, gfx),
             Dialog::GitOutput(d) => d.render(f, area, theme, gfx),
             Dialog::SyncPreview(d) => d.render(f, area, theme, gfx),
             Dialog::DirHistory(d) => d.render(f, area, theme),
@@ -523,8 +529,10 @@ impl Dialog {
                 let rect = d.box_rect(area);
                 return d.handle_click(rect, col, row);
             }
-            // Any click dismisses a message box or the send-file dialog.
-            Dialog::Message(_) | Dialog::SendFile(_) => return DialogResult::Cancel,
+            // Any click dismisses a message box or the send/receive dialogs.
+            Dialog::Message(_) | Dialog::SendFile(_) | Dialog::Receive(_) => {
+                return DialogResult::Cancel;
+            }
             // The progress dialog hit-tests its buttons: a backgroundable transfer
             // has "To background"/"Abort", and an indeterminate scan has "Abort".
             // A plain determinate dialog has no clickable buttons, so a stray click

@@ -41,6 +41,9 @@ pub enum MenuAction {
     Checksum,
     /// Share the selected file(s) with a nearby device over the LAN (QR code).
     SendFile,
+    /// Take files from a nearby device into the active panel's directory over
+    /// the LAN (QR code).
+    ReceiveFiles,
     /// Opens the Git submenu (File → Git, or Alt-G). Never runs an action itself.
     GitMenu,
     /// Stage / unstage the file(s) under the cursor (git) — the Ctrl-G toggle.
@@ -255,6 +258,7 @@ impl MenuBarState {
                 item("Com&press...", MenuAction::Compress),
                 item("Chec&ksum...", MenuAction::Checksum),
                 item("Send over &LAN...", MenuAction::SendFile),
+                item("Receive over L&AN...", MenuAction::ReceiveFiles),
                 item("Cop&y path to clipboard", MenuAction::CopyToClipboard(ClipTarget::FullPath)),
                 sep(),
                 item_sub("&Git", "Alt-G  ▶", MenuAction::GitMenu, git_menu_items()),
