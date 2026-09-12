@@ -388,6 +388,11 @@ code = "zh-Hant"
 "Taken" = "拍攝時間"
 "Exposure" = "曝光"
 "Image" = "圖片"
+"Map" = "圖譜"
+"at" = "位於"
+"entropy" = "熵"
+"Density" = "密度"
+"Bytes" = "位元組"
 "triangles" = "三角形"
 
 # -- Tool footer hint bars (mount / net / disk) --

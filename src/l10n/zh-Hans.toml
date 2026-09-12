@@ -388,6 +388,11 @@ code = "zh-Hans"
 "Taken" = "拍摄时间"
 "Exposure" = "曝光"
 "Image" = "图片"
+"Map" = "图谱"
+"at" = "位于"
+"entropy" = "熵"
+"Density" = "密度"
+"Bytes" = "字节"
 "triangles" = "三角形"
 
 # -- Tool footer hint bars (mount / net / disk) --

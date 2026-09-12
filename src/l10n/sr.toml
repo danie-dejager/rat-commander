@@ -388,6 +388,11 @@ code = "sr"
 "Taken" = "Snimljeno"
 "Exposure" = "Ekspozicija"
 "Image" = "Slika"
+"Map" = "Mapa"
+"at" = "na"
+"entropy" = "entropija"
+"Density" = "Gustina"
+"Bytes" = "Bajtovi"
 "triangles" = "trouglova"
 
 # -- Tool footer hint bars (mount / net / disk) --

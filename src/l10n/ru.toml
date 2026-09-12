@@ -388,6 +388,11 @@ code = "ru"
 "Taken" = "Снято"
 "Exposure" = "Экспозиция"
 "Image" = "Изображение"
+"Map" = "Карта"
+"at" = "на"
+"entropy" = "энтропия"
+"Density" = "Плотность"
+"Bytes" = "Байты"
 "triangles" = "треугольников"
 
 # -- Tool footer hint bars (mount / net / disk) --

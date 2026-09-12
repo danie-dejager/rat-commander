@@ -388,6 +388,11 @@ code = "ja"
 "Taken" = "撮影日時"
 "Exposure" = "露出"
 "Image" = "画像"
+"Map" = "マップ"
+"at" = "位置"
+"entropy" = "エントロピー"
+"Density" = "密度"
+"Bytes" = "バイト"
 "triangles" = "三角形"
 
 # -- Tool footer hint bars (mount / net / disk) --

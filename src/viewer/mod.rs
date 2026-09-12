@@ -6,6 +6,7 @@
 //! advance a search. Only a per-line offset index is kept (8 bytes per line).
 //! Scrolling is by logical line (text) or 16-byte row (hex).
 
+pub mod fingerprint;
 pub mod markdown;
 pub mod render;
 pub mod search;
@@ -86,6 +87,8 @@ impl Source {
 pub enum ViewMode {
     Text,
     Hex,
+    /// The whole file as one picture — see [`fingerprint`].
+    Map,
 }
 
 /// A decoded image shown fullscreen when F3 opens a supported image file. Falls
@@ -292,6 +295,14 @@ pub struct ViewerState {
     /// Pointer position the in-progress model drag was last seen at, so an
     /// orbit is driven by the delta between frames rather than by absolutes.
     drag_from: Option<(u16, u16)>,
+    /// The byte map, built the first time `Map` mode is entered and kept after.
+    map: Option<fingerprint::Fingerprint>,
+    /// Highlighted cell of the map, and what `Enter` jumps the hex view to.
+    map_cell: usize,
+    /// Whether the map is coloured by byte class rather than by density.
+    map_by_class: bool,
+    /// Cells per row, recorded by the renderer so cursor keys move by a row.
+    pub(crate) map_cols: usize,
 }
 
 impl ViewerState {
@@ -336,6 +347,10 @@ impl ViewerState {
             model: None,
             show_model: false,
             drag_from: None,
+            map: None,
+            map_cell: 0,
+            map_by_class: false,
+            map_cols: 64,
         }
     }
 
@@ -383,6 +398,10 @@ impl ViewerState {
             model: None,
             show_model: false,
             drag_from: None,
+            map: None,
+            map_cell: 0,
+            map_by_class: false,
+            map_cols: 64,
         }
     }
 
@@ -506,6 +525,9 @@ impl ViewerState {
         let total = match self.mode {
             ViewMode::Text => self.line_count(),
             ViewMode::Hex => self.hex_rows(),
+            // The map fits the view by construction, so there is nowhere to
+            // scroll to and the top is pinned at zero.
+            ViewMode::Map => return 0,
         };
         let rows = self.view_rows.max(1);
         let simple = total.saturating_sub(rows);
@@ -560,6 +582,35 @@ impl ViewerState {
             return self.handle_outline_key(key);
         }
 
+        // The map takes the navigation keys too: they move its cursor, and
+        // Enter carries that offset into the hex view — which is what makes this
+        // a way of finding something rather than only a picture of it.
+        if self.mode == ViewMode::Map && self.map.is_some() {
+            let cols = self.map_cols.max(1) as isize;
+            match key.code {
+                KeyCode::Left => self.map_move(-1),
+                KeyCode::Right => self.map_move(1),
+                KeyCode::Up => self.map_move(-cols),
+                KeyCode::Down => self.map_move(cols),
+                KeyCode::PageUp => self.map_move(-cols * 8),
+                KeyCode::PageDown => self.map_move(cols * 8),
+                KeyCode::Home => self.map_cell = 0,
+                KeyCode::End => {
+                    self.map_cell =
+                        self.map.as_ref().map_or(0, |f| f.cells.len().saturating_sub(1));
+                }
+                KeyCode::Enter => {
+                    let off = self.map_offset() as usize;
+                    self.mode = ViewMode::Hex;
+                    self.extend_to_byte(off + 1);
+                    self.top = self.offset_to_top(off).min(self.max_top());
+                }
+                KeyCode::F(8) => self.map_by_class = !self.map_by_class,
+                _ => return self.handle_view_key(key),
+            }
+            return ViewerSignal::Stay;
+        }
+
         // A displayed model takes the navigation keys: they orbit the camera,
         // there being no document on screen for them to scroll. The rates match
         // the 3D panel's own `space3d_key` so the two surfaces feel alike.
@@ -593,8 +644,12 @@ impl ViewerState {
             KeyCode::F(4) => {
                 self.mode = match self.mode {
                     ViewMode::Text => ViewMode::Hex,
-                    ViewMode::Hex => ViewMode::Text,
+                    ViewMode::Hex => ViewMode::Map,
+                    ViewMode::Map => ViewMode::Text,
                 };
+                if self.mode == ViewMode::Map {
+                    self.ensure_map();
+                }
                 self.top = self.top.min(self.max_top());
             }
             KeyCode::F(1) => return ViewerSignal::OpenHelp,
@@ -729,12 +784,60 @@ impl ViewerState {
         self.show_model.then_some(self.model.as_ref()).flatten()
     }
 
+    /// Build the byte map, once. Sampled rather than read whole (see
+    /// [`fingerprint`]), so this is bounded work even on a multi-gigabyte image
+    /// and can run on the spot rather than going through a background task.
+    fn ensure_map(&mut self) {
+        if self.map.is_some() {
+            return;
+        }
+        let fp = fingerprint::analyze(self.src.len() as u64, |a, b| {
+            self.src.read_range(a as usize, b as usize)
+        });
+        self.map_cell = fp.cell_at(self.top_offset() as u64);
+        self.map = Some(fp);
+    }
+
+    /// The byte map, when `Map` mode is showing.
+    pub(crate) fn active_map(&self) -> Option<&fingerprint::Fingerprint> {
+        (self.mode == ViewMode::Map).then_some(self.map.as_ref()).flatten()
+    }
+
+    pub(crate) fn map_cursor(&self) -> usize {
+        self.map_cell
+    }
+
+    pub(crate) fn map_by_class(&self) -> bool {
+        self.map_by_class
+    }
+
+    /// Move the map cursor by `d` cells, clamped to the file.
+    fn map_move(&mut self, d: isize) {
+        let Some(fp) = self.map.as_ref() else {
+            return;
+        };
+        let last = fp.cells.len().saturating_sub(1);
+        self.map_cell = (self.map_cell as isize + d).clamp(0, last as isize) as usize;
+    }
+
+    /// Byte offset the map cursor sits on.
+    pub(crate) fn map_offset(&self) -> u64 {
+        self.map.as_ref().and_then(|f| f.cells.get(self.map_cell)).map_or(0, |c| c.start)
+    }
+
     pub(crate) fn footer_labels(&self) -> [&'static str; 10] {
         let wrap = if self.wrap { "Unwrap" } else { "Wrap" };
-        let mode = if self.mode == ViewMode::Hex { "Text" } else { "Hex" };
+        // Names the mode F4 moves *to*, cycling Text → Hex → Map.
+        let mode = match self.mode {
+            ViewMode::Text => "Hex",
+            ViewMode::Hex => "Map",
+            ViewMode::Map => "Text",
+        };
         // F8: for an image file, toggle Image/Raw; for a Markdown file in text
         // mode, "Raw" shows the source and "Render" the approximation.
-        let f8 = if self.model.is_some() {
+        let f8 = if self.mode == ViewMode::Map {
+            if self.map_by_class { "Density" } else { "Bytes" }
+        } else if self.model.is_some() {
             if self.show_model { "Raw" } else { "Model" }
         } else if self.image.is_some() {
             if self.show_image { "Raw" } else { "Image" }
@@ -914,6 +1017,7 @@ impl ViewerState {
                 let total = match self.mode {
                     ViewMode::Text => self.line_count(),
                     ViewMode::Hex => self.hex_rows(),
+                    ViewMode::Map => 1,
                 };
                 ((total.saturating_sub(1)) as f64 * p.clamp(0.0, 100.0) / 100.0).round() as usize
             }
@@ -937,11 +1041,23 @@ impl ViewerState {
         true
     }
 
+    /// Byte offset the view is currently positioned at.
+    fn top_offset(&self) -> usize {
+        match self.mode {
+            ViewMode::Text => self.line_starts.get(self.top).copied().unwrap_or(0),
+            ViewMode::Hex => self.top * 16,
+            ViewMode::Map => self.map_offset() as usize,
+        }
+    }
+
     /// Map a byte offset to the top index for the current mode.
     fn offset_to_top(&self, off: usize) -> usize {
         match self.mode {
             ViewMode::Text => self.byte_to_line(off),
             ViewMode::Hex => off / 16,
+            // The map has no scroll position of its own; it shows the whole
+            // file at once and carries a cursor instead.
+            ViewMode::Map => 0,
         }
     }
 
@@ -1009,6 +1125,13 @@ impl ViewerState {
                 self.top = self.byte_to_line(off).min(self.max_top());
             }
             ViewMode::Hex => self.top = (off / 16).min(self.max_top()),
+            // A search hit while the map is up moves the map cursor, which is
+            // the only position the view has.
+            ViewMode::Map => {
+                if let Some(fp) = self.map.as_ref() {
+                    self.map_cell = fp.cell_at(off as u64);
+                }
+            }
         }
     }
 
@@ -2004,6 +2127,116 @@ mod tests {
             b.extend_from_slice(&0u16.to_le_bytes());
         }
         b
+    }
+
+    /// A file with two obviously different halves: zeroes, then spread bytes.
+    fn two_region_bytes() -> Vec<u8> {
+        let mut d = vec![0u8; 1 << 17];
+        for (i, b) in d.iter_mut().enumerate().skip(1 << 16) {
+            *b = (i.wrapping_mul(2654435761) >> 13) as u8;
+        }
+        d
+    }
+
+    #[test]
+    fn f4_cycles_text_hex_map_and_the_map_renders() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let mut v = ViewerState::new("disk.img".into(), two_region_bytes());
+        let f4 = KeyEvent::new(KeyCode::F(4), KeyModifiers::NONE);
+        assert_eq!(v.mode, ViewMode::Text);
+        assert_eq!(v.footer_labels()[3], "Hex");
+        v.handle_key(f4);
+        assert_eq!(v.mode, ViewMode::Hex);
+        assert_eq!(v.footer_labels()[3], "Map");
+        v.handle_key(f4);
+        assert_eq!(v.mode, ViewMode::Map);
+        assert!(v.active_map().is_some(), "entering the map builds it");
+        v.handle_key(f4);
+        assert_eq!(v.mode, ViewMode::Text, "and cycles back round");
+
+        v.handle_key(f4);
+        v.handle_key(f4);
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(60, 16)).unwrap();
+        t.draw(|f| render::render(f, f.area(), &mut v, &theme, None)).unwrap();
+        let b = t.backend().buffer();
+        let all: String = (0..b.area.height)
+            .flat_map(|y| (0..b.area.width).map(move |x| (x, y)))
+            .map(|(x, y)| b[(x, y)].symbol().to_string())
+            .collect();
+        assert!(all.contains("Map") && all.contains("entropy"), "header: {all:?}");
+        assert!(all.contains('▀'), "the map is drawn as cell art");
+    }
+
+    #[test]
+    fn the_map_cursor_moves_and_enter_lands_the_hex_view_on_that_offset() {
+        let mut v = ViewerState::new("disk.img".into(), two_region_bytes());
+        let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
+        v.handle_key(key(KeyCode::F(4)));
+        v.handle_key(key(KeyCode::F(4)));
+        assert_eq!(v.mode, ViewMode::Map);
+        v.map_cols = 64;
+
+        assert_eq!(v.map_cursor(), 0);
+        v.handle_key(key(KeyCode::Right));
+        assert_eq!(v.map_cursor(), 1, "→ steps one cell");
+        v.handle_key(key(KeyCode::Down));
+        assert_eq!(v.map_cursor(), 65, "↓ steps a whole row");
+        v.handle_key(key(KeyCode::Home));
+        assert_eq!(v.map_cursor(), 0);
+        v.handle_key(key(KeyCode::End));
+        let last = v.active_map().unwrap().cells.len() - 1;
+        assert_eq!(v.map_cursor(), last, "End goes to the end of the file");
+        // And cannot be pushed past it.
+        v.handle_key(key(KeyCode::Right));
+        assert_eq!(v.map_cursor(), last);
+
+        // Enter carries the cursor's offset into the hex view.
+        v.handle_key(key(KeyCode::Home));
+        v.handle_key(key(KeyCode::Down));
+        let want = v.map_offset();
+        assert!(want > 0);
+        v.handle_key(key(KeyCode::Enter));
+        assert_eq!(v.mode, ViewMode::Hex, "Enter switches to the bytes");
+        assert_eq!(v.top * 16, want as usize, "and lands on that offset's row");
+    }
+
+    #[test]
+    fn the_map_shows_the_two_halves_of_the_file_differently() {
+        let mut v = ViewerState::new("disk.img".into(), two_region_bytes());
+        v.handle_key(KeyEvent::new(KeyCode::F(4), KeyModifiers::NONE));
+        v.handle_key(KeyEvent::new(KeyCode::F(4), KeyModifiers::NONE));
+        let fp = v.active_map().expect("built");
+        let half = fp.cells.len() / 2;
+        assert!(fp.cells[..half - 1].iter().all(|c| c.density < 0.05), "the zero half is flat");
+        assert!(fp.cells[half + 1..].iter().all(|c| c.density > 0.8), "the noise half is not");
+    }
+
+    #[test]
+    fn f8_switches_the_map_between_density_and_byte_class() {
+        let mut v = ViewerState::new("disk.img".into(), two_region_bytes());
+        let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
+        v.handle_key(key(KeyCode::F(4)));
+        v.handle_key(key(KeyCode::F(4)));
+        assert!(!v.map_by_class());
+        assert_eq!(v.footer_labels()[7], "Bytes");
+        v.handle_key(key(KeyCode::F(8)));
+        assert!(v.map_by_class());
+        assert_eq!(v.footer_labels()[7], "Density");
+    }
+
+    #[test]
+    fn an_empty_file_opens_the_map_without_panicking() {
+        let mut v = ViewerState::new("empty".into(), Vec::new());
+        v.handle_key(KeyEvent::new(KeyCode::F(4), KeyModifiers::NONE));
+        v.handle_key(KeyEvent::new(KeyCode::F(4), KeyModifiers::NONE));
+        assert_eq!(v.mode, ViewMode::Map);
+        assert!(v.active_map().unwrap().cells.is_empty());
+        // Every navigation key must be a no-op rather than an index panic.
+        for k in [KeyCode::Right, KeyCode::Down, KeyCode::End, KeyCode::Home, KeyCode::Enter] {
+            v.handle_key(KeyEvent::new(k, KeyModifiers::NONE));
+        }
     }
 
     #[test]

@@ -388,6 +388,11 @@ code = "cs"
 "Taken" = "Pořízeno"
 "Exposure" = "Expozice"
 "Image" = "Obrázek"
+"Map" = "Mapa"
+"at" = "na"
+"entropy" = "entropie"
+"Density" = "Hustota"
+"Bytes" = "Bajty"
 "triangles" = "trojúhelníků"
 
 # -- Tool footer hint bars (mount / net / disk) --

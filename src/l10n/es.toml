@@ -388,6 +388,11 @@ code = "es"
 "Taken" = "Tomada"
 "Exposure" = "Exposición"
 "Image" = "Imagen"
+"Map" = "Mapa"
+"at" = "en"
+"entropy" = "entropía"
+"Density" = "Densidad"
+"Bytes" = "Bytes"
 "triangles" = "triángulos"
 
 # -- Tool footer hint bars (mount / net / disk) --

@@ -388,6 +388,11 @@ code = "hu"
 "Taken" = "Készült"
 "Exposure" = "Expozíció"
 "Image" = "Kép"
+"Map" = "Térkép"
+"at" = "itt"
+"entropy" = "entrópia"
+"Density" = "Sűrűség"
+"Bytes" = "Bájtok"
 "triangles" = "háromszög"
 
 # -- Tool footer hint bars (mount / net / disk) --

@@ -388,6 +388,11 @@ code = "fr"
 "Taken" = "Prise"
 "Exposure" = "Exposition"
 "Image" = "Image"
+"Map" = "Carte"
+"at" = "à"
+"entropy" = "entropie"
+"Density" = "Densité"
+"Bytes" = "Octets"
 "triangles" = "triangles"
 
 # -- Tool footer hint bars (mount / net / disk) --

@@ -58,6 +58,7 @@ pub fn render(
         return;
     }
     match v.mode {
+        ViewMode::Map => render_map(f, content, v, theme, gfx),
         ViewMode::Hex => render_hex(f, content, v, theme),
         // Markdown files render the approximation by default; F8 shows the raw,
         // syntax-highlighted source.
@@ -191,6 +192,120 @@ fn build_styled(chars: &[char], base: usize, styles: &[Style], default: Style) -
         spans.push(Span::styled(String::new(), default));
     }
     Line::from(spans)
+}
+
+/// Colour for one map cell.
+///
+/// The density ramp runs blue → cyan → green → yellow → red, which is ordered by
+/// brightness as well as by hue: that is what keeps it readable after the
+/// half-block and ASCII fallbacks throw the hue away and leave only luminance.
+fn map_color(
+    c: &crate::viewer::fingerprint::Cell,
+    by_class: bool,
+) -> crate::ui::graphics::raster::Rgb {
+    use crate::viewer::fingerprint::ByteClass;
+    if by_class {
+        return match c.class {
+            ByteClass::Zero => (32, 36, 48),
+            ByteClass::Ascii => (96, 200, 120),
+            ByteClass::High => (220, 150, 70),
+            ByteClass::Mixed => (120, 130, 190),
+        };
+    }
+    let t = c.density.clamp(0.0, 1.0) as f64;
+    crate::ui::graphics::raster::hsv(240.0 * (1.0 - t), 0.85, 0.25 + 0.70 * t)
+}
+
+/// Draw the byte map: the whole file as one picture, with a cursor.
+fn render_map(
+    f: &mut Frame,
+    area: Rect,
+    v: &mut ViewerState,
+    theme: &Theme,
+    gfx: Option<&mut crate::ui::graphics::Gfx>,
+) {
+    let Some(fp) = v.active_map() else {
+        return;
+    };
+    let bg = crate::ui::graphics::raster::rgb(theme.panel_bg);
+    let n = fp.cells.len().max(1);
+    // Lay the cells out row-major, so a row is a contiguous run of the file and
+    // the picture reads in the same order as the hex dump it jumps into. The
+    // column count is chosen to make cells as square as the area allows.
+    let aspect = (area.width as f32).max(1.0) / (area.height as f32 * 2.0).max(1.0);
+    let cols = ((n as f32 * aspect).sqrt().round() as usize).clamp(1, n);
+    let rows = n.div_ceil(cols);
+    v.map_cols = cols;
+    let cur = v.map_cursor();
+    let by_class = v.map_by_class();
+    let fp = v.active_map().expect("still in map mode");
+
+    let build = |w: u32, h: u32| {
+        let mut img = crate::ui::graphics::raster::canvas(w, h, bg);
+        let cw = (w as f32 / cols as f32).max(1.0);
+        let ch = (h as f32 / rows as f32).max(1.0);
+        for (i, cell) in fp.cells.iter().enumerate() {
+            let (cx, cy) = (i % cols, i / cols);
+            let (x0, y0) = ((cx as f32 * cw) as u32, (cy as f32 * ch) as u32);
+            let (x1, y1) = (((cx + 1) as f32 * cw) as u32, ((cy + 1) as f32 * ch) as u32);
+            let c = map_color(cell, by_class);
+            crate::ui::graphics::raster::fill_rect(
+                &mut img,
+                x0,
+                y0,
+                (x1.saturating_sub(x0)).max(1),
+                (y1.saturating_sub(y0)).max(1),
+                c,
+            );
+            if i == cur {
+                // Lit from within rather than outlined: a one-pixel ring would
+                // be invisible once the cell art downsamples the raster.
+                crate::ui::graphics::raster::fill_rect(
+                    &mut img,
+                    x0,
+                    y0,
+                    (x1.saturating_sub(x0)).max(1),
+                    (y1.saturating_sub(y0)).max(1),
+                    (255, 255, 255),
+                );
+            }
+        }
+        img
+    };
+
+    f.render_widget(ratatui::widgets::Clear, area);
+    match gfx {
+        Some(g) if g.available() => {
+            let (cwp, chp) = g.cell();
+            let (mut w, mut h) = (area.width as u32 * cwp, area.height as u32 * chp);
+            let long = w.max(h);
+            if long > MODEL_MAX_PX {
+                w = w * MODEL_MAX_PX / long;
+                h = h * MODEL_MAX_PX / long;
+            }
+            let sig = {
+                use std::hash::{Hash, Hasher};
+                let mut hs = std::collections::hash_map::DefaultHasher::new();
+                fp.len.hash(&mut hs);
+                n.hash(&mut hs);
+                cur.hash(&mut hs);
+                by_class.hash(&mut hs);
+                (w, h).hash(&mut hs);
+                hs.finish()
+            };
+            g.draw_cached(f, area, crate::ui::graphics::Slot::ViewerFingerprint, sig, || {
+                build(w.max(1), h.max(1))
+            });
+        }
+        _ => {
+            let img = build(area.width as u32, area.height as u32 * 2);
+            if theme.truecolor {
+                crate::util::img::render_halfblocks(f, area, &img, theme.panel_bg);
+            } else {
+                crate::util::img::render_ascii_ramp(f, area, &img, theme);
+            }
+        }
+    }
 }
 
 /// Largest model raster built per frame.
@@ -329,10 +444,34 @@ fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
         );
         return;
     }
+    // The map has a header of its own: a mode/rows readout means nothing for a
+    // view with no rows, where what matters is the cell under the cursor.
+    if let Some(fp) = v.active_map() {
+        let cell = fp.cells.get(v.map_cursor());
+        let text = format!(
+            " {}: {}  [{}]  {} 0x{:X}  {} {:.2}",
+            crate::l10n::trd("View"),
+            ellipsize(&v.name, area.width.saturating_sub(44) as usize),
+            crate::l10n::trd("Map"),
+            crate::l10n::trd("at"),
+            cell.map_or(0, |c| c.start),
+            crate::l10n::trd("entropy"),
+            cell.map_or(0.0, |c| c.entropy),
+        );
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                pad_right(&text, area.width as usize),
+                theme.menubar.add_modifier(Modifier::BOLD),
+            ))),
+            area,
+        );
+        return;
+    }
     let mode = match v.mode {
         ViewMode::Hex => crate::l10n::trd("Hex"),
         ViewMode::Text if v.markdown_active() => crate::l10n::trd("Markdown"),
         ViewMode::Text => crate::l10n::trd("Text"),
+        ViewMode::Map => crate::l10n::trd("Map"),
     };
     let wrap = if v.wrap { crate::l10n::trd("Wrap") } else { crate::l10n::trd("Unwrap") };
     let trunc =
@@ -340,6 +479,7 @@ fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
     let total = match v.mode {
         ViewMode::Text => v.line_count(),
         ViewMode::Hex => v.hex_rows(),
+        ViewMode::Map => 1,
     };
     // While the line index is still being built, the total is a lower bound, so
     // flag it with a trailing '+'.

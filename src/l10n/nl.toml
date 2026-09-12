@@ -388,6 +388,11 @@ code = "nl"
 "Taken" = "Genomen"
 "Exposure" = "Belichting"
 "Image" = "Afbeelding"
+"Map" = "Kaart"
+"at" = "op"
+"entropy" = "entropie"
+"Density" = "Dichtheid"
+"Bytes" = "Bytes"
 "triangles" = "driehoeken"
 
 # -- Tool footer hint bars (mount / net / disk) --

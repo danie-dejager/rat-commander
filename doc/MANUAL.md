@@ -257,7 +257,7 @@ used to share now lives on `Alt-T`.
   `F1` lands on its outline.
 - `F7` — Search
 - `F8` — (Markdown files) toggle Raw / Render; (image files) toggle Image / Raw;
-  (model files) toggle Model / Raw
+  (model files) toggle Model / Raw; (byte map) toggle Density / Bytes colouring
 - `n` — Repeat the last search
 - `↑ ↓` / `PgUp PgDn` / `Home End` — Scroll (in a **model view**: `← → ↑ ↓`
   orbit the camera, `+` / `-` zoom, `Home` re-frames; dragging orbits and the
@@ -877,7 +877,25 @@ loading it into an editor.
 
   Model files also get their own colour in the panel listings and their own
   solid — a cut gem — in the 3D landscape view.
-- **Text / Hex** — **F4** toggles. Hex mode shows an offset / hex / ASCII dump.
+- **Text / Hex / Map** — **F4** cycles the three. Hex mode shows an
+  offset / hex / ASCII dump.
+- **Byte map** — the third **F4** mode draws the **whole file as one picture**.
+  Each cell is a span of the file, coloured either by **density** (its Shannon
+  entropy, as a fraction of the most a sample that size could score) or, with
+  **F8**, by **byte class** — mostly-zero padding, printable ASCII, high bytes,
+  or mixed. Compressed and encrypted regions come out bright and flat, padding
+  and sparse holes come out dark, and the boundaries between a container's parts
+  appear as visible bands.
+
+  Move the cursor with `← → ↑ ↓` (and `PgUp`/`PgDn`, `Home`/`End`); the header
+  reports the byte offset and entropy under it. Press **Enter** and the **hex
+  view opens at that offset** — which is what makes this a way of finding
+  something rather than only a picture of it.
+
+  The file is **sampled rather than read whole**: each cell reads at most 4 KiB
+  from the start of its span, so building the map costs the same bounded work on
+  a 4 MB file as on a 40 GB disk image. The trade is that something small hiding
+  in the middle of a large span will not register.
 - **Line wrap** — **F2** toggles soft wrapping.
 - **Search** — **F7** opens the **same search dialog the editor uses** (see
   *Search and replace* under the editor): Normal / Regular expression / Hex /

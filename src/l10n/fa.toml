@@ -392,6 +392,11 @@ rtl = true
 "Taken" = "زمان عکس"
 "Exposure" = "نوردهی"
 "Image" = "تصویر"
+"Map" = "نقشه"
+"at" = "در"
+"entropy" = "آنتروپی"
+"Density" = "چگالی"
+"Bytes" = "بایت"
 "triangles" = "مثلث"
 
 # -- Tool footer hint bars (mount / net / disk) --

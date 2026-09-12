@@ -393,6 +393,11 @@ code = "de"
 "Taken" = "Aufgenommen"
 "Exposure" = "Belichtung"
 "Image" = "Bild"
+"Map" = "Karte"
+"at" = "bei"
+"entropy" = "Entropie"
+"Density" = "Dichte"
+"Bytes" = "Bytes"
 "triangles" = "Dreiecke"
 
 # -- Tool footer hint bars (mount / net / disk) --

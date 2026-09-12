@@ -392,6 +392,11 @@ rtl = true
 "Taken" = "التقطت"
 "Exposure" = "التعريض"
 "Image" = "صورة"
+"Map" = "خريطة"
+"at" = "عند"
+"entropy" = "إنتروبيا"
+"Density" = "الكثافة"
+"Bytes" = "بايت"
 "triangles" = "مثلث"
 
 # -- Tool footer hint bars (mount / net / disk) --

@@ -388,6 +388,11 @@ code = "uk"
 "Taken" = "Знято"
 "Exposure" = "Експозиція"
 "Image" = "Зображення"
+"Map" = "Мапа"
+"at" = "на"
+"entropy" = "ентропія"
+"Density" = "Щільність"
+"Bytes" = "Байти"
 "triangles" = "трикутників"
 
 # -- Tool footer hint bars (mount / net / disk) --

@@ -388,6 +388,11 @@ code = "hi"
 "Taken" = "लिया गया"
 "Exposure" = "एक्सपोज़र"
 "Image" = "छवि"
+"Map" = "मानचित्र"
+"at" = "पर"
+"entropy" = "एन्ट्रॉपी"
+"Density" = "घनत्व"
+"Bytes" = "बाइट"
 "triangles" = "त्रिभुज"
 
 # -- Tool footer hint bars (mount / net / disk) --
