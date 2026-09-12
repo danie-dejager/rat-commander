@@ -44,6 +44,7 @@
 
 pub mod raster3d;
 pub mod render;
+pub mod shadow;
 pub mod vec3;
 
 pub use crate::config::Space3dStyle;

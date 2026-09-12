@@ -342,6 +342,7 @@ fn render_model(
             w,
             h,
             &m.mesh.tris,
+            m.mesh.min.y,
             m.cam.eye(),
             m.cam.target,
             bg,

@@ -7,6 +7,7 @@
 //! half-block cells. Because a half-cell is very nearly square, the same focal
 //! length is correct in both, so there is no aspect fudge anywhere.
 
+use super::shadow::{self, Surf};
 use super::vec3::{self, Basis, V3, v3};
 use crate::ui::graphics::raster::{self, Rgb};
 use image::RgbaImage;
@@ -364,19 +365,18 @@ pub fn render_scene(
     // cell-art modes, where the caller draws them as real terminal text.
     bake: bool,
 ) -> (RgbaImage, Vec<Bounds>, Vec<LabelSlot>) {
-    let mut img = raster::canvas(w.max(1), h.max(1), bg);
     let mut bounds: Vec<Bounds> = vec![None; boxes.len()];
     if w == 0 || h == 0 || boxes.is_empty() {
-        return (img, bounds, Vec::new());
+        return (raster::canvas(w.max(1), h.max(1), bg), bounds, Vec::new());
     }
-    // `inv_z`, so a larger value is nearer; 0.0 is infinitely far away.
-    let mut depth = vec![0.0f32; (w * h) as usize];
+    let mut cv = Canvas::new(w, h, bg);
     let basis = vec3::look_at(eye, target, v3(0.0, 1.0, 0.0));
     let focal = vec3::focal_for(h as f32, FOV_Y);
     let (fw, fh) = (w as f32, h as f32);
+    let sun = scene_sun();
 
     if let Some(sky) = sky {
-        paint_backdrop(&mut img, sky, &basis, focal, fw, fh);
+        paint_backdrop(&mut cv.img, sky, &basis, focal, fw, fh);
     }
 
     // Connectors first. Draw order does not actually matter — the depth buffer
@@ -396,7 +396,7 @@ pub fn render_scene(
         let thick = if h >= 400 { 2i32 } else { 1i32 };
         for o in 0..thick {
             let d = o as f32;
-            line(&mut img, &mut depth, (pa.0 + d, pa.1, pa.2), (pb.0 + d, pb.1, pb.2), link_c);
+            cv.line((pa.0 + d, pa.1, pa.2), (pb.0 + d, pb.1, pb.2), link_c);
         }
     }
 
@@ -444,6 +444,11 @@ pub fn render_scene(
             // and a subtle lift reads as nothing at all.
             base = raster::shade(raster::over(base, cursor_c, 0.75), 1.35);
         }
+        // How much of a cast shadow this box accepts. A box that is lit up —
+        // under the other panel's cursor, or being written into — reads as lit
+        // from within, and a shadow falling across it would break up exactly
+        // the highlight that is meant to be found at a glance.
+        let glow = if b.cursor { 0.3 } else { 1.0 - 0.7 * b.hot.clamp(0.0, 1.0) };
         let mut bb: Bounds = None;
         for (quad, normal) in shape_faces(b.shape, b.min, b.max) {
             // Back-face cull: keep only faces turned toward the camera.
@@ -472,28 +477,84 @@ pub fn render_scene(
                 });
             }
             let c = raster::shade(base, face_shade(normal));
-            fill_quad(&mut img, &mut depth, &pts, c);
+            let facing = normal.dot(sun);
+            cv.fill_quad(&pts, c, Surf::new(SHADOW * glow * sunward(facing), facing));
             if b.cursor {
                 let rim = raster::shade(cursor_c, 1.25);
-                outline(&mut img, &mut depth, &pts, rim);
+                cv.outline(&pts, rim);
                 if h >= 240 {
                     // Thicken on a large raster, where one pixel is a hairline.
                     let wide = pts.map(|(x, y, z)| (x + 1.0, y, z));
-                    outline(&mut img, &mut depth, &wide, rim);
+                    cv.outline(&wide, rim);
                 }
             }
             if b.selected {
-                outline(&mut img, &mut depth, &pts, raster::shade(base, 1.9));
+                cv.outline(&pts, raster::shade(base, 1.9));
             }
         }
         bounds[bi] = bb;
     }
 
-    let slots = label_slots(&depth, w, boxes, &basis, focal, fw, fh);
+    // Shadows reach a few times as far as the camera stands from what it looks
+    // at, in two maps split just past the target: one fitted to the
+    // foreground, where a shadow's edge is large on screen, and one for the
+    // rest out to where haze would have washed the detail out anyway.
+    let dist = eye.sub(target).len().max(1e-3);
+    let light = shadow::Light {
+        sun,
+        cascades: &[dist * 1.6, dist * 7.0],
+        // The fsn ground is the backdrop rather than geometry, so it is named
+        // here to receive shadows where nothing was drawn over it.
+        ground: sky.map(|_| (0.0, Surf::new(SHADOW * sunward(sun.y), sun.y))),
+    };
+    shadow::cast(&mut cv.img, &cv.depth, &cv.surf, &basis, focal, &light, &|emit| {
+        for b in boxes {
+            if b.fade < 0.02 {
+                continue;
+            }
+            let alpha = (b.fade.clamp(0.0, 1.0) * 255.0) as u8;
+            for (quad, normal) in shape_faces(b.shape, b.min, b.max) {
+                // Only the faces turned away from the sun. Every solid is
+                // closed, so its outline seen from the sun is the same either
+                // way — but a lit face then never compares against its own
+                // depth, and cannot speckle itself with its own shadow.
+                if normal.dot(sun) <= 0.0 {
+                    emit(&quad, alpha);
+                }
+            }
+        }
+    });
+
+    let slots = label_slots(&cv.depth, w, boxes, &basis, focal, fw, fh);
     if bake {
-        bake_labels(&mut img, &slots, label_fg, bg);
+        bake_labels(&mut cv.img, &slots, label_fg, bg);
     }
-    (img, bounds, slots)
+    (cv.img, bounds, slots)
+}
+
+/// The sun over the directory scene, as a unit vector pointing toward it.
+///
+/// Halfway up the sky: high enough that a grid of file solids does not lie
+/// wholly in its own shade, low enough that a platform only a sliver thick
+/// still throws a shadow wide enough to see. From the side more than from the
+/// front, as [`face_shade`] lights the X walls above the Z walls, and over the
+/// left shoulder of the fsn style's opening camera — which looks along +Z with
+/// +X on its left — so shadows fall across the ground to the right, where they
+/// are seen rather than hidden behind the solids casting them.
+fn scene_sun() -> V3 {
+    v3(0.9, 1.0, -0.38).norm()
+}
+
+/// The most a full shadow darkens a surface in the directory scene.
+const SHADOW: f32 = 0.42;
+
+/// How fully a surface facing the sun at cosine `facing` takes a shadow:
+/// none on a face turned away (it is already the shaded side), all of it once
+/// the face is turned well toward the sun, and a ramp between, so the eight
+/// walls of a drum do not switch on and off one at a time as it comes round.
+fn sunward(facing: f32) -> f32 {
+    let t = (facing / 0.3).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 /// Where the horizon lies, as a raster row, for the current camera.
@@ -594,10 +655,18 @@ pub fn project_bounds(w: u32, h: u32, boxes: &[SceneBox], eye: V3, target: V3) -
         .collect()
 }
 
-/// Scanline-fill a convex quad, depth-testing every pixel.
-fn fill_quad(img: &mut RgbaImage, depth: &mut [f32], q: &[(f32, f32, f32); 4], c: Rgb) {
-    let w = img.width() as i32;
-    let h = img.height() as i32;
+/// Walk the pixels whose centres a convex quad covers, handing `plot` each
+/// one's column, row and interpolated `z`.
+///
+/// `z` is interpolated linearly across the screen, which is right for the
+/// camera's `inv_z` and for a shadow map's orthographic height alike.
+pub(super) fn scan_quad(
+    w: u32,
+    h: u32,
+    q: &[(f32, f32, f32); 4],
+    mut plot: impl FnMut(u32, u32, f32),
+) {
+    let (w, h) = (w as i32, h as i32);
     let ymin = q.iter().map(|p| p.1).fold(f32::MAX, f32::min).floor().max(0.0) as i32;
     let ymax = (q.iter().map(|p| p.1).fold(f32::MIN, f32::max).ceil()).min(h as f32 - 1.0) as i32;
     for y in ymin..=ymax.max(ymin - 1) {
@@ -632,44 +701,73 @@ fn fill_quad(img: &mut RgbaImage, depth: &mut [f32], q: &[(f32, f32, f32); 4], c
         let span = (hi - lo).max(1e-6);
         for x in x0..=x1.max(x0 - 1) {
             let t = (((x as f32 + 0.5) - lo) / span).clamp(0.0, 1.0);
-            let z = lo_z + (hi_z - lo_z) * t;
+            plot(x as u32, y as u32, lo_z + (hi_z - lo_z) * t);
+        }
+    }
+}
+
+/// The picture being drawn, with the per-pixel state drawing it needs.
+struct Canvas {
+    img: RgbaImage,
+    /// `inv_z`, so a larger value is nearer; 0.0 is infinitely far away.
+    depth: Vec<f32>,
+    /// What the surface at each pixel asks of the shadow pass.
+    surf: Vec<Surf>,
+}
+
+impl Canvas {
+    fn new(w: u32, h: u32, bg: Rgb) -> Canvas {
+        let n = (w * h) as usize;
+        Canvas { img: raster::canvas(w, h, bg), depth: vec![0.0; n], surf: vec![Surf::NONE; n] }
+    }
+
+    /// Scanline-fill a convex quad, depth-testing every pixel.
+    fn fill_quad(&mut self, q: &[(f32, f32, f32); 4], c: Rgb, s: Surf) {
+        let w = self.img.width();
+        let Canvas { img, depth, surf } = self;
+        scan_quad(w, img.height(), q, |x, y, z| {
             let idx = y as usize * w as usize + x as usize;
             if z > depth[idx] {
                 depth[idx] = z;
-                raster::put(img, x as u32, y as u32, c);
+                surf[idx] = s;
+                raster::put(img, x, y, c);
             }
+        });
+    }
+
+    /// Trace a quad's edges, so the selected box reads as outlined at any angle.
+    fn outline(&mut self, q: &[(f32, f32, f32); 4], c: Rgb) {
+        for i in 0..4 {
+            self.line(q[i], q[(i + 1) % 4], c);
         }
     }
-}
 
-/// Trace a quad's edges, so the selected box reads as outlined at any angle.
-fn outline(img: &mut RgbaImage, depth: &mut [f32], q: &[(f32, f32, f32); 4], c: Rgb) {
-    for i in 0..4 {
-        line(img, depth, q[i], q[(i + 1) % 4], c);
-    }
-}
-
-/// Depth-tested line with interpolated `inv_z`.
-///
-/// The test is a hair permissive so a box's selection outline wins against the
-/// very face it sits on, which would otherwise z-fight with it.
-fn line(img: &mut RgbaImage, depth: &mut [f32], a: (f32, f32, f32), b: (f32, f32, f32), c: Rgb) {
-    let w = img.width() as i32;
-    let h = img.height() as i32;
-    let steps = ((b.0 - a.0).abs().max((b.1 - a.1).abs()).ceil() as i32).clamp(1, 4096);
-    for s in 0..=steps {
-        let t = s as f32 / steps as f32;
-        let x = (a.0 + (b.0 - a.0) * t).round() as i32;
-        let y = (a.1 + (b.1 - a.1) * t).round() as i32;
-        if x < 0 || y < 0 || x >= w || y >= h {
-            continue;
-        }
-        let z = a.2 + (b.2 - a.2) * t;
-        let idx = y as usize * w as usize + x as usize;
-        // A hair in front, so the outline wins against its own face.
-        if z >= depth[idx] * 0.999 {
-            depth[idx] = z;
-            raster::put(img, x as u32, y as u32, c);
+    /// Depth-tested line with interpolated `inv_z`.
+    ///
+    /// The test is a hair permissive so a box's selection outline wins against
+    /// the very face it sits on, which would otherwise z-fight with it.
+    ///
+    /// Lines are markings rather than surfaces, so they take no shadow: an
+    /// outline or a link crossing a shadow stays as legible as it is in the sun.
+    fn line(&mut self, a: (f32, f32, f32), b: (f32, f32, f32), c: Rgb) {
+        let w = self.img.width() as i32;
+        let h = self.img.height() as i32;
+        let steps = ((b.0 - a.0).abs().max((b.1 - a.1).abs()).ceil() as i32).clamp(1, 4096);
+        for s in 0..=steps {
+            let t = s as f32 / steps as f32;
+            let x = (a.0 + (b.0 - a.0) * t).round() as i32;
+            let y = (a.1 + (b.1 - a.1) * t).round() as i32;
+            if x < 0 || y < 0 || x >= w || y >= h {
+                continue;
+            }
+            let z = a.2 + (b.2 - a.2) * t;
+            let idx = y as usize * w as usize + x as usize;
+            // A hair in front, so the outline wins against its own face.
+            if z >= self.depth[idx] * 0.999 {
+                self.depth[idx] = z;
+                self.surf[idx] = Surf::NONE;
+                raster::put(&mut self.img, x as u32, y as u32, c);
+            }
         }
     }
 }
@@ -901,21 +999,34 @@ const MESH_AMBIENT: f64 = 0.32;
 /// over the viewer's shoulder at every orbit angle — there is no pose that
 /// leaves it in the dark.
 fn mesh_shade(n: V3, basis: &Basis) -> f64 {
-    // Behind and a little over the left shoulder: a conventional key-light
-    // placement, offset from the view axis because a light exactly on it flattens
-    // the model to its silhouette.
-    let key = basis.fwd.scale(-1.0).add(basis.right.scale(-0.45)).add(basis.up.scale(0.35)).norm();
     // Two-sided: see `render_mesh` on why the normal may be facing away.
-    let lambert = n.dot(key).abs() as f64;
+    let lambert = n.dot(mesh_key(basis)).abs() as f64;
     MESH_AMBIENT + (1.15 - MESH_AMBIENT) * lambert
 }
+
+/// The model viewer's key light, as a unit vector pointing toward it.
+///
+/// Behind and a little over the left shoulder: a conventional key-light
+/// placement, offset from the view axis because a light exactly on it flattens
+/// the model to its silhouette — and would hide every shadow it casts behind
+/// the very surface casting it.
+fn mesh_key(basis: &Basis) -> V3 {
+    basis.fwd.scale(-1.0).add(basis.right.scale(-0.45)).add(basis.up.scale(0.35)).norm()
+}
+
+/// How dark the model's shadow on the floor under it gets, at most.
+///
+/// Lighter than a shadow on the model itself: the floor is not drawn, only
+/// what falls on it, and a hard black patch on the panel background would read
+/// as a hole in the picture rather than as the model resting on something.
+const MESH_FLOOR_SHADOW: f32 = 0.30;
 
 /// Rasterize a standalone triangle mesh — the F3 model viewer's picture.
 ///
 /// A sibling of [`render_scene`] rather than a mode of it: it shares the
-/// projection, the depth buffer and [`fill_quad`], but none of the scene's
-/// vocabulary applies to a model file. There are no labels to place, no ground
-/// to stand on, no fades, and no per-node bounds to hand back for hit-testing.
+/// projection, the depth buffer and [`Canvas::fill_quad`], but none of the
+/// scene's vocabulary applies to a model file. There are no labels to place, no
+/// fades, and no per-node bounds to hand back for hit-testing.
 ///
 /// **Nothing is back-face culled**, which is the one place this departs from
 /// `render_scene`. Culling is only sound when a mesh's winding is consistent,
@@ -924,23 +1035,33 @@ fn mesh_shade(n: V3, basis: &Basis) -> f64 {
 /// the correct picture either way for an opaque model, so the cost is some
 /// overdraw and the benefit is that no file renders as visibly broken. For the
 /// same reason [`mesh_shade`] lights two-sided.
+///
+/// The key light casts shadows, on the model itself and on a floor at `floor`
+/// — the model's lowest point — that is never drawn but darkens the background
+/// where the model's shadow falls on it. The shadow test is purely geometric,
+/// so it also settles what two-sided lighting cannot: a face turned away from
+/// the light — which that lighting has to treat as facing it, since the normal
+/// may only be inverted — lies in its own solid's shadow, and drops to the
+/// ambient level as the far side of a solid should.
+#[allow(clippy::too_many_arguments)]
 pub fn render_mesh(
     w: u32,
     h: u32,
     tris: &[crate::mesh::Tri],
+    floor: f32,
     eye: V3,
     target: V3,
     bg: Rgb,
     base: Rgb,
 ) -> RgbaImage {
-    let mut img = raster::canvas(w.max(1), h.max(1), bg);
     if w == 0 || h == 0 || tris.is_empty() {
-        return img;
+        return raster::canvas(w.max(1), h.max(1), bg);
     }
-    let mut depth = vec![0.0f32; (w * h) as usize];
+    let mut cv = Canvas::new(w, h, bg);
     let basis = vec3::look_at(eye, target, v3(0.0, 1.0, 0.0));
     let focal = vec3::focal_for(h as f32, FOV_Y);
     let (fw, fh) = (w as f32, h as f32);
+    let key = mesh_key(&basis);
 
     for t in tris {
         let mut pts = [(0.0f32, 0.0f32, 0.0f32); 4];
@@ -961,9 +1082,29 @@ pub fn render_mesh(
         // height and never crosses a scanline — the same trick `shape_faces`
         // uses to feed triangles through a quad filler.
         pts[3] = pts[2];
-        fill_quad(&mut img, &mut depth, &pts, raster::shade(base, mesh_shade(t.n, &basis)));
+        let lit = mesh_shade(t.n, &basis);
+        // A shadow takes away the key light and leaves the ambient, so what it
+        // may remove is exactly the key light's share of this face's brightness.
+        let take = (1.0 - MESH_AMBIENT / lit) as f32;
+        cv.fill_quad(&pts, raster::shade(base, lit), Surf::new(take, t.n.dot(key)));
     }
-    img
+
+    let light = shadow::Light {
+        sun: key,
+        cascades: &[f32::INFINITY],
+        // Only while the light is above the floor: at a low enough orbit the
+        // key light, which follows the camera, drops beneath it too.
+        ground: Some((floor, Surf::new(MESH_FLOOR_SHADOW * sunward(key.y), key.y))),
+    };
+    shadow::cast(&mut cv.img, &cv.depth, &cv.surf, &basis, focal, &light, &|emit| {
+        // Every face, whichever way it is wound: the scene can cast from the
+        // faces turned away from the sun alone because its solids are closed
+        // and outward-facing, which is exactly what a model file cannot promise.
+        for t in tris {
+            emit(&[t.v[0], t.v[1], t.v[2], t.v[2]], 255);
+        }
+    });
+    cv.img
 }
 
 #[cfg(test)]
@@ -1032,6 +1173,7 @@ mod tests {
             160,
             120,
             &tetra(),
+            -1.0,
             v3(0.0, 2.0, -6.0),
             v3(0.0, 0.0, 0.0),
             bg,
@@ -1045,8 +1187,16 @@ mod tests {
     #[test]
     fn an_empty_mesh_renders_as_bare_background() {
         let bg = (10, 10, 12);
-        let img =
-            render_mesh(64, 48, &[], v3(0.0, 0.0, -5.0), v3(0.0, 0.0, 0.0), bg, (200, 200, 200));
+        let img = render_mesh(
+            64,
+            48,
+            &[],
+            0.0,
+            v3(0.0, 0.0, -5.0),
+            v3(0.0, 0.0, 0.0),
+            bg,
+            (200, 200, 200),
+        );
         assert_eq!(count_non_bg(&img, bg), 0);
     }
 
@@ -1058,12 +1208,145 @@ mod tests {
             64,
             48,
             &tetra(),
+            -1.0,
             v3(0.0, 0.0, -6.0),
             v3(0.0, 0.0, -12.0),
             bg,
             (200, 200, 200),
         );
         assert_eq!(count_non_bg(&img, bg), 0);
+    }
+
+    /// Where a world point lands in a `w × h` raster seen from `eye`.
+    fn pixel_of(p: V3, eye: V3, at: V3, w: u32, h: u32) -> (u32, u32) {
+        let basis = vec3::look_at(eye, at, v3(0.0, 1.0, 0.0));
+        let focal = vec3::focal_for(h as f32, FOV_Y);
+        let (x, y, _) = vec3::project(vec3::to_view(&basis, p), w as f32, h as f32, focal)
+            .expect("in front of the camera");
+        (x as u32, y as u32)
+    }
+
+    /// A tall solid standing on the fsn ground, over ground of one flat colour.
+    fn tower_on_the_ground() -> (RgbaImage, V3, V3) {
+        let ground = (90, 150, 90);
+        let sky = Sky {
+            top: (20, 40, 160),
+            horizon: (200, 225, 250),
+            ground_far: ground,
+            ground_near: ground,
+        };
+        let mut b = unit_box(false);
+        b.name = String::new();
+        (b.min, b.max) = (v3(-0.3, 0.0, -0.3), v3(0.3, 1.2, 0.3));
+        let (eye, at) = (v3(0.0, 4.0, -4.0), v3(0.0, 0.0, 0.0));
+        let (img, ..) = render_scene(
+            240,
+            240,
+            &[b],
+            &[],
+            eye,
+            at,
+            (10, 10, 12),
+            (255, 255, 255),
+            (128, 128, 128),
+            (255, 210, 0),
+            Some(sky),
+            false,
+        );
+        (img, eye, at)
+    }
+
+    #[test]
+    fn a_solid_casts_its_shadow_on_the_ground_away_from_the_sun() {
+        let (img, eye, at) = tower_on_the_ground();
+        let sun = scene_sun();
+        let away = v3(-sun.x, 0.0, -sun.z).norm();
+        let lum = |p: V3| {
+            let (x, y) = pixel_of(p, eye, at, 240, 240);
+            let px = img.get_pixel(x, y);
+            px[0] as u32 + px[1] as u32 + px[2] as u32
+        };
+        let open = 90 + 150 + 90;
+        let shade = lum(away.scale(0.8));
+        let sunny = lum(away.scale(-0.8));
+        assert_eq!(sunny, open, "the ground on the sun's side is untouched");
+        assert!(
+            (shade as f32) < open as f32 * (1.0 - SHADOW * 0.8),
+            "the ground behind the solid is in its shadow: {shade} of {open}"
+        );
+    }
+
+    #[test]
+    fn a_lit_box_lets_less_of_a_shadow_fall_on_it() {
+        // The cursor highlight is meant to be found at a glance; a shadow
+        // across it must not break it up the way it darkens anything else.
+        let darkening = |cursor: bool| {
+            let render = |wall: bool| {
+                let mut low = unit_box(false);
+                low.name = String::new();
+                (low.min, low.max) = (v3(-0.5, 0.0, -0.5), v3(0.5, 0.4, 0.5));
+                low.cursor = cursor;
+                let mut boxes = vec![low];
+                if wall {
+                    // Tall, and standing between the low box and the sun.
+                    let sun = scene_sun();
+                    let c = v3(sun.x, 0.0, sun.z).norm().scale(0.9);
+                    let mut w = unit_box(false);
+                    w.name = String::new();
+                    (w.min, w.max) = (v3(c.x - 0.2, 0.0, c.z - 0.2), v3(c.x + 0.2, 3.0, c.z + 0.2));
+                    boxes.push(w);
+                }
+                let eye = v3(-3.0, 4.0, -3.0);
+                let (img, ..) = render_scene(
+                    200,
+                    200,
+                    &boxes,
+                    &[],
+                    eye,
+                    v3(0.0, 0.2, 0.0),
+                    (10, 10, 12),
+                    (255, 255, 255),
+                    (128, 128, 128),
+                    (255, 210, 0),
+                    None,
+                    false,
+                );
+                let (x, y) = pixel_of(v3(0.0, 0.4, 0.0), eye, v3(0.0, 0.2, 0.0), 200, 200);
+                let p = img.get_pixel(x, y);
+                p[0] as f32 + p[1] as f32 + p[2] as f32
+            };
+            1.0 - render(true) / render(false)
+        };
+        let (plain, lit) = (darkening(false), darkening(true));
+        assert!(plain > 0.25, "the wall shades the middle of the low roof: {plain}");
+        assert!(lit < plain * 0.5, "the lit box takes less of it: {lit} against {plain}");
+    }
+
+    #[test]
+    fn a_model_casts_a_shadow_on_the_floor_under_it() {
+        // A flat plate held up over the floor, seen from above.
+        let mut plate = Vec::new();
+        let (a, b, c, d) =
+            (v3(-0.5, 1.0, -0.5), v3(0.5, 1.0, -0.5), v3(0.5, 1.0, 0.5), v3(-0.5, 1.0, 0.5));
+        crate::mesh::push_tri(&mut plate, a, b, c);
+        crate::mesh::push_tri(&mut plate, a, c, d);
+        let bg = (220, 220, 220);
+        let eye = v3(1.0, 4.0, -2.5);
+        let render = |floor: f32| {
+            render_mesh(160, 160, &plate, floor, eye, v3(0.0, 0.5, 0.0), bg, (240, 240, 240))
+        };
+        // The same picture with the floor lifted above the plate, where nothing
+        // stands between it and the light.
+        let (under, over) = (render(0.0), render(2.0));
+        let mut shaded = 0;
+        for (a, b) in under.pixels().zip(over.pixels()) {
+            if a != b {
+                assert_eq!((b[0], b[1], b[2]), bg, "only the floor changes, never the model");
+                assert!(a[0] < b[0], "and only ever darker");
+                shaded += 1;
+            }
+        }
+        assert!(shaded > 50, "the plate's shadow shows on the floor: {shaded} px");
     }
 
     #[test]
