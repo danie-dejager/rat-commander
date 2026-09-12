@@ -734,6 +734,116 @@ async fn f6_bare_name_renames_in_place_and_focuses() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// An F6 target carrying a `*` is a name mask, not a literal name: the wildcard
+/// stands for the file's own name, so `*.new` appends a suffix rather than
+/// creating a file actually called `*.new` (which is what used to happen).
+#[tokio::test]
+async fn rename_expands_a_wildcard_to_the_source_name() {
+    use crate::ui::dialog::Submit;
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_rn_glob_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(root.join("adir")).unwrap();
+    std::fs::write(root.join("test.txt"), b"hi").unwrap();
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    for i in 0..2 {
+        st.panels[i].cwd = VfsPath::local(&root);
+        st.panels[i].backend = st.registry.local();
+        st.panels[i].reload().await.unwrap();
+    }
+    st.active = 0;
+
+    st.handle_submit(Submit::Move(vec![VfsPath::local(root.join("test.txt"))], "*.new".into()))
+        .await;
+    drain_taskdone(&mut st, &mut rx).await;
+
+    assert!(root.join("test.txt.new").is_file(), "the wildcard took the file's own name");
+    assert!(!root.join("test.txt").exists(), "and the original was moved, not copied");
+    assert!(!root.join("*.new").exists(), "nothing literally named `*.new` was created");
+    // The cursor follows the expanded name, not the mask.
+    let p = &st.panels[0];
+    assert_eq!(p.entries[p.cursor].name, "test.txt.new");
+
+    // Directories go through the same path.
+    st.handle_submit(Submit::Move(vec![VfsPath::local(root.join("adir"))], "*.bak".into())).await;
+    drain_taskdone(&mut st, &mut rx).await;
+    assert!(root.join("adir.bak").is_dir(), "a directory renames through the mask too");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// A wildcard target renames a whole marked set, each file through its own name.
+/// Without the mask this took the `*` for a directory name and moved everything
+/// into one directory called `*.bak`.
+#[tokio::test]
+async fn a_wildcard_target_renames_every_marked_file() {
+    use crate::ui::dialog::Submit;
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_rn_many_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    for n in ["one.txt", "two.txt", "three.txt"] {
+        std::fs::write(root.join(n), b"x").unwrap();
+    }
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    for i in 0..2 {
+        st.panels[i].cwd = VfsPath::local(&root);
+        st.panels[i].backend = st.registry.local();
+        st.panels[i].reload().await.unwrap();
+    }
+    st.active = 0;
+
+    let sources: Vec<VfsPath> =
+        ["one.txt", "two.txt", "three.txt"].iter().map(|n| VfsPath::local(root.join(n))).collect();
+    st.handle_submit(Submit::Move(sources, "*.bak".into())).await;
+    drain_taskdone(&mut st, &mut rx).await;
+
+    for n in ["one.txt.bak", "two.txt.bak", "three.txt.bak"] {
+        assert!(root.join(n).is_file(), "{n} should exist");
+    }
+    assert!(!root.join("*.bak").exists(), "no directory was made out of the mask");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// A target with no wildcard is still a literal name, and one that names an
+/// existing directory still means "move into it" — the mask must not change
+/// either.
+#[tokio::test]
+async fn a_target_without_a_wildcard_is_unchanged() {
+    use crate::ui::dialog::Submit;
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_rn_plain_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(root.join("into")).unwrap();
+    std::fs::write(root.join("a.txt"), b"x").unwrap();
+    std::fs::write(root.join("b.txt"), b"y").unwrap();
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    for i in 0..2 {
+        st.panels[i].cwd = VfsPath::local(&root);
+        st.panels[i].backend = st.registry.local();
+        st.panels[i].reload().await.unwrap();
+    }
+    st.active = 0;
+
+    st.handle_submit(Submit::Move(vec![VfsPath::local(root.join("a.txt"))], "plain.txt".into()))
+        .await;
+    drain_taskdone(&mut st, &mut rx).await;
+    assert!(root.join("plain.txt").is_file(), "a literal name still renames");
+
+    st.handle_submit(Submit::Move(vec![VfsPath::local(root.join("b.txt"))], "into".into())).await;
+    drain_taskdone(&mut st, &mut rx).await;
+    assert!(root.join("into/b.txt").is_file(), "an existing directory still means 'move into it'");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
 /// Renaming when both panels show the same directory still lands the *active*
 /// panel's cursor on the new name (not the other panel showing the same dir).
 #[tokio::test]

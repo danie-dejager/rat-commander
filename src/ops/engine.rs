@@ -130,10 +130,12 @@ impl Engine {
 
                 for src in &req.sources {
                     self.check_cancel()?;
-                    // A rename supplies the exact target name; otherwise the
-                    // source keeps its own name inside the destination directory.
+                    // A rename supplies the target name as a mask — a plain name
+                    // for the one source it was typed for, or one carrying a `*`
+                    // that stands for each source's own name. Without one, the
+                    // source keeps its name inside the destination directory.
                     let dst = match &req.dst_name {
-                        Some(name) => dst_dir.join(name),
+                        Some(mask) => dst_dir.join(super::expand_name_mask(mask, &src.file_name())),
                         None => dst_dir.join(src.file_name()),
                     };
 

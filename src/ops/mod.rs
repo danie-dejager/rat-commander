@@ -50,9 +50,11 @@ pub struct OpRequest {
     pub sources: Vec<VfsPath>,
     pub dst_fs: Option<Arc<dyn Vfs>>,
     pub dst_dir: Option<VfsPath>,
-    /// For a single-source rename/move-to-name, the exact final name to give the
-    /// source inside `dst_dir` (instead of keeping its own name). `None` means the
-    /// source is dropped into `dst_dir` under its existing name.
+    /// The name each source takes inside `dst_dir`, as a *mask*: a plain name
+    /// renames the one source it was typed for, and a `*` in it stands for that
+    /// source's own name (see [`expand_name_mask`]), which is what lets one
+    /// target rename a whole selection. `None` means every source keeps the name
+    /// it already has.
     pub dst_name: Option<String>,
     /// Overwrite existing destinations without prompting (confirm-overwrite off).
     pub overwrite_all: bool,
@@ -61,6 +63,20 @@ pub struct OpRequest {
     /// so a plan can copy in both directions within the one task. `sources`,
     /// `dst_dir` and `dst_name` are unused in that mode.
     pub steps: Vec<sync::SyncStep>,
+}
+
+/// Expand a destination name mask for one source.
+///
+/// Each `*` stands for the source's whole name, so an F6 target of `*.bak` turns
+/// `notes.txt` into `notes.txt.bak` — and turns a marked *set* of files into the
+/// same set with the suffix added, which is the only thing a wildcard in a
+/// rename target can usefully mean. A mask with no `*` is an ordinary literal
+/// name and comes back untouched.
+pub fn expand_name_mask(mask: &str, source_name: &str) -> String {
+    if !mask.contains('*') {
+        return mask.to_string();
+    }
+    mask.replace('*', source_name)
 }
 
 /// A handle to a running task, stored by the app so the progress dialog's

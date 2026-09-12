@@ -28,8 +28,15 @@ impl AppState {
         // last component is the new name and `target`'s parent is the container.
         // Otherwise the target *is* the directory the sources drop into.
         let ends_with_sep = dest.ends_with('/') || dest.ends_with(std::path::MAIN_SEPARATOR);
-        let target_is_dir = dst_fs.stat(&target).await.map(|e| e.kind.is_dir()).unwrap_or(false);
-        let rename = sources.len() == 1 && !ends_with_sep && !target_is_dir;
+        // A `*` in the last component settles that question by itself: it is a
+        // name mask (see `ops::expand_name_mask`), never a directory, for any
+        // number of sources. Decided without asking the filesystem, so what a
+        // wildcard means cannot depend on whether a directory literally named
+        // `*` happens to exist.
+        let masked = !ends_with_sep && target.file_name().contains('*');
+        let target_is_dir =
+            !masked && dst_fs.stat(&target).await.map(|e| e.kind.is_dir()).unwrap_or(false);
+        let rename = masked || (sources.len() == 1 && !ends_with_sep && !target_is_dir);
         let (dst_dir, dst_name) = match (rename, target.parent()) {
             (true, Some(parent)) => (parent, Some(target.file_name())),
             _ => (target, None),
@@ -48,7 +55,11 @@ impl AppState {
         // panel (an in-place rename lands there, and both panels may show the same
         // directory), falling back to whichever panel shows the destination.
         if sources.len() == 1 {
-            let name = dst_name.clone().unwrap_or_else(|| sources[0].file_name());
+            let own = sources[0].file_name();
+            let name = match &dst_name {
+                Some(mask) => crate::ops::expand_name_mask(mask, &own),
+                None => own,
+            };
             let idx = if self.panels[active].cwd == dst_dir {
                 Some(active)
             } else {

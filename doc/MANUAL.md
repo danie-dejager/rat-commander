@@ -82,6 +82,10 @@ browsing. (FTP has no shell, so an FTP panel keeps using the local shell.)
   other panel is the default destination, the usual workflow is: point one panel
   at the source, the other at the destination, then press F5/F6.
 - **Make a directory** with **F7**.
+- A `*` in an **F6** target stands for the file's own name, so `*.bak` renames
+  `notes.txt` to `notes.txt.bak` — and renames a whole selected set the same way,
+  each file through its own name. For anything more involved than a suffix, use
+  the multi-rename tool (**Shift-F6**) and its `[N]` / `[E]` placeholders.
 
 The active panel always provides the *source* for operations, and the inactive
 panel the *destination* — so two panels make copying and moving between two

@@ -34,7 +34,11 @@ pub struct FindDialog {
     skip_hidden: bool,
     shell: bool,
     regex_content: bool,
-    focus: usize, // 0 start, 1 name, 2 content, 3..7 checks
+    focus: usize,
+    /// The field focus opens on is pre-filled, so it opens fully marked: typing a
+    /// pattern replaces it rather than appending to it. Dropped by any focus move
+    /// or click, so it can only ever apply to the field it was set for.
+    selected: bool, // 0 start, 1 name, 2 content, 3..7 checks
 }
 
 impl FindDialog {
@@ -53,6 +57,7 @@ impl FindDialog {
             shell: true,
             regex_content: false,
             focus: 1,
+            selected: true,
         }
     }
 
@@ -85,9 +90,13 @@ impl FindDialog {
         match key.code {
             KeyCode::Esc => return DialogResult::Cancel,
             KeyCode::Enter => return self.submit(),
-            KeyCode::Tab | KeyCode::Down => self.focus = (self.focus + 1) % Self::FOCUS_COUNT,
+            KeyCode::Tab | KeyCode::Down => {
+                self.focus = (self.focus + 1) % Self::FOCUS_COUNT;
+                self.selected = false;
+            }
             KeyCode::BackTab | KeyCode::Up => {
-                self.focus = (self.focus + Self::FOCUS_COUNT - 1) % Self::FOCUS_COUNT
+                self.focus = (self.focus + Self::FOCUS_COUNT - 1) % Self::FOCUS_COUNT;
+                self.selected = false;
             }
             KeyCode::Char(' ') if self.focus >= 3 => match self.focus {
                 3 => self.recursive = !self.recursive,
@@ -97,12 +106,15 @@ impl FindDialog {
                 7 => self.regex_content = !self.regex_content,
                 _ => {}
             },
-            _ => match self.focus {
-                0 => edit_text(&mut self.start_at, &mut self.start_cursor, key),
-                1 => edit_text(&mut self.file_name, &mut self.name_cursor, key),
-                2 => edit_text(&mut self.content, &mut self.content_cursor, key),
-                _ => {}
-            },
+            _ => {
+                let marked = &mut self.selected;
+                match self.focus {
+                    0 => edit_text_marked(&mut self.start_at, &mut self.start_cursor, marked, key),
+                    1 => edit_text_marked(&mut self.file_name, &mut self.name_cursor, marked, key),
+                    2 => edit_text_marked(&mut self.content, &mut self.content_cursor, marked, key),
+                    _ => {}
+                }
+            }
         }
         DialogResult::None
     }
@@ -123,6 +135,8 @@ impl FindDialog {
             |value: &str| (col.saturating_sub(inner_x) as usize).min(value.chars().count());
         // Row offset within the interior (see `render`: fields at 1/4/6, the three
         // checkbox rows at 8/9/10, a blank spacer at 11, and the OK/Cancel row at 12).
+        // A click places the caret (or ticks a box), so the whole-field mark goes.
+        self.selected = false;
         match row as i32 - (rect.y + 1) as i32 {
             1 => {
                 self.focus = 0;
@@ -192,13 +206,14 @@ impl FindDialog {
             line_at(y),
         );
         y += 1;
-        if let Some(p) = draw_input_field(
+        if let Some(p) = draw_input_field_ex(
             f,
             line_at(y),
             &self.start_at,
             self.start_cursor,
             self.focus == 0,
             false,
+            self.selected && self.focus == 0,
             theme,
         ) {
             caret = Some(p);
@@ -210,13 +225,14 @@ impl FindDialog {
             line_at(y),
         );
         y += 1;
-        if let Some(p) = draw_input_field(
+        if let Some(p) = draw_input_field_ex(
             f,
             line_at(y),
             &self.file_name,
             self.name_cursor,
             self.focus == 1,
             false,
+            self.selected && self.focus == 1,
             theme,
         ) {
             caret = Some(p);
@@ -227,13 +243,14 @@ impl FindDialog {
             line_at(y),
         );
         y += 1;
-        if let Some(p) = draw_input_field(
+        if let Some(p) = draw_input_field_ex(
             f,
             line_at(y),
             &self.content,
             self.content_cursor,
             self.focus == 2,
             false,
+            self.selected && self.focus == 2,
             theme,
         ) {
             caret = Some(p);

@@ -15,6 +15,9 @@ pub struct SelectDialog {
     case_sensitive: bool,
     shell: bool,
     focus: usize, // 0 pattern, 1 files_only, 2 case, 3 shell
+    /// The pre-filled pattern opens fully marked, so typing a new one replaces
+    /// it rather than appending to it. Dropped by any focus move or click.
+    selected: bool,
 }
 
 impl SelectDialog {
@@ -27,6 +30,7 @@ impl SelectDialog {
             case_sensitive: true,
             shell: true,
             focus: 0,
+            selected: true,
         }
     }
 
@@ -54,15 +58,23 @@ impl SelectDialog {
         match key.code {
             KeyCode::Esc => return DialogResult::Cancel,
             KeyCode::Enter => return self.submit(),
-            KeyCode::Tab | KeyCode::Down => self.focus = (self.focus + 1) % 4,
-            KeyCode::BackTab | KeyCode::Up => self.focus = (self.focus + 3) % 4,
+            KeyCode::Tab | KeyCode::Down => {
+                self.focus = (self.focus + 1) % 4;
+                self.selected = false;
+            }
+            KeyCode::BackTab | KeyCode::Up => {
+                self.focus = (self.focus + 3) % 4;
+                self.selected = false;
+            }
             KeyCode::Char(' ') if self.focus > 0 => match self.focus {
                 1 => self.files_only = !self.files_only,
                 2 => self.case_sensitive = !self.case_sensitive,
                 3 => self.shell = !self.shell,
                 _ => {}
             },
-            _ if self.focus == 0 => edit_text(&mut self.pattern, &mut self.cursor, key),
+            _ if self.focus == 0 => {
+                edit_text_marked(&mut self.pattern, &mut self.cursor, &mut self.selected, key)
+            }
             _ => {}
         }
         DialogResult::None
@@ -82,6 +94,7 @@ impl SelectDialog {
         // Pattern field (top interior row): focus it and place the caret.
         if row == inner.y && in_x {
             self.focus = 0;
+            self.selected = false;
             let inner_w = (inner.width as usize).saturating_sub(3);
             let start = self.cursor.saturating_sub(inner_w.saturating_sub(1));
             let char_count = self.pattern.chars().count();
@@ -128,9 +141,16 @@ impl SelectDialog {
 
         let mut caret = None;
         let field = Rect { height: 1, ..inner };
-        if let Some(p) =
-            draw_input_field(f, field, &self.pattern, self.cursor, self.focus == 0, false, theme)
-        {
+        if let Some(p) = draw_input_field_ex(
+            f,
+            field,
+            &self.pattern,
+            self.cursor,
+            self.focus == 0,
+            false,
+            self.selected,
+            theme,
+        ) {
             caret = Some(p);
         }
 

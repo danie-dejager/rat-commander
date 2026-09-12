@@ -55,6 +55,10 @@ pub struct SaveAsDialog {
     list_area: Rect,
     list_rows: usize,
     name_area: Rect,
+    /// A name field that opens pre-filled and focused opens fully marked, so
+    /// typing a new name replaces it rather than appending to it. Dropped by any
+    /// focus move, click, or name picked out of the listing.
+    name_selected: bool,
 }
 
 impl SaveAsDialog {
@@ -77,6 +81,9 @@ impl SaveAsDialog {
             purpose,
             cwd: start_dir,
             name_cursor: filename.chars().count(),
+            // Only the name field can be marked, and only when it is both
+            // pre-filled and where the dialog opens.
+            name_selected: !filename.is_empty() && !purpose.picks_existing(),
             filename,
             error,
             entries: Vec::new(),
@@ -149,6 +156,7 @@ impl SaveAsDialog {
             self.refresh();
         } else {
             self.filename = e.name.clone();
+            self.name_selected = false;
             self.name_cursor = self.filename.chars().count();
             if self.purpose.picks_existing() {
                 return self.confirm();
@@ -174,6 +182,7 @@ impl SaveAsDialog {
         if key.code == KeyCode::Tab {
             self.focus =
                 if self.focus == SaveFocus::List { SaveFocus::Name } else { SaveFocus::List };
+            self.name_selected = false;
             return DialogResult::None;
         }
         if self.focus == SaveFocus::Name {
@@ -182,10 +191,16 @@ impl SaveAsDialog {
                 KeyCode::Enter => self.confirm(),
                 KeyCode::Down => {
                     self.focus = SaveFocus::List;
+                    self.name_selected = false;
                     DialogResult::None
                 }
                 _ => {
-                    edit_text(&mut self.filename, &mut self.name_cursor, key);
+                    edit_text_marked(
+                        &mut self.filename,
+                        &mut self.name_cursor,
+                        &mut self.name_selected,
+                        key,
+                    );
                     DialogResult::None
                 }
             };
@@ -223,6 +238,9 @@ impl SaveAsDialog {
     }
 
     pub(crate) fn handle_click(&mut self, _area: Rect, col: u16, row: u16) -> DialogResult {
+        // A click is a deliberate landing place, so the whole-name mark goes
+        // whichever half of the dialog it hits.
+        self.name_selected = false;
         if self.name_area.height > 0 && row == self.name_area.y {
             self.focus = SaveFocus::Name;
             return DialogResult::None;
@@ -322,13 +340,14 @@ impl SaveAsDialog {
         f.render_widget(Paragraph::new(Line::from(Span::styled(" File name:", label))), rows[ri]);
         ri += 1;
         self.name_area = rows[ri];
-        let caret = draw_input_field(
+        let caret = draw_input_field_ex(
             f,
             rows[ri],
             &self.filename,
             self.name_cursor,
             self.focus == SaveFocus::Name,
             false,
+            self.name_selected,
             theme,
         );
         ri += 1;

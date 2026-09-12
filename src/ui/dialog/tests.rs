@@ -1611,3 +1611,90 @@ fn the_settings_form_round_trips_the_3d_style() {
         _ => panic!("the settings form should submit settings"),
     }
 }
+
+/// A dialog field that opens pre-filled opens *marked*, the way the copy/rename
+/// prompt already did: the first character typed replaces the whole value
+/// instead of appending to it. Without this, typing `*.txt` into the
+/// select-group dialog's `*` produced `**.txt`.
+#[test]
+fn a_prefilled_field_is_replaced_by_the_first_character_typed() {
+    let mut d = SelectDialog::new(true);
+    for c in "*.txt".chars() {
+        d.handle_key(key(KeyCode::Char(c)));
+    }
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Select { pattern, .. }) => assert_eq!(pattern, "*.txt"),
+        _ => panic!("expected a Select submit"),
+    }
+
+    // The find dialog opens on its pre-filled "File name" field.
+    let mut d = FindDialog::new("/tmp".into());
+    for c in "*.rs".chars() {
+        d.handle_key(key(KeyCode::Char(c)));
+    }
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Find(p)) => {
+            assert_eq!(p.file_name, "*.rs");
+            assert_eq!(p.start_at, "/tmp", "the field that was not focused is untouched");
+        }
+        _ => panic!("expected a Find submit"),
+    }
+
+    // And so does the multi-rename mask.
+    let mut d = MultiRenameDialog::new(
+        vec![VfsPath::local("/tmp/a.txt")],
+        "20260101".into(),
+        "000000".into(),
+    );
+    for c in "x[C]".chars() {
+        d.handle_key(key(KeyCode::Char(c)));
+    }
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::MultiRename(plan)) => {
+            // The mask now reads "x[C]", not "[N].[E]x[C]": with the counter
+            // starting at 1 that names the one file "x1".
+            assert_eq!(plan.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>(), ["x1"]);
+        }
+        _ => panic!("expected a MultiRename submit"),
+    }
+}
+
+/// The mark only ever belongs to the field the dialog opened on. Moving focus
+/// drops it, so typing into a field the user tabbed to edits it rather than
+/// wiping it — which matters most in the settings form, where every field
+/// arrives holding a value worth keeping.
+#[test]
+fn the_mark_does_not_follow_the_focus_to_another_field() {
+    let mut d = FindDialog::new("/tmp".into());
+    // Tab off the pre-filled "File name" field and back onto it.
+    d.handle_key(key(KeyCode::Tab));
+    d.handle_key(key(KeyCode::BackTab));
+    d.handle_key(key(KeyCode::Char('x')));
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Find(p)) => {
+            assert_eq!(p.file_name, "*x", "a field returned to is edited, not replaced");
+        }
+        _ => panic!("expected a Find submit"),
+    }
+
+    // Tabbing from the settings form's first field onto the next text field and
+    // typing appends there rather than clearing it.
+    let cfg = crate::config::Config {
+        editor: "vim".into(),
+        viewer: "less".into(),
+        ..crate::config::Config::default()
+    };
+    let mut d = FormDialog::settings(&cfg, true);
+    // Field 2 is "External editor" (0 = Language choice, 1 = Reshape RTL check).
+    for _ in 0..3 {
+        d.handle_key(key(KeyCode::Tab));
+    }
+    d.handle_key(key(KeyCode::Char('x')));
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Settings(v)) => {
+            assert_eq!(v.viewer, "lessx", "a tabbed-to setting is appended to, never wiped");
+            assert_eq!(v.editor, "vim", "and its neighbour is untouched");
+        }
+        other => panic!("expected a Settings submit, got {}", matches!(other, DialogResult::None)),
+    }
+}

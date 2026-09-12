@@ -137,11 +137,18 @@ impl Field {
 pub struct Form {
     fields: Vec<Field>,
     pub(crate) focus: usize,
+    /// The field the form opens on is fully marked when it opens pre-filled, so
+    /// typing replaces that value rather than appending to it. Dropped by any
+    /// focus move or click, so it only ever applies to the field it was set for —
+    /// tabbing through a form of existing settings can never wipe one.
+    selected: bool,
 }
 
 impl Form {
     pub fn new(fields: Vec<Field>) -> Self {
-        Form { fields, focus: 0 }
+        let selected =
+            matches!(fields.first(), Some(Field::Text { value, .. }) if !value.is_empty());
+        Form { fields, focus: 0, selected }
     }
 
     /// Number of fields (used to compute the dialog height for click geometry).
@@ -172,12 +179,21 @@ impl Form {
         self.focus == self.cancel_slot()
     }
 
+    /// Move focus to a slot, dropping the whole-field mark: a focus move means
+    /// the field it was set for is no longer the one being typed into.
+    pub(crate) fn focus_at(&mut self, slot: usize) {
+        self.focus = slot;
+        self.selected = false;
+    }
+
     fn focus_next(&mut self) {
         self.focus = (self.focus + 1) % self.slots();
+        self.selected = false;
     }
 
     fn focus_prev(&mut self) {
         self.focus = (self.focus + self.slots() - 1) % self.slots();
+        self.selected = false;
     }
 
     /// Handle a key for the focused field. Returns true if Enter (submit) was
@@ -198,7 +214,9 @@ impl Form {
             // handled in `FormDialog::handle_key` — arrows just move focus.
             _ => match self.fields.get_mut(self.focus) {
                 Some(Field::Text { value, cursor, .. })
-                | Some(Field::Password { value, cursor, .. }) => edit_text(value, cursor, key),
+                | Some(Field::Password { value, cursor, .. }) => {
+                    edit_text_marked(value, cursor, &mut self.selected, key)
+                }
                 _ => {}
             },
         }
@@ -785,7 +803,7 @@ impl FormDialog {
         }
         // Focus the password, except when a key file was restored — then the
         // password is very likely not the thing that needs typing.
-        self.form.focus = if entry.key_file.is_empty() { 3 } else { 0 };
+        self.form.focus_at(if entry.key_file.is_empty() { 3 } else { 0 });
     }
 
     /// Move focus onto the OK (`primary`) or Cancel button slot. Used when the
@@ -798,7 +816,8 @@ impl FormDialog {
                 *open = false;
             }
         }
-        self.form.focus = if primary { self.form.ok_slot() } else { self.form.cancel_slot() };
+        let slot = if primary { self.form.ok_slot() } else { self.form.cancel_slot() };
+        self.form.focus_at(slot);
     }
 
     /// Route a click for the connect dropdown. Returns `Some` if the click hit
@@ -1321,9 +1340,16 @@ impl FormDialog {
                         host_chevron = Some(Rect { x: cx, y, width: 2, height: 1 });
                         field_area.width -= 2;
                     }
-                    if let Some(pos) =
-                        draw_input_field(f, field_area, value, *cursor, focused, masked, theme)
-                    {
+                    if let Some(pos) = draw_input_field_ex(
+                        f,
+                        field_area,
+                        value,
+                        *cursor,
+                        focused,
+                        masked,
+                        focused && self.form.selected,
+                        theme,
+                    ) {
                         caret = Some(pos);
                     }
                 }
@@ -1543,7 +1569,7 @@ impl FormDialog {
                 *sel = *idx;
                 *open = true;
             }
-            self.form.focus = i;
+            self.form.focus_at(i);
             return Some(DialogResult::None);
         }
         None
@@ -1561,7 +1587,7 @@ impl FormDialog {
         match self.form.fields.get_mut(i)? {
             Field::Check { value, .. } => {
                 *value = !*value;
-                self.form.focus = i;
+                self.form.focus_at(i);
                 Some(DialogResult::None)
             }
             Field::Text { label, value, cursor } | Field::Password { label, value, cursor } => {
@@ -1577,7 +1603,7 @@ impl FormDialog {
                     let start = cursor.saturating_sub(inner_w.saturating_sub(1));
                     *cursor = (start + (col - value_x) as usize).min(char_count);
                 }
-                self.form.focus = i;
+                self.form.focus_at(i);
                 Some(DialogResult::None)
             }
             // A Choice row opens via `click_choice`, not here.

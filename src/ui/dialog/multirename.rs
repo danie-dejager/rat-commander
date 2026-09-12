@@ -20,7 +20,9 @@ fn edit_number(value: &mut String, cursor: &mut usize, key: KeyEvent, allow_sign
 }
 
 /// Render `label` then a turquoise input field filling the rest of `area`.
-/// Returns the caret screen position when `focused`.
+/// Returns the caret screen position when `focused`. `selected` draws the value
+/// as a marked whole, for a field that opens pre-filled.
+#[allow(clippy::too_many_arguments)] // a render helper; each field is a distinct draw input
 fn labeled_field(
     f: &mut Frame,
     area: Rect,
@@ -28,6 +30,7 @@ fn labeled_field(
     value: &str,
     cursor: usize,
     focused: bool,
+    selected: bool,
     theme: &Theme,
 ) -> Option<Position> {
     if area.width == 0 {
@@ -44,7 +47,7 @@ fn labeled_field(
         Rect { width: lw, ..area },
     );
     let field = Rect { x: area.x + lw, width: area.width.saturating_sub(lw), ..area };
-    draw_input_field(f, field, value, cursor, focused, false, theme)
+    draw_input_field_ex(f, field, value, cursor, focused, false, selected, theme)
 }
 
 /// Draw a fixed-width turquoise numeric field (no `[^]` history button), for the
@@ -104,6 +107,10 @@ pub struct MultiRenameDialog {
     /// Focused option: 0 mask, 1 case, 2 start, 3 step, 4 digits, 5 search,
     /// 6 replace, 7 case-sensitive.
     focus: usize,
+    /// The mask opens fully marked — it is pre-filled and focused — so typing
+    /// one replaces the default rather than appending to it. Dropped by any focus
+    /// move or click.
+    mask_selected: bool,
     /// First visible list row.
     top: usize,
     /// Highlighted list row (shared by both columns).
@@ -128,6 +135,7 @@ impl MultiRenameDialog {
             originals,
             mask: "[N].[E]".to_string(),
             mask_cursor: "[N].[E]".chars().count(),
+            mask_selected: true,
             case: CaseMode::Unchanged,
             start: "1".to_string(),
             start_cursor: 1,
@@ -211,7 +219,12 @@ impl MultiRenameDialog {
 
     fn edit_focused(&mut self, key: KeyEvent) {
         match self.focus {
-            0 => edit_text(&mut self.mask, &mut self.mask_cursor, key),
+            0 => edit_text_marked(
+                &mut self.mask,
+                &mut self.mask_cursor,
+                &mut self.mask_selected,
+                key,
+            ),
             2 => edit_number(&mut self.start, &mut self.start_cursor, key, true),
             3 => edit_number(&mut self.step, &mut self.step_cursor, key, true),
             4 => edit_number(&mut self.digits, &mut self.digits_cursor, key, false),
@@ -225,8 +238,14 @@ impl MultiRenameDialog {
         match key.code {
             KeyCode::Esc => return DialogResult::Cancel,
             KeyCode::Enter => return DialogResult::Submit(Submit::MultiRename(self.plan())),
-            KeyCode::Tab => self.focus = (self.focus + 1) % MR_FOCUS_COUNT,
-            KeyCode::BackTab => self.focus = (self.focus + MR_FOCUS_COUNT - 1) % MR_FOCUS_COUNT,
+            KeyCode::Tab => {
+                self.focus = (self.focus + 1) % MR_FOCUS_COUNT;
+                self.mask_selected = false;
+            }
+            KeyCode::BackTab => {
+                self.focus = (self.focus + MR_FOCUS_COUNT - 1) % MR_FOCUS_COUNT;
+                self.mask_selected = false;
+            }
             KeyCode::Up => self.scroll(-1),
             KeyCode::Down => self.scroll(1),
             KeyCode::PageUp => self.scroll(-(self.list_rows as isize)),
@@ -253,6 +272,7 @@ impl MultiRenameDialog {
         for (rect, focus) in self.field_hits.clone() {
             if hit(rect) {
                 self.focus = focus;
+                self.mask_selected = false;
                 match focus {
                     1 => self.cycle_case(1),
                     7 => self.case_sensitive = !self.case_sensitive,
@@ -321,6 +341,7 @@ impl MultiRenameDialog {
             &self.mask,
             self.mask_cursor,
             self.focus == 0,
+            self.mask_selected,
             theme,
         );
         self.field_hits.push((rows[0], 0));
@@ -399,6 +420,7 @@ impl MultiRenameDialog {
             &self.search,
             self.search_cursor,
             self.focus == 5,
+            false,
             theme,
         );
         let s2 = labeled_field(
@@ -408,6 +430,7 @@ impl MultiRenameDialog {
             &self.replace,
             self.replace_cursor,
             self.focus == 6,
+            false,
             theme,
         );
         f.render_widget(
