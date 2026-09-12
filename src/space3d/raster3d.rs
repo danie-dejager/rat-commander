@@ -41,6 +41,9 @@ pub struct SceneBox {
     /// Still being sized — drawn slightly washed out, so a box that is merely
     /// incomplete never reads as a box that is genuinely small.
     pub partial: bool,
+    /// How brightly this directory is lit because something is writing into it:
+    /// 1 just after a change, decaying to 0. See `Space3d::heat`.
+    pub hot: f32,
     /// The solid to draw inside `min..max`. Everything the Cubes style draws is
     /// a [`Shape::Block`]; the fsn style uses the rest to say, by silhouette
     /// alone, what kind of file a solid stands for.
@@ -90,6 +93,14 @@ pub struct Sky {
 
 /// Vertical field of view.
 pub(crate) const FOV_Y: f32 = std::f32::consts::PI / 3.0;
+
+/// The colour a directory glows when something is writing into it.
+///
+/// Fixed rather than themed: it has to read as *heat* against every palette,
+/// and it is transient — a colour that is only on screen while something is
+/// happening is not part of the look of the program the way the panel and frame
+/// colours are.
+const HOT_C: Rgb = (255, 214, 140);
 
 /// Face brightness by orientation. Fixed per axis rather than computed from a
 /// light vector: it gives the crisp, legible "city block" read, and the roof —
@@ -416,6 +427,14 @@ pub fn render_scene(
         // that was never drawn.
         if b.fade < 0.999 {
             base = raster::over(bg, base, b.fade.clamp(0.0, 1.0) as f64);
+        }
+        // Activity lifts the box toward a warm white. Like the cursor highlight
+        // this is done *in the colour* rather than as an outline, because the
+        // cell-art fallbacks reduce the scene to brightness alone and a rim one
+        // pixel wide survives neither the downsample nor the ASCII ramp.
+        if b.hot > 0.001 {
+            let k = b.hot.clamp(0.0, 1.0) as f64;
+            base = raster::shade(raster::over(base, HOT_C, 0.55 * k), 1.0 + 0.45 * k);
         }
         if b.cursor {
             // Lit from within rather than merely outlined: the text-mode
@@ -962,6 +981,7 @@ mod tests {
             focus: false,
             cursor: false,
             partial: false,
+            hot: 0.0,
             dim: false,
             fade: 1.0,
             shape: Shape::Block,
@@ -1116,6 +1136,7 @@ mod tests {
             focus: false,
             cursor: false,
             partial: false,
+            hot: 0.0,
             dim: false,
             fade: 1.0,
             shape: Shape::Block,
@@ -1130,6 +1151,7 @@ mod tests {
             focus: false,
             cursor: false,
             partial: false,
+            hot: 0.0,
             dim: false,
             fade: 1.0,
             shape: Shape::Block,
@@ -1165,6 +1187,7 @@ mod tests {
             focus: false,
             cursor: false,
             partial: false,
+            hot: 0.0,
             dim: false,
             fade: 1.0,
             shape: Shape::Block,
@@ -1179,6 +1202,7 @@ mod tests {
             focus: false,
             cursor: false,
             partial: false,
+            hot: 0.0,
             dim: false,
             fade: 1.0,
             shape: Shape::Block,
@@ -1418,6 +1442,7 @@ mod tests {
             focus,
             cursor: false,
             partial: false,
+            hot: 0.0,
             dim: false,
             fade: 1.0,
             shape: Shape::Block,
@@ -1518,6 +1543,7 @@ mod tests {
             focus: false,
             cursor: false,
             partial: false,
+            hot: 0.0,
             dim: false,
             fade: 1.0,
             shape: Shape::Block,
@@ -1535,6 +1561,7 @@ mod tests {
             focus: false,
             cursor: false,
             partial: false,
+            hot: 0.0,
             dim: false,
             fade: 1.0,
             shape: Shape::Block,
@@ -1651,6 +1678,7 @@ mod tests {
                 focus: false,
                 cursor: false,
                 partial: false,
+                hot: 0.0,
                 dim: false,
                 fade: 1.0,
                 shape,
@@ -1727,6 +1755,7 @@ mod tests {
             focus: false,
             cursor: false,
             partial: false,
+            hot: 0.0,
             dim: false,
             fade: 1.0,
             shape: Shape::Block,

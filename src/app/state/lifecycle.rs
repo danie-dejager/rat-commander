@@ -157,6 +157,7 @@ impl AppState {
             find_hit_lines: HashMap::new(),
             watcher: None,
             watch_key: [String::new(), String::new()],
+            watch_deep: [false, false],
             watch_dirty: [None, None],
             edit_only: false,
             kbd_enhanced: false,

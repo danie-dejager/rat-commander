@@ -288,6 +288,13 @@ pub struct Config {
     /// writes TOML, where a scalar key cannot follow an array of tables.
     #[serde(default)]
     pub space3d_style: Space3dStyle,
+    /// Whether the 3D view lights up directories as things are written into
+    /// them. Arming this needs a **recursive** filesystem watch on the tree
+    /// being drawn, which costs a watch descriptor per directory, so it is worth
+    /// being able to turn off on a very large or a network-mounted tree.
+    /// (Missing from an old config → on.)
+    #[serde(default = "crate::config::default_true")]
+    pub space3d_activity: bool,
     /// Per-panel view format and sort order, remembered across sessions
     /// (index 0 = left panel, 1 = right panel).
     #[serde(default)]
@@ -367,6 +374,7 @@ impl Default for Config {
             brief_columns: 2,
             command_history_max: 100,
             space3d_style: Space3dStyle::default(),
+            space3d_activity: true,
             panels: [PanelView::default(); 2],
             recent_remotes: Vec::new(),
             bookmarks: Vec::new(),

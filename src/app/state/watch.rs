@@ -13,6 +13,17 @@
 use super::*;
 use notify::{RecursiveMode, Watcher};
 
+/// Whether panel `side`'s directory should be watched **recursively**.
+///
+/// It should when the *other* panel is drawing it in 3D: that view shows the
+/// subdirectories too, so a file landing two levels down is something to react
+/// to, where for the flat listing it is not.
+pub(in crate::app::state) fn wants_deep(st: &AppState, side: usize) -> bool {
+    st.config.space3d_activity
+        && st.panels[1 - side].format == crate::panel::ViewFormat::Space3d
+        && st.panels[1 - side].space3d.is_some()
+}
+
 /// How long a directory must go quiet before it is re-read. Long enough to
 /// collapse the burst from one command, short enough to feel immediate.
 pub(in crate::app::state) const DEBOUNCE: Duration = Duration::from_millis(300);
@@ -42,7 +53,8 @@ impl AppState {
     pub fn update_watches(&mut self) {
         for side in 0..2 {
             let key = watch_key(&self.panels[side], self.config.auto_refresh);
-            if key == self.watch_key[side] {
+            let deep = wants_deep(self, side);
+            if key == self.watch_key[side] && deep == self.watch_deep[side] {
                 continue;
             }
             // Drop the old subscription before taking the new one, so a panel
@@ -61,14 +73,27 @@ impl AppState {
             if self.watcher.is_none() {
                 self.watcher = self.build_watcher();
             }
-            if let Some(w) = self.watcher.as_mut()
-                && w.watch(Path::new(&key), RecursiveMode::NonRecursive).is_err()
-            {
-                // Watching can fail for ordinary reasons — an inotify limit, a
-                // directory that vanished between listing and arming. Ctrl-R
-                // still works, so forget the key and carry on rather than
-                // reporting it.
-                self.watch_key[side] = String::new();
+            self.watch_deep[side] = deep;
+            if let Some(w) = self.watcher.as_mut() {
+                let mode =
+                    if deep { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive };
+                let mut armed = w.watch(Path::new(&key), mode).is_ok();
+                // A recursive watch is the one that realistically fails: it adds
+                // a descriptor per directory, and a deep tree can exhaust the
+                // per-user limit. Fall back to watching just this directory, so
+                // losing the 3D glow does not also cost the panel its ordinary
+                // auto-refresh.
+                if !armed && deep {
+                    armed = w.watch(Path::new(&key), RecursiveMode::NonRecursive).is_ok();
+                    self.watch_deep[side] = false;
+                }
+                if !armed {
+                    // Watching can fail for ordinary reasons — an inotify limit,
+                    // a directory that vanished between listing and arming.
+                    // Ctrl-R still works, so forget the key and carry on rather
+                    // than reporting it.
+                    self.watch_key[side] = String::new();
+                }
             }
         }
     }
@@ -100,9 +125,23 @@ impl AppState {
         let dir = path.parent().unwrap_or(path);
         let now = Instant::now();
         for side in 0..2 {
-            let key = self.watch_key[side].as_str();
-            if !key.is_empty() && (Path::new(key) == dir || Path::new(key) == path) {
+            let key = self.watch_key[side].clone();
+            if key.is_empty() {
+                continue;
+            }
+            let root = Path::new(&key);
+            if root == dir || root == path {
                 self.watch_dirty[side] = Some(now);
+            }
+            // A 3D view of this panel's tree lights the directory that changed,
+            // however deep it is — which is the point of the recursive watch.
+            // The listing itself is deliberately *not* marked dirty for a change
+            // further down, because it does not show one.
+            if self.watch_deep[side]
+                && dir.starts_with(root)
+                && let Some(sp) = self.panels[1 - side].space3d.as_mut()
+            {
+                sp.heat(dir);
             }
         }
     }
@@ -214,5 +253,59 @@ mod live_tests {
         assert!(got.unwrap_or(false), "a real write produced a DirChanged event");
 
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// The end-to-end path the glow depends on: a 3D panel arms a **recursive**
+    /// watch, and a write two levels down reaches the app and lights a box.
+    #[tokio::test]
+    async fn a_deep_write_under_a_3d_panel_lights_the_scene() {
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("rc_deep_{}_{nanos}", std::process::id()));
+        let deep = root.join("sub/deeper");
+        std::fs::create_dir_all(&deep).unwrap();
+
+        let (tx, mut rx) = crate::util::async_bridge::channel();
+        let mut st = AppState::new(tx);
+        // Panel 0 shows the tree; panel 1 draws it in 3D.
+        st.panels[0].cwd = VfsPath::local(&root);
+        st.panels[0].backend = st.registry.local();
+        let _ = st.panels[0].reload().await;
+        st.panels[1].format = crate::panel::ViewFormat::Space3d;
+        st.panels[1].space3d = Some(crate::space3d::Space3d::new(root.clone()));
+        st.update_watches();
+        assert!(st.watch_deep[0], "a 3D panel opposite arms the recursive watch");
+
+        std::fs::write(deep.join("built.o"), b"x").unwrap();
+
+        let got = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(AppEvent::DirChanged { path }) = rx.recv().await
+                    && path.starts_with(&deep)
+                {
+                    return path;
+                }
+            }
+        })
+        .await;
+        let path = got.expect("a deep write reached the app channel");
+        st.note_dir_changed(&path);
+        let sp = st.panels[1].space3d.as_ref().unwrap();
+        assert!(sp.needs_frames(), "and the scene now has a glow to animate");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn the_watch_mode_follows_the_other_panel_into_and_out_of_the_3d_format() {
+        let (tx, _rx) = crate::util::async_bridge::channel();
+        let mut st = AppState::new(tx);
+        assert!(!wants_deep(&st, 0), "no 3D panel, no recursive watch");
+        st.panels[1].format = crate::panel::ViewFormat::Space3d;
+        st.panels[1].space3d = Some(crate::space3d::Space3d::new(PathBuf::from("/")));
+        assert!(wants_deep(&st, 0), "panel 1 in 3D watches panel 0's tree deeply");
+        assert!(!wants_deep(&st, 1), "and not the other way round");
+        st.config.space3d_activity = false;
+        assert!(!wants_deep(&st, 0), "the setting turns it off");
     }
 }

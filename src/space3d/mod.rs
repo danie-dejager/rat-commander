@@ -73,6 +73,15 @@ impl CamPose {
 
 /// Seconds for an animation to cover ~63 % of the distance left.
 const TAU: f32 = 0.20;
+/// Seconds for a directory's activity glow to fade to ~37 % of its brightness.
+///
+/// Slower than [`TAU`] on purpose: the glow is there to be *noticed* across a
+/// panel out of the corner of the eye, and a light that tracks the events as
+/// tightly as the camera tracks the cursor just flickers.
+const HEAT_TAU: f32 = 0.90;
+/// Below this a glow is dropped, so the map does not keep entries alive for
+/// brightness no one can see — and `needs_frames` can go quiet again.
+const HEAT_MIN: f32 = 0.02;
 const PITCH_MIN: f32 = 0.08;
 const PITCH_MAX: f32 = 1.45;
 
@@ -382,6 +391,11 @@ pub struct Space3d {
     repaint_owed: u8,
     shown: HashMap<PathBuf, Shown>,
     ghosts: Vec<Ghost>,
+    /// Directories something just wrote into, and how brightly they are still
+    /// lit. Set to 1 by [`Space3d::heat`] and decayed toward zero every frame,
+    /// so a burst of filesystem activity reads as a glow that fades rather than
+    /// a flag that has to be cleared by someone.
+    hot: HashMap<PathBuf, f32>,
     /// Width / height of the raster the scene is drawn into. The camera fit
     /// depends on it, so a resized panel re-frames rather than cropping.
     aspect: f32,
@@ -425,6 +439,7 @@ impl Space3d {
             nodes: Vec::new(),
             selected: 0,
             sel_path: None,
+            hot: HashMap::new(),
             cam: goal,
             goal,
             settled: false,
@@ -1013,7 +1028,30 @@ impl Space3d {
     // -- animation ----------------------------------------------------------
 
     pub fn needs_frames(&self) -> bool {
-        !self.settled || !self.ghosts.is_empty() || self.repaint_owed > 0
+        !self.settled || !self.ghosts.is_empty() || self.repaint_owed > 0 || !self.hot.is_empty()
+    }
+
+    /// Light the box standing for `path` — something has just written there.
+    ///
+    /// The event names a file, and the directory holding it may be deeper than
+    /// the scene draws, so this walks up until it finds a directory that is
+    /// actually on screen and lights that. Activity anywhere under a box
+    /// therefore shows *on* that box, rather than being silently dropped for
+    /// happening out of sight.
+    pub fn heat(&mut self, path: &Path) {
+        let mut p = Some(path);
+        while let Some(dir) = p {
+            if self.shown.contains_key(dir) {
+                self.hot.insert(dir.to_path_buf(), 1.0);
+                return;
+            }
+            p = dir.parent();
+        }
+    }
+
+    /// How lit `path` is, 0 when it is not.
+    fn heat_of(&self, path: &Path) -> f32 {
+        self.hot.get(path).copied().unwrap_or(0.0)
     }
 
     /// Ask permission to rebuild the scene's image this frame.
@@ -1071,6 +1109,16 @@ impl Space3d {
             return;
         }
         let t = 1.0 - (-dt / TAU).exp();
+
+        // Activity glows fade on their own clock, and drop out entirely once
+        // they are too faint to see — which is what lets `needs_frames` settle.
+        if !self.hot.is_empty() {
+            let h = (-dt / HEAT_TAU).exp();
+            self.hot.retain(|_, v| {
+                *v *= h;
+                *v > HEAT_MIN
+            });
+        }
 
         self.cam.target = self.cam.target.lerp(self.goal.target, t);
         // Distance is smoothed **geometrically**, not linearly: a descent now
@@ -1209,6 +1257,7 @@ impl Space3d {
                     partial: n.partial,
                     dim: n.context,
                     fade: self.shown.get(&n.path).map_or(1.0, |s| s.fade),
+                    hot: self.heat_of(&n.path),
                     shape: Shape::Block,
                 }
             })
@@ -1239,6 +1288,9 @@ impl Space3d {
                     partial: g.node.partial,
                     dim: g.node.context,
                     fade: g.fade,
+                    // A box on its way out is no longer anywhere anything is
+                    // writing; lighting it would outlive what it stood for.
+                    hot: 0.0,
                     shape: Shape::Block,
                 }
             }))
@@ -1264,6 +1316,7 @@ impl Space3d {
             // Grown in from nothing along with the platform it stands on.
             let grow = (h / n.target_plat.max(1e-4)).clamp(0.0, 1.0);
             let fade = self.shown.get(&n.path).map_or(1.0, |s| s.fade);
+            let heat = self.heat_of(&n.path);
             if grow < 0.02 {
                 continue;
             }
@@ -1296,6 +1349,10 @@ impl Space3d {
                     partial: false,
                     dim: false,
                     fade,
+                    // Files inherit their directory's glow, so a platform that
+                    // is being written into lights up as a whole rather than
+                    // leaving its own contents looking inert.
+                    hot: heat,
                     shape,
                 });
             }

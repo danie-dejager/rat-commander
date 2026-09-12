@@ -1517,3 +1517,86 @@ fn a_revision_never_reads_as_still_scanning() {
     let sp = view_on("/r", &revision(&[("a/f", 1), ("deep/deeper/f", 2)], 1));
     assert!(!sp.scanning, "a revision arrives whole; there is nothing left to wait for");
 }
+
+// -- filesystem activity glow ----------------------------------------------
+
+/// A scene over `/r` with two subdirectories, for the glow tests.
+fn heat_view() -> Space3d {
+    view_on("/r", &cache(&[("a", 4096), ("b", 8192)], &[]))
+}
+
+fn hottest(sp: &Space3d) -> f32 {
+    sp.boxes(&pal()).iter().map(|b| b.hot).fold(0.0f32, f32::max)
+}
+
+#[test]
+fn a_write_lights_the_directory_it_landed_in() {
+    let mut sp = heat_view();
+    assert!(sp.boxes(&pal()).iter().all(|b| b.hot == 0.0), "nothing is lit to begin with");
+    sp.heat(Path::new("/r/a"));
+    let boxes = sp.boxes(&pal());
+    let lit: Vec<&str> = boxes.iter().filter(|b| b.hot > 0.5).map(|b| b.name.as_str()).collect();
+    assert_eq!(lit, ["a"], "only the directory written into is lit");
+}
+
+#[test]
+fn a_write_deep_below_the_scene_lights_the_box_that_contains_it() {
+    // The event names a directory the scene does not draw; the glow has to
+    // surface on the nearest ancestor it does, or deep activity is invisible.
+    let mut sp = heat_view();
+    sp.heat(Path::new("/r/a/deep/deeper/still"));
+    let boxes = sp.boxes(&pal());
+    let lit: Vec<&str> = boxes.iter().filter(|b| b.hot > 0.5).map(|b| b.name.as_str()).collect();
+    assert_eq!(lit, ["a"]);
+}
+
+#[test]
+fn a_write_outside_the_scene_lights_nothing() {
+    let mut sp = heat_view();
+    sp.heat(Path::new("/somewhere/else/entirely"));
+    assert!(sp.boxes(&pal()).iter().all(|b| b.hot == 0.0));
+}
+
+#[test]
+fn the_glow_fades_and_the_view_then_stops_asking_for_frames() {
+    // The regression that matters: a build that finishes must leave the view
+    // idle again, not spinning the frame ticker for good.
+    let mut sp = heat_view();
+    let mut now = Instant::now();
+    for _ in 0..400 {
+        now += Duration::from_millis(33);
+        sp.advance(now);
+    }
+    assert!(!sp.needs_frames(), "a settled scene is idle before the write");
+
+    sp.heat(Path::new("/r/a"));
+    assert!(sp.needs_frames(), "a write asks for the frames that animate the glow");
+    let first = hottest(&sp);
+    for _ in 0..10 {
+        now += Duration::from_millis(33);
+        sp.advance(now);
+    }
+    assert!(hottest(&sp) < first, "the glow fades");
+
+    for _ in 0..300 {
+        now += Duration::from_millis(33);
+        sp.advance(now);
+    }
+    assert_eq!(hottest(&sp), 0.0, "and goes out entirely");
+    assert!(!sp.needs_frames(), "leaving the view idle again");
+}
+
+#[test]
+fn a_fresh_write_relights_a_fading_glow_to_full() {
+    let mut sp = heat_view();
+    let mut now = Instant::now();
+    sp.heat(Path::new("/r/a"));
+    for _ in 0..15 {
+        now += Duration::from_millis(33);
+        sp.advance(now);
+    }
+    let faded = hottest(&sp);
+    assert!(faded < 0.9 && faded > 0.0, "part-way faded, got {faded}");
+    sp.heat(Path::new("/r/a"));
+    assert!(hottest(&sp) > 0.99, "a steady stream of writes keeps the box lit");
+}

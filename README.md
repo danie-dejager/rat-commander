@@ -87,6 +87,14 @@ The installed executable is named **`rc`** for quick typing.
   you are and the title names the commit. Sizes come from git, so a commit's tree
   is walked once and revisited for free — dragging across two hundred commits
   costs a handful of reads, not one apiece.
+- **A landscape that reacts** — while a 3D panel is up, the directories in it
+  **light up as things are written into them**, fading out again over about a
+  second. Point one panel at a build directory, put the other in 3D, and you can
+  watch a compile happen. Activity anywhere below a box surfaces *on* that box,
+  so work deep in a tree is still visible. It needs a recursive filesystem watch,
+  so it can be turned off in Settings (*3D view: show filesystem activity*) on a
+  very large or network-mounted tree — and it falls back on its own if the
+  system refuses the watch.
 - **Command palette (Ctrl-P)** — one fuzzy-search box over every menu action,
   every setting (switch theme/language/graphics or flip a toggle in place), your
   directory **bookmarks**, the open remote connections, and your saved remote

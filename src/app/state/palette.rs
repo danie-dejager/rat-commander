@@ -119,6 +119,11 @@ impl AppState {
             toggle("Reshape RTL text", BoolSetting::ReshapeRtl, self.config.reshape_rtl),
             toggle("Auto-refresh panels", BoolSetting::AutoRefresh, self.config.auto_refresh),
             toggle(
+                "3D view: show filesystem activity",
+                BoolSetting::Space3dActivity,
+                self.config.space3d_activity,
+            ),
+            toggle(
                 "Strip trailing spaces on copy",
                 BoolSetting::StripTrailingSpaces,
                 self.config.strip_trailing_spaces,
@@ -349,6 +354,11 @@ impl AppState {
                 self.config.auto_refresh = !self.config.auto_refresh;
                 // Arm or drop the watchers straight away rather than waiting
                 // for the next directory change.
+                self.update_watches();
+            }
+            BoolSetting::Space3dActivity => {
+                self.config.space3d_activity = !self.config.space3d_activity;
+                // Swap the recursive watch in or out now, for the same reason.
                 self.update_watches();
             }
             BoolSetting::StripTrailingSpaces => {

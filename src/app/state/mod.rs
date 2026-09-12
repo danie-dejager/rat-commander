@@ -358,6 +358,12 @@ pub struct AppState {
     /// The directory each panel is currently watching (`""` = not watching), so
     /// `update_watches` can notice a change without asking the watcher.
     pub(in crate::app::state) watch_key: [String; 2],
+    /// Whether each panel's watch is the **recursive** one, armed when the other
+    /// panel is drawing this tree in 3D. Tracked separately from the key so
+    /// switching that panel into (or out of) the 3D format re-arms the watch,
+    /// rather than leaving it on whichever mode the directory happened to get
+    /// when it was first shown.
+    pub(in crate::app::state) watch_deep: [bool; 2],
     /// When each panel was last told its directory changed. The reload waits for
     /// [`watch::DEBOUNCE`] of quiet so one command causes one re-listing.
     pub(in crate::app::state) watch_dirty: [Option<Instant>; 2],

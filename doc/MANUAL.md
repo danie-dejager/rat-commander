@@ -1853,6 +1853,21 @@ subdirectory before deciding to go there.
 **`t` turns on the time machine**, which scrubs the whole scene back through the
 repository's history — see *Browsing git history → The time machine*.
 
+**Directories light up as they are written into.** While the view is up, a
+directory something writes into glows warm and then fades back over about a
+second, so a burst of filesystem activity is visible as it happens: point one
+panel at a build output directory, put the other in 3D, and you can watch a
+compile fill it in. Activity **anywhere below** a box surfaces on that box — the
+glow climbs to the nearest directory the scene actually draws — so work several
+levels down is not silently lost.
+
+This needs a **recursive** watch on the tree being shown, which costs one watch
+descriptor per directory. On a very large or network-mounted tree that is worth
+avoiding, so it can be switched off with **3D view: show filesystem activity**
+(`Ctrl-P`, or Settings). If the system refuses the recursive watch — the
+per-user inotify limit is the usual reason — the view quietly does without the
+glow and the panel keeps its ordinary auto-refresh.
+
 **Local directories only.** The sizes come from walking the real filesystem, so
 the view has nothing to show while the other panel is on an archive, FTP or SFTP
 directory, and `Alt-T` skips over the format on a remote panel.
