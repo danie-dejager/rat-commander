@@ -144,6 +144,15 @@ const FADE_TAU: f32 = 0.13;
 /// between free to draw the panel that is actually being scrolled.
 const MIN_REPAINT: std::time::Duration = std::time::Duration::from_millis(33);
 
+/// How many frames a held-back paint keeps asking for.
+///
+/// One is all it takes when the view is being drawn — the next tick collects it
+/// — so this is a ceiling for the case where nothing ever does: a panel behind a
+/// dialog, on a hidden side, or too small to draw into. Counted in frames rather
+/// than measured in time so the debt cannot outlive the ticker that is meant to
+/// pay it off.
+const REPAINT_GRACE: u8 = 4;
+
 /// How many levels below the current directory the tree goes.
 const DEPTH_BELOW: u8 = 2;
 
@@ -366,10 +375,11 @@ pub struct Space3d {
     goal: CamPose,
     settled: bool,
     last: Instant,
-    /// When the scene's image was last rebuilt, and whether a rebuild has since
-    /// been held back by [`MIN_REPAINT`] — see [`Space3d::claim_repaint`].
+    /// When the scene's image was last rebuilt, and how many more frames a
+    /// rebuild held back by [`MIN_REPAINT`] should keep asking for — see
+    /// [`Space3d::claim_repaint`].
     painted: Instant,
-    repaint_due: bool,
+    repaint_owed: u8,
     shown: HashMap<PathBuf, Shown>,
     ghosts: Vec<Ghost>,
     /// Width / height of the raster the scene is drawn into. The camera fit
@@ -424,7 +434,7 @@ impl Space3d {
             // because `Instant` is monotonic from boot and subtracting past
             // zero panics.
             painted: Instant::now().checked_sub(MIN_REPAINT).unwrap_or_else(Instant::now),
-            repaint_due: false,
+            repaint_owed: 0,
             shown: HashMap::new(),
             ghosts: Vec::new(),
             aspect: 1.0,
@@ -1003,21 +1013,15 @@ impl Space3d {
     // -- animation ----------------------------------------------------------
 
     pub fn needs_frames(&self) -> bool {
-        !self.settled
-            || !self.ghosts.is_empty()
-            // A paint that was held back is worth a frame to collect. The debt
-            // lapses if nothing collects it, so a view that is not being drawn
-            // at all — behind a dialog, on a hidden panel, in a panel too small
-            // to draw into — cannot pin the frame ticker on for ever.
-            || (self.repaint_due && self.painted.elapsed() < MIN_REPAINT * 4)
+        !self.settled || !self.ghosts.is_empty() || self.repaint_owed > 0
     }
 
     /// Ask permission to rebuild the scene's image this frame.
     ///
     /// `true` grants it and starts a fresh [`MIN_REPAINT`] interval; `false`
-    /// means draw whatever image is already there. A refusal is remembered, so
-    /// [`needs_frames`] keeps asking for frames until the paint that was held
-    /// back has happened — without that, a scene that went quiet in the same
+    /// means draw whatever image is already there. A refusal is remembered for
+    /// [`REPAINT_GRACE`] frames, so [`needs_frames`] keeps asking for the frame
+    /// that delivers it — without that, a scene that went quiet in the same
     /// moment it was refused would sit on a stale picture for good.
     ///
     /// Only call this when the image would actually come out different;
@@ -1026,20 +1030,30 @@ impl Space3d {
     /// [`needs_frames`]: Space3d::needs_frames
     pub fn claim_repaint(&mut self, now: Instant) -> bool {
         if now.duration_since(self.painted) < MIN_REPAINT {
-            self.repaint_due = true;
+            self.repaint_owed = REPAINT_GRACE;
             return false;
         }
         self.mark_painted(now);
         true
     }
 
-    /// Record that the scene's image has just been built, and clear any paint
-    /// held back before it. The cell-art path calls this directly: it rebuilds
-    /// unconditionally (there is no image to ship, only cells the frame diff
-    /// already collapses), so it settles the debt rather than asking about it.
+    /// Record that the scene's image has just been built, starting a fresh
+    /// interval. For the first paint of all, which nothing precedes and which
+    /// must therefore not be rationed.
     pub fn mark_painted(&mut self, now: Instant) {
         self.painted = now;
-        self.repaint_due = false;
+        self.repaint_owed = 0;
+    }
+
+    /// Settle a held-back paint that has since happened by other means.
+    ///
+    /// The cell-art fallback calls this. It is not rationed — it rebuilds every
+    /// frame, because there is no image to ship the terminal, only cells the
+    /// frame diff collapses anyway — so it owes no interval of its own and takes
+    /// no clock. What it must not do is leave the view asking for frames to
+    /// deliver a paint that is already on screen.
+    pub fn clear_repaint_debt(&mut self) {
+        self.repaint_owed = 0;
     }
 
     /// Advance the camera, node positions and box sizes toward their targets.
@@ -1048,6 +1062,9 @@ impl Space3d {
     /// 10 fps and at 30 — which matters because this app's frame rate is
     /// event-driven and varies widely.
     pub fn advance(&mut self, now: Instant) {
+        // The frame a held-back paint was asking for has come round; whether the
+        // draw that follows collects it or not, it is one frame less owed.
+        self.repaint_owed = self.repaint_owed.saturating_sub(1);
         let dt = (now - self.last).as_secs_f32().clamp(0.0, 0.1);
         self.last = now;
         if dt <= 0.0 {

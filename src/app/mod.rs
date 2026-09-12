@@ -310,6 +310,9 @@ fn refresh_and_draw(term: &mut Term, state: &mut AppState) -> Result<()> {
         state.force_clear = false;
         force_full_redraw(term, state)?;
     }
+    // The clock this frame belongs to, read once here rather than inside the
+    // renderer: see `AppState::frame_at`.
+    state.frame_at = std::time::Instant::now();
     draw_frame(term, state)
 }
 

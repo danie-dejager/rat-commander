@@ -316,6 +316,11 @@ pub struct AppState {
     /// The full terminal area from the last render, used to hit-test mouse clicks
     /// against menus and centered dialogs.
     pub last_area: Rect,
+    /// The moment the frame now being drawn belongs to. Set by the render loop
+    /// rather than read inside the renderer, so a view that rations work by
+    /// wall-clock time (the 3D scene's image rebuilds) can be driven from a test
+    /// — the same reason `Space3d::advance` takes its clock as an argument.
+    pub frame_at: Instant,
     /// The (panel, entry) last toggled by a right-drag paint, so each entry is
     /// inverted only once as the drag passes over it.
     paint_last: Option<(usize, usize)>,

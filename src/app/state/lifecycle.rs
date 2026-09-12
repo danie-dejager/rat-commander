@@ -145,6 +145,7 @@ impl AppState {
             quick_search: None,
             stashed_progress: None,
             last_area: Rect::new(0, 0, 0, 0),
+            frame_at: Instant::now(),
             paint_last: None,
             drag_orbit: None,
             last_click: None,

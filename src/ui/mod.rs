@@ -228,6 +228,7 @@ fn draw_body(f: &mut Frame, state: &mut AppState) {
         // The 3D view's raster. `panels` and `gfx` are disjoint fields, so both
         // can be borrowed at once; the panel renderer only recorded the target
         // rect, because it has no access to `Gfx` itself.
+        let now = state.frame_at;
         let AppState { panels, gfx, .. } = &mut *state;
         for (i, panel) in panels.iter_mut().enumerate() {
             let (Some(area), Some(sp), Some(g)) =
@@ -260,7 +261,6 @@ fn draw_body(f: &mut Frame, state: &mut AppState) {
             // makes it reuse the image instead of building a new one; the view
             // remembers it owes a paint and keeps asking for frames until it
             // has been given one.
-            let now = std::time::Instant::now();
             let sig = match g.cached_sig(slot) {
                 // Nothing changed: already free, and nothing to ration.
                 Some(shown) if shown == fresh => shown,
@@ -691,7 +691,12 @@ mod feature_tests {
         settle(&mut sp);
         st.panels[0].space3d = Some(sp);
 
+        // `frame_at` is the render loop's job; here the test is the loop, which
+        // is what keeps this independent of how long an unoptimized build takes
+        // to draw.
+        let t0 = std::time::Instant::now();
         let slot = crate::ui::graphics::Slot::Space3d(0);
+        st.frame_at = t0;
         let _ = drawn(&mut st).await;
         let first = st.gfx.as_ref().unwrap().cached_sig(slot).expect("the scene was shipped once");
 
@@ -704,19 +709,20 @@ mod feature_tests {
         assert!(!sp.needs_frames(), "the scene is settled again before the frame is drawn");
         st.panels[0].space3d = Some(sp);
 
+        st.frame_at = t0 + std::time::Duration::from_millis(5);
         let _ = drawn(&mut st).await;
         assert_eq!(
             st.gfx.as_ref().unwrap().cached_sig(slot),
             Some(first),
-            "a frame this soon after the last reuses the image already on screen"
+            "a frame 5 ms after the last reuses the image already on screen"
         );
         assert!(
             st.panels[0].space3d.as_ref().is_some_and(|s| s.needs_frames()),
             "and the held-back paint asks for the frame that will deliver it"
         );
 
-        // Once the interval has really elapsed, the new picture goes out.
-        std::thread::sleep(std::time::Duration::from_millis(40));
+        // A frame a full interval on ships the new picture.
+        st.frame_at = t0 + std::time::Duration::from_millis(40);
         let _ = drawn(&mut st).await;
         assert_ne!(
             st.gfx.as_ref().unwrap().cached_sig(slot),

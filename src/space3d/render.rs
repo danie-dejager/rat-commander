@@ -75,11 +75,10 @@ pub fn render(
     // are ours, and a name downsampled into half-blocks is an illegible smudge
     // where real terminal text is crisp.
     let (img, slots) = scene(sp, &boxes, w, h, theme, false);
-    // Cell art is rebuilt every frame — there is no image to ship, only cells
-    // the frame diff collapses anyway — so it settles any paint the graphics
-    // path was refused rather than leaving the view asking for frames to
-    // collect one that will never come.
-    sp.mark_painted(std::time::Instant::now());
+    // Cell art is rebuilt every frame, so it settles any paint the image path
+    // was refused rather than leaving the view asking for frames to collect one
+    // that will never come.
+    sp.clear_repaint_debt();
     if theme.truecolor {
         crate::util::img::render_halfblocks(f, area, &img, theme.panel_bg);
     } else {

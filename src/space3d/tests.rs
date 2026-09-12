@@ -848,7 +848,7 @@ fn a_held_back_paint_asks_for_the_frame_that_delivers_it() {
 #[test]
 fn an_uncollected_paint_does_not_pin_the_frame_ticker_on() {
     // A panel that is not being drawn — behind a dialog, hidden, too small —
-    // never comes back to collect. The debt has to lapse, or an idle app would
+    // never comes back to collect. The debt has to run out, or an idle app would
     // sit at 30 fps for ever.
     let t = cache(&[("a", 100)], &[]);
     let mut sp = view_on("/r", &t);
@@ -857,10 +857,13 @@ fn an_uncollected_paint_does_not_pin_the_frame_ticker_on() {
     assert!(sp.claim_repaint(now));
     assert!(!sp.claim_repaint(now));
     assert!(sp.needs_frames());
-    // Nothing collected it; four frame intervals on, it is written off. (The
-    // clock here is the real one, so the wait has to actually elapse.)
-    std::thread::sleep(Duration::from_millis(150));
-    assert!(!sp.needs_frames(), "the uncollected paint lapsed");
+    // Frames come round, and none of them paints: the debt is counted down.
+    let mut clock = Clock::new();
+    for i in 0..4 {
+        assert!(sp.needs_frames(), "still owed after {i} uncollected frames");
+        clock.step(&mut sp, 33);
+    }
+    assert!(!sp.needs_frames(), "the uncollected paint ran out");
 }
 
 #[test]
@@ -875,7 +878,7 @@ fn drawing_the_cell_art_settles_a_paint_the_image_path_was_refused() {
     assert!(sp.claim_repaint(now));
     assert!(!sp.claim_repaint(now));
     assert!(sp.needs_frames());
-    sp.mark_painted(Instant::now());
+    sp.clear_repaint_debt();
     assert!(!sp.needs_frames(), "the cell art paid the debt off");
 }
 
