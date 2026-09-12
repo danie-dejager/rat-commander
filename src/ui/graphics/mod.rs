@@ -128,6 +128,18 @@ impl Gfx {
         self.cache.clear();
     }
 
+    /// The signature the slot's cached image was built from, or `None` when the
+    /// slot holds nothing yet.
+    ///
+    /// Lets a caller find out whether its next [`draw_cached`] would rebuild
+    /// *before* committing to one — which is what a caller needs when it would
+    /// rather redraw the image it already has than pay for a new one this frame.
+    ///
+    /// [`draw_cached`]: Gfx::draw_cached
+    pub fn cached_sig(&self, slot: Slot) -> Option<u64> {
+        self.cache.get(&slot).map(|c| c.sig)
+    }
+
     /// Cell size in pixels (width, height).
     pub fn cell(&self) -> (u32, u32) {
         let fs = self.picker.font_size();

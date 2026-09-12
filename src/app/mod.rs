@@ -12,7 +12,8 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::crossterm::event::{
     DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyEventKind,
-    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    KeyboardEnhancementFlags, MouseEventKind, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
 };
 use ratatui::crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -21,6 +22,7 @@ use ratatui::crossterm::terminal::{
 use ratatui::crossterm::{execute, queue};
 use state::{AppState, Flow};
 use std::io::{self, Stdout, Write};
+use std::task::Poll;
 
 type Term = Terminal<CrosstermBackend<Stdout>>;
 
@@ -88,6 +90,12 @@ pub async fn run(startup: crate::Startup, last_dir_file: Option<std::path::PathB
     result
 }
 
+/// How many buffered input events a single frame may absorb (see the batching
+/// loop below). The ceiling only exists so that input arriving faster than it
+/// can be consumed — a large bracketed paste, a wheel spun hard — cannot hold
+/// the redraw off indefinitely.
+const INPUT_BATCH: usize = 64;
+
 async fn run_loop(term: &mut Term, state: &mut AppState, rx: &mut AppReceiver) -> Result<()> {
     // ~100 ms tick drives animations and the system-status sampler.
     let mut ticker = tokio::time::interval(std::time::Duration::from_millis(100));
@@ -125,107 +133,127 @@ async fn run_loop(term: &mut Term, state: &mut AppState, rx: &mut AppReceiver) -
         }};
     }
 
-    loop {
+    // Act on one key/mouse handler's verdict. Expands to whether the input
+    // batch below may go on: everything that hands the terminal over came back
+    // with a brand-new event stream, so there is nothing buffered left to fold
+    // into this frame. `$out` is the render loop's own label, taken as an
+    // argument because a label written inside a macro cannot name one outside it.
+    macro_rules! act {
+        ($out:lifetime, $flow:expr) => {
+            match $flow {
+                Flow::Quit => break $out,
+                Flow::RunCommand(cmd) => {
+                    handing_over!(run_command(term, state, &mut shells, &cmd));
+                    false
+                }
+                Flow::RunCommandForeground(cmd) => {
+                    handing_over!(run_command_foreground(term, state, &cmd));
+                    false
+                }
+                Flow::RunExternal { program, path } => {
+                    handing_over!(run_external(term, state, &program, &path));
+                    false
+                }
+                Flow::SubShell => {
+                    handing_over!(toggle_subshell(term, state, &mut shells));
+                    false
+                }
+                Flow::Continue => true,
+            }
+        };
+    }
+
+    'main: loop {
         // Start-in-editor mode (`rc /edit …`): once the editor and any of its
         // dialogs are closed, the program's work is done — exit instead of
         // revealing the file-manager panels.
         if state.edit_only && state.editor.is_none() && state.dialog.is_none() {
             break;
         }
-        // Refresh the Details panel(s) before drawing: this detects when the
-        // source panel's cursor/selection changed and (re)starts background size
-        // scans. Cheap when nothing changed.
-        state.update_details();
-        // Detect a panel directory change and (re)start its background git-status
-        // scan; cheap when nothing changed.
-        state.update_git();
-        // Point each 3D panel at the other panel's directory, then point the
-        // size crawler at whatever needs sizing and re-project the views from
-        // its cache. All cheap when nothing has moved.
-        state.update_space3d();
-        state.update_sizes();
-        state.update_timeline();
-        // Arm/re-arm the filesystem watchers behind the panels' auto-refresh;
-        // cheap when neither panel has moved.
-        state.update_watches();
-        // A repaint request (the editor's Ctrl-L) drops the diffing renderer's
-        // idea of what is on screen, so the whole frame is rewritten — the point
-        // of the key when another program has scribbled over the terminal.
-        // `force_full_redraw` rather than `Terminal::clear`: the latter queries
-        // the cursor position through crossterm's event reader, which is
-        // unreliable right after a suspend recreated the event stream (see its
-        // doc comment), and it wouldn't drop the stale terminal-graphics cache.
-        if state.force_clear {
-            state.force_clear = false;
-            force_full_redraw(term, state)?;
-        }
-        draw_frame(term, state)?;
+        refresh_and_draw(term, state)?;
 
         tokio::select! {
             maybe_event = events.next() => {
-                match maybe_event {
-                    Some(Ok(Event::Key(key))) => {
-                        // Track held modifiers (where the terminal reports them via
-                        // the enhanced keyboard protocol) so the editor's F-key bar
-                        // can show the Shift/Ctrl alternate labels while held.
-                        if state.kbd_enhanced
-                            && let Some(ed) = state.editor.as_mut()
-                        {
-                            ed.note_key(key);
-                        }
-                        // Act on presses and auto-repeats; release events only
-                        // update the modifier hint above.
-                        if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
-                            match state.handle_key(key).await {
-                                Flow::Quit => break,
-                                Flow::RunCommand(cmd) => {
-                                    handing_over!(run_command(term, state, &mut shells, &cmd))
-                                }
-                                Flow::RunCommandForeground(cmd) => {
-                                    handing_over!(run_command_foreground(term, state, &cmd))
-                                }
-                                Flow::RunExternal { program, path } => {
-                                    handing_over!(run_external(term, state, &program, &path))
-                                }
-                                Flow::SubShell => {
-                                    handing_over!(toggle_subshell(term, state, &mut shells))
-                                }
-                                Flow::Continue => {}
+                // Fold the whole input backlog into this one frame.
+                //
+                // Auto-repeat and the wheel deliver events far faster than a
+                // frame can be drawn, and a burst of them is a burst of *cursor
+                // moves*: only where it ends up has to be painted. Answering
+                // each one with its own frame instead lets the terminal's input
+                // queue outrun the render loop, so the panel keeps scrolling
+                // after the key is released. That is easy to miss until a frame
+                // gets expensive — with the 3D view open one costs the terminal
+                // a whole re-transmitted image — which is why it showed up as
+                // "scrolling the other panel is sluggish".
+                let mut next = maybe_event;
+                for taken in 0..INPUT_BATCH {
+                    let more = match next {
+                        Some(Ok(Event::Key(key))) => {
+                            // Track held modifiers (where the terminal reports them via
+                            // the enhanced keyboard protocol) so the editor's F-key bar
+                            // can show the Shift/Ctrl alternate labels while held.
+                            if state.kbd_enhanced
+                                && let Some(ed) = state.editor.as_mut()
+                            {
+                                ed.note_key(key);
+                            }
+                            // Act on presses and auto-repeats; release events only
+                            // update the modifier hint above.
+                            if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+                                act!('main, state.handle_key(key).await)
+                            } else {
+                                true
                             }
                         }
+                        Some(Ok(Event::Mouse(me))) => {
+                            // The wheel is happy in a batch: it only asks which
+                            // panel it is over, and no amount of scrolling moves
+                            // a panel. Everything else the pointer does is
+                            // answered against the hit-test geometry the last
+                            // frame recorded — so if anything earlier in this
+                            // batch has moved the world, that has to be redrawn
+                            // before we ask where the pointer landed, or the
+                            // click lands on the wrong file. Then the batch ends.
+                            let wheel = matches!(
+                                me.kind,
+                                MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+                            );
+                            if !wheel && taken > 0 {
+                                refresh_and_draw(term, state)?;
+                            }
+                            act!('main, state.handle_mouse(me).await) && wheel
+                        }
+                        Some(Ok(Event::Resize(cols, rows))) => {
+                            // Keep the console emulator and every live shell PTY the
+                            // same size as the terminal, then redraw next iteration.
+                            state.console.resize(rows, cols);
+                            if let Some(sh) = shells.local.as_ref() {
+                                sh.resize(rows, cols);
+                            }
+                            for rsh in shells.remote.values() {
+                                rsh.resize(rows, cols);
+                            }
+                            true
+                        }
+                        Some(Ok(_)) => true, // other events: redraw next iteration
+                        Some(Err(e)) => return Err(e.into()),
+                        None => break 'main, // stdin closed
+                    };
+                    if !more {
+                        break;
                     }
-                    Some(Ok(Event::Mouse(me))) => {
-                        match state.handle_mouse(me).await {
-                            Flow::Quit => break,
-                            Flow::RunCommand(cmd) => {
-                                handing_over!(run_command(term, state, &mut shells, &cmd))
-                            }
-                            Flow::RunCommandForeground(cmd) => {
-                                handing_over!(run_command_foreground(term, state, &cmd))
-                            }
-                            Flow::RunExternal { program, path } => {
-                                handing_over!(run_external(term, state, &program, &path))
-                            }
-                            Flow::SubShell => {
-                                handing_over!(toggle_subshell(term, state, &mut shells))
-                            }
-                            Flow::Continue => {}
-                        }
+                    // Take the next event only if one is already waiting: this
+                    // must never block, or the frame the batch is being drawn
+                    // for would never arrive. `poll!` rather than
+                    // `now_or_never` — the latter polls with a no-op waker, and
+                    // `EventStream` hands whichever waker it is first given to
+                    // the blocking reader thread it parks input on. Handing it a
+                    // waker that does nothing would leave the next real key
+                    // waking nobody.
+                    match futures::poll!(events.next()) {
+                        Poll::Ready(e) => next = e,
+                        Poll::Pending => break,
                     }
-                    Some(Ok(Event::Resize(cols, rows))) => {
-                        // Keep the console emulator and every live shell PTY the
-                        // same size as the terminal, then redraw next iteration.
-                        state.console.resize(rows, cols);
-                        if let Some(sh) = shells.local.as_ref() {
-                            sh.resize(rows, cols);
-                        }
-                        for rsh in shells.remote.values() {
-                            rsh.resize(rows, cols);
-                        }
-                    }
-                    Some(Ok(_)) => {} // other events: redraw next iteration
-                    Some(Err(e)) => return Err(e.into()),
-                    None => break, // stdin closed
                 }
             }
             Some(app_event) = rx.recv() => {
@@ -247,6 +275,42 @@ async fn run_loop(term: &mut Term, state: &mut AppState, rx: &mut AppReceiver) -
         }
     }
     Ok(())
+}
+
+/// Bring the derived views up to date and draw one frame.
+///
+/// Everything here is cheap when nothing has moved, which is what lets the
+/// batching loop call it a second time mid-batch to refresh the hit-test
+/// geometry a click is about to be answered against.
+fn refresh_and_draw(term: &mut Term, state: &mut AppState) -> Result<()> {
+    // Refresh the Details panel(s) before drawing: this detects when the
+    // source panel's cursor/selection changed and (re)starts background size
+    // scans. Cheap when nothing changed.
+    state.update_details();
+    // Detect a panel directory change and (re)start its background git-status
+    // scan; cheap when nothing changed.
+    state.update_git();
+    // Point each 3D panel at the other panel's directory, then point the
+    // size crawler at whatever needs sizing and re-project the views from
+    // its cache. All cheap when nothing has moved.
+    state.update_space3d();
+    state.update_sizes();
+    state.update_timeline();
+    // Arm/re-arm the filesystem watchers behind the panels' auto-refresh;
+    // cheap when neither panel has moved.
+    state.update_watches();
+    // A repaint request (the editor's Ctrl-L) drops the diffing renderer's
+    // idea of what is on screen, so the whole frame is rewritten — the point
+    // of the key when another program has scribbled over the terminal.
+    // `force_full_redraw` rather than `Terminal::clear`: the latter queries
+    // the cursor position through crossterm's event reader, which is
+    // unreliable right after a suspend recreated the event stream (see its
+    // doc comment), and it wouldn't drop the stale terminal-graphics cache.
+    if state.force_clear {
+        state.force_clear = false;
+        force_full_redraw(term, state)?;
+    }
+    draw_frame(term, state)
 }
 
 /// Draw one frame, then erase what each row leaves blank at its right edge.

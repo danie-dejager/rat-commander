@@ -1,6 +1,7 @@
 use super::*;
 use crate::sizes::SizeTree;
 use std::path::Path;
+use std::time::Duration;
 
 /// A cache holding `/r` with the given children, each carrying one file, and
 /// optional grandchildren under `/r/<parent>`.
@@ -802,6 +803,80 @@ fn ghosts_keep_the_animation_running_until_they_are_gone() {
         assert!(sp.needs_frames(), "a fading box keeps the frames coming");
     }
     assert!(sp.ghosts.is_empty());
+}
+
+// -- repaint throttling -----------------------------------------------------
+
+#[test]
+fn the_image_is_not_rebuilt_faster_than_the_frame_rate() {
+    // The other panel's cursor moving is a change of picture, and on a graphics
+    // terminal a change of picture is a whole image re-shipped to the terminal.
+    // Held-down arrow keys deliver those faster than any terminal can swallow
+    // them, so the rebuilds have to be rationed.
+    let t = cache(&[("a", 100), ("b", 200)], &[]);
+    let mut sp = view_on("/r", &t);
+    settle(&mut sp);
+
+    let t0 = Instant::now();
+    assert!(sp.claim_repaint(t0), "the first paint is never held back");
+    assert!(!sp.claim_repaint(t0 + Duration::from_millis(5)), "a paint 5 ms later is");
+    assert!(!sp.claim_repaint(t0 + Duration::from_millis(32)), "and so is one at 32 ms");
+    assert!(sp.claim_repaint(t0 + Duration::from_millis(33)), "a paint a frame later is not");
+    assert!(!sp.claim_repaint(t0 + Duration::from_millis(40)), "which starts the gap again");
+}
+
+#[test]
+fn a_held_back_paint_asks_for_the_frame_that_delivers_it() {
+    // Refusing a paint on a settled scene would leave the picture stale for
+    // good unless the refusal itself brings a frame back round.
+    let t = cache(&[("a", 100)], &[]);
+    let mut sp = view_on("/r", &t);
+    settle(&mut sp);
+    assert!(!sp.needs_frames(), "an idle 3D panel costs no CPU");
+
+    let now = Instant::now();
+    assert!(sp.claim_repaint(now));
+    assert!(!sp.needs_frames(), "a paint that went through owes nothing");
+
+    assert!(!sp.claim_repaint(now + Duration::from_millis(5)));
+    assert!(sp.needs_frames(), "one that was held back is owed a frame");
+
+    assert!(sp.claim_repaint(now + Duration::from_millis(33)));
+    assert!(!sp.needs_frames(), "and stops asking once it has had it");
+}
+
+#[test]
+fn an_uncollected_paint_does_not_pin_the_frame_ticker_on() {
+    // A panel that is not being drawn — behind a dialog, hidden, too small —
+    // never comes back to collect. The debt has to lapse, or an idle app would
+    // sit at 30 fps for ever.
+    let t = cache(&[("a", 100)], &[]);
+    let mut sp = view_on("/r", &t);
+    settle(&mut sp);
+    let now = Instant::now();
+    assert!(sp.claim_repaint(now));
+    assert!(!sp.claim_repaint(now));
+    assert!(sp.needs_frames());
+    // Nothing collected it; four frame intervals on, it is written off. (The
+    // clock here is the real one, so the wait has to actually elapse.)
+    std::thread::sleep(Duration::from_millis(150));
+    assert!(!sp.needs_frames(), "the uncollected paint lapsed");
+}
+
+#[test]
+fn drawing_the_cell_art_settles_a_paint_the_image_path_was_refused() {
+    // Switching to the cell fallback (a dialog opened, graphics went off) still
+    // repaints the scene, so it must clear the debt rather than leave the view
+    // asking for frames to deliver a paint that has already happened.
+    let t = cache(&[("a", 100)], &[]);
+    let mut sp = view_on("/r", &t);
+    settle(&mut sp);
+    let now = Instant::now();
+    assert!(sp.claim_repaint(now));
+    assert!(!sp.claim_repaint(now));
+    assert!(sp.needs_frames());
+    sp.mark_painted(Instant::now());
+    assert!(!sp.needs_frames(), "the cell art paid the debt off");
 }
 
 // -- camera -----------------------------------------------------------------

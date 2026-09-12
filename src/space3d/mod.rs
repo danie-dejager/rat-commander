@@ -128,6 +128,22 @@ const MAX_GHOSTS: usize = 120;
 /// Seconds for a box to fade in or out.
 const FADE_TAU: f32 = 0.13;
 
+/// Shortest gap between two rebuilds of the scene's image.
+///
+/// Rebuilding is the expensive half of this view, and the cost is not the
+/// rasterizer — that is a few hundred microseconds — but what happens to the
+/// picture afterwards. On a graphics terminal the raster is re-encoded and the
+/// *whole image* is re-transmitted: for a half-screen panel that is several
+/// megabytes of escape data per rebuild, and no terminal swallows those at the
+/// rate a held-down arrow key produces them.
+///
+/// Which is exactly what a held-down arrow key in the other panel used to
+/// produce, because this view highlights that panel's cursor and so its picture
+/// genuinely changes on every keypress. Pinning rebuilds to the animation's own
+/// frame rate keeps the highlight following along while leaving the frames in
+/// between free to draw the panel that is actually being scrolled.
+const MIN_REPAINT: std::time::Duration = std::time::Duration::from_millis(33);
+
 /// How many levels below the current directory the tree goes.
 const DEPTH_BELOW: u8 = 2;
 
@@ -350,6 +366,10 @@ pub struct Space3d {
     goal: CamPose,
     settled: bool,
     last: Instant,
+    /// When the scene's image was last rebuilt, and whether a rebuild has since
+    /// been held back by [`MIN_REPAINT`] — see [`Space3d::claim_repaint`].
+    painted: Instant,
+    repaint_due: bool,
     shown: HashMap<PathBuf, Shown>,
     ghosts: Vec<Ghost>,
     /// Width / height of the raster the scene is drawn into. The camera fit
@@ -399,6 +419,12 @@ impl Space3d {
             goal,
             settled: false,
             last: Instant::now(),
+            // A view that has never been painted must not have its first paint
+            // held back, so it starts a full interval in the past. `checked_sub`
+            // because `Instant` is monotonic from boot and subtracting past
+            // zero panics.
+            painted: Instant::now().checked_sub(MIN_REPAINT).unwrap_or_else(Instant::now),
+            repaint_due: false,
             shown: HashMap::new(),
             ghosts: Vec::new(),
             aspect: 1.0,
@@ -977,7 +1003,43 @@ impl Space3d {
     // -- animation ----------------------------------------------------------
 
     pub fn needs_frames(&self) -> bool {
-        !self.settled || !self.ghosts.is_empty()
+        !self.settled
+            || !self.ghosts.is_empty()
+            // A paint that was held back is worth a frame to collect. The debt
+            // lapses if nothing collects it, so a view that is not being drawn
+            // at all — behind a dialog, on a hidden panel, in a panel too small
+            // to draw into — cannot pin the frame ticker on for ever.
+            || (self.repaint_due && self.painted.elapsed() < MIN_REPAINT * 4)
+    }
+
+    /// Ask permission to rebuild the scene's image this frame.
+    ///
+    /// `true` grants it and starts a fresh [`MIN_REPAINT`] interval; `false`
+    /// means draw whatever image is already there. A refusal is remembered, so
+    /// [`needs_frames`] keeps asking for frames until the paint that was held
+    /// back has happened — without that, a scene that went quiet in the same
+    /// moment it was refused would sit on a stale picture for good.
+    ///
+    /// Only call this when the image would actually come out different;
+    /// an unchanged one is already free.
+    ///
+    /// [`needs_frames`]: Space3d::needs_frames
+    pub fn claim_repaint(&mut self, now: Instant) -> bool {
+        if now.duration_since(self.painted) < MIN_REPAINT {
+            self.repaint_due = true;
+            return false;
+        }
+        self.mark_painted(now);
+        true
+    }
+
+    /// Record that the scene's image has just been built, and clear any paint
+    /// held back before it. The cell-art path calls this directly: it rebuilds
+    /// unconditionally (there is no image to ship, only cells the frame diff
+    /// already collapses), so it settles the debt rather than asking about it.
+    pub fn mark_painted(&mut self, now: Instant) {
+        self.painted = now;
+        self.repaint_due = false;
     }
 
     /// Advance the camera, node positions and box sizes toward their targets.

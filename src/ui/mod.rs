@@ -250,8 +250,30 @@ fn draw_body(f: &mut Frame, state: &mut AppState) {
                 sp.cam.eye(),
                 sp.cam.target,
             );
-            let sig = crate::space3d::render::signature(sp, &boxes, pw, ph, &theme);
-            g.draw_cached(f, area, crate::ui::graphics::Slot::Space3d(i as u16), sig, || {
+            let slot = crate::ui::graphics::Slot::Space3d(i as u16);
+            let fresh = crate::space3d::render::signature(sp, &boxes, pw, ph, &theme);
+            // Ration the rebuilds. Re-encoding this raster and re-transmitting
+            // it is megabytes down the terminal, and the view is drawn once per
+            // keypress in the panel it describes — the scene highlights that
+            // panel's cursor, so those keypresses really do change the picture.
+            // Handing `draw_cached` the signature already on screen is what
+            // makes it reuse the image instead of building a new one; the view
+            // remembers it owes a paint and keeps asking for frames until it
+            // has been given one.
+            let now = std::time::Instant::now();
+            let sig = match g.cached_sig(slot) {
+                // Nothing changed: already free, and nothing to ration.
+                Some(shown) if shown == fresh => shown,
+                // A rebuild too soon after the last one: keep what is up there.
+                Some(shown) if !sp.claim_repaint(now) => shown,
+                // Rebuilding — including the first paint, which nothing precedes
+                // and which must therefore start the interval rather than skip it.
+                _ => {
+                    sp.mark_painted(now);
+                    fresh
+                }
+            };
+            g.draw_cached(f, area, slot, sig, || {
                 crate::space3d::render::rasterize(sp, &boxes, pw, ph, &theme)
             });
         }
@@ -627,6 +649,83 @@ mod feature_tests {
             crate::space3d::render::signature(sp, &sp.boxes(&pal), pw, ph, &theme),
             sig,
             "a settled scene keeps the same signature, so the image is not rebuilt"
+        );
+    }
+
+    /// The 3D view highlights the *other* panel's cursor, so an arrow key over
+    /// there is a change of picture — and on a graphics terminal a change of
+    /// picture means re-encoding the raster and re-transmitting the whole image,
+    /// megabytes of it. Held-down keys deliver those far faster than a terminal
+    /// can swallow them, so consecutive frames must reuse the image already up.
+    #[tokio::test]
+    async fn the_3d_image_is_rationed_rather_than_re_shipped_every_frame() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+        st.truecolor = true;
+        st.gfx = Some(crate::ui::graphics::Gfx::test_halfblocks());
+        st.panels[0].format = crate::panel::ViewFormat::Space3d;
+        st.panels[0].build_space3d(st.config.space3d_style);
+
+        let mut sp = st.panels[0].space3d.take().expect("3D state");
+        let mut tree = crate::sizes::SizeTree::new();
+        let root = sp.focus.clone();
+        let r = tree.ensure(&root);
+        tree.mark_listed(r);
+        for (name, size) in [("alpha", 9_000_000u64), ("beta", 2_000_000)] {
+            let p = root.join(name);
+            let id = tree.ensure(&p);
+            tree.mark_listed(id);
+            tree.add_file(id, &p.join("f"), size);
+        }
+        // A clock of its own, so settling the animation never touches the
+        // wall-clock interval the rationing is measured against.
+        let mut clock = std::time::Instant::now();
+        let mut settle = |sp: &mut crate::space3d::Space3d| {
+            for _ in 0..500 {
+                clock += std::time::Duration::from_millis(33);
+                sp.advance(clock);
+            }
+        };
+        sp.sync_from(&tree);
+        settle(&mut sp);
+        st.panels[0].space3d = Some(sp);
+
+        let slot = crate::ui::graphics::Slot::Space3d(0);
+        let _ = drawn(&mut st).await;
+        let first = st.gfx.as_ref().unwrap().cached_sig(slot).expect("the scene was shipped once");
+
+        // The other panel's cursor lands on a directory: the highlight moves, so
+        // the picture is genuinely different from the one on screen.
+        let mut sp = st.panels[0].space3d.take().unwrap();
+        sp.set_cursor(Some(&root.join("alpha")));
+        sp.sync_from(&tree);
+        settle(&mut sp);
+        assert!(!sp.needs_frames(), "the scene is settled again before the frame is drawn");
+        st.panels[0].space3d = Some(sp);
+
+        let _ = drawn(&mut st).await;
+        assert_eq!(
+            st.gfx.as_ref().unwrap().cached_sig(slot),
+            Some(first),
+            "a frame this soon after the last reuses the image already on screen"
+        );
+        assert!(
+            st.panels[0].space3d.as_ref().is_some_and(|s| s.needs_frames()),
+            "and the held-back paint asks for the frame that will deliver it"
+        );
+
+        // Once the interval has really elapsed, the new picture goes out.
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        let _ = drawn(&mut st).await;
+        assert_ne!(
+            st.gfx.as_ref().unwrap().cached_sig(slot),
+            Some(first),
+            "a frame a full interval later ships the moved highlight"
+        );
+        assert!(
+            st.panels[0].space3d.as_ref().is_some_and(|s| !s.needs_frames()),
+            "and the view stops asking for frames again"
         );
     }
 
