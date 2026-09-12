@@ -144,6 +144,7 @@ async fn run_loop(term: &mut Term, state: &mut AppState, rx: &mut AppReceiver) -
         // its cache. All cheap when nothing has moved.
         state.update_space3d();
         state.update_sizes();
+        state.update_timeline();
         // Arm/re-arm the filesystem watchers behind the panels' auto-refresh;
         // cheap when neither panel has moved.
         state.update_watches();

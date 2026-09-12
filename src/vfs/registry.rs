@@ -5,6 +5,8 @@
 //! resolve any path without knowing the backend list.
 
 use super::archive::ArchiveFs;
+use super::git::GitFs;
+use super::iso::IsoFs;
 use super::local::LocalFs;
 use super::{Vfs, VfsPath};
 use crate::util::{Error, Result};
@@ -17,11 +19,21 @@ pub struct Registry {
 }
 
 impl Registry {
-    /// Create a registry with the always-present local backend.
+    /// Create a registry with the always-present local, archive and git backends.
     pub fn new() -> Self {
         let mut backends: HashMap<String, Arc<dyn Vfs>> = HashMap::new();
         backends.insert("file".to_string(), Arc::new(LocalFs::new()));
         backends.insert("archive".to_string(), Arc::new(ArchiveFs::new()));
+        // History is browsable wherever a repository is, so `git` is always
+        // present like `file` and `archive` rather than mounted per session.
+        let revs = crate::config::DEFAULT_GIT_REV_LIMIT;
+        backends.insert("git".to_string(), Arc::new(GitFs::new(revs)));
+        backends.insert("iso".to_string(), Arc::new(IsoFs::new()));
+        for syntax in [super::doc::Syntax::Json, super::doc::Syntax::Toml] {
+            backends.insert(syntax.scheme().to_string(), Arc::new(super::doc::DocFs::new(syntax)));
+        }
+        #[cfg(feature = "sqlite")]
+        backends.insert("sqlite".to_string(), Arc::new(super::sqlite::SqliteFs::new()));
         Registry { backends }
     }
 

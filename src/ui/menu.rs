@@ -49,6 +49,7 @@ pub enum MenuAction {
     GitDiff,
     /// `git status` of the panel's repository, shown as raw output.
     GitStatus,
+    GitBrowseRev,
     /// `git log` of the panel's repository, shown as raw output.
     GitLog,
     /// `git add` the selected files/directories.
@@ -368,6 +369,8 @@ fn git_menu_items() -> Vec<FileMenuItem> {
         sep(),
         item("&Init repository...", MenuAction::GitInit),
         item("Clo&ne...", MenuAction::GitClone),
+        sep(),
+        item("&Browse a revision...", MenuAction::GitBrowseRev),
     ]
 }
 
@@ -391,6 +394,7 @@ pub const GIT_MENU_KEYS: &[(&str, MenuAction)] = &[
     ("&Reset...", MenuAction::GitReset),
     ("&Init repository...", MenuAction::GitInit),
     ("Clo&ne...", MenuAction::GitClone),
+    ("&Browse a revision...", MenuAction::GitBrowseRev),
 ];
 #[cfg(test)]
 mod tests {

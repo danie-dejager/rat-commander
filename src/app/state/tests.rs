@@ -5191,3 +5191,92 @@ async fn ctrl_tab_and_ctrl_pageup_down_cycle_tabs() {
 
     std::fs::remove_dir_all(&root).ok();
 }
+
+/// Full dispatch for the Git menu's *Browse a revision*: mounting points the
+/// active panel at the repository's history, walking into a commit lists that
+/// commit's tree, and `..` climbs back out to the work tree.
+#[tokio::test]
+async fn git_browse_revisions_mounts_history_and_walks_back_out() {
+    let git_ok = std::process::Command::new("git")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    if !git_ok {
+        return;
+    }
+
+    let root = crate::util::temp::rc_temp_path("state-gitbrowse");
+    std::fs::create_dir_all(&root).unwrap();
+    let run = |args: &[&str], date: &str| {
+        let ok = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@e")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@e")
+            .env("GIT_AUTHOR_DATE", date)
+            .env("GIT_COMMITTER_DATE", date)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(ok.success(), "git {args:?}");
+    };
+    run(&["init", "-q", "-b", "main"], "2026-05-11T10:00:00+00:00");
+    std::fs::write(root.join("tracked.txt"), b"hi").unwrap();
+    run(&["add", "-A"], "2026-05-11T10:00:00+00:00");
+    run(&["commit", "-q", "-m", "only commit"], "2026-05-11T10:00:00+00:00");
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+
+    st.git_browse_revisions(root.clone()).await;
+    assert_eq!(st.panels[0].cwd.scheme, "git", "the panel mounted the history");
+
+    // The mount's root is the revision list, so the feature needs no picker.
+    let revs: Vec<String> = st.panels[0].entries.iter().map(|e| e.name.clone()).collect();
+    let rev = revs.iter().find(|n| n.contains("only-commit")).expect("{revs:?}").clone();
+    assert!(rev.starts_with("2026-05-11_10-00-00_"), "{rev}");
+
+    // Walking into a commit lists that commit's tree.
+    st.panels[0].cursor = st.panels[0].entries.iter().position(|e| e.name == rev).unwrap();
+    st.enter_dir().await;
+    let names: Vec<String> = st.panels[0].entries.iter().map(|e| e.name.clone()).collect();
+    assert!(names.contains(&"tracked.txt".to_string()), "{names:?}");
+
+    // The border labels the revision rather than a branch.
+    st.update_git();
+    let label = st.panels[0].git.as_ref().expect("a mount labels itself").branch.clone();
+    assert!(label.contains("only commit"), "{label}");
+
+    // History is read-only, so a copy into it is refused before any bytes move.
+    st.panels[1].cwd = VfsPath::local(&root);
+    st.panels[1].backend = st.registry.local();
+    st.panels[1].reload().await.unwrap();
+    st.active = 1;
+    st.panels[1].cursor =
+        st.panels[1].entries.iter().position(|e| e.name == "tracked.txt").unwrap();
+    st.open_transfer_dialog(OpKind::Copy);
+    match st.dialog.take() {
+        Some(Dialog::Message(_)) => {}
+        other => panic!("a copy into history should be refused, got {:?}", other.is_some()),
+    }
+
+    // `..` at the mount root leaves for the work tree, not the repo's parent.
+    st.active = 0;
+    let up = st.panels[0].cwd.parent().unwrap().parent().unwrap();
+    assert_eq!(up.path, root, "leaving history lands in the work tree");
+    assert!(up.is_plain_local());
+
+    std::fs::remove_dir_all(&root).ok();
+}

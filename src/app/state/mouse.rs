@@ -189,6 +189,9 @@ impl AppState {
                     // before the listing, since the strip sits inside the panel.
                     self.active = side;
                     self.tab_select(side, index).await;
+                } else if self.scrub_click(col, row) {
+                    // A click on the time machine's track seeks to that point in
+                    // the history; the ◀/▶ ends step one commit.
                 } else if let Some((side, back)) = self.history_arrow_at(col, row) {
                     // A click on a panel's ◀/▶ history arrow steps it back/forward.
                     self.active = side;
@@ -399,5 +402,47 @@ impl AppState {
         let i = crate::ui::fkeys::index_at(bar, &crate::ui::fkeys::PANEL_LABELS, col, row)?;
         let key = KeyEvent::new(KeyCode::F(i as u8 + 1), KeyModifiers::NONE);
         Some(self.handle_panel_key(key).await)
+    }
+}
+
+impl AppState {
+    /// A click on the time machine's scrub track. Returns whether it landed
+    /// there, so the ordinary panel click does not also fire.
+    ///
+    /// The ends step one commit each; anywhere along the bar seeks in
+    /// proportion, so dragging across it runs through the history.
+    pub(in crate::app::state) fn scrub_click(&mut self, col: u16, row: u16) -> bool {
+        let Some(tl) = self.timeline.as_ref() else { return false };
+        let Some(area) = self.panels[tl.side].scrub_area else { return false };
+        if row != area.y || col < area.x || col >= area.x + area.width {
+            return false;
+        }
+        let total = tl.revs.len();
+        if total == 0 {
+            return true;
+        }
+        // Mirrors `render_scrub_row`'s layout: a leading ◀, the bar, the
+        // position readout, and a trailing ▶.
+        let pos_w = format!(" {}/{} ", tl.position().0, total).chars().count() as u16;
+        let lead = area.x + 2;
+        let bar_w = area.width.saturating_sub(pos_w + 4).max(1);
+        let x = col.saturating_sub(area.x);
+        if x < 2 {
+            self.timeline_step(-1);
+        } else if col >= area.x + area.width - 2 {
+            self.timeline_step(1);
+        } else if col >= lead && col < lead + bar_w {
+            // The inverse of `render_scrub_row`'s placement, so a click lands on
+            // the commit the marker is sitting on. The bar runs oldest on the
+            // left, so the index — which counts newest first — is taken back
+            // from the end.
+            let along = (col - lead) as usize;
+            let span = (bar_w as usize).saturating_sub(1).max(1);
+            let oldest_first = (along * (total - 1)) / span;
+            if let Some(t) = self.timeline.as_mut() {
+                t.seek(total - 1 - oldest_first.min(total - 1));
+            }
+        }
+        true
     }
 }

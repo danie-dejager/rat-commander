@@ -38,6 +38,11 @@ impl AppState {
             if let Some(sp) = self.panels[viewer].space3d.as_mut() {
                 sp.set_style(style);
             }
+            // While a timeline owns this panel, the scene is about a revision,
+            // not about wherever the other panel's cursor has wandered to.
+            if self.timeline.as_ref().is_some_and(|t| t.side == viewer) {
+                continue;
+            }
             let source = 1 - viewer;
             // Only a real filesystem can be crawled, so a remote or archive
             // panel leaves the view showing whatever it last had.
@@ -73,6 +78,9 @@ impl AppState {
             Some(d) => Some(d.cwd.clone()),
             None => [self.active, 1 - self.active]
                 .iter()
+                // A timeline's panel has its sizes from git, not from the disk;
+                // crawling for it would be pure waste.
+                .filter(|&&i| self.timeline.as_ref().map(|t| t.side) != Some(i))
                 .find_map(|&i| self.panels[i].space3d.as_ref().map(|sp| sp.focus.clone())),
         };
         if let Some(dir) = want
@@ -90,8 +98,9 @@ impl AppState {
     /// crawler has actually seen something new since last time — otherwise an
     /// idle view would rebuild its box list on every frame.
     pub(in crate::app::state) fn refresh_size_views(&mut self) {
+        let timeline_side = self.timeline.as_ref().map(|t| t.side);
         let Some(crawler) = self.sizes.as_ref() else {
-            return;
+            return self.refresh_timeline_view();
         };
         crawler.with_tree(|tree| {
             if let Some(dv) = self.diskview.as_mut()
@@ -100,7 +109,12 @@ impl AppState {
                 dv.synced_at = tree.dirs_seen;
                 dv.sync_from(tree);
             }
-            for p in self.panels.iter_mut() {
+            for (i, p) in self.panels.iter_mut().enumerate() {
+                // A panel under a timeline is drawn from that revision's tree,
+                // applied below; the crawler's has nothing to say about it.
+                if timeline_side == Some(i) {
+                    continue;
+                }
                 if let Some(sp) = p.space3d.as_mut()
                     && tree.dirs_seen != sp.synced_at
                 {
@@ -109,5 +123,122 @@ impl AppState {
                 }
             }
         });
+        self.refresh_timeline_view();
+    }
+
+    /// Draw a timeline's panel from the revision it is showing. The same
+    /// `dirs_seen`/`synced_at` guard as the crawler's, against the epoch each
+    /// delivered tree is stamped with.
+    pub(in crate::app::state) fn refresh_timeline_view(&mut self) {
+        let Some(tl) = self.timeline.as_ref() else { return };
+        let (side, Some(tree)) = (tl.side, tl.tree().cloned()) else { return };
+        if let Some(sp) = self.panels[side].space3d.as_mut()
+            && tree.dirs_seen != sp.synced_at
+        {
+            sp.synced_at = tree.dirs_seen;
+            sp.sync_from(&tree);
+        }
+    }
+}
+
+// -- The 3D time machine ----------------------------------------------------
+
+impl AppState {
+    /// Toggle the time machine on the active 3D panel.
+    ///
+    /// The 3D view describes the *other* panel, so the history scrubbed is the
+    /// one belonging to the directory that panel is showing.
+    pub(in crate::app::state) async fn timeline_toggle(&mut self) {
+        if self.timeline.take().is_some() {
+            // Leaving: the crawler takes the panel back, and the scene returns
+            // to the live filesystem on the next pass.
+            self.sizes_focus = None;
+            return;
+        }
+        let viewer = self.active;
+        if !self.panels[viewer].is_space3d() {
+            return self.show_error(crate::l10n::tr("The time machine needs the 3D view"));
+        }
+        let source = 1 - viewer;
+        let dir = self.panels[source].cwd.clone();
+        if !crate::space3d::is_scrubbable(&dir) {
+            return self.show_error(crate::l10n::tr("The time machine needs a local directory"));
+        }
+        let Some(toplevel) = crate::vfs::git::toplevel_of(&dir.path).await else {
+            return self.show_error(crate::l10n::tr("Not a git repository"));
+        };
+        let limit = crate::config::DEFAULT_GIT_REV_LIMIT;
+        let revs = match crate::vfs::git::rev_list(&toplevel, limit).await {
+            Ok(r) => r,
+            Err(e) => return self.show_error(format!("{e}")),
+        };
+        if revs.is_empty() {
+            return self.show_error(crate::l10n::tr("This repository has no commits yet"));
+        }
+        // The scene is about the repository root from here on, whatever the
+        // source panel was pointing at — a revision's sizes are the whole tree's.
+        if let Some(sp) = self.panels[viewer].space3d.as_mut() {
+            sp.set_focus(&toplevel);
+            sp.set_cursor(None);
+        }
+        self.timeline = Some(crate::sizes::timeline::Timeline::new(viewer, toplevel, revs));
+    }
+
+    /// Step the timeline, if one is running.
+    pub(in crate::app::state) fn timeline_step(&mut self, by: i64) {
+        if let Some(t) = self.timeline.as_mut() {
+            t.step(by);
+        }
+    }
+
+    /// Jump to the oldest (`false`) or newest (`true`) revision.
+    pub(in crate::app::state) fn timeline_end(&mut self, newest: bool) {
+        if let Some(t) = self.timeline.as_mut() {
+            let to = if newest { 0 } else { t.revs.len().saturating_sub(1) };
+            t.seek(to);
+        }
+    }
+
+    /// Start whatever fetch the timeline is owed, and keep the scrub row's
+    /// readout in step. Called once per loop tick.
+    pub fn update_timeline(&mut self) {
+        use crate::sizes::timeline::Fetch;
+        let snapshot = self.timeline.as_ref().map(|t| {
+            let (index, total) = t.position();
+            (t.side, crate::panel::ScrubRow { label: t.label(), index, total })
+        });
+        for i in 0..2 {
+            self.panels[i].scrub = match &snapshot {
+                Some((side, row)) if *side == i => Some(row.clone()),
+                _ => None,
+            };
+        }
+        let Some(t) = self.timeline.as_mut() else { return };
+        let (root, want) = (t.root.clone(), t.poll(std::time::Instant::now()));
+        let Fetch::Want { oid, generation } = want else { return };
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let result = crate::vfs::git::tree_sizes(&root, &oid).await.map_err(|e| e.to_string());
+            let _ = tx.send(AppEvent::TimelineTree { oid, generation, result }).await;
+        });
+    }
+
+    /// Take delivery of a revision's sizes.
+    pub(in crate::app::state) fn apply_timeline_tree(
+        &mut self,
+        oid: String,
+        _generation: u64,
+        result: Result<Vec<(String, u64)>, String>,
+    ) {
+        let Some(t) = self.timeline.as_mut() else { return };
+        match result {
+            // A reply for a revision already scrubbed past is still kept — it
+            // cost a `git` call — but `deliver` only shows it if it is current.
+            Ok(entries) => t.deliver(oid, entries),
+            Err(e) => {
+                t.fail(&oid);
+                self.show_error(e);
+            }
+        }
     }
 }

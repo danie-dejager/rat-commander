@@ -151,6 +151,7 @@ rtl = true
 "&Reset..." = "إعادة تعيين… (&R)"
 "&Init repository..." = "إنشاء مستودع… (&I)"
 "Clo&ne..." = "استنساخ… (&N)"
+"&Browse a revision..." = "استعراض مراجعة… (&B)"
 "Commit" = "إيداع"
 "Clone" = "استنساخ"
 "Fetch" = "جلب"
@@ -474,3 +475,10 @@ rtl = true
 
 # -- New-file editor prompt (Shift-F4) --
 "Edit new file" = "تحرير ملف جديد"
+"That panel's filesystem is read-only" = "نظام ملفات تلك اللوحة للقراءة فقط"
+"history" = "السجل"
+"Not a git repository" = "ليس مستودع git"
+"The time machine needs the 3D view" = "تحتاج آلة الزمن إلى العرض ثلاثي الأبعاد"
+"The time machine needs a local directory" = "تحتاج آلة الزمن إلى دليل محلي"
+"This repository has no commits yet" = "لا يحتوي هذا المستودع على أي إيداعات بعد"
+"no revisions" = "لا مراجعات"

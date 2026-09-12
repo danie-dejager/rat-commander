@@ -18,10 +18,10 @@
 use crate::util::{Error, Result};
 use crate::vfs::membuf::{MemReader, pipe_upload};
 use crate::vfs::remote::perms_to_mode;
+use crate::vfs::tree::{self, Meta, TreeBuilder, TreeCache, VfsTree};
 use crate::vfs::{BoxRead, BoxWrite, Capabilities, Vfs, VfsEntry, VfsKind, VfsPath, WriteMeta};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
@@ -39,96 +39,9 @@ struct ExtfsListEntry {
     symlink_target: Option<String>,
 }
 
-/// One child within a directory of the mount.
-struct ChildMeta {
-    name: String,
-    kind: VfsKind,
-    size: u64,
-    mode: Option<u32>,
-    symlink_target: Option<String>,
-}
-
-/// In-memory directory tree built from a `list` run.
-struct ExtfsTree {
-    mtime: Option<SystemTime>,
-    /// Inner dir path (`/`, `/a`) → its children.
-    dirs: HashMap<String, Vec<ChildMeta>>,
-}
-
-impl ExtfsTree {
-    fn read_dir(&self, inner: &str) -> Result<Vec<VfsEntry>> {
-        let norm = normalize_inner(inner);
-        let children = self.dirs.get(&norm).ok_or_else(|| Error::NotFound(norm.clone()))?;
-        Ok(children.iter().map(|c| self.entry_of(c)).collect())
-    }
-
-    fn stat(&self, inner: &str) -> Result<VfsEntry> {
-        let norm = normalize_inner(inner);
-        if norm == "/" || self.dirs.contains_key(&norm) {
-            return Ok(dir_entry(&base_name(&norm), self.mtime));
-        }
-        let parent = parent_inner(&norm);
-        let name = base_name(&norm);
-        let child = self
-            .dirs
-            .get(&parent)
-            .and_then(|c| c.iter().find(|c| c.name == name))
-            .ok_or_else(|| Error::NotFound(norm.clone()))?;
-        Ok(self.entry_of(child))
-    }
-
-    fn entry_of(&self, c: &ChildMeta) -> VfsEntry {
-        VfsEntry {
-            name: c.name.clone(),
-            kind: c.kind,
-            size: c.size,
-            mtime: self.mtime,
-            atime: None,
-            ctime: None,
-            inode: None,
-            mode: c.mode,
-            uid: None,
-            gid: None,
-            symlink_target: c.symlink_target.clone(),
-            symlink_broken: false,
-        }
-    }
-}
-
-fn dir_entry(name: &str, mtime: Option<SystemTime>) -> VfsEntry {
-    VfsEntry {
-        name: name.to_string(),
-        kind: VfsKind::Dir,
-        size: 0,
-        mtime,
-        atime: None,
-        ctime: None,
-        inode: None,
-        mode: None,
-        uid: None,
-        gid: None,
-        symlink_target: None,
-        symlink_broken: false,
-    }
-}
-
-/// Normalize an inner path to `/`, `/a`, `/a/b` form (leading slash, no trailing).
-fn normalize_inner(inner: &str) -> String {
-    let trimmed = inner.replace('\\', "/");
-    let trimmed = trimmed.trim_matches('/');
-    if trimmed.is_empty() { "/".to_string() } else { format!("/{trimmed}") }
-}
-
-fn base_name(inner: &str) -> String {
-    inner.rsplit('/').next().unwrap_or("").to_string()
-}
-
-fn parent_inner(inner: &str) -> String {
-    match inner.rfind('/') {
-        Some(0) | None => "/".to_string(),
-        Some(i) => inner[..i].to_string(),
-    }
-}
+/// The tree a `list` run produces. No per-entry payload: a member is fetched by
+/// name through `copyout`, so there is nothing to carry.
+type ExtfsTree = VfsTree<()>;
 
 /// The local-disk file backing an extfs path (its `container`).
 fn container_of(path: &VfsPath) -> Result<&PathBuf> {
@@ -151,53 +64,47 @@ fn scratch_path(tag: &str) -> PathBuf {
 pub struct ExtfsFs {
     prefix: String,
     script: PathBuf,
-    cache: Mutex<HashMap<PathBuf, Arc<ExtfsTree>>>,
+    /// Keyed on the container's mtime, so an outside change — or one of our own
+    /// mutations — invalidates the listing automatically.
+    cache: TreeCache<Option<SystemTime>, ()>,
 }
 
 impl ExtfsFs {
     pub fn new(prefix: String, script: PathBuf) -> Self {
-        ExtfsFs { prefix, script, cache: Mutex::new(HashMap::new()) }
+        ExtfsFs { prefix, script, cache: TreeCache::new() }
     }
 
-    /// Get (or rebuild) the tree for `container`, keyed on its mtime so external
-    /// or our-own changes invalidate the cache automatically.
+    /// Get (or rebuild) the tree for `container`.
     async fn tree(&self, container: &Path) -> Result<Arc<ExtfsTree>> {
-        let cur_mtime = tokio::fs::metadata(container).await.ok().and_then(|m| m.modified().ok());
-        {
-            let cache = self.cache.lock().unwrap();
-            if let Some(t) = cache.get(container)
-                && t.mtime == cur_mtime
-            {
-                return Ok(t.clone());
-            }
-        }
-        let out = Command::new(&self.script)
-            .arg("list")
-            .arg(container)
-            .output()
+        let stamp = tree::stamp_mtime(container).await;
+        self.cache
+            .get_or_build(container, stamp, || async {
+                let out = Command::new(&self.script)
+                    .arg("list")
+                    .arg(container)
+                    .output()
+                    .await
+                    .map_err(|e| Error::other(format!("extfs '{}' list: {e}", self.prefix)))?;
+                if !out.status.success() {
+                    return Err(Error::other(format!(
+                        "extfs '{}' list failed (exit {})",
+                        self.prefix, out.status
+                    )));
+                }
+                let text = String::from_utf8_lossy(&out.stdout);
+                let mut b = TreeBuilder::new(stamp);
+                for line in text.lines() {
+                    if let Some(e) = parse_extfs_line(line) {
+                        insert_extfs_entry(&mut b, &e);
+                    }
+                }
+                Ok(b.finish())
+            })
             .await
-            .map_err(|e| Error::other(format!("extfs '{}' list: {e}", self.prefix)))?;
-        if !out.status.success() {
-            return Err(Error::other(format!(
-                "extfs '{}' list failed (exit {})",
-                self.prefix, out.status
-            )));
-        }
-        let text = String::from_utf8_lossy(&out.stdout);
-        let mut dirs: HashMap<String, Vec<ChildMeta>> = HashMap::new();
-        dirs.insert("/".to_string(), Vec::new());
-        for line in text.lines() {
-            if let Some(e) = parse_extfs_line(line) {
-                insert_extfs_path(&mut dirs, &e);
-            }
-        }
-        let tree = Arc::new(ExtfsTree { mtime: cur_mtime, dirs });
-        self.cache.lock().unwrap().insert(container.to_path_buf(), tree.clone());
-        Ok(tree)
     }
 
     fn invalidate(&self, container: &Path) {
-        self.cache.lock().unwrap().remove(container);
+        self.cache.invalidate(container);
     }
 
     /// Run a mutating one-shot script command, mapping a nonzero exit to an error.
@@ -387,49 +294,15 @@ fn parse_extfs_line(line: &str) -> Option<ExtfsListEntry> {
     })
 }
 
-/// Insert a listed member (with its full relative path) into the dir map,
-/// synthesizing any missing intermediate directories.
-fn insert_extfs_path(dirs: &mut HashMap<String, Vec<ChildMeta>>, entry: &ExtfsListEntry) {
-    let norm = entry.path.trim_matches('/');
-    if norm.is_empty() {
-        return;
-    }
-    let comps: Vec<&str> = norm.split('/').collect();
-    let mut parent = "/".to_string();
-    for (i, comp) in comps.iter().enumerate() {
-        let is_last = i == comps.len() - 1;
-        let child_norm =
-            if parent == "/" { format!("/{comp}") } else { format!("{parent}/{comp}") };
-        let kind = if is_last { entry.kind } else { VfsKind::Dir };
-        let (csize, cmode, ctarget) = if is_last {
-            (entry.size, entry.mode, entry.symlink_target.clone())
-        } else {
-            (0, None, None)
-        };
-
-        let list = dirs.entry(parent.clone()).or_default();
-        if let Some(existing) = list.iter_mut().find(|c| c.name == **comp) {
-            // A concrete file/symlink supersedes a synthesized dir placeholder.
-            if is_last && kind != VfsKind::Dir {
-                existing.kind = kind;
-                existing.size = csize;
-                existing.mode = cmode;
-                existing.symlink_target = ctarget;
-            }
-        } else {
-            list.push(ChildMeta {
-                name: (*comp).to_string(),
-                kind,
-                size: csize,
-                mode: cmode,
-                symlink_target: ctarget,
-            });
-        }
-        if kind == VfsKind::Dir {
-            dirs.entry(child_norm.clone()).or_default();
-        }
-        parent = child_norm;
-    }
+/// Graft one listed member onto the tree.
+///
+/// The synthesizing of intermediate directories — and the rule that a name which
+/// is a directory anywhere stays one — now lives in [`TreeBuilder::insert`],
+/// shared with every other container-backed backend.
+fn insert_extfs_entry(b: &mut TreeBuilder<()>, entry: &ExtfsListEntry) {
+    let meta =
+        Meta { mode: entry.mode, symlink_target: entry.symlink_target.clone(), ..Meta::default() };
+    b.insert(&entry.path, entry.kind, entry.size, meta, ());
 }
 
 /// Locate the executable `extfs.d` script for `prefix`, searching the MC system
@@ -661,16 +534,15 @@ mod tests {
 
     #[test]
     fn builds_tree_with_intermediate_dirs() {
-        let mut dirs: HashMap<String, Vec<ChildMeta>> = HashMap::new();
-        dirs.insert("/".to_string(), Vec::new());
+        let mut b = TreeBuilder::new(None);
         for line in [
             "-rw-r--r-- 1 u g 5 Mar 30 21:19 data/a.txt",
             "-rw-r--r-- 1 u g 4 Mar 30 21:19 data/b.txt",
             "-rw-r--r-- 1 u g 2 Mar 30 21:19 readme",
         ] {
-            insert_extfs_path(&mut dirs, &parse(line));
+            insert_extfs_entry(&mut b, &parse(line));
         }
-        let tree = ExtfsTree { mtime: None, dirs };
+        let tree = b.finish();
         let mut root: Vec<String> =
             tree.read_dir("/").unwrap().into_iter().map(|e| e.name).collect();
         root.sort();

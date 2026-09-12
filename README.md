@@ -54,6 +54,22 @@ The installed executable is named **`rc`** for quick typing.
   **unstage**, **rm**, **restore**, **commit**, **fetch**, **pull**, **push** 
   (with `--force-with-lease` or `--force`), **sync** (pull + push), 
   **checkout**, **reset**, **init** and **clone**. 
+- **Browse git history** — the Git menu's *Browse a revision* mounts the
+  repository's **past into a panel**: every commit is a directory, named so that
+  sorting by name sorts by time, and stepping into one shows the tree exactly as
+  it was. Because history is just another filesystem to `rc`, everything else
+  keeps working there — **F3** views a file as it was, **F5** copies it back out
+  into the present, *Compare files* diffs it against your working copy, and
+  *Find file* searches it. No checkout, no stash, no second clone. It is
+  read-only, and says so before a transfer starts rather than part-way through.
+- **The time machine** — press **`t`** in a 3D panel and the landscape starts
+  moving through the repository's history. Scrub with `[`/`]` (or `{`/`}` for ten
+  at a time) and the shape re-forms as you go: directories swell as they fill up,
+  whole subtrees grow out of their parent at the commit that created them and
+  fade away again as you scrub back past it. A track under the scene says where
+  you are and the title names the commit. Sizes come from git, so a commit's tree
+  is walked once and revisited for free — dragging across two hundred commits
+  costs a handful of reads, not one apiece.
 - **Command palette (Ctrl-P)** — one fuzzy-search box over every menu action,
   every setting (switch theme/language/graphics or flip a toggle in place), your
   directory **bookmarks**, the open remote connections, and your saved remote
@@ -93,6 +109,16 @@ The installed executable is named **`rc`** for quick typing.
 - **Archives** — browse and *edit* `.zip`, `.tar(.gz/.bz2/.xz)` and `.7z` like
   directories: copy and move files in and out, make and delete subdirectories,
   rename, move things around inside the archive, and compress a selection.
+- **More things browsed like directories** — press Enter on a **disc image**
+  (`.iso`, read natively with Joliet long names and Rock Ridge permissions and
+  symlinks, so mc's `iso9660` script and `isoinfo` are no longer needed), a
+  **SQLite database** (tables as folders, rows as `column = value` files, a
+  `_schema.sql` at the top, big tables paged, opened read-only and *immutable* so
+  a live database is safe to look at), or a **JSON/TOML document** (objects as
+  folders, scalars as files, so a setting six levels down is something you `cd`
+  to and **F3**). Each confirms what the file really is before claiming it, so a
+  `.db` that isn't one opens the way it always did. All read-only, and they say
+  so before a transfer starts.
 - **Remote filesystems** — SFTP, SCP and FTP/FTPS, each mounted into a panel;
   copy/move/delete works transparently across local, remote and archive panels.
   On an **SFTP/SCP** panel, the command line and **Ctrl-O** run a shell
@@ -268,8 +294,9 @@ Grab a release from the **Releases** page:
 ### From source
 
 Requires a recent stable Rust toolchain (edition 2024, **Rust ≥ 1.85**), plus a
-C++ compiler for the bundled `unrar` library — add `--no-default-features` to
-build without RAR support if you'd rather not have one.
+C/C++ compiler for the bundled `unrar` and SQLite libraries — add
+`--no-default-features` to build without RAR and SQLite-browsing support if
+you'd rather not have one.
 
 The quickest route is to build straight from the repository:
 
@@ -310,8 +337,9 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 ```
 
-There is no `cargo fmt` gate — the source is hand-formatted and rustfmt would
-rewrite most of it.
+CI does not gate on `cargo fmt`, but the tree *is* rustfmt-clean: `rustfmt.toml`
+sets `use_small_heuristics = "Max"` so the compact style the source is written in
+survives, and `cargo fmt` is the easiest way to match it.
 
 ### Cross-compiling and packages
 

@@ -18,10 +18,43 @@
 //! tasks. Locks are held only for bookkeeping, never across I/O.
 
 pub mod crawl;
+pub mod timeline;
 
 use crate::disk::{FileEntry, TOP_FILES};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+/// Build a finished [`SizeTree`] from a flat list of `(path relative to root,
+/// size)` pairs — the shape `git ls-tree` hands back.
+///
+/// The crawler is not the only thing that can fill a size tree, and nothing
+/// about the type says it is. This is the other filler: where the crawler
+/// discovers a directory at a time and revises totals as it goes, a revision's
+/// listing arrives complete, so the tree is built once and handed over finished.
+///
+/// `epoch` is stamped into `dirs_seen`, which is what the 3D view and the disk
+/// explorer compare against their own `synced_at` to notice new data. A counter
+/// of directories would collide between two revisions that happen to hold the
+/// same number of them; a caller-chosen epoch cannot.
+pub fn from_paths<'a>(
+    root: &Path,
+    entries: impl Iterator<Item = (&'a str, u64)>,
+    epoch: u64,
+) -> SizeTree {
+    let mut tree = SizeTree::new();
+    // The root exists even for an empty revision, so the view has something to
+    // stand on rather than reporting the directory missing.
+    tree.ensure(root);
+    for (rel, size) in entries {
+        let full = root.join(rel);
+        let Some(dir) = full.parent() else { continue };
+        let id = tree.ensure(dir);
+        tree.add_file(id, &full, size);
+    }
+    tree.complete_below(root);
+    tree.dirs_seen = epoch;
+    tree
+}
 
 /// Index of a node in [`SizeTree::nodes`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -202,6 +235,24 @@ impl SizeTree {
     pub fn mark_listed(&mut self, id: NodeId) {
         self.nodes[id.ix()].listed = true;
         self.dirs_seen += 1;
+    }
+
+    /// Declare every directory at or below `root` fully walked.
+    ///
+    /// For a tree built from a listing that was already complete — a git
+    /// revision, say — there is no crawl to wait on, and a node left incomplete
+    /// would make the 3D view claim it is still scanning forever.
+    ///
+    /// Ancestors *above* `root` are deliberately left unlisted: they were only
+    /// created to hang the root off, nothing enumerated them, and the 3D view
+    /// picks its anchor by walking up through listed nodes. Leaving them alone
+    /// is what pins the scene to the root rather than drifting up the disk.
+    pub fn complete_below(&mut self, root: &Path) {
+        for n in self.nodes.iter_mut().filter(|n| n.path.starts_with(root)) {
+            n.listed = true;
+            n.complete = true;
+            n.outstanding = 0;
+        }
     }
 
     /// Whether `path` is known to be fully walked already — the check that
@@ -385,5 +436,88 @@ mod tests {
         // would report a directory as fully sized while it is still growing.
         t.add_outstanding(b);
         assert!(!t.is_complete(&p("/a")));
+    }
+}
+
+#[cfg(test)]
+mod from_paths_tests {
+    use super::*;
+
+    const ROOT: &str = "/repo";
+
+    fn build(entries: &[(&str, u64)], epoch: u64) -> SizeTree {
+        from_paths(Path::new(ROOT), entries.iter().copied(), epoch)
+    }
+
+    #[test]
+    fn sizes_roll_up_to_the_root() {
+        let t = build(&[("a.txt", 10), ("src/b.rs", 20), ("src/deep/c.rs", 30)], 1);
+        assert_eq!(t.total_of(Path::new(ROOT)).0, 60);
+        assert_eq!(t.total_of(Path::new("/repo/src")).0, 50);
+        assert_eq!(t.total_of(Path::new("/repo/src/deep")).0, 30);
+        // Bytes sitting directly in a directory are its own, not its children's.
+        assert_eq!(t.get(Path::new("/repo/src")).unwrap().own, 20);
+    }
+
+    /// The 3D view reports "Scanning…" for as long as the focus is incomplete.
+    /// A revision's listing arrives whole, so every directory in it must read as
+    /// finished or the view would say it is still working forever.
+    #[test]
+    fn every_directory_in_the_tree_reads_as_complete() {
+        let t = build(&[("a.txt", 1), ("src/deep/c.rs", 2)], 1);
+        for p in [ROOT, "/repo/src", "/repo/src/deep"] {
+            assert!(t.is_complete(Path::new(p)), "{p} should be complete");
+            assert!(t.total_of(Path::new(p)).1, "{p} should report a settled total");
+        }
+    }
+
+    /// Ancestors above the root exist only to hang it off. Leaving them unlisted
+    /// is what keeps the 3D view's anchor pinned to the root instead of drifting
+    /// up the disk as soon as the scene is built.
+    #[test]
+    fn ancestors_above_the_root_are_left_unlisted() {
+        let t = build(&[("a.txt", 1)], 1);
+        let above = t.get(Path::new("/")).expect("the root is hung off its parents");
+        assert!(!above.listed, "nothing enumerated the filesystem root");
+        assert!(!above.complete);
+        assert!(t.get(Path::new(ROOT)).unwrap().listed);
+    }
+
+    #[test]
+    fn the_epoch_is_what_callers_compare_against() {
+        // A directory count would collide between two revisions holding the same
+        // number of them; a caller-chosen epoch cannot.
+        let a = build(&[("x/a", 1)], 7);
+        let b = build(&[("y/b", 9)], 8);
+        assert_eq!(a.dirs_seen, 7);
+        assert_eq!(b.dirs_seen, 8);
+    }
+
+    #[test]
+    fn an_empty_revision_still_has_a_root_to_stand_on() {
+        let t = build(&[], 1);
+        assert_eq!(t.total_of(Path::new(ROOT)).0, 0);
+        assert!(t.is_complete(Path::new(ROOT)), "an empty tree is a finished tree");
+    }
+
+    /// Going back in time makes directories smaller. The crawler's tree only
+    /// ever grows, which is why a revision gets a *fresh* tree rather than an
+    /// edit of the last one.
+    #[test]
+    fn a_later_tree_may_be_smaller_than_an_earlier_one() {
+        let big = build(&[("a", 100), ("b", 100)], 1);
+        let small = build(&[("a", 10)], 2);
+        assert_eq!(big.total_of(Path::new(ROOT)).0, 200);
+        assert_eq!(small.total_of(Path::new(ROOT)).0, 10);
+        // And the file that went away is simply absent from the newer tree.
+        assert!(small.get(Path::new("/repo/b")).is_none());
+    }
+
+    #[test]
+    fn the_biggest_files_are_recorded_for_the_treemap_and_the_fsn_solids() {
+        let t = build(&[("small.txt", 1), ("big.bin", 1_000), ("src/mid.rs", 100)], 1);
+        let top = &t.get(Path::new(ROOT)).unwrap().top_files;
+        assert_eq!(top.first().map(|f| f.rel.as_str()), Some("big.bin"));
+        assert!(top.iter().any(|f| f.rel.ends_with("mid.rs")), "nested files count too");
     }
 }

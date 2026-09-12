@@ -93,6 +93,10 @@ pub enum AppEvent {
     /// `generation` is ignored. `status` is `None` when the directory is not a
     /// git work tree (or git is unavailable).
     GitStatusScanned { side: usize, generation: u64, status: Option<Box<crate::git::GitStatus>> },
+    /// One revision's file sizes arrived for the 3D time machine. A stale
+    /// `generation` — the user scrubbed onward while this was in flight — is
+    /// still cached, since it cost a `git` call, but does not become the scene.
+    TimelineTree { oid: String, generation: u64, result: Result<Vec<(String, u64)>, String> },
     /// A background Details-view preview load finished for panel `viewer`; a stale
     /// `generation` is ignored.
     DetailsPreview { viewer: usize, generation: u64, preview: Box<crate::details::Preview> },

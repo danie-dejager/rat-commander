@@ -62,7 +62,12 @@ pub fn render_panel(
         (ViewFormat::Details, _) => {
             crate::l10n::tr("&Details view").chars().filter(|&c| c != '&').collect()
         }
-        (ViewFormat::Space3d, _) => crate::l10n::trd("3D Directory View"),
+        // Under the time machine the title names the commit the scene is of,
+        // which is the one thing a scrub changes and the track has no room for.
+        (ViewFormat::Space3d, _) => match panel.scrub.as_ref() {
+            Some(row) => row.label.clone(),
+            None => crate::l10n::trd("3D Directory View"),
+        },
         (ViewFormat::Tree, Some(t)) => t.current.display(),
         _ => panel.cwd.display(),
     };
@@ -140,7 +145,15 @@ pub fn render_panel(
     // Reserve the last inner row for the mini-status (selected file name); when
     // there's room, also reserve a separator rule above it dividing the listing
     // from the mini-status, like Midnight Commander.
-    let reserve: u16 = if inner.height >= 3 { 2 } else { 1 };
+    let mut reserve: u16 = if inner.height >= 3 { 2 } else { 1 };
+    // The time machine takes one more row for its scrub track. Taken from the
+    // scene rather than floated over it: a dialog would blank the 3D image
+    // entirely (the root layer skips pixel graphics while one is up), and text
+    // drawn over a Kitty or Sixel image is not visible at all.
+    let scrubbing = panel.scrub.is_some() && inner.height >= 4;
+    if scrubbing {
+        reserve += 1;
+    }
 
     // The tab strip takes the first interior row, but only when there is more
     // than one tab — the single-tab case (which is almost everyone, almost all
@@ -188,12 +201,23 @@ pub fn render_panel(
     };
     panel.hit = Some(crate::panel::PanelHit { area, body, brief, offset, columns, rows, cell_w });
 
-    let status_y = if reserve == 2 {
-        let sep_y = inner.y + list_height;
+    // The scrub track sits directly under the scene, above the separator, so the
+    // commit you are on reads next to the shape it produced.
+    let mut next_y = inner.y + list_height;
+    panel.scrub_area = None;
+    if scrubbing && let Some(row) = panel.scrub.clone() {
+        let track = Rect { y: next_y, height: 1, ..inner };
+        render_scrub_row(f, track, &row, active, theme);
+        panel.scrub_area = Some(track);
+        next_y += 1;
+    }
+
+    let status_y = if reserve >= 2 {
+        let sep_y = next_y;
         render_panel_separator(f, area, sep_y, border_color, theme);
         sep_y + 1
     } else {
-        inner.y + list_height
+        next_y
     };
     let status_area = Rect { y: status_y, height: 1, ..inner };
     if let Some(query) = quick_search {
@@ -201,6 +225,59 @@ pub fn render_panel(
     } else {
         render_mini_status(f, status_area, panel, theme, nerd);
     }
+}
+
+/// Draw the time machine's scrub track: which commit the scene is showing, and
+/// where that sits in the history.
+///
+/// Plain cell text, deliberately. It is drawn *outside* the 3D image's rect, so
+/// it stays crisp at any terminal size and needs none of the pixel-baked text
+/// the labels inside the scene do.
+fn render_scrub_row(
+    f: &mut Frame,
+    area: Rect,
+    row: &crate::panel::ScrubRow,
+    active: bool,
+    theme: &Theme,
+) {
+    if area.width == 0 {
+        return;
+    }
+    let pos = format!(" {}/{} ", row.index, row.total);
+    // `◀`/`▶` are clickable, and say which way time runs without a legend.
+    let (lead, tail) = ("◀ ", " ▶");
+    let w = area.width as usize;
+    let fixed = lead.chars().count() + tail.chars().count() + pos.chars().count();
+    let bar_w = w.saturating_sub(fixed).max(1);
+
+    // Where along the bar you are. Clamped inside the bar rather than allowed to
+    // reach its width: at the newest commit the marker would otherwise fall off
+    // the end and the track would show no position at all.
+    let filled = if row.total <= 1 {
+        0
+    } else {
+        (row.index.saturating_sub(1) * (bar_w - 1)) / (row.total - 1)
+    }
+    .min(bar_w - 1);
+    let mut bar = String::with_capacity(bar_w);
+    for i in 0..bar_w {
+        bar.push(if i == filled {
+            '●'
+        } else if i < filled {
+            '━'
+        } else {
+            '─'
+        });
+    }
+
+    let dim = if active { theme.panel_fg } else { theme.panel_border };
+    let line = Line::from(vec![
+        Span::styled(lead, Style::default().fg(theme.panel_border_active)),
+        Span::styled(bar, Style::default().fg(dim)),
+        Span::styled(pos, Style::default().fg(theme.panel_border_active)),
+        Span::styled(tail, Style::default().fg(theme.panel_border_active)),
+    ]);
+    f.render_widget(Paragraph::new(line), area);
 }
 
 /// Draw a horizontal rule across the panel's interior at row `y`, joining the
@@ -1273,6 +1350,92 @@ mod tests {
         };
         assert!(!body.contains("alpha"), "the scene body must not carry cell text");
         assert!(s.contains("tmp"), "but the mini-status still reads");
+    }
+
+    /// Helper: draw a 3D panel and return its cell buffer as rows of text.
+    fn draw_space3d(panel: &mut Panel, theme: &Theme, w: u16, h: u16) -> Vec<String> {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
+        t.draw(|f| {
+            render_panel(
+                f,
+                f.area(),
+                panel,
+                true,
+                &Default::default(),
+                theme,
+                2,
+                None,
+                false,
+                false,
+            )
+        })
+        .unwrap();
+        let b = t.backend().buffer();
+        (0..b.area.height)
+            .map(|y| (0..b.area.width).map(|x| b[(x, y)].symbol()).collect())
+            .collect()
+    }
+
+    /// The time machine takes a row of the scene for its track rather than
+    /// floating over it — text drawn on top of a Kitty or Sixel image is not
+    /// visible at all, and a dialog would blank the image outright.
+    #[test]
+    fn the_scrub_row_is_drawn_inside_the_panel_and_costs_the_scene_a_row() {
+        let (mut panel, theme) = space3d_panel(true);
+        let without = draw_space3d(&mut panel, &theme, 70, 22);
+
+        panel.scrub = Some(crate::panel::ScrubRow {
+            label: "a9ef3a7 Made it static".into(),
+            index: 3,
+            total: 10,
+        });
+        let with = draw_space3d(&mut panel, &theme, 70, 22);
+
+        // Matched by the position marker: the panel's *title* row carries ◀/▶
+        // too, for the directory history arrows.
+        let track = with.iter().find(|r| r.contains('●')).expect("no scrub row in {with:?}");
+        assert!(track.contains("3/10"), "it says where you are: {track:?}");
+        assert!(track.contains('●'), "and marks it on the bar: {track:?}");
+
+        // The marker stays on the bar at both ends, rather than falling off it.
+        for (index, total) in [(1, 10), (10, 10), (1, 1)] {
+            panel.scrub = Some(crate::panel::ScrubRow { label: "x".into(), index, total });
+            let rows = draw_space3d(&mut panel, &theme, 70, 22);
+            assert!(rows.iter().any(|r| r.contains('●')), "no marker at {index}/{total}: {rows:?}");
+        }
+        assert!(panel.scrub_area.is_some(), "and records where it landed, for clicks");
+
+        // One row of scene given up, not borrowed on top of it.
+        let scene_rows = |rows: &[String]| rows.iter().filter(|r| r.contains('▀')).count();
+        assert_eq!(scene_rows(&with) + 1, scene_rows(&without), "exactly one row");
+    }
+
+    /// A scrub changes exactly one thing the track has no room for: which commit
+    /// the scene is of. That goes in the title.
+    #[test]
+    fn the_panel_title_names_the_commit_under_the_time_machine() {
+        let (mut panel, theme) = space3d_panel(true);
+        panel.scrub = Some(crate::panel::ScrubRow {
+            label: "a9ef3a7 Made it static".into(),
+            index: 1,
+            total: 2,
+        });
+        let rows = draw_space3d(&mut panel, &theme, 70, 22);
+        assert!(rows[0].contains("a9ef3a7 Made it static"), "got {:?}", rows[0]);
+        assert!(!rows[0].contains("3D Directory View"), "the commit replaces the generic name");
+    }
+
+    /// A panel too short to give up a row must still draw, rather than leaving
+    /// the scene no height at all.
+    #[test]
+    fn a_tiny_panel_under_the_time_machine_still_renders() {
+        let (mut panel, theme) = space3d_panel(true);
+        panel.scrub =
+            Some(crate::panel::ScrubRow { label: "a9ef3a7 x".into(), index: 1, total: 1 });
+        let rows = draw_space3d(&mut panel, &theme, 30, 5);
+        assert_eq!(rows.len(), 5, "it drew without panicking");
     }
 
     /// The 3D view describes the *other* panel, so its own directory is not what

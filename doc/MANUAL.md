@@ -1052,6 +1052,45 @@ covers everything else. The file format is detailed under
 *Configuration → The rc.ext file format*.
 
 
+## Other things browsed like directories
+
+Beyond archives, Rat Commander opens several kinds of file **as a directory**,
+natively — no helper script, no external tool. Press `Enter` on one, and `..` at
+the top steps back out to the file, exactly as it does for an archive.
+
+All of these are **read-only**: copying *into* one is refused before any bytes
+move, rather than failing part-way through.
+
+- **Disc images (`.iso`)** — ISO 9660, including **Joliet** (so long, mixed-case
+  names come through as they were written, not as `LONGNAME.TXT;1`) and
+  **Rock Ridge** (real POSIX names, the executable bit, and symlinks). This
+  replaces the `iso9660` extfs script and the `isoinfo` it needs; the rule for it
+  is still in `rc.ext` for the rare image the built-in reader declines — a
+  UDF-only one, say — which then falls through to it as before.
+- **SQLite databases (`.db`, `.sqlite`, `.sqlite3`)** — tables and views as
+  directories, rows as files showing `column = value`, plus a `_schema.sql` at
+  the top holding the statements that would rebuild it. Rows are named by their
+  `rowid`, or by the primary key for a `WITHOUT ROWID` table, or by position for
+  a view. A table with more than a thousand rows is **paged** into directories
+  rather than listed whole. A blob is described (`<blob, 200 bytes> a3f1…`)
+  instead of being dumped into a text view. The database is opened read-only and
+  *immutable*, so browsing one that another program is writing neither blocks it
+  nor changes it.
+- **JSON and TOML documents** — objects and tables as directories, arrays as
+  numbered entries (zero-padded, so sorting by name sorts by index), and each
+  scalar as a file holding its bare value. A setting buried six levels down is
+  something you `cd` to and `F3`, and the `Find file` search will look through it
+  like any other tree.
+
+Each of these confirms what a file actually is before claiming it — by its
+header, or by parsing it — so a `.db` that is not a database, or a `.json` that
+does not parse, opens the way it always did instead of half-listing.
+
+**Where this sits.** `Enter` resolves in this order: a real directory, then a
+built-in archive, then one of the above, then an `rc.ext` rule, and finally the
+image flasher, the default application, or simply running the file.
+
+
 ## Remote filesystems (SFTP / FTP / SCP)
 
 Mounts a remote server into a panel, so you browse and transfer
@@ -1492,6 +1531,83 @@ All of these need the active panel to be on a **local** directory — a remote o
 in-archive panel has no work tree to act on.
 
 
+## Browsing git history
+
+*Git menu (`Alt-G`) → Browse a revision…, or the command palette*
+
+Mounts the repository's **history into the panel**, so any past commit browses
+like an ordinary directory.
+
+**Useful for** getting a file back the way it was, reading a module as it stood
+before a rewrite, or diffing today's working copy against a release from two
+years ago — without a checkout, a stash, or a second clone.
+
+**The mount's root is the list of commits**, newest first, each one a directory
+named for when it was made:
+
+```
+2026-09-11_15-42-47_a9ef3a7_Made-3d-topography-more-static
+^ date      ^ time   ^ commit  ^ its subject
+```
+
+The timestamp leads so that the panel's ordinary **sort by name is sort by
+time**. Press `Enter` on one and you are inside that commit's tree; `..` steps
+back to the commit list, and `..` again leaves history for the working tree you
+started in. The panel's border shows which revision you are in, in place of the
+branch it shows for a working directory.
+
+Inside a revision **everything works the way it does anywhere else**, because
+history is just another filesystem to Rat Commander: `F3` views a file as it was,
+`F5` copies it out into the present, *Compare files* diffs it against the working
+copy, and *Find file* searches it. Sizes, the executable bit and symlinks are all
+as they were recorded.
+
+**History is read-only.** Copying, moving, renaming or deleting *into* a revision
+is refused up front rather than failing part-way through — the past is not
+somewhere you can write. Submodules show as empty directories, since their
+contents live in a repository of their own.
+
+The commit list is capped (the most recent 500) so that opening history on a very
+large repository is instant rather than a five-second pause.
+
+
+### The time machine — watching a repository grow
+
+*In a 3D-view panel: `t`*
+
+The 3D view already draws a directory tree as a landscape. The time machine drags
+that landscape **through the repository's history**: scrub back through the
+commits and the shape re-forms as you go — directories swelling as they fill up,
+whole branches of the tree growing out of their parent the moment they were first
+committed, and fading away again as you scrub back past their creation.
+
+Put a panel into **3D view** (`Alt-T`, or the Left/Right menu) with the *other*
+panel on a git work tree, then press **`t`**.
+
+| Key | |
+| --- | --- |
+| `t` | Turn the time machine on or off |
+| `[` / `]` | One commit older / newer |
+| `{` / `}` | Ten commits |
+| `Shift-Home` / `Shift-End` | The first / last commit |
+| Click the track | Seek to that point; the `◀`/`▶` ends step one commit |
+
+A track under the scene shows where you are (`209/259`), and the panel's title
+names the commit you are looking at. Turn it off and the panel returns to the
+live filesystem.
+
+**Sizes come from git**, which is why turning the time machine on usually makes
+everything smaller: a work tree's `target/` or `node_modules/` was never
+committed, so it is not there. Within history the sizes are consistent, and they
+are the file sizes git recorded rather than blocks on disk.
+
+**Scrubbing is cheap.** A commit's tree never changes, so one already visited is
+redrawn from memory; holding a step key down coalesces into a single read once
+the movement settles, and the commit you are heading for is fetched while you
+look at the one you are on. Dragging across the whole track costs a handful of
+reads, not one per commit.
+
+
 ## Directory history (back / forward)
 
 Each panel remembers the directories it has visited, like a web browser's history.
@@ -1690,6 +1806,9 @@ camera there. **Backspace** walks that panel back up. **Alt-arrows** orbit the c
 scene, and use the **wheel** to zoom. Two levels of
 contents are drawn without being asked for, so you can see what is inside a
 subdirectory before deciding to go there.
+
+**`t` turns on the time machine**, which scrubs the whole scene back through the
+repository's history — see *Browsing git history → The time machine*.
 
 **Local directories only.** The sizes come from walking the real filesystem, so
 the view has nothing to show while the other panel is on an archive, FTP or SFTP

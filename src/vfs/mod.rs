@@ -6,12 +6,19 @@
 //! interchangeable implementations of [`Vfs`].
 
 pub mod archive;
+pub mod doc;
 pub mod extfs;
+pub mod git;
+pub mod iso;
 pub mod local;
 pub mod membuf;
+pub mod native;
 pub mod path;
 pub mod registry;
 pub mod remote;
+#[cfg(feature = "sqlite")]
+pub mod sqlite;
+pub mod tree;
 
 pub use path::VfsPath;
 
@@ -127,6 +134,24 @@ impl Capabilities {
             random_access: true,
             inode: true,
             server_rename: true,
+            atomic_write: false,
+        }
+    }
+
+    /// A backend that can be browsed and read but never written — a git
+    /// revision, an ISO image, a document opened as a tree. Every mutator on
+    /// such a backend returns [`Unsupported`](crate::util::Error::Unsupported),
+    /// and this is what tells the dialogs to refuse before the bytes move
+    /// rather than after.
+    pub const fn read_only() -> Self {
+        Capabilities {
+            writable: false,
+            permissions: false,
+            ownership: false,
+            symlinks: false,
+            random_access: false,
+            inode: false,
+            server_rename: false,
             atomic_write: false,
         }
     }

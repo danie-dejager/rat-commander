@@ -151,6 +151,7 @@ rtl = true
 "&Reset..." = "بازنشانی… (&R)"
 "&Init repository..." = "ایجاد مخزن… (&I)"
 "Clo&ne..." = "کلون… (&N)"
+"&Browse a revision..." = "مرور یک بازبینی… (&B)"
 "Commit" = "کامیت"
 "Clone" = "کلون"
 "Fetch" = "واکشی"
@@ -474,3 +475,10 @@ rtl = true
 
 # -- New-file editor prompt (Shift-F4) --
 "Edit new file" = "ویرایش پرونده جدید"
+"That panel's filesystem is read-only" = "سامانه پرونده آن پنل فقط-خواندنی است"
+"history" = "تاریخچه"
+"Not a git repository" = "یک مخزن git نیست"
+"The time machine needs the 3D view" = "ماشین زمان به نمای سه‌بعدی نیاز دارد"
+"The time machine needs a local directory" = "ماشین زمان به یک پوشه محلی نیاز دارد"
+"This repository has no commits yet" = "این مخزن هنوز هیچ کامیتی ندارد"
+"no revisions" = "بدون بازبینی"

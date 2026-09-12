@@ -95,6 +95,17 @@ impl ViewFormat {
 }
 
 /// One of the two panels.
+/// What the time machine's row says: where you are in the history, and which
+/// commit that is.
+#[derive(Debug, Clone)]
+pub struct ScrubRow {
+    /// The commit, as `<short oid> <subject>`.
+    pub label: String,
+    /// Position counted oldest-first, so it reads the way the row is drawn.
+    pub index: usize,
+    pub total: usize,
+}
+
 pub struct Panel {
     pub cwd: VfsPath,
     pub backend: Arc<dyn Vfs>,
@@ -158,6 +169,12 @@ pub struct Panel {
     /// graphics. Same deferred handoff as `preview_image_area`, because the
     /// panel renderer has no access to `Gfx`.
     pub scene_area: Option<Rect>,
+    /// The time machine's readout, when this panel is under one. Filled by
+    /// `AppState::update_timeline` in the same way `git` is filled by
+    /// `update_git`, so the renderer never reaches outside the panel.
+    pub scrub: Option<ScrubRow>,
+    /// Where the scrub row was drawn, for click-to-seek.
+    pub scrub_area: Option<Rect>,
     /// Saved positions for this panel's other tabs. Always non-empty: entry
     /// `tab` is *this* panel's own position, kept in step on every switch, so
     /// the list can be rendered without special-casing the active one.
@@ -204,6 +221,8 @@ impl Panel {
             preview_image_area: None,
             space3d: None,
             scene_area: None,
+            scrub: None,
+            scrub_area: None,
             tabs: vec![first_tab],
             tab: 0,
             tab_hits: Vec::new(),
@@ -248,6 +267,7 @@ impl Panel {
         self.tree = None;
         self.space3d = None;
         self.scene_area = None;
+        self.scrub_area = None;
         self.git = None;
         self.disk = None;
     }

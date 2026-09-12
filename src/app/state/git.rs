@@ -12,19 +12,24 @@ impl AppState {
     /// directory changes, and clears the status on a non-local panel.
     pub fn update_git(&mut self) {
         for side in 0..2 {
-            let key = if self.panels[side].cwd.scheme == "file" {
-                self.panels[side].cwd.path.to_string_lossy().into_owned()
-            } else {
-                String::new()
+            let cwd = &self.panels[side].cwd;
+            let key = match cwd.scheme.as_str() {
+                "file" => cwd.path.to_string_lossy().into_owned(),
+                // A git mount labels itself with the revision it is showing.
+                // Keyed on the whole path so walking between revisions relabels.
+                "git" => format!("git\u{1}{}", cwd.posix_path()),
+                _ => String::new(),
             };
             if key == self.git_key[side] {
                 continue;
             }
             self.git_key[side] = key.clone();
-            if key.is_empty() {
+            self.git_gen[side] = self.git_gen[side].wrapping_add(1);
+            if cwd.scheme == "git" {
+                self.panels[side].git = git_mount_label(cwd);
+            } else if key.is_empty() {
                 // Remote/archive panel: no VCS info.
                 self.panels[side].git = None;
-                self.git_gen[side] = self.git_gen[side].wrapping_add(1);
             } else {
                 self.start_git_scan(side);
             }
@@ -147,6 +152,23 @@ impl AppState {
         ));
     }
 
+    /// Point the active panel at this repository's history.
+    ///
+    /// The mount's root *is* the revision list, so this needs no picker of its
+    /// own: you arrive at the commits and walk into one like any directory.
+    pub(in crate::app::state) async fn git_browse_revisions(&mut self, dir: PathBuf) {
+        let Some(toplevel) = crate::vfs::git::toplevel_of(&dir).await else {
+            return self.show_error(crate::l10n::tr("Not a git repository"));
+        };
+        let target = VfsPath::git(crate::vfs::git::container_for(&toplevel), "/");
+        let backend = match self.registry.resolve(&target) {
+            Ok(b) => b,
+            Err(e) => return self.show_error(format!("Cannot open location: {e}")),
+        };
+        let side = self.active;
+        self.panels[side].try_enter(target, backend, None).await;
+    }
+
     // -- The Git menu (File → Git, or Alt-G) --------------------------------
 
     /// Run every Git-menu action. Actions split three ways: those that need an
@@ -179,6 +201,7 @@ impl AppState {
             return self.show_error("Not a git repository");
         }
         match action {
+            M::GitBrowseRev => self.git_browse_revisions(dir).await,
             M::GitStatus => self.spawn_git("status", dir, ops::status_args()),
             M::GitLog => self.spawn_git("log", dir, ops::log_args()),
             M::GitDiff => self.open_git_diff().await,
@@ -354,4 +377,25 @@ impl AppState {
                 .unwrap_or_default()
         }
     }
+}
+
+/// The border label for a `git://` panel: the revision it is showing.
+///
+/// A committed tree has no working-tree state, so `files` is empty and no entry
+/// gets a status glyph — which is correct, not a shortcut. Reusing `GitStatus`
+/// means the existing `⎇` renderer draws it with no new code.
+fn git_mount_label(cwd: &VfsPath) -> Option<crate::git::GitStatus> {
+    let root = cwd.container.as_ref()?.parent()?.to_path_buf();
+    let inner = cwd.posix_path();
+    let rev = inner.trim_start_matches('/').split('/').next().unwrap_or("");
+    // At the mount root the panel is listing revisions, not standing in one.
+    let branch = if rev.is_empty() {
+        crate::l10n::tr("history").to_string()
+    } else {
+        let mut fields = rev.splitn(4, '_');
+        let short = fields.nth(2).unwrap_or(rev);
+        let subject = fields.next().unwrap_or("").replace('-', " ");
+        if subject.is_empty() { short.to_string() } else { format!("{short} {subject}") }
+    };
+    Some(crate::git::GitStatus { branch, ahead: 0, behind: 0, files: HashMap::new(), root })
 }

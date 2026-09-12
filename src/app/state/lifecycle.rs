@@ -100,6 +100,7 @@ impl AppState {
             procview: None,
             diskview: None,
             sizes: None,
+            timeline: None,
             sizes_focus: None,
             diffview: None,
             mountview: None,
@@ -342,6 +343,10 @@ impl AppState {
             || self.sizes_running()
             // A debounced panel reload is still waiting to fire.
             || self.watch_pending()
+            // A scrubbed revision is still waiting to be fetched. Without this
+            // the debounce would never come round and the scene would sit on
+            // the commit before the one you asked for.
+            || self.timeline.as_ref().is_some_and(|t| t.pending())
     }
 
     /// Whether the ~30 fps frame ticker should run: only while a 3D panel has
@@ -652,6 +657,9 @@ impl AppState {
             }
             AppEvent::GitStatusScanned { side, generation, status } => {
                 self.apply_git_status(side, generation, status.map(|b| *b));
+            }
+            AppEvent::TimelineTree { oid, generation, result } => {
+                self.apply_timeline_tree(oid, generation, result);
             }
             AppEvent::DetailsPreview { viewer, generation, preview } => {
                 self.apply_details_preview(viewer, generation, *preview);

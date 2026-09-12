@@ -615,6 +615,13 @@ impl AppState {
             self.show_error("Cannot copy into a search-result panel");
             return;
         }
+        // Nor is a backend that cannot be written to. Asked here rather than
+        // discovered at `open_write`, so a copy into git history or an ISO is
+        // refused before any bytes have been read.
+        if !self.panels[self.other_index()].backend.capabilities().writable {
+            self.show_error(crate::l10n::tr("That panel's filesystem is read-only"));
+            return;
+        }
         // Destination is a native archive and the sources are ordinary local
         // files → rebuild the archive once with all of them, which is far
         // cheaper than the generic engine's rebuild-per-file. Anything else

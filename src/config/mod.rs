@@ -8,6 +8,11 @@ pub mod paths;
 
 use serde::{Deserialize, Serialize};
 
+/// How many commits the `git://` backend lists by default. A cap rather than a
+/// preference: an unbounded `git log` on a kernel-sized history is over a
+/// million rows, and nobody scrolls to the bottom of that.
+pub const DEFAULT_GIT_REV_LIMIT: usize = 500;
+
 /// One saved directory tab. Only what survives a restart: the listing, cursor
 /// and history are all rebuilt from the directory.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

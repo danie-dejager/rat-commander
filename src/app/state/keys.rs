@@ -229,6 +229,7 @@ impl AppState {
             // handled inside the menu bar.
             MenuAction::GitMenu => {}
             MenuAction::GitStatus
+            | MenuAction::GitBrowseRev
             | MenuAction::GitLog
             | MenuAction::GitDiff
             | MenuAction::GitStage
@@ -340,6 +341,13 @@ impl AppState {
         // File menu), handled below and in `handle_key`.
         if cmdline && cmdline_edit_wanted(key, self.cmd.is_empty()) {
             self.cmd.apply_readline(key);
+            return Flow::Continue;
+        }
+
+        // The time machine's own keys, checked before the 3D view's so that a
+        // scrub is never mistaken for a move between boxes. Kept out of
+        // `space3d_key` because these need `&mut self` for the fetch channel.
+        if self.panels[self.active].is_space3d() && self.timeline_key(key).await {
             return Flow::Continue;
         }
 
@@ -764,7 +772,10 @@ impl AppState {
     pub(in crate::app::state) async fn enter_dir(&mut self) -> Flow {
         let p = &self.panels[self.active];
         // Directory / ".." navigation first, then "enter archive file".
-        let target = p.target_dir_under_cursor().or_else(|| archive_target_under_cursor(p));
+        let target = p
+            .target_dir_under_cursor()
+            .or_else(|| archive_target_under_cursor(p))
+            .or_else(|| native_target_under_cursor(p));
         let Some((newcwd, focus)) = target else {
             // Not a directory/native archive: an rc.ext `Open` rule may mount it
             // via an extfs script or run a command; else an image opens the
@@ -813,6 +824,54 @@ impl AppState {
         } else {
             self.panels[side].space3d = None;
             self.panels[side].scene_area = None;
+        }
+    }
+
+    /// The time machine's keys, live only while the active panel is in 3D view.
+    ///
+    /// `t` toggles it; `[`/`]` step one commit and `{`/`}` ten; `Shift-Home` and
+    /// `Shift-End` jump to the ends. All of these are unclaimed elsewhere in the
+    /// panel bindings, and none collides with the plain arrows the 3D view uses
+    /// to move between boxes.
+    pub(in crate::app::state) async fn timeline_key(&mut self, key: KeyEvent) -> bool {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
+        if ctrl || alt {
+            return false;
+        }
+        let running = self.timeline.is_some();
+        match key.code {
+            KeyCode::Char('t') => {
+                self.timeline_toggle().await;
+                true
+            }
+            // Everything below only means anything while one is running, so the
+            // keys stay free for quick search otherwise.
+            KeyCode::Char('[') if running => {
+                self.timeline_step(-1);
+                true
+            }
+            KeyCode::Char(']') if running => {
+                self.timeline_step(1);
+                true
+            }
+            KeyCode::Char('{') if running => {
+                self.timeline_step(-10);
+                true
+            }
+            KeyCode::Char('}') if running => {
+                self.timeline_step(10);
+                true
+            }
+            KeyCode::Home if running && key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.timeline_end(false);
+                true
+            }
+            KeyCode::End if running && key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.timeline_end(true);
+                true
+            }
+            _ => false,
         }
     }
 

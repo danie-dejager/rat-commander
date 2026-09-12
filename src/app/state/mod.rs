@@ -203,6 +203,10 @@ pub struct AppState {
     /// lazily the first time something wants sizes (the disk explorer or a 3D
     /// panel), so sessions that use neither never start the task.
     pub sizes: Option<crate::sizes::crawl::Crawler>,
+    /// The 3D view's time machine, when one is running. At most one at a time:
+    /// scrubbing two histories at once would have them fighting over the
+    /// crawler, and there is only ever one thing you are looking through.
+    pub timeline: Option<crate::sizes::timeline::Timeline>,
     /// The directory the crawler was last pointed at, so a redraw doesn't
     /// re-publish the same focus every frame.
     sizes_focus: Option<std::path::PathBuf>,
@@ -711,6 +715,18 @@ fn archive_target_under_cursor(p: &Panel) -> Option<(VfsPath, Option<String>)> {
     ArchiveFormat::from_name(&e.name)?;
     let file_path = p.cwd.path.join(&e.name);
     Some((VfsPath::archive(file_path, "/"), None))
+}
+
+/// The native provider that claims the entry under the cursor, if any — the step
+/// between the built-in archive formats and the `rc.ext` rules. See
+/// [`crate::vfs::native`] for why the order is what it is.
+fn native_target_under_cursor(p: &Panel) -> Option<(VfsPath, Option<String>)> {
+    if p.cwd.scheme != "file" {
+        return None;
+    }
+    let e = p.current_entry()?;
+    let file = p.cwd.path.join(&e.name);
+    crate::vfs::native::probe(&file, e.kind).map(|o| (o.path, None))
 }
 
 /// How much of a file we read at a time when grepping. Windows overlap by the

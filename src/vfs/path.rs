@@ -45,6 +45,16 @@ impl VfsPath {
         }
     }
 
+    /// A path inside a git revision. `gitdir` is the repository's `<toplevel>/.git`
+    /// — a sentinel rather than a path that is ever opened, carried so that
+    /// [`parent`](Self::parent) leaves the mount at the work tree rather than
+    /// above the repository. `inner` is `/` (the revision list), `/<rev>`, or
+    /// `/<rev>/some/path`.
+    #[allow(dead_code)] // the Git menu's entry point builds a mount with this
+    pub fn git(gitdir: impl Into<PathBuf>, inner: impl Into<PathBuf>) -> Self {
+        VfsPath { scheme: "git".to_string(), path: inner.into(), container: Some(gitdir.into()) }
+    }
+
     /// The current local working directory, or `/` if it cannot be determined.
     pub fn local_cwd() -> Self {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
@@ -168,6 +178,33 @@ impl VfsPath {
 
     /// Display string for the location bar.
     pub fn display(&self) -> String {
+        // A git mount reads as the repository, the revision, and the path within
+        // it. The generic container form would show the `.git` sentinel and the
+        // revision's whole directory name, which is neither short nor useful.
+        if self.scheme == "git"
+            && let Some(c) = &self.container
+        {
+            let repo = c
+                .parent()
+                .and_then(|p| p.file_name())
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let inner = self.posix_path();
+            let rest = inner.trim_start_matches('/');
+            let (rev, sub) = match rest.find('/') {
+                Some(i) => (&rest[..i], &rest[i..]),
+                None => (rest, ""),
+            };
+            // A revision component is `date_time_oid_subject`; the oid is the
+            // third field. Kept in step with `git::Rev::component`, which builds
+            // it, and with `git::oid_of_component`, which reads it back.
+            let short = rev.split('_').nth(2).unwrap_or(rev);
+            return if rev.is_empty() {
+                format!("git:{repo}")
+            } else {
+                format!("git:{repo}@{short}:{}", if sub.is_empty() { "/" } else { sub })
+            };
+        }
         if let Some(c) = &self.container {
             format!("{}!{}", c.to_string_lossy(), self.posix_path())
         } else if self.scheme == "file" {

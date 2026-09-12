@@ -1329,3 +1329,112 @@ fn the_camera_stays_above_the_ground_at_every_angle_it_allows() {
     assert!(sp.cam.pitch >= PITCH_MIN, "pitch is clamped above the horizontal");
     assert!(sp.cam.eye().y > sp.cam.target.y - 1e-3, "so the eye never drops under the plane");
 }
+
+// -- scrubbing through history ----------------------------------------------
+//
+// The timeline swaps in a whole new `SizeTree` per revision rather than editing
+// the last one, because going back in time makes directories *smaller* and the
+// crawler's tree only ever grows. These tests are what say the swap reads as a
+// morph rather than a jump cut — the property the whole feature rests on.
+
+/// A revision's tree, built the way `sizes::from_paths` builds one.
+fn revision(entries: &[(&str, u64)], epoch: u64) -> SizeTree {
+    crate::sizes::from_paths(Path::new("/r"), entries.iter().copied(), epoch)
+}
+
+#[test]
+fn a_directory_present_in_both_revisions_keeps_its_animation_state() {
+    let before = revision(&[("a/f", 100), ("b/f", 200)], 1);
+    let mut sp = view_on("/r", &before);
+    settle(&mut sp);
+    let kept = sp.drawn(node_index(&sp, "a")).0;
+
+    // `a` grows, `b` is untouched.
+    let after = revision(&[("a/f", 100_000), ("b/f", 200)], 2);
+    sp.sync_from(&after);
+
+    // It did not blink out and back: the box is still where it was, and now
+    // animating toward a new size rather than snapping to it.
+    let i = node_index(&sp, "a");
+    assert!(sp.shown.contains_key(Path::new("/r/a")), "its animation state survived the swap");
+    assert!(sp.drawn(i).0.sub(kept).len() < 1e-3, "it starts the frame where it stood");
+    assert!(sp.drawn(i).1 < sp.nodes[i].target_half, "and grows into its new size");
+    settle(&mut sp);
+    assert!((sp.drawn(i).1 - sp.nodes[i].target_half).abs() < 1e-3, "then it arrives");
+}
+
+#[test]
+fn a_directory_added_by_a_later_revision_grows_out_of_its_parent() {
+    let before = revision(&[("a/f", 100)], 1);
+    let mut sp = view_on("/r", &before);
+    settle(&mut sp);
+
+    let after = revision(&[("a/f", 100), ("new/f", 50)], 2);
+    sp.sync_from(&after);
+
+    let b = sp.boxes(&pal());
+    let newcomer = b.iter().find(|x| x.name == "new").expect("the added directory");
+    assert_eq!(newcomer.fade, 0.0, "it is invisible on the frame it appears");
+    let i = node_index(&sp, "new");
+    assert_eq!(sp.drawn(i).1, 0.0, "and starts at no size at all");
+}
+
+/// Scrubbing *backwards* is the case the crawler could never produce: a
+/// directory that has not been created yet must leave the scene by fading, not
+/// by vanishing between frames.
+#[test]
+fn a_directory_not_yet_created_fades_out_when_scrubbing_backwards() {
+    let now = revision(&[("a/f", 100), ("later/f", 50)], 1);
+    let mut sp = view_on("/r", &now);
+    settle(&mut sp);
+    assert!(sp.boxes(&pal()).iter().any(|x| x.name == "later"));
+
+    // Step back to before `later` existed.
+    let past = revision(&[("a/f", 100)], 2);
+    sp.sync_from(&past);
+
+    assert!(!sp.nodes.iter().any(|n| n.path.ends_with("later")), "it is gone from the scene");
+    let ghost = sp.boxes(&pal()).iter().any(|x| x.name == "later");
+    assert!(ghost, "but is still drawn, fading out where it stood");
+    settle(&mut sp);
+    assert!(!sp.boxes(&pal()).iter().any(|x| x.name == "later"), "and then it is gone");
+}
+
+/// The anchor is what `rebase` keys off. A revision tree marks nothing above the
+/// repository root as listed, so the anchor pins there and stays put across every
+/// scrub — which is what makes the transition a pure morph with no re-framing.
+#[test]
+fn the_anchor_does_not_move_between_revisions() {
+    let a = revision(&[("x/f", 1)], 1);
+    let mut sp = view_on("/r", &a);
+    settle(&mut sp);
+    let anchor = sp.root.clone();
+
+    for (n, entries) in [(2u64, &[("x/f", 9_999)][..]), (3, &[("y/f", 5)][..]), (4, &[][..])] {
+        sp.sync_from(&revision(entries, n));
+        assert_eq!(sp.root, anchor, "the scene stayed in the same frame of reference");
+    }
+}
+
+/// Revisions differing wildly in size must not make a box vanish and reappear —
+/// the scene has to stay legible while a drag runs through many commits.
+#[test]
+fn scrubbing_rapidly_keeps_the_scene_bounded() {
+    let mut sp = view_on("/r", &revision(&[("a/f", 1)], 1));
+    settle(&mut sp);
+    for n in 2..40u64 {
+        let entries: Vec<(&str, u64)> =
+            if n % 2 == 0 { vec![("a/f", 10), ("b/f", 20)] } else { vec![("a/f", 10)] };
+        sp.sync_from(&crate::sizes::from_paths(Path::new("/r"), entries.into_iter(), n));
+    }
+    assert!(sp.ghosts.len() <= MAX_GHOSTS, "rapid scrubbing cannot pile ghosts up without limit");
+    assert!(sp.boxes(&pal()).iter().any(|x| x.name == "a"), "the scene is still drawn");
+}
+
+/// A revision's listing is complete by construction, so the view must never
+/// claim it is still scanning.
+#[test]
+fn a_revision_never_reads_as_still_scanning() {
+    let sp = view_on("/r", &revision(&[("a/f", 1), ("deep/deeper/f", 2)], 1));
+    assert!(!sp.scanning, "a revision arrives whole; there is nothing left to wait for");
+}

@@ -1824,5 +1824,13 @@ pub fn is_crawlable(p: &crate::vfs::VfsPath) -> bool {
     p.scheme == "file"
 }
 
+/// Whether a panel can be put under the 3D time machine: it has to be looking at
+/// a real work tree, since the revisions and their sizes both come from `git`
+/// run there. A panel already inside a revision is browsing history, not a
+/// repository to scrub.
+pub fn is_scrubbable(p: &crate::vfs::VfsPath) -> bool {
+    p.is_plain_local()
+}
+
 #[cfg(test)]
 mod tests;

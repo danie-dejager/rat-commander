@@ -190,7 +190,10 @@ regex/\.(zip|ZIP)$
     Open=%cd %p/uzip://
     View=%view{ascii} unzip -v %f
 
-# ISO9660 CD/DVD image
+# ISO9660 CD/DVD image. Rat Commander reads these natively, so the rule below is
+# redundant for an ordinary image and is only reached when the built-in reader
+# declines — a `.iso` that is UDF-only, say. It needs mc's `iso9660` script and
+# cdrkit's `isoinfo`; delete it if you have neither.
 shell/i/.iso
     Open=%cd %p/iso9660://
 
