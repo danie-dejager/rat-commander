@@ -484,6 +484,20 @@ one from the **Left** / **Right** menu:
   - on a **multi-file selection**, a tally of the combined size and the number
     of files and directories included.
 
+  Inside a **git work tree**, a **git activity calendar** follows: a year of the
+  item's history laid out like a contribution graph — a column per week, the
+  current one on the right, a row per weekday from Monday — with each day
+  shaded by how many commits touched the file, the directory, or the tagged
+  items together, relative to their busiest day. The count for the whole year
+  is written on its rule. It is counted with `git log` in the background once
+  the cursor has rested on an item for a moment, so running down a listing
+  starts nothing, and an item visited again comes straight from memory (a
+  commit or pull through the Git menu counts afresh). A narrow panel shows the
+  latest weeks that fit, a wide one squares the cells, and a panel too short to
+  spare the rows leaves it out. Days are counted on the same UTC clock as every
+  other time shown. The command palette's *Details view: git activity* setting
+  turns it off, for a repository big enough that each `git log` is felt.
+
   Beneath the metadata, a **preview** of the item is shown (loaded in the
   background so large or remote items stay responsive):
   - a **text file** → a syntax-highlighted view of its first lines;

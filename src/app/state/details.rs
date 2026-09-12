@@ -4,7 +4,8 @@
 
 use super::*;
 use crate::details::{
-    DetailsData, DetailsKind, FileInfo, Preview, PreviewImage, PreviewLine, PreviewTreeLine, Tally,
+    ActivityView, DetailsData, DetailsKind, FileInfo, Preview, PreviewImage, PreviewLine,
+    PreviewTreeLine, Tally,
 };
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
@@ -21,6 +22,14 @@ const MAX_ARCHIVE_BYTES: u64 = 50 * 1024 * 1024;
 /// Longest edge of a decoded thumbnail (the graphics layer fits it to the cell
 /// area; the ASCII fallback downsamples further).
 const THUMB_MAX: u32 = 480;
+/// How long the cursor has to rest on an item before its activity is counted,
+/// so running the cursor down a listing doesn't start a `git log` per row.
+const ACTIVITY_DEBOUNCE: Duration = Duration::from_millis(250);
+/// Activity calendars kept for revisiting.
+const ACTIVITY_CACHE: usize = 64;
+/// Most selected items one calendar counts together.
+const ACTIVITY_MAX_NAMES: usize = 100;
+
 /// Directory-tree preview limits.
 const MAX_TREE_DEPTH: u16 = 2;
 const MAX_TREE_LINES: usize = 200;
@@ -50,6 +59,9 @@ impl AppState {
                     }
                     self.details[viewer] = DetailsData::default();
                 }
+                if let Some(task) = self.activity_task[viewer].take() {
+                    task.abort();
+                }
                 continue;
             }
             let source = 1 - viewer;
@@ -57,6 +69,93 @@ impl AppState {
             if key != self.details[viewer].key {
                 self.details[viewer].key = key;
                 self.start_details(viewer);
+            }
+            self.update_activity(viewer);
+        }
+    }
+
+    /// Ask for the git activity calendar of what the source panel points at,
+    /// when that has changed: straight from the cache, or from a `git log` once
+    /// the cursor has rested on it for a moment.
+    fn update_activity(&mut self, viewer: usize) {
+        let Some((dir, names)) = self.activity_target(1 - viewer) else {
+            if !self.details[viewer].activity_key.is_empty() {
+                self.details[viewer].activity_key.clear();
+                self.details[viewer].activity = ActivityView::None;
+            }
+            return;
+        };
+        let key = format!("{}\u{0}{}", dir.display(), names.join("\u{0}"));
+        if key == self.details[viewer].activity_key {
+            return;
+        }
+        if let Some(task) = self.activity_task[viewer].take() {
+            task.abort();
+        }
+        self.details[viewer].activity_key = key.clone();
+        if let Some(pos) = self.activity_cache.iter().position(|(k, _)| *k == key) {
+            // Revisited: move it to the young end and show it at once.
+            let hit = self.activity_cache.remove(pos).expect("position is in range");
+            self.details[viewer].activity = ActivityView::Ready(hit.1.clone());
+            self.activity_cache.push_back(hit);
+            return;
+        }
+        self.details[viewer].activity = ActivityView::Loading;
+        let tx = self.tx.clone();
+        self.activity_task[viewer] = Some(tokio::spawn(async move {
+            tokio::time::sleep(ACTIVITY_DEBOUNCE).await;
+            let today = crate::git::activity::today();
+            let activity = crate::git::activity::activity(&dir, &names, today).await.map(Arc::new);
+            let _ = tx.send(AppEvent::DetailsActivity { viewer, key, activity }).await;
+        }));
+    }
+
+    /// The directory and entry names whose activity panel `source` points at:
+    /// the selection, or else the entry under the cursor. `None` when there is
+    /// nothing to count — no item, not a plain local directory, not in a work
+    /// tree as far as the panel's git status knows, or turned off.
+    fn activity_target(&self, source: usize) -> Option<(PathBuf, Vec<String>)> {
+        let p = &self.panels[source];
+        if !self.config.details_activity
+            || p.format == ViewFormat::Details
+            || !p.cwd.is_plain_local()
+            || p.git.is_none()
+        {
+            return None;
+        }
+        let names: Vec<String> = if p.selection.is_empty() {
+            let e = p.current_entry().filter(|e| e.name != "..")?;
+            vec![e.name.clone()]
+        } else {
+            p.entries
+                .iter()
+                .filter(|e| e.name != ".." && p.selection.is_marked(&e.name))
+                .take(ACTIVITY_MAX_NAMES)
+                .map(|e| e.name.clone())
+                .collect()
+        };
+        (!names.is_empty()).then(|| (p.cwd.path.clone(), names))
+    }
+
+    /// Show a counted calendar, if its Details view still wants it, and keep it.
+    pub(in crate::app::state) fn apply_details_activity(
+        &mut self,
+        viewer: usize,
+        key: String,
+        activity: Option<Arc<crate::git::activity::Activity>>,
+    ) {
+        let Some(d) = self.details.get_mut(viewer).filter(|d| d.activity_key == key) else {
+            return;
+        };
+        self.activity_task[viewer] = None;
+        d.activity = match &activity {
+            Some(a) => ActivityView::Ready(a.clone()),
+            None => ActivityView::None,
+        };
+        if let Some(a) = activity {
+            self.activity_cache.push_back((key, a));
+            while self.activity_cache.len() > ACTIVITY_CACHE {
+                self.activity_cache.pop_front();
             }
         }
     }

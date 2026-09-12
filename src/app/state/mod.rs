@@ -388,6 +388,13 @@ pub struct AppState {
     /// closes, and the generation that tells its answer from an older one's.
     blame_task: Option<tokio::task::JoinHandle<()>>,
     blame_gen: u64,
+    /// Git activity calendars already counted, newest last, so moving the
+    /// Details view back over an item doesn't run `git log` again.
+    activity_cache:
+        std::collections::VecDeque<(String, std::sync::Arc<crate::git::activity::Activity>)>,
+    /// Each Details view's pending or running activity count, aborted (which
+    /// kills its `git log`) when the view moves on before it finishes.
+    activity_task: [Option<tokio::task::JoinHandle<()>>; 2],
 }
 
 /// How long a lone Esc is held, waiting for a digit, before it is delivered as

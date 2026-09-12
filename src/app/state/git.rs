@@ -40,6 +40,11 @@ impl AppState {
     /// called after operations that may have changed the working tree.
     pub(in crate::app::state) fn invalidate_git(&mut self) {
         self.git_key = [String::new(), String::new()];
+        // History may have moved on too (a commit, a pull): count again.
+        self.activity_cache.clear();
+        for d in &mut self.details {
+            d.activity_key.clear();
+        }
     }
 
     /// Spawn a background `git status` scan for panel `side`, guarded by a

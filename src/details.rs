@@ -32,6 +32,24 @@ pub struct DetailsData {
     /// A preview of the item under the other panel's cursor, loaded in the
     /// background (shares `generation` with the size scan).
     pub preview: Preview,
+    /// The git activity calendar of the same item, when it is in a work tree.
+    pub activity: ActivityView,
+    /// What `activity` was asked for (directory and names), so the app can tell
+    /// when to ask again. Kept apart from `key`: whether an item is in a work
+    /// tree is only known once the panel's git status arrives, which is later.
+    pub(crate) activity_key: String,
+}
+
+/// The git activity calendar drawn between the metadata and the preview.
+#[derive(Default, Debug, Clone)]
+pub enum ActivityView {
+    /// Not in a work tree (or turned off): nothing is drawn.
+    #[default]
+    None,
+    /// Asked for: an empty calendar holds the space, so the preview below does
+    /// not jump when the counts arrive.
+    Loading,
+    Ready(std::sync::Arc<crate::git::activity::Activity>),
 }
 
 /// A background-loaded preview of the item the Details view describes, drawn
@@ -144,8 +162,18 @@ pub fn render(
         DetailsKind::File(fi) => render_file(f, body, fi, theme),
         DetailsKind::Tally(t) => render_tally(f, body, t, theme),
     };
+    let mut top = body.y + 1 + rows as u16 + 1;
+    // The git activity calendar, when there is room for it and still a line of
+    // preview below.
+    let bottom = body.y + body.height;
+    if !matches!(data.activity, ActivityView::None)
+        && body.width >= ACTIVITY_LABEL + ACTIVITY_MIN_WEEKS
+        && top + ACTIVITY_ROWS + 2 < bottom
+    {
+        render_activity(f, Rect { y: top, height: ACTIVITY_ROWS, ..body }, &data.activity, theme);
+        top += ACTIVITY_ROWS + 1;
+    }
     // Draw the preview beneath the metadata, separated by a blank row.
-    let top = body.y + 1 + rows as u16 + 1;
     if top + 1 >= body.y + body.height {
         return None;
     }
@@ -232,6 +260,125 @@ fn render_tally(f: &mut Frame, area: Rect, t: &Tally, theme: &Theme) -> usize {
         used += 1;
     }
     used
+}
+
+/// Rows the activity calendar takes: its rule, the month names and a row per
+/// weekday.
+const ACTIVITY_ROWS: u16 = 9;
+/// Width of the weekday labels to the left of the grid.
+const ACTIVITY_LABEL: u16 = 4;
+/// Fewer weeks than this aren't worth showing.
+const ACTIVITY_MIN_WEEKS: u16 = 10;
+
+/// Draw the calendar: a column per week, most recent on the right, a row per
+/// weekday from Monday, each day shaded by how many commits touched the item
+/// that day relative to its busiest one. A narrow panel shows the latest weeks
+/// that fit; a wide one gives each week two columns, which squares the cells.
+fn render_activity(f: &mut Frame, area: Rect, view: &ActivityView, theme: &Theme) {
+    use crate::git::activity::{Activity, WEEKS, level};
+    use unicode_width::UnicodeWidthStr;
+    let bg = theme.panel_bg;
+    let rule = Style::default().fg(theme.panel_border).bg(bg);
+    let (activity, summary) = match view {
+        ActivityView::None => return,
+        ActivityView::Loading => {
+            (Activity::empty(crate::git::activity::today()), crate::l10n::trd("loading…"))
+        }
+        ActivityView::Ready(a) => {
+            let summary = if a.total == 1 {
+                crate::l10n::trd("1 commit in the last year")
+            } else {
+                format!(
+                    "{} {}",
+                    group_digits(a.total as u64),
+                    crate::l10n::trd("commits in the last year")
+                )
+            };
+            (Activity::clone(a), summary)
+        }
+    };
+    let width = area.width as usize;
+
+    // `─ Activity ──────── 214 commits in the last year ─`
+    let title = format!("─ {} ", crate::l10n::trd("Activity"));
+    let tail = format!(" {summary} ─");
+    let fill = width.saturating_sub(title.width() + tail.width());
+    let header = format!("{title}{}{tail}", "─".repeat(fill));
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            crate::util::text::ellipsize(&header, width),
+            rule,
+        ))),
+        Rect { height: 1, ..area },
+    );
+
+    let label = ACTIVITY_LABEL as usize;
+    let col = if width >= label + WEEKS * 2 { 2 } else { 1 };
+    let weeks = ((width - label) / col).min(WEEKS);
+    let first = activity.start + (WEEKS - weeks) as i64 * 7;
+
+    // Month names over the week each month begins in.
+    const MONTHS: [&str; 12] =
+        ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let mut months = vec![' '; width];
+    let mut free_from = 0;
+    for week in 0..weeks {
+        let monday = first + week as i64 * 7;
+        let (_, month, day, ..) = crate::util::bytes::civil_parts(monday * 86_400);
+        let x = label + week * col;
+        if day <= 7 && x >= free_from && x + 3 <= width {
+            for (i, ch) in MONTHS[(month - 1) as usize].chars().enumerate() {
+                months[x + i] = ch;
+            }
+            free_from = x + 4;
+        }
+    }
+    let dim = Style::default().fg(theme.panel_border).bg(bg);
+    let mut lines = vec![Line::from(Span::styled(months.into_iter().collect::<String>(), dim))];
+
+    let max = activity.max();
+    use crate::ui::graphics::raster::{over, rgb};
+    // One column a week packs the days closer side by side than row over row,
+    // and squares would run together into stripes; dots keep them apart. With
+    // two columns the spacing is even, and squares read as the familiar grid.
+    let dot = if col == 1 { '●' } else { '■' };
+    let shade = |lvl: usize| -> (char, Color) {
+        if theme.truecolor {
+            let a = [0.14, 0.38, 0.58, 0.8, 1.0][lvl];
+            let (r, g, b) = over(rgb(bg), rgb(theme.exec_fg), a);
+            (dot, Color::Rgb(r, g, b))
+        } else {
+            let fg = if lvl == 0 { theme.panel_border } else { theme.exec_fg };
+            (['·', '░', '▒', '▓', '█'][lvl], fg)
+        }
+    };
+    for weekday in 0..7 {
+        let name = match weekday {
+            0 => "Mon",
+            2 => "Wed",
+            4 => "Fri",
+            _ => "",
+        };
+        let mut spans = vec![Span::styled(format!("{name:<label$}"), dim)];
+        for week in 0..weeks {
+            let day = first + week as i64 * 7 + weekday;
+            let cell = match activity.count(day) {
+                // After today: the rest of this week hasn't happened.
+                None => " ".repeat(col),
+                Some(n) => {
+                    let (glyph, fg) = shade(level(n, max));
+                    spans.push(Span::styled(glyph.to_string(), Style::default().fg(fg).bg(bg)));
+                    " ".repeat(col - 1)
+                }
+            };
+            if !cell.is_empty() {
+                spans.push(Span::styled(cell, Style::default().bg(bg)));
+            }
+        }
+        lines.push(Line::from(spans));
+    }
+    let grid = Rect { y: area.y + 1, height: area.height - 1, ..area };
+    f.render_widget(Paragraph::new(lines).style(Style::default().bg(bg)), grid);
 }
 
 /// Draw the preview beneath the metadata. Returns the pixel-image target rect
@@ -491,6 +638,69 @@ mod tests {
             .map(|(x, y)| b[(x, y)].symbol().to_string())
             .collect();
         (text, rect)
+    }
+
+    fn activity_data(height: u16, width: u16) -> (String, ratatui::buffer::Buffer) {
+        use crate::git::activity::Activity;
+        let today = 20_708; // a Saturday
+        let noon = |d: i64| d * 86_400 + 43_200;
+        let times = [noon(today), noon(today), noon(today), noon(today - 1), noon(today - 30)];
+        let mut data =
+            DetailsData { kind: DetailsKind::File(file_info("cart.rs")), ..Default::default() };
+        data.activity =
+            ActivityView::Ready(std::sync::Arc::new(Activity::from_times(times, today)));
+        data.preview =
+            Preview::Text(vec![PreviewLine { text: "fn main() {}".into(), runs: vec![] }]);
+        let theme = Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(width, height)).unwrap();
+        t.draw(|f| {
+            render(f, f.area(), &data, &theme, false);
+        })
+        .unwrap();
+        let b = t.backend().buffer().clone();
+        let text = (0..b.area.height)
+            .map(|y| (0..b.area.width).map(|x| b[(x, y)].symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        (text, b)
+    }
+
+    #[test]
+    fn the_activity_calendar_sits_between_the_metadata_and_the_preview() {
+        let (text, b) = activity_data(30, 44);
+        let lines: Vec<&str> = text.lines().collect();
+        let rule = lines.iter().position(|l| l.contains("Activity")).expect(&text);
+        assert!(lines[rule].contains("5 commits in the last year"), "{}", lines[rule]);
+        let preview = lines.iter().position(|l| l.contains("Preview")).expect(&text);
+        assert_eq!(preview, rule + 10, "nine rows of calendar, then a blank one");
+        assert!(lines[rule + 2].trim_start_matches('│').starts_with(" Mon"), "{}", lines[rule + 2]);
+
+        // Saturday's column is the last; today's three commits are the busiest
+        // day, drawn at full strength, and Sunday hasn't happened yet.
+        let theme = Theme::mc();
+        let sat = rule as u16 + 2 + 5;
+        let last = (1..b.area.width - 1).rev().find(|&x| b[(x, sat)].symbol() == "●").unwrap();
+        assert_eq!(b[(last, sat)].fg, theme.exec_fg);
+        assert_eq!(b[(last, sat + 1)].symbol(), " ", "no cell for tomorrow");
+        assert_ne!(b[(last, sat - 1)].fg, theme.exec_fg, "Friday had fewer");
+    }
+
+    #[test]
+    fn the_activity_calendar_makes_way_when_the_panel_is_short() {
+        let (text, _) = activity_data(18, 44);
+        assert!(!text.contains("Activity"), "{text}");
+        assert!(text.contains("Preview"), "the preview still shows");
+    }
+
+    #[test]
+    fn a_wide_panel_squares_the_cells_and_labels_the_months() {
+        let (text, _) = activity_data(30, 120);
+        let lines: Vec<&str> = text.lines().collect();
+        let rule = lines.iter().position(|l| l.contains("Activity")).unwrap();
+        let months = lines[rule + 1];
+        assert!(months.contains("Sep") && months.contains("Jan"), "{months}");
+        let mon = lines[rule + 2];
+        assert!(mon.contains("■ ■ ■"), "two columns a week: {mon}");
     }
 
     #[test]

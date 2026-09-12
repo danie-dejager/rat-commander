@@ -5387,6 +5387,103 @@ async fn ctrl_tab_and_ctrl_pageup_down_cycle_tabs() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// A Details view of a file in a work tree counts the commits that touched it
+/// into a calendar — after the cursor has rested, and from the cache when it
+/// comes back — and makes no calendar outside one.
+#[tokio::test]
+async fn details_view_counts_git_activity_for_the_item_under_the_cursor() {
+    use crate::details::ActivityView;
+    use crate::panel::ViewFormat;
+    let root = temp_dir("details_activity");
+    let today = crate::git::activity::today();
+    let run = |args: &[&str], days_ago: i64| {
+        let date = format!("@{} +0000", (today - days_ago) * 86_400 + 3600);
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@e")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@e")
+            .env("GIT_AUTHOR_DATE", &date)
+            .env("GIT_COMMITTER_DATE", &date)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    };
+    if !run(&["init", "-q"], 0) {
+        return; // no git here
+    }
+    for (i, days_ago) in [20, 5, 5].into_iter().enumerate() {
+        std::fs::write(root.join("busy.txt"), format!("{i}")).unwrap();
+        run(&["add", "-A"], days_ago);
+        run(&["commit", "-qm", "busy"], days_ago);
+    }
+    std::fs::write(root.join("quiet.txt"), "q").unwrap();
+    run(&["add", "-A"], 1);
+    run(&["commit", "-qm", "quiet"], 1);
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.panels[1].format = ViewFormat::Details;
+    let cursor_on = |st: &mut AppState, name: &str| {
+        st.panels[0].cursor = st.panels[0].entries.iter().position(|e| e.name == name).unwrap();
+    };
+    // Everything the background work sends, applied until `done` says so.
+    async fn pump(
+        st: &mut AppState,
+        rx: &mut crate::util::async_bridge::AppReceiver,
+        done: impl Fn(&AppEvent) -> bool,
+    ) {
+        loop {
+            let ev = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+                .await
+                .expect("the event arrives")
+                .expect("channel open");
+            let stop = done(&ev);
+            st.apply_event(ev).await;
+            if stop {
+                break;
+            }
+        }
+    }
+
+    cursor_on(&mut st, "busy.txt");
+    st.update_details();
+    assert!(matches!(st.details[1].activity, ActivityView::None), "no git status yet");
+    st.update_git();
+    pump(&mut st, &mut rx, |ev| matches!(ev, AppEvent::GitStatusScanned { .. })).await;
+    st.update_details();
+    assert!(matches!(st.details[1].activity, ActivityView::Loading));
+    pump(&mut st, &mut rx, |ev| matches!(ev, AppEvent::DetailsActivity { .. })).await;
+    let ActivityView::Ready(a) = &st.details[1].activity else { panic!("counted") };
+    assert_eq!((a.total, a.count(today - 5), a.count(today - 20)), (3, Some(2), Some(1)));
+
+    cursor_on(&mut st, "quiet.txt");
+    st.update_details();
+    pump(&mut st, &mut rx, |ev| matches!(ev, AppEvent::DetailsActivity { .. })).await;
+    assert!(matches!(&st.details[1].activity, ActivityView::Ready(a) if a.total == 1));
+
+    // Back on the first file: straight from the cache, no git run.
+    cursor_on(&mut st, "busy.txt");
+    st.update_details();
+    assert!(matches!(&st.details[1].activity, ActivityView::Ready(a) if a.total == 3));
+
+    // Turned off, it goes away.
+    st.config.details_activity = false;
+    st.update_details();
+    assert!(matches!(st.details[1].activity, ActivityView::None));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// `b` in the viewer blames the file in the background, and Enter on a line
 /// walks the panel into history, to that line's commit, with the file focused.
 #[tokio::test]

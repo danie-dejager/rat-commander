@@ -124,6 +124,11 @@ impl AppState {
                 self.config.space3d_activity,
             ),
             toggle(
+                "Details view: git activity",
+                BoolSetting::DetailsActivity,
+                self.config.details_activity,
+            ),
+            toggle(
                 "Strip trailing spaces on copy",
                 BoolSetting::StripTrailingSpaces,
                 self.config.strip_trailing_spaces,
@@ -360,6 +365,9 @@ impl AppState {
                 self.config.space3d_activity = !self.config.space3d_activity;
                 // Swap the recursive watch in or out now, for the same reason.
                 self.update_watches();
+            }
+            BoolSetting::DetailsActivity => {
+                self.config.details_activity = !self.config.details_activity;
             }
             BoolSetting::StripTrailingSpaces => {
                 self.config.strip_trailing_spaces = !self.config.strip_trailing_spaces;

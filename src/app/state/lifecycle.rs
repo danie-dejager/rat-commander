@@ -166,6 +166,8 @@ impl AppState {
             busy_task: None,
             blame_task: None,
             blame_gen: 0,
+            activity_cache: std::collections::VecDeque::new(),
+            activity_task: [None, None],
         }
     }
 
@@ -678,6 +680,9 @@ impl AppState {
             }
             AppEvent::DetailsPreview { viewer, generation, preview } => {
                 self.apply_details_preview(viewer, generation, *preview);
+            }
+            AppEvent::DetailsActivity { viewer, key, activity } => {
+                self.apply_details_activity(viewer, key, activity);
             }
             AppEvent::NetworkScanned { generation, result } => {
                 self.apply_network_scanned(generation, result);

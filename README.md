@@ -27,7 +27,8 @@ The installed executable is named **`rc`** for quick typing.
   a background-loaded **preview** of the other panel's item — a syntax-highlighted
   text head, a centered image thumbnail (true-pixel where graphics are available,
   else half-block art) with an EXIF summary, an archive's file list, or a
-  directory tree.
+  directory tree — and, inside a git work tree, a **git activity calendar**: a
+  year of commits to that file or directory, a GitHub-style grid of days.
 - **File operations** — copy / move / delete with a progress window and
   transfer-speed chart, rich overwrite handling, chmod / chown / symlink (with
   recursion), and make-directory.

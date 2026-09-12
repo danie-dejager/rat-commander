@@ -103,6 +103,14 @@ pub enum AppEvent {
     /// A background Details-view preview load finished for panel `viewer`; a stale
     /// `generation` is ignored.
     DetailsPreview { viewer: usize, generation: u64, preview: Box<crate::details::Preview> },
+    /// A Details view's git activity calendar was counted, for the item `key`
+    /// names; ignored when that view has moved on. `None` when it turned out
+    /// not to be in a work tree after all.
+    DetailsActivity {
+        viewer: usize,
+        key: String,
+        activity: Option<std::sync::Arc<crate::git::activity::Activity>>,
+    },
     /// A "Send file over LAN" selection finished being zipped to a temp archive;
     /// `Ok(path)` gives the archive to serve, `Err(msg)` reports a failure. `name`
     /// is the friendly download name to advertise. Only used for the multi-file /

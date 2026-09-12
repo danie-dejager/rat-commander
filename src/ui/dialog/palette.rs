@@ -55,6 +55,8 @@ pub enum BoolSetting {
     AutoRefresh,
     /// Light up directories in the 3D view as things are written into them.
     Space3dActivity,
+    /// Draw the git activity calendar in the Details view.
+    DetailsActivity,
     /// End each drawn row with an erase instead of padding it with spaces, so a
     /// terminal selection copies no trailing whitespace.
     StripTrailingSpaces,
