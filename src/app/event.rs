@@ -43,6 +43,13 @@ pub enum AppEvent {
     /// The filesystem watcher has collected events in the app's inbox (see
     /// `app::state::watch`). One wake-up per batch, however many events.
     FsActivity,
+    /// A thumbnail for panel `side`'s grid was loaded (`None`: it has none after
+    /// all — not decodable, or too big).
+    Thumbnail {
+        side: usize,
+        key: crate::thumbs::ThumbKey,
+        thumb: Option<std::sync::Arc<crate::thumbs::Thumb>>,
+    },
     /// A throttled progress snapshot from the ops engine.
     Progress(ProgressUpdate),
     /// A copy/move hit an existing destination; the engine is paused awaiting the

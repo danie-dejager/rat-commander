@@ -418,6 +418,7 @@ pub struct SettingsValues {
     /// Idle minutes before the screensaver starts; 0 is off.
     pub screensaver_minutes: u16,
     pub screensaver: crate::config::SaverKind,
+    pub thumb_size: crate::config::ThumbSize,
 }
 
 /// Values collected by the Confirmations form (which actions need confirming).

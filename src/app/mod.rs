@@ -304,6 +304,8 @@ fn refresh_and_draw(term: &mut Term, state: &mut AppState) -> Result<()> {
     // Point each Activity log at the other panel's tree — before the watches
     // are armed, since the log is what asks for the recursive one.
     state.update_activity_logs();
+    // Ask for the thumbnails the grid is about to show.
+    state.update_thumbs();
     // Arm/re-arm the filesystem watchers behind the panels' auto-refresh;
     // cheap when neither panel has moved.
     state.update_watches();

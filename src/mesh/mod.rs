@@ -59,6 +59,17 @@ impl Mesh {
     pub fn radius(&self) -> f32 {
         self.max.sub(self.min).scale(0.5).len().max(1e-4)
     }
+
+    /// A camera looking at the whole model from three-quarters above, and the
+    /// distance that exactly frames it (the bounding sphere filling the field of
+    /// view, with a margin so the silhouette doesn't touch the edge).
+    pub fn framed_camera(&self) -> (crate::space3d::CamPose, f32) {
+        let fitted = self.radius() / (crate::space3d::raster3d::FOV_Y * 0.5).sin() * 1.15;
+        (
+            crate::space3d::CamPose { target: self.centre(), dist: fitted, yaw: 0.6, pitch: 0.45 },
+            fitted,
+        )
+    }
 }
 
 /// Whether the viewer can open `name` as a model.

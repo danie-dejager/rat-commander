@@ -48,7 +48,7 @@ const GROUP_COL_GUTTER: u16 = 2;
 /// one-column group still costs a row and a whole new group costs two more; the
 /// two-column Visual group is what buys the headroom.
 const SETTINGS_GROUPS: &[(&str, usize, usize)] =
-    &[("Language", 2, 1), ("Edit/View", 4, 1), ("Visual", 11, 2)];
+    &[("Language", 2, 1), ("Edit/View", 4, 1), ("Visual", 12, 2)];
 
 /// The editor-options form's groups, in the order [`FormDialog::editor_options`]
 /// builds its fields: `(title, field count, columns)`. The counts must sum to
@@ -381,6 +381,11 @@ impl FormDialog {
                 "Screensaver style",
                 crate::config::SaverKind::ALL.iter().map(|(_, l)| (*l).to_string()).collect(),
                 cfg.screensaver.label(),
+            ),
+            Field::choice(
+                "Thumbnail size",
+                crate::config::ThumbSize::ALL.iter().map(|(_, l)| (*l).to_string()).collect(),
+                cfg.thumb_size.label(),
             ),
         ]);
         FormDialog {
@@ -998,6 +1003,7 @@ impl FormDialog {
                 space3d_style: crate::config::Space3dStyle::from_label(fields[14].as_text()),
                 screensaver_minutes: crate::config::saver_minutes_from_label(fields[15].as_text()),
                 screensaver: crate::config::SaverKind::from_label(fields[16].as_text()),
+                thumb_size: crate::config::ThumbSize::from_label(fields[17].as_text()),
             }),
             FormPurpose::Confirmations => Submit::Confirmations(ConfirmValues {
                 delete: fields[0].as_bool(),

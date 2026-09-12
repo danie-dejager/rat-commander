@@ -1609,6 +1609,7 @@ fn the_settings_form_round_trips_the_3d_style_and_the_screensaver() {
         DialogResult::Submit(Submit::Settings(v)) => {
             assert_eq!(v.space3d_style, Space3dStyle::Fsn, "the form gives back what it was given");
             assert_eq!((v.screensaver_minutes, v.screensaver), (15, SaverKind::Pipes));
+            assert_eq!(v.thumb_size, cfg.thumb_size);
             // A spot-check either side of it, so a shifted index shows up here.
             assert_eq!(v.brief_columns, cfg.brief_columns);
             assert_eq!(v.theme, cfg.theme);

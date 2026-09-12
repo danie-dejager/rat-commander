@@ -29,6 +29,7 @@ mod shell;
 mod sizes;
 mod space3d;
 mod syntax;
+mod thumbs;
 mod trash;
 mod ui;
 mod usermenu;

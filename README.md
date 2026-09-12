@@ -21,7 +21,7 @@ The installed executable is named **`rc`** for quick typing.
 
 ## Features
 
-- **Two panels** with **full**, **brief**, **details**, **tree** and **3D** view formats,
+- **Two panels** with **full**, **brief**, **details**, **tree**, **3D** and **thumbnail grid** view formats,
   vertical or horizontal split, configurable sort, multi-file selection, type
   markers and file-type colors. Full **mouse** support. The **details** view adds
   a background-loaded **preview** of the other panel's item — a syntax-highlighted
@@ -92,6 +92,10 @@ The installed executable is named **`rc`** for quick typing.
   you are and the title names the commit. Sizes come from git, so a commit's tree
   is walked once and revisited for free — dragging across two hundred commits
   costs a handful of reads, not one apiece.
+- **Thumbnail grid** — a view format showing a directory as pictures: photos and
+  other images as thumbnails (true pixels on a graphics terminal, half-block art
+  elsewhere) and STL/OBJ models rendered in 3D, loaded in the background a page
+  at a time, with three cell sizes.
 - **Activity log** — a panel format listing, live, everything created, written,
   removed and renamed anywhere under the other panel's directory: *what is this
   installer writing?* Bursts fold into one row with a count, a sparkline shows
@@ -247,7 +251,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Alt-H` | Directory history: pick any visited directory from a list |
 | `Alt-I` | Point the other panel at this panel's directory |
 | `Alt-O` | Show the cursor's directory on the other panel, and step down one entry |
-| `Alt-T` | Cycle view format (full / brief / details / tree / 3D) |
+| `Alt-T` | Cycle view format (full / brief / details / tree / 3D / thumbnails) |
 | `Alt-Shift-I` | Set / clear the panel's persistent listing filter |
 | `Alt-Shift-H` | Shell history window (recall a command without running it) |
 | `Alt-G` | Open the **Git menu** (status, log, commit, push/pull, checkout, …) |

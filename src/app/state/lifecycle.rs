@@ -160,6 +160,7 @@ impl AppState {
             watch_armed: Default::default(),
             watch_refused: Default::default(),
             fs_inbox: Default::default(),
+            thumb_slots: std::sync::Arc::new(tokio::sync::Semaphore::new(crate::thumbs::PARALLEL)),
             watch_dirty: [None, None],
             edit_only: false,
             kbd_enhanced: false,
@@ -556,6 +557,11 @@ impl AppState {
             // event is enough to trigger the next repaint (loop top redraws).
             AppEvent::ConsoleOutput => {}
             AppEvent::FsActivity => self.drain_fs_inbox(),
+            AppEvent::Thumbnail { side, key, thumb } => {
+                if let Some(cache) = self.panels.get_mut(side).and_then(|p| p.thumbs.as_mut()) {
+                    cache.finish(key, thumb);
+                }
+            }
             AppEvent::Progress(u) => {
                 // Fold the speed sample into the *task's* history first. It records
                 // whether or not anyone is watching, so a transfer sent to the

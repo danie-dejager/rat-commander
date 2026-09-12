@@ -126,6 +126,7 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
             "&Details view",
             "Tree v&iew",
             "&3D view",
+            "T&humbnails view",
             "&Activity log",
             "Sort: &Name",
             "Sort: &Extension",

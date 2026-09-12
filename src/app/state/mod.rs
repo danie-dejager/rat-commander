@@ -365,6 +365,8 @@ pub struct AppState {
     pub(in crate::app::state) watch_refused: std::collections::HashSet<(PathBuf, bool)>,
     /// Where the watcher's thread leaves events for the render loop.
     pub(in crate::app::state) fs_inbox: std::sync::Arc<watch::FsInbox>,
+    /// How many thumbnails load at once, across both panels.
+    thumb_slots: std::sync::Arc<tokio::sync::Semaphore>,
     /// When each panel was last told its directory changed. The reload waits for
     /// [`watch::DEBOUNCE`] of quiet so one command causes one re-listing.
     pub(in crate::app::state) watch_dirty: [Option<Instant>; 2],
@@ -629,6 +631,7 @@ mod sendfile;
 mod sizes;
 mod syncdirs;
 mod tabs;
+mod thumbs;
 mod viewer_editor;
 pub mod watch;
 

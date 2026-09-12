@@ -129,6 +129,8 @@ pub fn render_panel(
     panel.quick_caret = None;
     // Cleared unless a Details image preview reserves an area below.
     panel.preview_image_area = None;
+    // Refilled by the thumbnail grid, when it is the format.
+    panel.thumb_cells.clear();
 
     if inner.height == 0 || inner.width == 0 {
         return;
@@ -177,6 +179,7 @@ pub fn render_panel(
         ViewFormat::Brief => render_brief(f, list_area, panel, active, theme, brief_columns, nerd),
         ViewFormat::Tree => render_tree(f, list_area, panel, active, theme),
         ViewFormat::Space3d => render_space3d(f, list_area, panel, theme, graphics),
+        ViewFormat::Thumbs => render_thumbs(f, list_area, panel, active, theme, graphics, nerd),
         ViewFormat::Activity => {
             if let Some(log) = panel.activity.as_mut() {
                 let now = std::time::Instant::now();
@@ -209,7 +212,15 @@ pub fn render_panel(
         ViewFormat::Space3d => (list_area, false, 1usize, 1usize, list_area.width),
         // One log row per body line.
         ViewFormat::Activity => (list_area, false, 1usize, 1usize, list_area.width),
+        ViewFormat::Thumbs => (list_area, false, panel.cols, panel.brief_rows, list_area.width),
     };
+    let grid = (panel.format == ViewFormat::Thumbs).then(|| {
+        let (cw, ch) = panel
+            .thumbs
+            .as_ref()
+            .map_or_else(|| crate::config::ThumbSize::default().cell(), |t| t.size.cell());
+        (panel.cols.max(1), cw, ch)
+    });
     // The tree scrolls independently of the flat listing, so hit-testing must use
     // the tree's own offset.
     let offset = match (panel.format, panel.tree.as_ref()) {
@@ -217,7 +228,8 @@ pub fn render_panel(
         (ViewFormat::Activity, _) => panel.activity.as_ref().map_or(0, |a| a.offset),
         _ => panel.offset,
     };
-    panel.hit = Some(crate::panel::PanelHit { area, body, brief, offset, columns, rows, cell_w });
+    panel.hit =
+        Some(crate::panel::PanelHit { area, body, brief, offset, columns, rows, cell_w, grid });
 
     // The scrub track sits directly under the scene, above the separator, so the
     // commit you are on reads next to the shape it produced.
@@ -629,6 +641,129 @@ fn render_brief(
         lines.push(Line::from(spans));
     }
     f.render_widget(Paragraph::new(lines), area);
+}
+
+/// Draw the thumbnail grid: row by row, each cell a picture (or the file's
+/// type, for what has none) over its name. Ready pictures are drawn with pixel
+/// graphics by the root layer when `graphics` is on — the renderer only notes
+/// where — and as half-block cell art (or an ASCII ramp) otherwise.
+fn render_thumbs(
+    f: &mut Frame,
+    area: Rect,
+    panel: &mut Panel,
+    active: bool,
+    theme: &Theme,
+    graphics: bool,
+    nerd: bool,
+) {
+    let size = panel.thumbs.as_ref().map_or_else(Default::default, |t| t.size);
+    let (cw, ch) = size.cell();
+    let cols = (area.width / cw).max(1) as usize;
+    let rows = (area.height / ch).max(1) as usize;
+    panel.page = cols * rows;
+    panel.cols = cols;
+    panel.brief_rows = rows;
+    let first_row =
+        crate::util::scroll::scroll_to_visible(panel.offset / cols, panel.cursor / cols, rows);
+    panel.offset = first_row * cols;
+    f.render_widget(Block::default().style(Style::default().bg(theme.panel_bg)), area);
+
+    let bg_rgb = crate::ui::graphics::raster::rgb(theme.panel_bg);
+    for i in 0..cols * rows {
+        let idx = panel.offset + i;
+        let Some(e) = panel.entries.get(idx) else { break };
+        let (c, r) = ((i % cols) as u16, (i / cols) as u16);
+        let cell = Rect { x: area.x + c * cw, y: area.y + r * ch, width: cw, height: ch };
+        if cell.bottom() > area.bottom() || cell.right() > area.right() {
+            continue;
+        }
+        let is_cursor = idx == panel.cursor && active;
+        let marked = panel.selection.is_marked(&e.name);
+        let gstate = panel.git.as_ref().and_then(|g| g.state_of(&e.name));
+        // The cursor is a plate behind the picture and its name: text can't be
+        // drawn over a pixel image, but the cells around one can be coloured.
+        let plate = Rect { width: cw - 1, height: ch - 1, ..cell };
+        let plate_bg =
+            if is_cursor { theme.cursor.bg.unwrap_or(theme.panel_bg) } else { theme.panel_bg };
+        f.render_widget(Block::default().style(Style::default().bg(plate_bg)), plate);
+        let pic = Rect { x: cell.x + 1, y: cell.y + 1, width: cw - 3, height: ch - 3 };
+
+        let key = crate::thumbs::ThumbKey::new(&panel.cwd, e, size, bg_rgb);
+        let state = crate::thumbs::kind_of(e, &panel.cwd)
+            .and_then(|_| panel.thumbs.as_mut().and_then(|t| t.get(&key)));
+        match state {
+            Some(crate::thumbs::ThumbState::Ready(t)) => {
+                // The picture colours its own cells: a background gradient must
+                // not re-ramp the ones that happen to match the panel colour.
+                crate::ui::gradient::mark_painted(pic);
+                if graphics {
+                    panel.thumb_cells.push((pic, t.clone()));
+                } else if theme.truecolor {
+                    crate::util::img::render_halfblocks(f, pic, &t.img, plate_bg);
+                } else {
+                    crate::util::img::render_ascii_ramp(f, pic, &t.img, theme);
+                }
+            }
+            Some(crate::thumbs::ThumbState::Loading) => {
+                let dim = Style::default().fg(theme.panel_border).bg(plate_bg);
+                centered_text(f, pic, "…", dim);
+            }
+            _ => {
+                // No picture: the file's type, large enough to scan for.
+                let label = type_label(e, nerd);
+                let style = name_style(e, false, theme).bg(plate_bg).add_modifier(Modifier::BOLD);
+                centered_text(f, pic, &label, style);
+            }
+        }
+
+        let name_row = Rect { y: cell.y + ch - 2, height: 1, ..plate };
+        let name = crate::util::text::ellipsize(
+            &display_name_git(e, gstate, nerd),
+            name_row.width as usize,
+        );
+        let style = if is_cursor {
+            cursor_style(true, marked, theme)
+        } else {
+            entry_name_style(e, marked, gstate, theme).bg(plate_bg)
+        };
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(name, style)))
+                .alignment(ratatui::layout::Alignment::Center),
+            name_row,
+        );
+    }
+}
+
+/// What a grid cell without a picture shows: the Nerd Font glyph for the type,
+/// or a word — `DIR`, `..`, or the extension.
+fn type_label(e: &VfsEntry, nerd: bool) -> String {
+    if nerd {
+        return crate::panel::icons::icon(e).to_string();
+    }
+    match e.kind {
+        VfsKind::Dir if e.name == ".." => "..".to_string(),
+        VfsKind::Dir => "DIR".to_string(),
+        _ => match e.extension() {
+            "" => "·".to_string(),
+            ext => format!(".{}", ext.to_uppercase()),
+        },
+    }
+}
+
+/// One line of text, centred in `area` both ways.
+fn centered_text(f: &mut Frame, area: Rect, text: &str, style: Style) {
+    if area.height == 0 {
+        return;
+    }
+    let row = Rect { y: area.y + (area.height - 1) / 2, height: 1, ..area };
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            crate::util::text::ellipsize(text, area.width as usize),
+            style,
+        )))
+        .alignment(ratatui::layout::Alignment::Center),
+        row,
+    );
 }
 
 /// Render the 3D view, or note where the root layer should composite its image.
@@ -1643,6 +1778,72 @@ mod tests {
         t.draw(|f| render_brief(f, f.area(), &mut panel, true, &theme, 3, false)).unwrap();
         assert_eq!(panel.cols, 3, "renderer records the configured column count");
         assert_eq!(panel.page, 8 * 3, "page = rows × columns");
+    }
+
+    /// A thumbnail grid panel over `names`, its cache holding a ready 40×20
+    /// red picture for every `.png`.
+    fn thumbs_panel(names: &[&str]) -> Panel {
+        let backend = crate::vfs::registry::Registry::default().local();
+        let mut panel = Panel::new(backend, crate::vfs::VfsPath::local("/pics"));
+        panel.entries = names.iter().map(|n| entry(n, VfsKind::File, 0o644, false)).collect();
+        panel.format = ViewFormat::Thumbs;
+        let mut cache = crate::thumbs::ThumbCache::default();
+        let bg = crate::ui::graphics::raster::rgb(Theme::mc().panel_bg);
+        for e in panel.entries.iter().filter(|e| e.name.ends_with(".png")) {
+            let key = crate::thumbs::ThumbKey::new(&panel.cwd, e, cache.size, bg);
+            cache.start(key.clone());
+            let img = image::RgbaImage::from_pixel(40, 20, image::Rgba([220, 0, 0, 255]));
+            cache.finish(key, Some(std::sync::Arc::new(crate::thumbs::Thumb { sig: 1, img })));
+        }
+        panel.thumbs = Some(cache);
+        panel
+    }
+
+    #[test]
+    fn the_thumbnail_grid_lays_out_row_by_row_with_names_under_pictures() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let theme = Theme::mc();
+        let mut panel = thumbs_panel(&["a.png", "b.txt", "c.png", "d.png", "e.png"]);
+        // Medium cells are 18×9: a 40×20 area holds 2 columns and 2 rows.
+        let mut t = Terminal::new(TestBackend::new(40, 20)).unwrap();
+        t.draw(|f| render_thumbs(f, f.area(), &mut panel, true, &theme, false, false)).unwrap();
+        assert_eq!((panel.cols, panel.brief_rows, panel.page), (2, 2, 4));
+        let b = t.backend().buffer();
+        let row = |y: u16| -> String { (0..40).map(|x| b[(x, y)].symbol()).collect() };
+        assert!(row(7).contains("a.png") && row(7).contains("b.txt"), "{:?}", row(7));
+        assert!(row(16).contains("c.png") && row(16).contains("d.png"), "{:?}", row(16));
+        assert!(row(3).contains(".TXT"), "a file without a picture shows its type: {:?}", row(3));
+        // Without pixel graphics, a ready picture is drawn as half-blocks.
+        assert_eq!(b[(8, 4)].symbol(), "▀");
+        assert_eq!(b[(8, 4)].fg, ratatui::style::Color::Rgb(220, 0, 0));
+
+        // The fifth entry is on the next page; putting the cursor there scrolls
+        // by a whole row.
+        panel.cursor = 4;
+        t.draw(|f| render_thumbs(f, f.area(), &mut panel, true, &theme, true, false)).unwrap();
+        assert_eq!(panel.offset, 2, "scrolled one row");
+        // With pixel graphics, the ready pictures are handed to the root layer.
+        assert_eq!(panel.thumb_cells.len(), 3, "c.png, d.png and e.png");
+    }
+
+    #[test]
+    fn a_click_on_the_grid_maps_row_by_row() {
+        let hit = crate::panel::PanelHit {
+            area: Rect::new(0, 0, 40, 20),
+            body: Rect::new(1, 1, 38, 18),
+            brief: false,
+            offset: 2,
+            columns: 2,
+            rows: 2,
+            cell_w: 18,
+            grid: Some((2, 18, 9)),
+        };
+        assert_eq!(hit.index_at(2, 2, 10), Some(2), "first cell of the first row on screen");
+        assert_eq!(hit.index_at(20, 2, 10), Some(3), "second cell");
+        assert_eq!(hit.index_at(2, 11, 10), Some(4), "next row");
+        assert_eq!(hit.index_at(37, 2, 10), None, "the leftover strip right of the grid");
+        assert_eq!(hit.index_at(20, 11, 5), None, "past the end of the listing");
     }
 
     #[tokio::test]

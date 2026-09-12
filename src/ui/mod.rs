@@ -285,6 +285,20 @@ fn draw_body(f: &mut Frame, state: &mut AppState) {
                 crate::space3d::render::rasterize(sp, &boxes, pw, ph, &theme)
             });
         }
+        // The thumbnail grid's pictures, one slot per cell on screen.
+        for (side, panel) in state.panels.iter().enumerate() {
+            let Some(g) = state.gfx.as_mut() else { break };
+            for (cell, (rect, thumb)) in panel.thumb_cells.iter().enumerate() {
+                let target = crate::util::img::center_rect(
+                    *rect,
+                    thumb.img.width(),
+                    thumb.img.height(),
+                    g.cell(),
+                );
+                let slot = crate::ui::graphics::Slot::Thumb(side as u8, cell as u16);
+                g.draw_cached(f, target, slot, thumb.sig, || thumb.img.clone());
+            }
+        }
         for i in 0..2 {
             if let Some(area) = state.panels[i].preview_image_area
                 && let crate::details::Preview::Image(pi) = &state.details[i].preview
@@ -552,6 +566,35 @@ mod feature_tests {
         let mut t = Terminal::new(TestBackend::new(120, 30)).unwrap();
         t.draw(|f| draw(f, state)).unwrap();
         t
+    }
+
+    /// A thumbnail grid on a graphics terminal hands each ready picture to the
+    /// graphics layer, one slot per cell.
+    #[tokio::test]
+    async fn the_thumbnail_grid_composites_its_pictures_with_graphics() {
+        let (tx, _rx) = crate::util::async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+        st.gfx = Some(crate::ui::graphics::Gfx::test_halfblocks());
+        st.panels[0].format = crate::panel::ViewFormat::Thumbs;
+        let e = crate::vfs::VfsEntry {
+            name: "shot.png".into(),
+            kind: crate::vfs::VfsKind::File,
+            size: 10,
+            ..st.panels[0].entries.first().cloned().expect("a listing")
+        };
+        st.panels[0].entries = vec![e.clone()];
+        st.panels[0].cursor = 0;
+        let mut cache = crate::thumbs::ThumbCache::default();
+        let bg = crate::ui::graphics::raster::rgb(st.theme.panel_bg);
+        let key = crate::thumbs::ThumbKey::new(&st.panels[0].cwd, &e, cache.size, bg);
+        cache.start(key.clone());
+        let img = image::RgbaImage::from_pixel(32, 24, image::Rgba([1, 2, 3, 255]));
+        cache.finish(key, Some(std::sync::Arc::new(crate::thumbs::Thumb { sig: 77, img })));
+        st.panels[0].thumbs = Some(cache);
+        drawn(&mut st).await;
+        let g = st.gfx.as_ref().unwrap();
+        assert_eq!(g.cached_sig(crate::ui::graphics::Slot::Thumb(0, 0)), Some(77));
     }
 
     /// The screensaver covers the whole screen: no panels, bars or dialogs.

@@ -31,6 +31,9 @@ pub struct PanelHit {
     /// column-major click mapping.
     pub rows: usize,
     pub cell_w: u16,
+    /// The thumbnail grid's layout, `(columns, cell width, cell height)`: it
+    /// fills row by row, unlike the Brief grid.
+    pub grid: Option<(usize, u16, u16)>,
 }
 
 impl PanelHit {
@@ -49,7 +52,14 @@ impl PanelHit {
             return None;
         }
         let r = (row - self.body.y) as usize;
-        let idx = if self.brief {
+        let idx = if let Some((cols, cw, ch)) = self.grid {
+            // Row-major: each grid row holds `cols` entries, left to right.
+            let c = ((col - self.body.x) / cw.max(1)) as usize;
+            if c >= cols {
+                return None;
+            }
+            self.offset + (r / ch.max(1) as usize) * cols + c
+        } else if self.brief {
             // Column-major: each screen column holds `rows` consecutive entries.
             let cw = self.cell_w.max(1);
             let c = ((col - self.body.x) / cw) as usize;
@@ -79,6 +89,9 @@ pub enum ViewFormat {
     /// corresponds to its total size on disk. Local directories only — the
     /// sizes come from a filesystem crawl.
     Space3d,
+    /// The listing as a grid of thumbnails: images and 3D models as pictures,
+    /// everything else by its type.
+    Thumbs,
     /// No own listing: a live log of what changes anywhere under the *other*
     /// panel's directory. Chosen from the menu only — not part of the Alt-T
     /// cycle, since it is a tool to reach for rather than a way to list files.
@@ -93,7 +106,7 @@ impl ViewFormat {
         !matches!(self, ViewFormat::Details | ViewFormat::Activity)
     }
 
-    /// Cycle Full → Brief → Details → Tree → 3D → Full (Alt-T). The Activity log
+    /// Cycle Full → Brief → Details → Tree → 3D → Thumbnails → Full (Alt-T). The Activity log
     /// steps back into the cycle at the start.
     pub fn toggle(self) -> Self {
         match self {
@@ -101,7 +114,8 @@ impl ViewFormat {
             ViewFormat::Brief => ViewFormat::Details,
             ViewFormat::Details => ViewFormat::Tree,
             ViewFormat::Tree => ViewFormat::Space3d,
-            ViewFormat::Space3d | ViewFormat::Activity => ViewFormat::Full,
+            ViewFormat::Space3d => ViewFormat::Thumbs,
+            ViewFormat::Thumbs | ViewFormat::Activity => ViewFormat::Full,
         }
     }
 }
@@ -179,6 +193,11 @@ pub struct Panel {
     pub space3d: Option<crate::space3d::Space3d>,
     /// The Activity log, while this panel shows one.
     pub activity: Option<crate::activity::ActivityLog>,
+    /// The thumbnail grid's pictures, while this panel shows one.
+    pub thumbs: Option<crate::thumbs::ThumbCache>,
+    /// Where the renderer wants each ready thumbnail composited with pixel
+    /// graphics, handed to the root layer (which owns `Gfx`), like `scene_area`.
+    pub thumb_cells: Vec<(Rect, std::sync::Arc<crate::thumbs::Thumb>)>,
     /// Where the 3D view wants its pixel image composited, when the terminal has
     /// graphics. Same deferred handoff as `preview_image_area`, because the
     /// panel renderer has no access to `Gfx`.
@@ -235,6 +254,8 @@ impl Panel {
             preview_image_area: None,
             space3d: None,
             activity: None,
+            thumbs: None,
+            thumb_cells: Vec::new(),
             scene_area: None,
             scrub: None,
             scrub_area: None,
@@ -504,6 +525,12 @@ impl Panel {
         let max = self.entries.len() as isize - 1;
         let next = (self.cursor as isize + delta).clamp(0, max);
         self.cursor = next as usize;
+    }
+
+    /// How far Up/Down move the cursor: a whole row of the thumbnail grid, one
+    /// entry anywhere else.
+    pub fn vertical_step(&self) -> isize {
+        if self.format == ViewFormat::Thumbs { self.cols.max(1) as isize } else { 1 }
     }
 
     /// Whether arrow Left/Right should move between Brief-view columns (rather

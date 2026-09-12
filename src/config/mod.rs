@@ -172,6 +172,50 @@ impl SaverKind {
     }
 }
 
+/// How big the thumbnail grid's cells are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThumbSize {
+    Small,
+    #[default]
+    Medium,
+    Large,
+}
+
+impl ThumbSize {
+    /// The choices in dialog order, with the labels the form shows (and stores).
+    pub const ALL: [(ThumbSize, &'static str); 3] =
+        [(ThumbSize::Small, "Small"), (ThumbSize::Medium, "Medium"), (ThumbSize::Large, "Large")];
+
+    pub fn label(self) -> &'static str {
+        Self::ALL.iter().find(|(s, _)| *s == self).map(|(_, l)| *l).unwrap_or("Medium")
+    }
+
+    pub fn from_label(label: &str) -> Self {
+        Self::ALL.iter().find(|(_, l)| *l == label).map(|(s, _)| *s).unwrap_or_default()
+    }
+
+    /// A grid cell in terminal cells, `(width, height)`: the image, a name row
+    /// under it, and a one-cell gutter right and below.
+    pub fn cell(self) -> (u16, u16) {
+        match self {
+            ThumbSize::Small => (12, 7),
+            ThumbSize::Medium => (18, 9),
+            ThumbSize::Large => (26, 13),
+        }
+    }
+
+    /// The longest edge thumbnails are decoded to, in pixels: enough for the
+    /// cell on an ordinary font, without holding full photos in memory.
+    pub fn pixels(self) -> u32 {
+        match self {
+            ThumbSize::Small => 128,
+            ThumbSize::Medium => 200,
+            ThumbSize::Large => 320,
+        }
+    }
+}
+
 /// The screensaver idle times offered in Settings, in minutes; 0 is off.
 pub const SAVER_MINUTES: [u16; 7] = [0, 1, 2, 5, 10, 15, 30];
 
@@ -358,6 +402,8 @@ pub struct Config {
     pub screensaver_minutes: u16,
     /// Which animation the screensaver plays.
     pub screensaver: SaverKind,
+    /// How big the thumbnail grid's cells are.
+    pub thumb_size: ThumbSize,
     /// Per-panel view format and sort order, remembered across sessions
     /// (index 0 = left panel, 1 = right panel).
     #[serde(default)]
@@ -441,6 +487,7 @@ impl Default for Config {
             details_activity: true,
             screensaver_minutes: 0,
             screensaver: SaverKind::default(),
+            thumb_size: ThumbSize::default(),
             panels: [PanelView::default(); 2],
             recent_remotes: Vec::new(),
             bookmarks: Vec::new(),

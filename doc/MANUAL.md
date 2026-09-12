@@ -187,7 +187,7 @@ A quick **Alt** + digit does the same.
   directory instead) — so holding `Alt-O` walks a listing while the other panel
   keeps pace
 - `Alt-T` — Cycle the active panel's **view format** (full → brief → details →
-  tree → 3D)
+  tree → 3D → thumbnails)
 - `Ctrl-\` — Open the **directory hotlist** (your bookmarked directories): jump
   to one, add the current directory, or remove one — see *The directory hotlist*
   below
@@ -205,7 +205,7 @@ A quick **Alt** + digit does the same.
 - `Ctrl-R` — Re-read (refresh) the active panel — usually unnecessary now, see
   *Auto-refreshing panels* below
 - `Ctrl-E` — Toggle reverse sort order (choose the sort key from the panel menu)
-- `Alt-T` — Cycle the view format (full → brief → details → tree → 3D)
+- `Alt-T` — Cycle the view format (full → brief → details → tree → 3D → thumbnails)
 - `Ctrl-X` — Toggle vertical / horizontal split
 - `Ctrl-U` — Swap the two panels
 - `Ctrl-F1` / `Ctrl-F2` — Hide (and show again) the left / right panel,
@@ -519,6 +519,9 @@ one from the **Left** / **Right** menu:
 - **3D** — a **tree of boxes joined by lines**, showing what is inside the
   directory the *other* panel is in, each box sized by what that directory holds.
   See *3D view* below.
+- **Thumbnails** — the listing as a **grid of pictures**: images and 3D models
+  (`.stl`, `.obj`) as thumbnails, everything else by its type. See *Thumbnails*
+  below.
 - **Activity log** — a live list of what is being created, written, removed and
   renamed anywhere under the *other* panel's directory. Chosen from the **Left** /
   **Right** menu (it is not in the `Alt-T` cycle). See *Activity log* below.
@@ -1985,6 +1988,42 @@ directory, and `Alt-T` skips over the format on a remote panel.
 - **Spare no expense** — an homage to **fsn**, the 3D file system navigator that
   shipped with SGI's IRIX (and briefly starred in *Jurassic Park*). 
 
+## Thumbnails
+
+*`Alt-T` until the grid appears, or Left / Right menu → Thumbnails view*
+
+A panel format showing the directory as a **grid of pictures**, each over its
+name: **images** (`.png`, `.jpg`, `.gif`, `.bmp`, `.webp`) as thumbnails, **3D
+models** (`.stl`, `.obj`) rendered the way the model viewer first shows them, and
+everything else — directories included — by its type (a Nerd Font icon when
+those are on, otherwise `DIR` or the extension).
+
+**Useful for** finding a photo by what is in it rather than by
+`IMG_20260912_141503.jpg`, or picking out a part in a folder of printable models.
+
+**Operation.** It is an ordinary listing laid out differently: `↑ ↓` move a whole
+row, `← →` one picture, `PgUp PgDn` a screenful, and `Enter`, `F3`, `F5`, marking
+with `Insert`, the mouse and everything else work as in the other formats. The
+cursor is the coloured plate behind a picture and its name.
+
+**How the pictures appear.** They load in the background, a few at a time, for
+the screenful you are looking at and the one after it, so scrolling on finds the
+next page ready; a picture still loading shows `…`. A photo's embedded EXIF
+thumbnail is used when it has one, so a large JPEG isn't decoded just to be
+shrunk. On a terminal with a graphics protocol (Kitty / Sixel / iTerm2) they are
+true pixels; elsewhere **half-block cell art**, or an ASCII ramp without 24-bit
+colour. Pictures are kept for coming back to, within a memory budget, and are
+let go when the panel leaves the format.
+
+**Size.** *Options → Settings… → Thumbnail size*: **Small**, **Medium** or
+**Large** cells.
+
+**Limits.** On a remote (SFTP / FTP / SCP) panel or inside an archive, images
+over 8 MB are shown by type rather than downloaded for a thumbnail (30 MB
+locally), and models get thumbnails only from the local disk (up to 16 MB and
+150,000 triangles).
+
+
 ## Activity log
 
 *Left / Right menu → Activity log* (also in the command palette)
@@ -2328,7 +2367,8 @@ viewer** command (used instead of the built-in ones), and choose whether to use
 the internal viewer/editor. When the external editor field is left blank, `rc`
 falls back to the **`$VISUAL`** then **`$EDITOR`** environment variable; the
 external viewer likewise falls back to **`$PAGER`**. Only if none of those is set
-does the built-in tool run. **Screensaver** and **Screensaver style** set how
+does the built-in tool run. **Thumbnail size** picks the cell size of the
+thumbnail grid (see *Thumbnails*). **Screensaver** and **Screensaver style** set how
 long the program waits before its screensaver starts, and which one it plays
 (see *Screensaver*).
 

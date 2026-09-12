@@ -1122,10 +1122,12 @@ async fn tree_view_enter_navigates_inactive_panel() {
     assert_eq!(st.panels[0].format, ViewFormat::Space3d, "Tree → 3D");
     assert!(st.panels[0].tree.is_none(), "leaving Tree view drops the tree");
     assert!(st.panels[0].space3d.is_some(), "the 3D view builds its state");
-    // …and once more completes the cycle back to Full.
+    // …then the thumbnail grid, and once more completes the cycle back to Full.
     st.handle_key(alt_t).await;
-    assert_eq!(st.panels[0].format, ViewFormat::Full, "3D → Full completes the cycle");
+    assert_eq!(st.panels[0].format, ViewFormat::Thumbs, "3D → Thumbnails");
     assert!(st.panels[0].space3d.is_none(), "leaving the 3D view drops its state");
+    st.handle_key(alt_t).await;
+    assert_eq!(st.panels[0].format, ViewFormat::Full, "Thumbnails → Full completes the cycle");
     // Back in a normal view the console line tracks the active panel again.
     assert_eq!(st.console_cwd(), VfsPath::local(&root), "console follows the active panel");
 
@@ -1839,6 +1841,59 @@ async fn mouse_click_on_menu_bar_opens_menu() {
     };
     st.handle_mouse(click).await;
     assert!(st.menu.is_some(), "clicking the menu bar should open a menu");
+}
+
+/// The thumbnail grid loads pictures for what is on screen, in the background,
+/// and its arrows move by whole rows and single cells.
+#[tokio::test]
+async fn the_thumbnail_grid_loads_its_pictures_and_moves_by_row_and_cell() {
+    use crate::panel::ViewFormat;
+    let root = temp_dir("thumb_grid");
+    for i in 0..6 {
+        image::RgbaImage::from_pixel(64, 48, image::Rgba([0, 90, 200, 255]))
+            .save(root.join(format!("p{i}.png")))
+            .unwrap();
+    }
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.config.command_prompt = false;
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.set_format(0, ViewFormat::Thumbs).await;
+    st.panels[0].page = 6;
+    st.panels[0].cols = 3;
+    st.update_thumbs();
+
+    let mut ready = 0;
+    while ready < 6 {
+        let ev = tokio::time::timeout(Duration::from_secs(10), rx.recv()).await.unwrap().unwrap();
+        if let AppEvent::Thumbnail { thumb, .. } = &ev {
+            assert!(thumb.is_some(), "every PNG decodes");
+            ready += 1;
+        }
+        st.apply_event(ev).await;
+    }
+    let entries = st.panels[0].entries.clone();
+    let cache = st.panels[0].thumbs.as_mut().unwrap();
+    let bg = crate::ui::graphics::raster::rgb(st.theme.panel_bg);
+    let e = entries.iter().find(|e| e.name == "p0.png").unwrap();
+    let key = crate::thumbs::ThumbKey::new(&st.panels[0].cwd, e, cache.size, bg);
+    assert!(matches!(cache.get(&key), Some(crate::thumbs::ThumbState::Ready(_))));
+
+    st.panels[0].cursor = 1; // p0.png, after `..`
+    st.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).await;
+    assert_eq!(st.panels[0].cursor, 4, "Down moves a whole row of three");
+    st.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)).await;
+    assert_eq!(st.panels[0].cursor, 5, "Right moves one cell");
+    st.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).await;
+    assert_eq!(st.panels[0].cursor, 2);
+
+    st.set_format(0, ViewFormat::Full).await;
+    st.update_thumbs();
+    assert!(st.panels[0].thumbs.is_none(), "leaving the grid frees its pictures");
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 /// An Activity log asks for a recursive watch on the other panel's tree — even

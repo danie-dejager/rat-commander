@@ -420,8 +420,14 @@ impl AppState {
             // The Brief view is column-major (entries fill top-to-bottom, column
             // by column), so a single-step Up/Down moves the cursor *visually*
             // up/down and rolls over to the previous/next column at a column edge.
-            KeyCode::Up => self.active_panel().move_cursor(-1),
-            KeyCode::Down => self.active_panel().move_cursor(1),
+            KeyCode::Up => {
+                let step = self.panels[self.active].vertical_step();
+                self.active_panel().move_cursor(-step)
+            }
+            KeyCode::Down => {
+                let step = self.panels[self.active].vertical_step();
+                self.active_panel().move_cursor(step)
+            }
             // Ctrl-PageUp / Ctrl-PageDown switch tabs — the conventional chord,
             // and the *reliable* one: unlike Ctrl-Tab, terminal emulators do not
             // grab it for their own tab switching. Both must be tested before
@@ -514,7 +520,9 @@ impl AppState {
             KeyCode::Left => {
                 let empty = self.cmd.is_empty();
                 let p = &mut self.panels[self.active];
-                if empty && p.brief_grid() {
+                if empty && p.format == ViewFormat::Thumbs {
+                    p.move_cursor(-1);
+                } else if empty && p.brief_grid() {
                     let step = p.brief_rows.max(1) as isize;
                     p.move_cursor(-step);
                 } else if cmdline {
@@ -524,7 +532,9 @@ impl AppState {
             KeyCode::Right => {
                 let empty = self.cmd.is_empty();
                 let p = &mut self.panels[self.active];
-                if empty && p.brief_grid() {
+                if empty && p.format == ViewFormat::Thumbs {
+                    p.move_cursor(1);
+                } else if empty && p.brief_grid() {
                     let step = p.brief_rows.max(1) as isize;
                     p.move_cursor(step);
                 } else if cmdline {

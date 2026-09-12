@@ -340,6 +340,7 @@ impl AppState {
                 self.config.space3d_style = v.space3d_style;
                 self.config.screensaver_minutes = v.screensaver_minutes;
                 self.config.screensaver = v.screensaver;
+                self.config.thumb_size = v.thumb_size;
                 self.truecolor = v.truecolor;
                 // Apply the chosen language (store English as the default => None).
                 crate::l10n::set_active_by_name(&v.language);

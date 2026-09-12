@@ -43,6 +43,9 @@ pub enum Slot {
     Space3d(u16),
     /// A Details-view image-thumbnail preview, per panel side.
     DetailsPreview(u16),
+    /// A thumbnail in the grid: panel, and cell position on screen (so the
+    /// number of cached images is bounded by the cells, not the directory).
+    Thumb(u8, u16),
     /// The F3 fullscreen image viewer.
     ViewerImage,
     /// The F3 fullscreen model viewer.

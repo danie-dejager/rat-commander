@@ -155,10 +155,7 @@ impl ViewerModel {
             }
             h.finish()
         };
-        // Frame the bounding sphere in the vertical field of view, with a margin
-        // so the silhouette does not touch the edge of the raster.
-        let fitted = mesh.radius() / (crate::space3d::raster3d::FOV_Y * 0.5).sin() * 1.15;
-        let cam = CamPose { target: mesh.centre(), dist: fitted, yaw: 0.6, pitch: 0.45 };
+        let (cam, fitted) = mesh.framed_camera();
         ViewerModel { mesh, cam, fitted, mesh_sig }
     }
 

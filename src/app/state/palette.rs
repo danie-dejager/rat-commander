@@ -91,6 +91,7 @@ impl AppState {
             cmd("&Details view", MenuAction::SetFormat(side, ViewFormat::Details)),
             cmd("Tree v&iew", MenuAction::SetFormat(side, ViewFormat::Tree)),
             cmd("&3D view", MenuAction::SetFormat(side, ViewFormat::Space3d)),
+            cmd("T&humbnails view", MenuAction::SetFormat(side, ViewFormat::Thumbs)),
             cmd("&Activity log", MenuAction::SetFormat(side, ViewFormat::Activity)),
             cmd("Sort: &Name", MenuAction::SetSort(side, SortKey::Name)),
             cmd("Sort: &Extension", MenuAction::SetSort(side, SortKey::Extension)),
