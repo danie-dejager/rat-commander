@@ -392,6 +392,7 @@ rtl = true
 "Taken" = "التقطت"
 "Exposure" = "التعريض"
 "Image" = "صورة"
+"triangles" = "مثلث"
 
 # -- Tool footer hint bars (mount / net / disk) --
 "Esc / Enter to close" = "Esc / Enter للإغلاق"

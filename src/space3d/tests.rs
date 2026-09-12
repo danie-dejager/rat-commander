@@ -35,6 +35,7 @@ fn pal() -> ScenePalette {
         doc: (170, 85, 0),
         image: (85, 255, 255),
         media: (85, 255, 85),
+        model: (255, 153, 68),
         exec: (85, 255, 85),
     }
 }

@@ -45,6 +45,8 @@ pub enum Slot {
     DetailsPreview(u16),
     /// The F3 fullscreen image viewer.
     ViewerImage,
+    /// The F3 fullscreen model viewer.
+    ViewerModel,
     /// The QR code in the "Send file over LAN" dialog.
     SendQr,
 }

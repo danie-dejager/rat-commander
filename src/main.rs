@@ -13,6 +13,7 @@ mod ext;
 mod flash;
 mod git;
 mod l10n;
+mod mesh;
 mod mount;
 mod net;
 mod ops;

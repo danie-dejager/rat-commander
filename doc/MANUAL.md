@@ -256,9 +256,12 @@ used to share now lives on `Alt-T`.
   (or a click) to jump to it, `Esc` / `F6` to dismiss. Opening this manual with
   `F1` lands on its outline.
 - `F7` — Search
-- `F8` — (Markdown files) toggle Raw / Render; (image files) toggle Image / Raw
+- `F8` — (Markdown files) toggle Raw / Render; (image files) toggle Image / Raw;
+  (model files) toggle Model / Raw
 - `n` — Repeat the last search
-- `↑ ↓` / `PgUp PgDn` / `Home End` — Scroll
+- `↑ ↓` / `PgUp PgDn` / `Home End` — Scroll (in a **model view**: `← → ↑ ↓`
+  orbit the camera, `+` / `-` zoom, `Home` re-frames; dragging orbits and the
+  wheel zooms)
 - `F3` / `Esc` / `F10` / `q` — Close (F3 toggles the viewer, as in the panels)
 
 ### Editor (F4)
@@ -842,7 +845,8 @@ Commander starts a small one-shot HTTP server and shows the download URL as a
 ## The viewer (F3)
 
 A read-only file viewer with text and hex modes, search,
-syntax highlighting, a Markdown render mode, and a fullscreen image view.
+syntax highlighting, a Markdown render mode, and fullscreen image and 3D model
+views.
 
 **Useful for** quickly reading a file — including very large ones — without
 loading it into an editor.
@@ -856,6 +860,23 @@ loading it into an editor.
   **F8** to toggle between the image and the **raw** bytes (as text/hex), and
   **F4** switches that raw view between text and hex. If a file can't be decoded
   as an image, the viewer just opens it as raw text/hex as usual.
+- **Model view** — opening a 3D model (`.stl`, binary or ASCII, and `.obj`)
+  shows the mesh **fullscreen** as a shaded solid you can turn: `← → ↑ ↓`
+  **orbit**, `+` / `-` **zoom**, `Home` re-frames it, and dragging with the mouse
+  orbits while the wheel zooms. The header names the format and the triangle
+  count. As with images, it is a true-pixel render on a terminal with a graphics
+  protocol, **half-block cell art** on a truecolor one, and an **ASCII luminance
+  ramp** otherwise; **F8** toggles between the model and the raw bytes.
+
+  Both formats are read natively — no converter and no external viewer — and the
+  facet normals stored in the file are ignored in favour of ones computed from
+  each triangle's winding, because exporters write them wrongly often enough that
+  trusting them produces randomly unlit faces. A file that does not parse (or one
+  that is too large) simply opens as raw text/hex, so a `.stl` that is not really
+  one behaves exactly as it always did.
+
+  Model files also get their own colour in the panel listings and their own
+  solid — a cut gem — in the 3D landscape view.
 - **Text / Hex** — **F4** toggles. Hex mode shows an offset / hex / ASCII dump.
 - **Line wrap** — **F2** toggles soft wrapping.
 - **Search** — **F7** opens the **same search dialog the editor uses** (see

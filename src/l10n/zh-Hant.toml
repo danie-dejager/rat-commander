@@ -388,6 +388,7 @@ code = "zh-Hant"
 "Taken" = "拍攝時間"
 "Exposure" = "曝光"
 "Image" = "圖片"
+"triangles" = "三角形"
 
 # -- Tool footer hint bars (mount / net / disk) --
 "Esc / Enter to close" = "Esc / Enter 關閉"

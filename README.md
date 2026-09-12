@@ -36,6 +36,14 @@ The installed executable is named **`rc`** for quick typing.
   swatches. Pages huge files straight from disk. Opens **images** fullscreen —
   true-pixel where the terminal supports graphics, half-block art otherwise
   (F8 toggles to the raw bytes).
+- **3D model viewer (F3)** — press F3 on an `.stl` or `.obj` and the mesh opens
+  as a solid you can **orbit** with the arrow keys (or by dragging), zoom with
+  `+`/`-` and re-frame with `Home`. Binary and ASCII STL and Wavefront OBJ are
+  read natively — no converter, no external viewer — and the same three tiers
+  apply as everywhere else: true pixels on a graphics terminal, half-blocks on a
+  truecolor one, an ASCII ramp otherwise. F8 switches to the raw bytes, and a
+  file that will not parse simply opens as hex. Model files also get their own
+  colour in the listings and their own solid in the 3D landscape.
 - **Built-in editor (F4)** — `mcedit`-style block copy/move/delete, clipboard,
   search & replace, undo/redo, syntax highlighting, and an
   in-place **hex editor** for arbitrarily large files.
@@ -232,7 +240,10 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `F4` | Toggle hex / text mode |
 | `F5` | Goto (line / percent / byte offset) |
 | `F7` | Search (`n` repeats) |
-| `F8` | (Markdown) toggle Raw / Render — (image) toggle Image / Raw |
+| `F8` | (Markdown) toggle Raw / Render — (image) toggle Image / Raw — (model) toggle Model / Raw |
+| `← → ↑ ↓` | (model) orbit the camera |
+| `+` / `-` | (model) zoom in / out |
+| `Home` | (model) re-frame the model |
 | `Esc` / `F10` / `q` | Close |
 
 ### Editor (F4)

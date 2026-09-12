@@ -388,6 +388,7 @@ code = "uk"
 "Taken" = "Знято"
 "Exposure" = "Експозиція"
 "Image" = "Зображення"
+"triangles" = "трикутників"
 
 # -- Tool footer hint bars (mount / net / disk) --
 "Esc / Enter to close" = "Esc / Enter — закрити"

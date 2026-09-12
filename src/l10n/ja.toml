@@ -388,6 +388,7 @@ code = "ja"
 "Taken" = "撮影日時"
 "Exposure" = "露出"
 "Image" = "画像"
+"triangles" = "三角形"
 
 # -- Tool footer hint bars (mount / net / disk) --
 "Esc / Enter to close" = "Esc / Enter で閉じる"

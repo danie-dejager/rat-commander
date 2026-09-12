@@ -340,6 +340,10 @@ pub struct ThemeSpec {
     pub image_fg: Color,
     #[serde(with = "hex_color")]
     pub media_fg: Color,
+    /// 3D models and CAD files. Defaulted for `themes.toml` files written before
+    /// this field existed (so they keep loading).
+    #[serde(default = "default_model_fg", with = "hex_color")]
+    pub model_fg: Color,
 
     // -- Top menu bar + bottom F-key bar --
     #[serde(with = "hex_color")]
@@ -519,6 +523,7 @@ theme_fields! {
     "File types", "Document", Panels, doc_fg, None;
     "File types", "Image", Panels, image_fg, None;
     "File types", "Media", Panels, media_fg, None;
+    "File types", "3D model", Panels, model_fg, None;
     "Menu bar", "Background", Panels, menubar_bg, None;
     "Menu bar", "Background gradient", Panels, menubar_bg, Some(GradRole::MenubarBg);
     "Menu bar", "Foreground", Panels, menubar_fg, None;
@@ -611,6 +616,7 @@ fn theme_to_spec(t: &Theme) -> ThemeSpec {
         doc_fg: t.doc_fg,
         image_fg: t.image_fg,
         media_fg: t.media_fg,
+        model_fg: t.model_fg,
         menubar_bg: bg(&t.menubar),
         menubar_fg: fg(&t.menubar),
         fkey_label_bg: bg(&t.fkey_label),
@@ -699,6 +705,12 @@ fn default_file_fg() -> Color {
     rgb(0xc6c6c6)
 }
 
+/// `themes.toml` files without the field still deserialize. Orange: the one
+/// warm hue none of the other file-type accents had taken.
+fn default_model_fg() -> Color {
+    rgb(0xff9944)
+}
+
 /// Parse `#rrggbb` / `rrggbb` / `0xrrggbb` into an RGB [`Color`].
 fn parse_hex(s: &str) -> Option<Color> {
     let s = s.trim();
@@ -763,6 +775,7 @@ fn rat_commander_spec() -> ThemeSpec {
         doc_fg: rgb(0xaa5500),
         image_fg: rgb(0x55ffff),
         media_fg: rgb(0x55ff55),
+        model_fg: rgb(0xff9944),
         menubar_bg: rgb(0x00a3a3),
         menubar_fg: rgb(0x0000cd),
         fkey_label_bg: rgb(0x00a3a3),
@@ -819,6 +832,7 @@ fn midnight_commander_spec() -> ThemeSpec {
         doc_fg: rgb(0xe61000),
         image_fg: rgb(0x55ffff),
         media_fg: rgb(0x55ff55),
+        model_fg: rgb(0xff9944),
         menubar_bg: rgb(0x0dcdcd),
         menubar_fg: rgb(0x000000),
         fkey_label_bg: rgb(0x0dcdcd),
@@ -874,6 +888,7 @@ fn midnight_commander_dark_spec() -> ThemeSpec {
         doc_fg: rgb(0xe8e8e8),
         image_fg: rgb(0x4cffff),
         media_fg: rgb(0x4cff4c),
+        model_fg: rgb(0xff9944),
         menubar_bg: rgb(0x00a3a3),
         menubar_fg: rgb(0x1818d4),
         fkey_label_bg: rgb(0x00a3a3),
@@ -1297,6 +1312,7 @@ pub struct Theme {
     pub doc_fg: Color,
     pub image_fg: Color,
     pub media_fg: Color,
+    pub model_fg: Color,
     pub menubar: Style,
     pub fkey_label: Style,
     pub fkey_num: Style,
@@ -1385,6 +1401,7 @@ impl Theme {
             doc_fg: s.doc_fg,
             image_fg: s.image_fg,
             media_fg: s.media_fg,
+            model_fg: s.model_fg,
             menubar: bg_fg(s.menubar_bg, s.menubar_fg),
             fkey_label: bg_fg(s.fkey_label_bg, s.fkey_label_fg),
             fkey_num: bold(s.fkey_num_bg, s.fkey_num_fg),
@@ -1465,6 +1482,8 @@ impl Theme {
             doc_fg: p.yellow,
             image_fg: p.bright_cyan,
             media_fg: p.bright_green,
+            // Models = orange, the one warm hue still free.
+            model_fg: p.bright_red,
             menubar: Style::default().bg(bar_bg).fg(bar_bg_fg),
             fkey_label: Style::default().bg(bar_bg).fg(bar_bg_fg),
             // Function-key numbers sit on a solid, contrasting "key cap" so they

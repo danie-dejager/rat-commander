@@ -388,6 +388,7 @@ code = "sr"
 "Taken" = "Snimljeno"
 "Exposure" = "Ekspozicija"
 "Image" = "Slika"
+"triangles" = "trouglova"
 
 # -- Tool footer hint bars (mount / net / disk) --
 "Esc / Enter to close" = "Esc / Enter za zatvaranje"

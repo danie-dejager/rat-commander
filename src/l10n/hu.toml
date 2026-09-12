@@ -388,6 +388,7 @@ code = "hu"
 "Taken" = "Készült"
 "Exposure" = "Expozíció"
 "Image" = "Kép"
+"triangles" = "háromszög"
 
 # -- Tool footer hint bars (mount / net / disk) --
 "Esc / Enter to close" = "Esc / Enter a bezáráshoz"

@@ -393,6 +393,7 @@ code = "de"
 "Taken" = "Aufgenommen"
 "Exposure" = "Belichtung"
 "Image" = "Bild"
+"triangles" = "Dreiecke"
 
 # -- Tool footer hint bars (mount / net / disk) --
 "Esc / Enter to close" = "Esc / Enter zum Schließen"

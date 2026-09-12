@@ -388,6 +388,7 @@ code = "sk"
 "Taken" = "Nasnímané"
 "Exposure" = "Expozícia"
 "Image" = "Obrázok"
+"triangles" = "trojuholníkov"
 
 # -- Tool footer hint bars (mount / net / disk) --
 "Esc / Enter to close" = "Esc / Enter pre zatvorenie"

@@ -17,6 +17,11 @@ pub enum FileCategory {
     Document,
     Image,
     Media,
+    /// 3D models and CAD exchange formats. Broader than what
+    /// [`crate::mesh`] can actually parse and show: a `.step` is
+    /// unmistakably a model file and should be coloured as one in the listing
+    /// whether or not the viewer has a reader for it yet.
+    Model,
 }
 
 const ARCHIVE: &[&str] = &[
@@ -32,6 +37,10 @@ const DOCUMENT: &[&str] = &[
 const IMAGE: &[&str] = &[
     "jpg", "jpeg", "png", "gif", "bmp", "svg", "webp", "tiff", "tif", "ico", "ppm", "pgm", "xpm",
     "heic", "heif", "raw", "cr2", "nef", "psd", "xcf",
+];
+const MODEL: &[&str] = &[
+    "stl", "obj", "ply", "3mf", "gltf", "glb", "fbx", "dae", "blend", "step", "stp", "iges", "igs",
+    "3ds", "off", "x3d", "usdz", "scad",
 ];
 const MEDIA: &[&str] = &[
     "wav", "mp3", "flac", "ogg", "oga", "opus", "aac", "m4a", "wma", "mid", "midi", "aiff", "mp4",
@@ -62,6 +71,8 @@ pub fn categorize(ext: &str) -> Option<FileCategory> {
         Some(FileCategory::Image)
     } else if MEDIA.contains(&e) {
         Some(FileCategory::Media)
+    } else if MODEL.contains(&e) {
+        Some(FileCategory::Model)
     } else {
         None
     }
@@ -74,6 +85,7 @@ pub fn category_color(cat: FileCategory, theme: &Theme) -> Color {
         FileCategory::Document => theme.doc_fg,
         FileCategory::Image => theme.image_fg,
         FileCategory::Media => theme.media_fg,
+        FileCategory::Model => theme.model_fg,
     }
 }
 

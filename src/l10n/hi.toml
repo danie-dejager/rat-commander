@@ -388,6 +388,7 @@ code = "hi"
 "Taken" = "लिया गया"
 "Exposure" = "एक्सपोज़र"
 "Image" = "छवि"
+"triangles" = "त्रिभुज"
 
 # -- Tool footer hint bars (mount / net / disk) --
 "Esc / Enter to close" = "Esc / Enter बंद करें"

@@ -69,6 +69,9 @@ pub enum Shape {
     Wedge,
     /// A square base tapering to a point. Programs and libraries.
     Pyramid,
+    /// A narrow foot flaring to a belt and tapering to a point — a cut gem.
+    /// 3D models, which are the one kind of file that is itself a solid.
+    Gem,
 }
 
 /// Sky and ground colours for the fsn style's backdrop.
@@ -124,6 +127,7 @@ fn shape_faces(shape: Shape, min: V3, max: V3) -> Vec<([V3; 4], V3)> {
         Shape::Frustum => frustum(min, max, 0.62),
         Shape::Wedge => wedge(min, max),
         Shape::Pyramid => pyramid(min, max),
+        Shape::Gem => gem(min, max),
     }
 }
 
@@ -239,6 +243,54 @@ fn pyramid(min: V3, max: V3) -> Vec<([V3; 4], V3)> {
         out.push(([p0, p1, apex, apex], n));
     }
     out
+}
+
+/// A narrow square foot flaring out to a belt, then tapering to a point: the
+/// silhouette of a cut gem.
+///
+/// The belt is what distinguishes it. A plain taper would read as the
+/// [`Pyramid`](Shape::Pyramid) already spoken for by executables; the waist
+/// below the widest point gives an outline none of the other solids has, which
+/// is the whole requirement — these are told apart by silhouette at a few dozen
+/// pixels, where colour is almost nothing and text is nothing at all.
+fn gem(min: V3, max: V3) -> Vec<([V3; 4], V3)> {
+    let (a, b) = (min, max);
+    let (cx, cz) = ((a.x + b.x) * 0.5, (a.z + b.z) * 0.5);
+    let (rx, rz) = ((b.x - a.x) * 0.5, (b.z - a.z) * 0.5);
+    // Proportions of a brilliant cut: a small foot, the belt low, a long crown.
+    const FOOT: f32 = 0.34;
+    const BELT: f32 = 0.38;
+    let belt_y = a.y + (b.y - a.y) * BELT;
+    let apex = v3(cx, b.y, cz);
+    let corner = |k: f32, y: f32, i: usize| {
+        let (sx, sz) = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)][i];
+        v3(cx + sx * rx * k, y, cz + sz * rz * k)
+    };
+    let foot: Vec<V3> = (0..4).map(|i| corner(FOOT, a.y, i)).collect();
+    let belt: Vec<V3> = (0..4).map(|i| corner(1.0, belt_y, i)).collect();
+    let centre = v3(cx, (a.y + b.y) * 0.5, cz);
+    let mut out = vec![face_out([foot[0], foot[3], foot[2], foot[1]], centre)];
+    for i in 0..4 {
+        let j = (i + 1) % 4;
+        // Pavilion: the foot's edge flaring out to the belt's.
+        out.push(face_out([foot[i], foot[j], belt[j], belt[i]], centre));
+        // Crown: the belt's edge closing in to the apex, as a triangle.
+        out.push(face_out([belt[i], belt[j], apex, apex], centre));
+    }
+    out
+}
+
+/// A face paired with the normal that points *away from* `centre`.
+///
+/// Deriving the direction from the solid's own centre rather than from the
+/// winding order is exact for a convex solid and impossible to get backwards —
+/// and a normal that comes out inverted is not a subtle error here, it is a face
+/// the back-face cull silently deletes.
+fn face_out(q: [V3; 4], centre: V3) -> ([V3; 4], V3) {
+    let n = q[1].sub(q[0]).cross(q[2].sub(q[0])).norm();
+    let mid = q.iter().fold(v3(0.0, 0.0, 0.0), |acc, &p| acc.add(p)).scale(0.25);
+    let n = if n.dot(mid.sub(centre)) < 0.0 { n.scale(-1.0) } else { n };
+    (q, n)
 }
 
 /// The six faces of an axis-aligned box, as corner quads with outward normals.
@@ -815,6 +867,86 @@ fn fit(s: &str, px: f32, avail: u32) -> String {
     String::new()
 }
 
+/// Ambient floor for [`mesh_shade`]: how lit a face turned fully away still is.
+/// Without it, a third of any model is solid black and its silhouette is all
+/// that remains.
+const MESH_AMBIENT: f64 = 0.32;
+
+/// Face brightness for a model, from a key light fixed to the camera.
+///
+/// [`face_shade`]'s per-axis table is deliberately not reused. It is tuned for
+/// axis-aligned city blocks, where three orientations cover almost every face;
+/// on a curved mesh it collapses whole bands of the surface to one value and the
+/// form stops reading. A Lambert term gives the continuous gradient a curve
+/// needs, and hanging the light off the camera basis means the model is lit from
+/// over the viewer's shoulder at every orbit angle — there is no pose that
+/// leaves it in the dark.
+fn mesh_shade(n: V3, basis: &Basis) -> f64 {
+    // Behind and a little over the left shoulder: a conventional key-light
+    // placement, offset from the view axis because a light exactly on it flattens
+    // the model to its silhouette.
+    let key = basis.fwd.scale(-1.0).add(basis.right.scale(-0.45)).add(basis.up.scale(0.35)).norm();
+    // Two-sided: see `render_mesh` on why the normal may be facing away.
+    let lambert = n.dot(key).abs() as f64;
+    MESH_AMBIENT + (1.15 - MESH_AMBIENT) * lambert
+}
+
+/// Rasterize a standalone triangle mesh — the F3 model viewer's picture.
+///
+/// A sibling of [`render_scene`] rather than a mode of it: it shares the
+/// projection, the depth buffer and [`fill_quad`], but none of the scene's
+/// vocabulary applies to a model file. There are no labels to place, no ground
+/// to stand on, no fades, and no per-node bounds to hand back for hit-testing.
+///
+/// **Nothing is back-face culled**, which is the one place this departs from
+/// `render_scene`. Culling is only sound when a mesh's winding is consistent,
+/// and real STL and OBJ files routinely are not — an exporter that inverts a few
+/// facets would punch holes straight through the solid. The depth buffer gives
+/// the correct picture either way for an opaque model, so the cost is some
+/// overdraw and the benefit is that no file renders as visibly broken. For the
+/// same reason [`mesh_shade`] lights two-sided.
+pub fn render_mesh(
+    w: u32,
+    h: u32,
+    tris: &[crate::mesh::Tri],
+    eye: V3,
+    target: V3,
+    bg: Rgb,
+    base: Rgb,
+) -> RgbaImage {
+    let mut img = raster::canvas(w.max(1), h.max(1), bg);
+    if w == 0 || h == 0 || tris.is_empty() {
+        return img;
+    }
+    let mut depth = vec![0.0f32; (w * h) as usize];
+    let basis = vec3::look_at(eye, target, v3(0.0, 1.0, 0.0));
+    let focal = vec3::focal_for(h as f32, FOV_Y);
+    let (fw, fh) = (w as f32, h as f32);
+
+    for t in tris {
+        let mut pts = [(0.0f32, 0.0f32, 0.0f32); 4];
+        let mut ok = true;
+        for (i, &p) in t.v.iter().enumerate() {
+            match vec3::project(vec3::to_view(&basis, p), fw, fh, focal) {
+                Some(v) => pts[i] = v,
+                None => {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if !ok {
+            continue; // straddles the eye plane; skip rather than distort
+        }
+        // The fourth corner doubles the third, so the closing edge has zero
+        // height and never crosses a scanline — the same trick `shape_faces`
+        // uses to feed triangles through a quad filler.
+        pts[3] = pts[2];
+        fill_quad(&mut img, &mut depth, &pts, raster::shade(base, mesh_shade(t.n, &basis)));
+    }
+    img
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -861,6 +993,103 @@ mod tests {
         assert!(drawn > 200, "the box covers a real area, got {drawn} px");
         assert!(drawn < (200 * 120) as usize, "and does not fill the whole frame");
         assert!(bounds[0].is_some(), "its silhouette bounds were recorded");
+    }
+
+    /// A unit tetrahedron centred on the origin — four faces, all windings valid.
+    fn tetra() -> Vec<crate::mesh::Tri> {
+        let p = [v3(1.0, 1.0, 1.0), v3(1.0, -1.0, -1.0), v3(-1.0, 1.0, -1.0), v3(-1.0, -1.0, 1.0)];
+        let mut out = Vec::new();
+        for (a, b, c) in [(0, 1, 2), (0, 2, 3), (0, 3, 1), (1, 3, 2)] {
+            crate::mesh::push_tri(&mut out, p[a], p[b], p[c]);
+        }
+        out
+    }
+
+    #[test]
+    fn a_mesh_is_drawn_and_the_background_survives_around_it() {
+        let bg = (10, 10, 12);
+        let img = render_mesh(
+            160,
+            120,
+            &tetra(),
+            v3(0.0, 2.0, -6.0),
+            v3(0.0, 0.0, 0.0),
+            bg,
+            (220, 220, 220),
+        );
+        let drawn = count_non_bg(&img, bg);
+        assert!(drawn > 300, "the solid covers a real area, got {drawn} px");
+        assert!(drawn < 160 * 120, "and does not fill the whole frame");
+    }
+
+    #[test]
+    fn an_empty_mesh_renders_as_bare_background() {
+        let bg = (10, 10, 12);
+        let img =
+            render_mesh(64, 48, &[], v3(0.0, 0.0, -5.0), v3(0.0, 0.0, 0.0), bg, (200, 200, 200));
+        assert_eq!(count_non_bg(&img, bg), 0);
+    }
+
+    #[test]
+    fn a_mesh_behind_the_camera_draws_nothing() {
+        let bg = (10, 10, 12);
+        // Looking away from the solid: every vertex fails the eye-plane test.
+        let img = render_mesh(
+            64,
+            48,
+            &tetra(),
+            v3(0.0, 0.0, -6.0),
+            v3(0.0, 0.0, -12.0),
+            bg,
+            (200, 200, 200),
+        );
+        assert_eq!(count_non_bg(&img, bg), 0);
+    }
+
+    #[test]
+    fn mesh_shading_lights_a_face_turned_away_as_well_as_one_turned_toward() {
+        // Two-sided on purpose: a model with inverted facets must not go black.
+        let basis = vec3::look_at(v3(0.0, 0.0, -5.0), v3(0.0, 0.0, 0.0), v3(0.0, 1.0, 0.0));
+        let n = v3(0.3, 0.5, -0.8).norm();
+        assert!((mesh_shade(n, &basis) - mesh_shade(n.scale(-1.0), &basis)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn mesh_shading_stays_within_a_sane_range() {
+        let basis = vec3::look_at(v3(0.0, 3.0, -5.0), v3(0.0, 0.0, 0.0), v3(0.0, 1.0, 0.0));
+        for n in
+            [v3(1.0, 0.0, 0.0), v3(0.0, 1.0, 0.0), v3(0.0, 0.0, 1.0), v3(-0.4, 0.2, 0.9).norm()]
+        {
+            let s = mesh_shade(n, &basis);
+            assert!((MESH_AMBIENT..=1.15).contains(&s), "{n:?} shaded {s}");
+        }
+    }
+
+    #[test]
+    fn every_gem_face_points_away_from_its_own_centre() {
+        // A face whose normal came out inverted is not a subtle error: the
+        // back-face cull deletes it and the solid is drawn with a hole.
+        let (min, max) = (v3(-1.0, 0.0, -1.0), v3(1.0, 3.0, 1.0));
+        let centre = v3(0.0, 1.5, 0.0);
+        for (q, n) in gem(min, max) {
+            let mid = q.iter().fold(v3(0.0, 0.0, 0.0), |a, &p| a.add(p)).scale(0.25);
+            assert!(n.dot(mid.sub(centre)) > 0.0, "inward normal on {q:?}");
+            assert!((n.len() - 1.0).abs() < 1e-4, "unnormalised normal {n:?}");
+        }
+    }
+
+    #[test]
+    fn a_gem_has_a_waist_that_a_pyramid_does_not() {
+        // The silhouette is the whole point: the belt must be wider than the foot.
+        let (min, max) = (v3(-1.0, 0.0, -1.0), v3(1.0, 3.0, 1.0));
+        let widest =
+            gem(min, max).iter().flat_map(|(q, _)| q.iter()).fold(0.0f32, |m, p| m.max(p.x.abs()));
+        let at_foot = gem(min, max)
+            .iter()
+            .flat_map(|(q, _)| q.iter())
+            .filter(|p| p.y <= 1e-6)
+            .fold(0.0f32, |m, p| m.max(p.x.abs()));
+        assert!(widest > at_foot * 1.5, "belt {widest} vs foot {at_foot}");
     }
 
     #[test]

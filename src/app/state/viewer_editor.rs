@@ -320,6 +320,14 @@ impl AppState {
                     {
                         v.set_image(iv);
                     }
+                    // A model file opens showing the mesh, orbitable, on the
+                    // same terms: it falls back to the raw view when it doesn't
+                    // parse, and F8 switches to the bytes.
+                    if crate::mesh::is_model_name(&v.name)
+                        && let Some(mv) = load_view_model(&path.path).await
+                    {
+                        v.set_model(mv);
+                    }
                     self.viewer = Some(v);
                 }
                 Ok(Err(e)) => self.show_error(format!("Cannot open file: {e}")),

@@ -1837,6 +1837,7 @@ pub struct ScenePalette {
     pub doc: crate::ui::graphics::raster::Rgb,
     pub image: crate::ui::graphics::raster::Rgb,
     pub media: crate::ui::graphics::raster::Rgb,
+    pub model: crate::ui::graphics::raster::Rgb,
     pub exec: crate::ui::graphics::raster::Rgb,
 }
 
@@ -1853,6 +1854,7 @@ impl ScenePalette {
             doc: rgb(theme.doc_fg),
             image: rgb(theme.image_fg),
             media: rgb(theme.media_fg),
+            model: rgb(theme.model_fg),
             exec: rgb(theme.exec_fg),
         }
     }
@@ -1871,6 +1873,7 @@ fn file_look(ext: &str, pal: &ScenePalette) -> (Shape, crate::ui::graphics::rast
         Some(FileCategory::Document) => (Shape::Sheet, pal.doc),
         Some(FileCategory::Image) => (Shape::Frustum, pal.image),
         Some(FileCategory::Media) => (Shape::Wedge, pal.media),
+        Some(FileCategory::Model) => (Shape::Gem, pal.model),
         None if crate::util::filetype::is_executable_ext(ext) => (Shape::Pyramid, pal.exec),
         None => (Shape::Block, pal.file),
     }

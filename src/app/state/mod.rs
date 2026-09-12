@@ -638,6 +638,26 @@ async fn load_view_image(path: &Path) -> Option<crate::viewer::ViewerImage> {
     .ok()?
 }
 
+/// Parse a local model file for the fullscreen viewer. `None` when it is too
+/// large or does not parse (the caller then falls back to the raw view), which
+/// is also what a `.stl` that is not really one takes.
+///
+/// Parsing (CPU-heavy, and unbounded in the file's own size) runs on the
+/// blocking pool, like the image decode above.
+async fn load_view_model(path: &Path) -> Option<crate::viewer::ViewerModel> {
+    let meta = tokio::fs::metadata(path).await.ok()?;
+    if meta.len() > crate::mesh::MAX_MODEL_BYTES {
+        return None;
+    }
+    let bytes = tokio::fs::read(path).await.ok()?;
+    let name = path.file_name()?.to_string_lossy().into_owned();
+    tokio::task::spawn_blocking(move || {
+        crate::mesh::load(&bytes, &name).map(crate::viewer::ViewerModel::new)
+    })
+    .await
+    .ok()?
+}
+
 /// Stream `path` from `backend` to the local `temp` file, emitting throttled
 /// progress and honoring `cancel`. Returns `Ok(true)` when complete, `Ok(false)`
 /// when cancelled, or `Err` on I/O failure. The caller cleans up `temp`.

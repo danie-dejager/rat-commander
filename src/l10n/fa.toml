@@ -392,6 +392,7 @@ rtl = true
 "Taken" = "زمان عکس"
 "Exposure" = "نوردهی"
 "Image" = "تصویر"
+"triangles" = "مثلث"
 
 # -- Tool footer hint bars (mount / net / disk) --
 "Esc / Enter to close" = "Esc / Enter برای بستن"

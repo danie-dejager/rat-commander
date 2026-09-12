@@ -388,6 +388,7 @@ code = "pt"
 "Taken" = "Capturada"
 "Exposure" = "Exposição"
 "Image" = "Imagem"
+"triangles" = "triângulos"
 
 # -- Tool footer hint bars (mount / net / disk) --
 "Esc / Enter to close" = "Esc / Enter para fechar"

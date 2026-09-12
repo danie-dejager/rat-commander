@@ -33,7 +33,9 @@ pub fn render(
     // extent is known) are indexed — the rest of the file stays unscanned — and
     // pull the view back if a resize or jump left it beyond the last full
     // screen, so blank space never shows below the end of the file.
-    if v.active_image().is_none() {
+    // A model, like an image, replaces the document entirely, so there is no
+    // page to index or clamp for it either.
+    if v.active_image().is_none() && v.active_model().is_none() {
         if v.mode == ViewMode::Text {
             v.extend_to_line(v.top + v.view_rows);
         }
@@ -45,6 +47,13 @@ pub fn render(
     // available, else half-block cell art); F8 toggles to the raw text/hex.
     if v.active_image().is_some() {
         render_image(f, content, v, theme, gfx);
+        render_footer(f, footer, v, theme);
+        return;
+    }
+    // A model file orbits a rasterized mesh in the same place, on the same three
+    // presentation tiers; F8 toggles to the raw text/hex.
+    if v.active_model().is_some() {
+        render_model(f, content, v, theme, gfx);
         render_footer(f, footer, v, theme);
         return;
     }
@@ -184,6 +193,74 @@ fn build_styled(chars: &[char], base: usize, styles: &[Style], default: Style) -
     Line::from(spans)
 }
 
+/// Largest model raster built per frame.
+///
+/// The same bound, and the same reasoning, as the 3D panel's: an orbit rebuilds
+/// this on every key press, and an uncapped full-screen raster would re-encode
+/// several megapixels each time. The image is scaled back up to the cell area.
+const MODEL_MAX_PX: u32 = 1280;
+
+/// Draw the mesh fullscreen — pixel graphics where available, else half-block
+/// cell art, else an ASCII luminance ramp.
+fn render_model(
+    f: &mut Frame,
+    area: Rect,
+    v: &ViewerState,
+    theme: &Theme,
+    gfx: Option<&mut crate::ui::graphics::Gfx>,
+) {
+    let Some(m) = v.active_model() else {
+        return;
+    };
+    f.render_widget(ratatui::widgets::Clear, area);
+    f.render_widget(
+        ratatui::widgets::Block::default().style(Style::default().bg(theme.panel_bg)),
+        area,
+    );
+    let bg = crate::ui::graphics::raster::rgb(theme.panel_bg);
+    // The pale solid the 3D landscape stands its platforms on. A near-white
+    // surface is what makes a shaded form read; a saturated one loses the
+    // gradient that describes the curve.
+    let base = crate::space3d::ScenePalette::from_theme(theme).platform;
+    let draw = |w: u32, h: u32| {
+        crate::space3d::raster3d::render_mesh(
+            w,
+            h,
+            &m.mesh.tris,
+            m.cam.eye(),
+            m.cam.target,
+            bg,
+            base,
+        )
+    };
+    match gfx {
+        Some(g) if g.available() => {
+            let (cw, ch) = g.cell();
+            let (mut w, mut h) = (area.width as u32 * cw, area.height as u32 * ch);
+            let long = w.max(h);
+            if long > MODEL_MAX_PX {
+                w = w * MODEL_MAX_PX / long;
+                h = h * MODEL_MAX_PX / long;
+            }
+            // Built inside the closure so an unmoved camera costs nothing: the
+            // cache compares the signature first and only then rasterizes.
+            g.draw_cached(f, area, crate::ui::graphics::Slot::ViewerModel, m.sig(), || {
+                draw(w.max(1), h.max(1))
+            });
+        }
+        // One pixel per half-cell, so the rasterizer's square-pixel assumption
+        // holds and the same focal length is correct here too.
+        _ => {
+            let img = draw(area.width as u32, area.height as u32 * 2);
+            if theme.truecolor {
+                crate::util::img::render_halfblocks(f, area, &img, theme.panel_bg);
+            } else {
+                crate::util::img::render_ascii_ramp(f, area, &img, theme);
+            }
+        }
+    }
+}
+
 /// Draw the decoded image fullscreen — pixel graphics where available, else
 /// centred half-block cell art.
 fn render_image(
@@ -214,6 +291,26 @@ fn render_image(
 }
 
 fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
+    // In model mode the header names the file, the format read, and how many
+    // triangles it turned out to hold — the size that actually matters here.
+    if let Some(m) = v.active_model() {
+        let text = format!(
+            " {}: {}  [{} {} {}]",
+            crate::l10n::trd("View"),
+            ellipsize(&v.name, area.width.saturating_sub(28) as usize),
+            m.mesh.format,
+            m.mesh.tris.len(),
+            crate::l10n::trd("triangles"),
+        );
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                pad_right(&text, area.width as usize),
+                theme.menubar.add_modifier(Modifier::BOLD),
+            ))),
+            area,
+        );
+        return;
+    }
     // In image mode the header names the file and its original pixel dimensions.
     if let Some(iv) = v.active_image() {
         let (w, h) = iv.orig;

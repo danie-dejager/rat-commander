@@ -388,6 +388,7 @@ code = "ru"
 "Taken" = "Снято"
 "Exposure" = "Экспозиция"
 "Image" = "Изображение"
+"triangles" = "треугольников"
 
 # -- Tool footer hint bars (mount / net / disk) --
 "Esc / Enter to close" = "Esc / Enter — закрыть"

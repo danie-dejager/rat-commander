@@ -388,6 +388,7 @@ code = "nl"
 "Taken" = "Genomen"
 "Exposure" = "Belichting"
 "Image" = "Afbeelding"
+"triangles" = "driehoeken"
 
 # -- Tool footer hint bars (mount / net / disk) --
 "Esc / Enter to close" = "Esc / Enter om te sluiten"

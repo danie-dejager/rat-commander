@@ -10,6 +10,7 @@ pub mod markdown;
 pub mod render;
 pub mod search;
 
+use crate::space3d::CamPose;
 use crate::syntax::{ColorRun, Highlighter};
 use ratatui::crossterm::event::{
     KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -28,6 +29,12 @@ pub const MAX_VIEW_BYTES: usize = 64 * 1024 * 1024;
 /// larger than the editor ever opens, so the sweep is bounded rather than
 /// promising to mark every hit in a multi-gigabyte log.
 const FOUND_LINES_MAX: usize = 50_000;
+
+/// Orbit and zoom rates for the model view, matching the 3D panel's.
+const ORBIT_YAW: f32 = 0.16;
+const ORBIT_PITCH: f32 = 0.10;
+const ZOOM_IN: f32 = 0.85;
+const ZOOM_OUT: f32 = 1.18;
 
 /// Where the viewer reads bytes from.
 enum Source {
@@ -90,6 +97,91 @@ pub struct ViewerImage {
     pub sig: u64,
     /// Original pixel dimensions (before scaling), shown in the header.
     pub orig: (u32, u32),
+}
+
+/// A parsed mesh shown fullscreen when F3 opens a model file, with the orbit
+/// camera looking at it. Falls back to the raw text/hex view when the file
+/// cannot be parsed, or via F8 — exactly as [`ViewerImage`] does.
+pub struct ViewerModel {
+    pub mesh: crate::mesh::Mesh,
+    /// Where the camera sits.
+    ///
+    /// Reuses the 3D panel's orbit rig so both surfaces answer the same keys
+    /// with the same geometry. The exponential smoothing that view applies lives
+    /// in `Space3d` rather than in `CamPose`, and is deliberately not brought
+    /// along: the viewer redraws on input, not on a frame clock, so there would
+    /// be no ticks to interpolate over.
+    pub cam: CamPose,
+    /// Distance that exactly frames the model. Zoom is stored as a multiple of
+    /// it, so framing survives a terminal resize the way `Space3d`'s does.
+    fitted: f32,
+    /// Identity of the mesh itself, mixed into [`ViewerModel::sig`] so the
+    /// graphics cache re-encodes for a different model and not merely for a
+    /// moved camera.
+    mesh_sig: u64,
+}
+
+/// Pitch limits. Unlike the 3D panel — which clamps above the ground plane
+/// because its scene stands on one — a model has no floor, so the only limit
+/// here is staying off the poles, where the camera basis degenerates.
+const MODEL_PITCH: f32 = 1.50;
+/// Zoom range, as multiples of the fitted distance.
+const MODEL_ZOOM: (f32, f32) = (0.15, 8.0);
+
+impl ViewerModel {
+    pub fn new(mesh: crate::mesh::Mesh) -> Self {
+        let mesh_sig = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            mesh.tris.len().hash(&mut h);
+            // A bounded sample rather than every triangle: this runs on a mesh
+            // of up to `MAX_TRIS`, and it only has to distinguish one opened
+            // model from another, not verify one.
+            for t in mesh.tris.iter().step_by(1 + mesh.tris.len() / 64) {
+                for v in t.v {
+                    v.x.to_bits().hash(&mut h);
+                    v.y.to_bits().hash(&mut h);
+                    v.z.to_bits().hash(&mut h);
+                }
+            }
+            h.finish()
+        };
+        // Frame the bounding sphere in the vertical field of view, with a margin
+        // so the silhouette does not touch the edge of the raster.
+        let fitted = mesh.radius() / (crate::space3d::raster3d::FOV_Y * 0.5).sin() * 1.15;
+        let cam = CamPose { target: mesh.centre(), dist: fitted, yaw: 0.6, pitch: 0.45 };
+        ViewerModel { mesh, cam, fitted, mesh_sig }
+    }
+
+    pub fn orbit(&mut self, dyaw: f32, dpitch: f32) {
+        self.cam.yaw += dyaw;
+        self.cam.pitch = (self.cam.pitch + dpitch).clamp(-MODEL_PITCH, MODEL_PITCH);
+    }
+
+    /// Zoom by a factor; `k` below 1 moves closer.
+    pub fn zoom_by(&mut self, k: f32) {
+        let (lo, hi) = MODEL_ZOOM;
+        self.cam.dist = (self.cam.dist * k).clamp(self.fitted * lo, self.fitted * hi);
+    }
+
+    pub fn reset(&mut self) {
+        self.cam = CamPose { target: self.mesh.centre(), dist: self.fitted, yaw: 0.6, pitch: 0.45 };
+    }
+
+    /// Content signature for the graphics cache.
+    ///
+    /// The camera is quantised before hashing so that sub-pixel jitter does not
+    /// invalidate a perfectly good encoded image — the same reasoning as the 3D
+    /// panel's own `signature()`.
+    pub fn sig(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.mesh_sig.hash(&mut h);
+        ((self.cam.yaw * 512.0) as i32).hash(&mut h);
+        ((self.cam.pitch * 512.0) as i32).hash(&mut h);
+        ((self.cam.dist / self.fitted * 512.0) as i32).hash(&mut h);
+        h.finish()
+    }
 }
 
 /// How the "Goto" dialog interprets its entered value.
@@ -192,6 +284,14 @@ pub struct ViewerState {
     /// Whether the image (vs. the raw text/hex) is currently displayed — toggled
     /// with F8. Only meaningful when `image` is set.
     show_image: bool,
+    /// A parsed mesh, when this file could be read as one (F3 on a model).
+    model: Option<ViewerModel>,
+    /// Whether the model (vs. the raw text/hex) is currently displayed —
+    /// toggled with F8, like `show_image`.
+    show_model: bool,
+    /// Pointer position the in-progress model drag was last seen at, so an
+    /// orbit is driven by the delta between frames rather than by absolutes.
+    drag_from: Option<(u16, u16)>,
 }
 
 impl ViewerState {
@@ -233,6 +333,9 @@ impl ViewerState {
             outline_area: Rect::default(),
             image: None,
             show_image: false,
+            model: None,
+            show_model: false,
+            drag_from: None,
         }
     }
 
@@ -277,6 +380,9 @@ impl ViewerState {
             outline_area: Rect::default(),
             image: None,
             show_image: false,
+            model: None,
+            show_model: false,
+            drag_from: None,
         }
     }
 
@@ -454,6 +560,29 @@ impl ViewerState {
             return self.handle_outline_key(key);
         }
 
+        // A displayed model takes the navigation keys: they orbit the camera,
+        // there being no document on screen for them to scroll. The rates match
+        // the 3D panel's own `space3d_key` so the two surfaces feel alike.
+        if self.show_model
+            && let Some(m) = self.model.as_mut()
+        {
+            match key.code {
+                KeyCode::Left => m.orbit(-ORBIT_YAW, 0.0),
+                KeyCode::Right => m.orbit(ORBIT_YAW, 0.0),
+                KeyCode::Up => m.orbit(0.0, ORBIT_PITCH),
+                KeyCode::Down => m.orbit(0.0, -ORBIT_PITCH),
+                KeyCode::Char('+') | KeyCode::Char('=') => m.zoom_by(ZOOM_IN),
+                KeyCode::Char('-') | KeyCode::Char('_') => m.zoom_by(ZOOM_OUT),
+                KeyCode::Home => m.reset(),
+                _ => return self.handle_view_key(key),
+            }
+            return ViewerSignal::Stay;
+        }
+        self.handle_view_key(key)
+    }
+
+    /// The ordinary viewer keys — everything a model orbit did not claim.
+    fn handle_view_key(&mut self, key: KeyEvent) -> ViewerSignal {
         match key.code {
             // F3 toggles the viewer (open in the panels, close here), matching
             // the footer's "Quit" label; F10 / Esc / q also close.
@@ -472,6 +601,8 @@ impl ViewerState {
             KeyCode::F(5) => return ViewerSignal::OpenGoto,
             // F6 (Markdown files in text mode): open the document outline.
             KeyCode::F(6) if self.is_markdown && self.mode == ViewMode::Text => self.open_outline(),
+            // F8 (model files): toggle between the mesh and the raw text/hex.
+            KeyCode::F(8) if self.model.is_some() => self.show_model = !self.show_model,
             // F8 (image files): toggle between the image and the raw text/hex.
             KeyCode::F(8) if self.image.is_some() => self.show_image = !self.show_image,
             // F8 (Markdown files only): toggle the Markdown render and the raw
@@ -521,6 +652,31 @@ impl ViewerState {
             };
         }
 
+        // A displayed model takes the wheel and the drag: zoom and orbit, rather
+        // than scrolling a document that is not on screen.
+        if self.show_model
+            && let Some(m) = self.model.as_mut()
+        {
+            match ev.kind {
+                MouseEventKind::ScrollDown => m.zoom_by(ZOOM_OUT),
+                MouseEventKind::ScrollUp => m.zoom_by(ZOOM_IN),
+                MouseEventKind::Down(MouseButton::Left) => self.drag_from = Some((col, row)),
+                MouseEventKind::Drag(MouseButton::Left) => {
+                    if let Some((px, py)) = self.drag_from {
+                        let (dx, dy) = (col as i32 - px as i32, row as i32 - py as i32);
+                        // A cell is about twice as tall as it is wide, so equal
+                        // pointer travel must not cover twice the angle
+                        // vertically — the same correction the 3D panel makes.
+                        m.orbit(dx as f32 * -0.05, dy as f32 * 0.05);
+                    }
+                    self.drag_from = Some((col, row));
+                }
+                MouseEventKind::Up(MouseButton::Left) => self.drag_from = None,
+                _ => {}
+            }
+            return ViewerSignal::Stay;
+        }
+
         match ev.kind {
             MouseEventKind::ScrollDown => self.scroll(3),
             MouseEventKind::ScrollUp => self.scroll(-3),
@@ -562,12 +718,25 @@ impl ViewerState {
         self.show_image.then_some(self.image.as_ref()).flatten()
     }
 
+    /// Attach a parsed mesh and switch to showing it (F3 on a model file).
+    pub fn set_model(&mut self, m: ViewerModel) {
+        self.model = Some(m);
+        self.show_model = true;
+    }
+
+    /// The mesh, when it is currently being displayed (vs. the raw view).
+    pub(crate) fn active_model(&self) -> Option<&ViewerModel> {
+        self.show_model.then_some(self.model.as_ref()).flatten()
+    }
+
     pub(crate) fn footer_labels(&self) -> [&'static str; 10] {
         let wrap = if self.wrap { "Unwrap" } else { "Wrap" };
         let mode = if self.mode == ViewMode::Hex { "Text" } else { "Hex" };
         // F8: for an image file, toggle Image/Raw; for a Markdown file in text
         // mode, "Raw" shows the source and "Render" the approximation.
-        let f8 = if self.image.is_some() {
+        let f8 = if self.model.is_some() {
+            if self.show_model { "Raw" } else { "Model" }
+        } else if self.image.is_some() {
             if self.show_image { "Raw" } else { "Image" }
         } else if self.is_markdown && self.mode == ViewMode::Text {
             if self.markdown_render { "Raw" } else { "Render" }
@@ -1817,5 +1986,132 @@ mod tests {
         assert_eq!(v.footer_labels()[7], "Image");
         v.handle_key(f8);
         assert!(v.active_image().is_some(), "F8 shows it again");
+    }
+
+    /// A tetrahedron as a binary STL: four facets, enough to render a solid.
+    fn stl_bytes() -> Vec<u8> {
+        let p = [[0.0f32, 0.0, 0.0], [10.0, 0.0, 0.0], [5.0, 0.0, 8.6], [5.0, 9.0, 2.9]];
+        let faces = [(0, 2, 1), (0, 1, 3), (1, 2, 3), (2, 0, 3)];
+        let mut b = vec![0u8; 80];
+        b.extend_from_slice(&(faces.len() as u32).to_le_bytes());
+        for (i, j, k) in faces {
+            b.extend_from_slice(&[0u8; 12]); // stored normal, ignored on read
+            for v in [p[i], p[j], p[k]] {
+                for c in v {
+                    b.extend_from_slice(&c.to_le_bytes());
+                }
+            }
+            b.extend_from_slice(&0u16.to_le_bytes());
+        }
+        b
+    }
+
+    #[test]
+    fn model_mode_renders_and_f8_toggles_raw() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let bytes = stl_bytes();
+        let mut v = ViewerState::new("part.stl".into(), bytes.clone());
+        let mesh = crate::mesh::load(&bytes, "part.stl").expect("parses");
+        assert_eq!(mesh.tris.len(), 4);
+        v.set_model(ViewerModel::new(mesh));
+        assert!(v.active_model().is_some(), "opens showing the model");
+
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        t.draw(|f| render::render(f, f.area(), &mut v, &theme, None)).unwrap();
+        let b = t.backend().buffer();
+        let all: String = (0..b.area.height)
+            .flat_map(|y| (0..b.area.width).map(move |x| (x, y)))
+            .map(|(x, y)| b[(x, y)].symbol().to_string())
+            .collect();
+        // The header names the format and the triangle count; the body is cell art.
+        assert!(all.contains("STL") && all.contains("4 triangles"), "header: {all:?}");
+        assert!(all.contains('▀'), "half-block art drawn (no graphics)");
+        assert_eq!(v.footer_labels()[7], "Raw");
+
+        // F8 toggles to the raw bytes and back.
+        let f8 = KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE);
+        v.handle_key(f8);
+        assert!(v.active_model().is_none(), "F8 hides the model");
+        assert_eq!(v.footer_labels()[7], "Model");
+        v.handle_key(f8);
+        assert!(v.active_model().is_some(), "F8 shows it again");
+    }
+
+    #[test]
+    fn model_keys_orbit_and_reset_rather_than_scrolling() {
+        let bytes = stl_bytes();
+        let mut v = ViewerState::new("part.stl".into(), bytes.clone());
+        v.set_model(ViewerModel::new(crate::mesh::load(&bytes, "part.stl").unwrap()));
+        let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
+        let start = v.active_model().unwrap().cam;
+
+        v.handle_key(key(KeyCode::Right));
+        let m = v.active_model().unwrap();
+        assert!((m.cam.yaw - start.yaw - ORBIT_YAW).abs() < 1e-5, "Right orbits, not scrolls");
+        assert_eq!(v.top, 0, "and the document did not move");
+
+        v.handle_key(key(KeyCode::Char('+')));
+        assert!(v.active_model().unwrap().cam.dist < start.dist, "+ moves closer");
+
+        v.handle_key(key(KeyCode::Home));
+        let m = v.active_model().unwrap();
+        assert!((m.cam.yaw - start.yaw).abs() < 1e-6 && (m.cam.dist - start.dist).abs() < 1e-6);
+
+        // Showing the raw bytes hands the same keys back to the document.
+        v.handle_key(key(KeyCode::F(8)));
+        v.handle_key(key(KeyCode::Down));
+        assert!(v.active_model().is_none());
+    }
+
+    #[test]
+    fn dragging_orbits_the_model_and_the_wheel_zooms_it() {
+        let bytes = stl_bytes();
+        let mut v = ViewerState::new("part.stl".into(), bytes.clone());
+        v.set_model(ViewerModel::new(crate::mesh::load(&bytes, "part.stl").unwrap()));
+        let start = v.active_model().unwrap().cam;
+        let at =
+            |kind, col, row| MouseEvent { kind, column: col, row, modifiers: KeyModifiers::NONE };
+        v.handle_mouse(at(MouseEventKind::Down(MouseButton::Left), 20, 10));
+        v.handle_mouse(at(MouseEventKind::Drag(MouseButton::Left), 30, 10));
+        let m = v.active_model().unwrap();
+        assert!(m.cam.yaw < start.yaw, "dragging right orbits the camera");
+        assert_eq!(v.top, 0, "and does not scroll the document");
+
+        v.handle_mouse(at(MouseEventKind::ScrollUp, 20, 10));
+        assert!(v.active_model().unwrap().cam.dist < start.dist, "wheel zooms in");
+
+        // Releasing ends the drag, so the next press starts a fresh one rather
+        // than snapping the camera across the gap between them.
+        v.handle_mouse(at(MouseEventKind::Up(MouseButton::Left), 30, 10));
+        let held = v.active_model().unwrap().cam.yaw;
+        v.handle_mouse(at(MouseEventKind::Drag(MouseButton::Left), 90, 10));
+        assert!((v.active_model().unwrap().cam.yaw - held).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_model_signature_tracks_the_camera_so_the_cache_refreshes() {
+        let bytes = stl_bytes();
+        let mut m = ViewerModel::new(crate::mesh::load(&bytes, "part.stl").unwrap());
+        let before = m.sig();
+        m.orbit(0.5, 0.0);
+        assert_ne!(before, m.sig(), "an orbit must invalidate the encoded image");
+        m.orbit(-0.5, 0.0);
+        assert_eq!(before, m.sig(), "and returning to the same pose must not");
+    }
+
+    #[test]
+    fn pitch_is_clamped_off_the_poles_where_the_camera_basis_degenerates() {
+        let bytes = stl_bytes();
+        let mut m = ViewerModel::new(crate::mesh::load(&bytes, "part.stl").unwrap());
+        for _ in 0..200 {
+            m.orbit(0.0, 1.0);
+        }
+        assert!(m.cam.pitch <= MODEL_PITCH && m.cam.eye().y.is_finite());
+        for _ in 0..400 {
+            m.orbit(0.0, -1.0);
+        }
+        assert!(m.cam.pitch >= -MODEL_PITCH && m.cam.eye().y.is_finite());
     }
 }
