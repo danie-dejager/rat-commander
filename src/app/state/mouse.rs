@@ -69,7 +69,7 @@ impl AppState {
         }
         if self.viewer.is_some() {
             let sig = self.viewer.as_mut().unwrap().handle_mouse(ev);
-            self.apply_viewer_signal(sig);
+            self.apply_viewer_signal(sig).await;
             return Flow::Continue;
         }
         // The theme editor hit-tests clicks/scroll against the zones it stored

@@ -23,9 +23,13 @@ pub fn render(
     let header = Rect { height: 1, ..area };
     let content = Rect { y: area.y + 1, height: area.height - 2, ..area };
     let footer = Rect { y: area.y + area.height - 1, height: 1, ..area };
+    // The blame column takes the left of the content, and the text the rest —
+    // which is the width wrapping and scrolling have to measure against.
+    let gutter_w = if v.active_blame().is_some() { blame_gutter_width(content.width) } else { 0 };
+    let text_area = Rect { x: content.x + gutter_w, width: content.width - gutter_w, ..content };
 
     v.view_rows = content.height as usize;
-    v.view_cols = content.width as usize;
+    v.view_cols = text_area.width as usize;
     v.content_area = content;
     v.footer_area = footer;
 
@@ -63,7 +67,12 @@ pub fn render(
         // Markdown files render the approximation by default; F8 shows the raw,
         // syntax-highlighted source.
         ViewMode::Text if v.markdown_active() => render_markdown(f, content, v, theme),
-        ViewMode::Text => render_text(f, content, v, theme),
+        ViewMode::Text => {
+            let rows = render_text(f, text_area, v, theme);
+            if gutter_w > 0 {
+                render_blame_gutter(f, Rect { width: gutter_w, ..content }, v, &rows, theme);
+            }
+        }
     }
     render_footer(f, footer, v, theme);
     // The F6 document outline draws over the content as a modal overlay.
@@ -494,6 +503,39 @@ fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
         Some((true, 0)) => format!("  [{}]", crate::l10n::trd("Paused")),
         Some((true, n)) => format!("  [{} +{n}]", crate::l10n::trd("Paused")),
     };
+    // The blamed cursor line's commit takes the header's spare room.
+    if let Some((blame, cursor)) = v.active_blame() {
+        let who = match blame.commit_of(cursor) {
+            Some(c) if c.uncommitted() => crate::l10n::trd("Not committed yet"),
+            Some(c) => {
+                let (y, m, d, ..) = crate::util::bytes::civil_parts(c.time);
+                format!("{}  {}  {y:04}-{m:02}-{d:02}  {}", c.short(), c.author, c.summary)
+            }
+            None => String::new(),
+        };
+        let text = format!(
+            " {}: {}  [{}]{follow}  {}/{}{more}  {who}",
+            crate::l10n::trd("View"),
+            ellipsize(&v.name, 24),
+            crate::l10n::trd("Blame"),
+            cursor + 1,
+            total.max(1),
+        );
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                pad_right(&ellipsize(&text, area.width as usize), area.width as usize),
+                theme.menubar.add_modifier(Modifier::BOLD),
+            ))),
+            area,
+        );
+        return;
+    }
+    let loading = if v.blame_loading() {
+        format!("  [{}…]", crate::l10n::trd("Blame"))
+    } else {
+        String::new()
+    };
+    let follow = follow + &loading;
     let text = format!(
         " {}: {}  [{mode}/{wrap}]{follow}  {}/{}{more} {unit}{trunc}",
         crate::l10n::trd("View"),
@@ -510,7 +552,15 @@ fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
     );
 }
 
-fn render_text(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
+/// Draw the text view. Returns, for each screen row drawn, the line on it and
+/// whether that row is the line's first (the rest are its wrapped tail) — what
+/// the blame column needs to line up with the text.
+fn render_text(
+    f: &mut Frame,
+    area: Rect,
+    v: &mut ViewerState,
+    theme: &Theme,
+) -> Vec<(usize, bool)> {
     let default = theme.text_fg;
     let bg = theme.panel_bg;
     // A "Find all" hit tints the whole line, reusing the theme's inactive-cursor
@@ -520,7 +570,10 @@ fn render_text(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
     let rows = area.height as usize;
     let highlighted = v.has_syntax();
     let log_levels = v.log_levels();
+    let blame_cursor = v.active_blame().map(|(_, cursor)| cursor);
     let mut lines: Vec<Line> = Vec::with_capacity(rows);
+    let mut row_lines: Vec<(usize, bool)> = Vec::with_capacity(rows);
+    let mut tinted: Vec<(usize, Color)> = Vec::new();
     let mut line_idx = v.top;
 
     while lines.len() < rows && line_idx < v.line_count() {
@@ -561,26 +614,137 @@ fn render_text(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
             }
         }
 
-        // Every visual row of a matched line carries the tint.
-        let row_bg = if v.line_found(line_idx) { found_bg } else { bg };
+        // Every visual row of a matched line carries the tint, and so does the
+        // blame cursor's line.
+        let row_bg =
+            if v.line_found(line_idx) || blame_cursor == Some(line_idx) { found_bg } else { bg };
+        let first_row = lines.len();
         if v.wrap {
             if chars.is_empty() {
                 lines.push(build_spans(&[], 0, &fg, default, row_bg));
+                row_lines.push((line_idx, true));
             } else {
                 let mut start = 0;
                 while start < chars.len() && lines.len() < rows {
                     let end = (start + width.max(1)).min(chars.len());
                     lines.push(build_spans(&chars[start..end], start, &fg, default, row_bg));
+                    row_lines.push((line_idx, start == 0));
                     start = end;
                 }
             }
         } else {
             let from = v.h_offset.min(chars.len());
             lines.push(build_spans(&chars[from..], from, &fg, default, row_bg));
+            row_lines.push((line_idx, true));
+        }
+        if row_bg != bg {
+            tinted.extend((first_row..lines.len()).map(|r| (r, row_bg)));
         }
         line_idx += 1;
     }
     f.render_widget(Paragraph::new(lines).style(Style::default().bg(theme.panel_bg)), area);
+    // A tinted line (a "Find all" hit, the blame cursor) is a bar across the
+    // whole row, not just a shade behind however much text it has.
+    for (row, color) in tinted {
+        let rect = Rect { y: area.y + row as u16, height: 1, ..area };
+        f.buffer_mut().set_style(rect, Style::default().bg(color));
+    }
+    row_lines
+}
+
+/// Width of the blame column: author and date where the screen can spare it,
+/// just the date where it can't.
+fn blame_gutter_width(content_width: u16) -> u16 {
+    if content_width >= 80 {
+        BLAME_WIDE
+    } else if content_width >= 30 {
+        BLAME_NARROW
+    } else {
+        0
+    }
+}
+
+/// `▌ author       2026-09-12 ` and `▌ 2026-09-12 `.
+const BLAME_WIDE: u16 = 26;
+const BLAME_NARROW: u16 = 13;
+const BLAME_AUTHOR: usize = 12;
+
+/// Draw the blame column beside the text. Each line gets a bar shaded by the age
+/// of the commit that last touched it — the newest brightest — and the author
+/// and date are written once per run of lines from the same commit, so a block
+/// of code reads as one change rather than a column of repeated names.
+fn render_blame_gutter(
+    f: &mut Frame,
+    area: Rect,
+    v: &ViewerState,
+    rows: &[(usize, bool)],
+    theme: &Theme,
+) {
+    let Some((blame, cursor)) = v.active_blame() else { return };
+    let ages = blame.age_ranks();
+    let wide = area.width >= BLAME_WIDE;
+    let base = Style::default().bg(theme.panel_bg);
+    let mut out: Vec<Line> = Vec::with_capacity(area.height as usize);
+    for (row, &(li, first)) in rows.iter().enumerate() {
+        let commit_idx = blame.lines.get(li).copied();
+        let Some(commit) = commit_idx.and_then(|i| blame.commits.get(i as usize)) else {
+            // Past the end of the blame: a line added since, in a followed file.
+            out.push(Line::from(Span::styled(" ".repeat(area.width as usize), base)));
+            continue;
+        };
+        // Label the first row of a run, the top of the screen (so a run
+        // scrolled into from above still says whose it is), and the cursor.
+        let run_start = li == 0 || blame.lines.get(li - 1).copied() != commit_idx;
+        let label = if first && (run_start || row == 0 || li == cursor) {
+            let date = if commit.uncommitted() {
+                crate::l10n::trd("uncommitted")
+            } else {
+                let (y, m, d, ..) = crate::util::bytes::civil_parts(commit.time);
+                format!("{y:04}-{m:02}-{d:02}")
+            };
+            if wide && !commit.uncommitted() {
+                format!(
+                    "{} {date}",
+                    pad_right(&ellipsize(&commit.author, BLAME_AUTHOR), BLAME_AUTHOR)
+                )
+            } else {
+                date
+            }
+        } else {
+            String::new()
+        };
+        let label = pad_right(&ellipsize(&label, area.width as usize - 3), area.width as usize - 3);
+        let age = commit_idx.and_then(|i| ages.get(i as usize)).copied().unwrap_or(0.0);
+        let (bar, bar_fg) = age_bar(commit, age, theme);
+        let text_style = if li == cursor {
+            theme.cursor
+        } else {
+            base.fg(if commit.uncommitted() { theme.marked_fg } else { theme.panel_border })
+        };
+        out.push(Line::from(vec![
+            Span::styled(bar.to_string(), base.fg(bar_fg)),
+            Span::styled(" ", base),
+            Span::styled(label, text_style),
+            Span::styled(" ", base),
+        ]));
+    }
+    f.render_widget(Paragraph::new(out).style(base), area);
+}
+
+/// The bar glyph and colour for a commit's `age` rank in the file (`0.0`
+/// newest, `1.0` oldest — see `Blame::age_ranks`): the newest change in the
+/// accent colour, fading towards the background the older it is. Without
+/// truecolor, density glyphs carry the age instead.
+fn age_bar(commit: &crate::git::blame::BlameCommit, age: f64, theme: &Theme) -> (char, Color) {
+    if commit.uncommitted() {
+        return ('▌', theme.marked_fg);
+    }
+    if !theme.truecolor {
+        return (['█', '▓', '▒', '░'][((age * 4.0) as usize).min(3)], theme.hotkey_fg);
+    }
+    use crate::ui::graphics::raster::{over, rgb};
+    let (r, g, b) = over(rgb(theme.panel_bg), rgb(theme.hotkey_fg), 1.0 - 0.7 * age);
+    ('▌', Color::Rgb(r, g, b))
 }
 
 /// Render text as an *approximation* of rendered Markdown: per-line styling from

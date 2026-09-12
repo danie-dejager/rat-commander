@@ -247,10 +247,16 @@ impl AppState {
     }
 
     /// Apply a [`ViewerSignal`] (from a key or a mouse gesture).
-    pub(in crate::app::state) fn apply_viewer_signal(&mut self, sig: ViewerSignal) {
+    pub(in crate::app::state) async fn apply_viewer_signal(&mut self, sig: ViewerSignal) {
         match sig {
             ViewerSignal::Stay => {}
-            ViewerSignal::Close => self.viewer = None,
+            ViewerSignal::Close => {
+                self.viewer = None;
+                // A blame still running has no one left to show it to.
+                if let Some(task) = self.blame_task.take() {
+                    task.abort();
+                }
+            }
             ViewerSignal::OpenGoto => {
                 self.dialog = Some(Dialog::Goto(GotoDialog::new()));
             }
@@ -262,7 +268,74 @@ impl AppState {
             // F1 opens the manual, replacing the current viewer — the "Help"
             // label on the viewer's F-key bar now does what it says.
             ViewerSignal::OpenHelp => self.open_help(),
+            ViewerSignal::StartBlame => self.start_blame(),
+            ViewerSignal::OpenBlameCommit => self.open_blame_commit().await,
         }
+    }
+
+    /// `b` in the viewer: blame the file in the background. The viewer shows
+    /// that it is waiting, and takes the result only while it still is.
+    fn start_blame(&mut self) {
+        let Some(v) = self.viewer.as_mut() else { return };
+        let Some(path) = v.local_path().map(Path::to_path_buf) else { return };
+        if let Some(task) = self.blame_task.take() {
+            task.abort();
+        }
+        self.blame_gen = self.blame_gen.wrapping_add(1);
+        let generation = self.blame_gen;
+        v.begin_blame(generation);
+        let tx = self.tx.clone();
+        self.blame_task = Some(tokio::spawn(async move {
+            let result = crate::git::blame::blame(&path).await.map(Box::new);
+            let _ = tx.send(AppEvent::BlameLoaded { generation, result }).await;
+        }));
+    }
+
+    pub(in crate::app::state) fn apply_blame(
+        &mut self,
+        generation: u64,
+        result: Result<Box<crate::git::blame::Blame>, String>,
+    ) {
+        let Some(v) = self.viewer.as_mut().filter(|v| v.awaits_blame(generation)) else {
+            return;
+        };
+        self.blame_task = None;
+        match result {
+            Ok(blame) => v.set_blame(*blame),
+            Err(e) => {
+                v.cancel_blame();
+                self.show_error(e);
+            }
+        }
+    }
+
+    /// Enter on a blamed line: close the viewer and walk the active panel into
+    /// the repository's history, to the directory holding the file as it was in
+    /// that line's commit, with the file under the cursor — ready for F3, or for
+    /// Compare files against today's copy.
+    async fn open_blame_commit(&mut self) {
+        let Some((toplevel, oid, path)) = self.viewer.as_ref().and_then(|v| v.blame_target())
+        else {
+            return;
+        };
+        let rev = match crate::vfs::git::resolve_rev(&toplevel, &oid).await {
+            Ok(rev) => rev,
+            Err(e) => return self.show_error(format!("Cannot open revision: {e}")),
+        };
+        let rel = Path::new(&path);
+        let name = rel.file_name().map(|n| n.to_string_lossy().into_owned());
+        let mut inner = PathBuf::from("/").join(rev.component());
+        if let Some(parent) = rel.parent() {
+            inner.push(parent);
+        }
+        let target = VfsPath::git(crate::vfs::git::container_for(&toplevel), inner);
+        let backend = match self.registry.resolve(&target) {
+            Ok(b) => b,
+            Err(e) => return self.show_error(format!("Cannot open location: {e}")),
+        };
+        self.viewer = None;
+        let side = self.active;
+        self.panels[side].try_enter(target, backend, name.as_deref()).await;
     }
 
     /// F3: view the file under the cursor (internal viewer or external pager).

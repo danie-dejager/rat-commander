@@ -229,6 +229,10 @@ pub enum ViewerSignal {
     OpenSearch,
     /// Ask the app to open the embedded user manual (F1), like the panel F1.
     OpenHelp,
+    /// `b`: ask the app to run `git blame` on the file in the background.
+    StartBlame,
+    /// Enter on a blamed line: show the tree as it was at that line's commit.
+    OpenBlameCommit,
 }
 
 /// Follow mode (`f`): the `tail -f` of the viewer.
@@ -243,6 +247,16 @@ struct Follow {
     id: Option<(u64, u64)>,
 }
 
+/// `b`: the blame column beside the text, and the line cursor it brings.
+enum BlameView {
+    /// Asked for; the app's background `git blame` answers with this generation.
+    Loading(u64),
+    Ready {
+        blame: crate::git::blame::Blame,
+        cursor: usize,
+    },
+}
+
 pub struct ViewerState {
     pub name: String,
     /// The local file this viewer pages, when it is one — not a temp copy of a
@@ -250,6 +264,7 @@ pub struct ViewerState {
     /// rotated log through it.
     path: Option<PathBuf>,
     follow: Option<Follow>,
+    blame: Option<BlameView>,
     src: Source,
     truncated: bool,
     /// A temp file to delete when the viewer closes (a fetched remote file).
@@ -342,6 +357,7 @@ impl ViewerState {
             name,
             path: None,
             follow: None,
+            blame: None,
             src: Source::Mem(data),
             truncated,
             temp: None,
@@ -395,6 +411,7 @@ impl ViewerState {
             name,
             path: None,
             follow: None,
+            blame: None,
             src: Source::File { file: RefCell::new(file), len },
             truncated: false,
             temp,
@@ -602,6 +619,118 @@ impl ViewerState {
                 f.new_lines = 0;
             }
         }
+    }
+
+    /// The local file this viewer pages, for the app to run `git blame` on.
+    pub fn local_path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    /// Whether `b` can blame what is on screen: the raw text of a local file.
+    fn can_blame(&self) -> bool {
+        self.path.is_some()
+            && self.mode == ViewMode::Text
+            && !self.markdown_active()
+            && self.active_image().is_none()
+            && self.active_model().is_none()
+    }
+
+    /// Mark a blame as requested, answered by the event carrying `generation`.
+    pub fn begin_blame(&mut self, generation: u64) {
+        self.blame = Some(BlameView::Loading(generation));
+    }
+
+    /// Whether this viewer is waiting for the blame with `generation` — not a
+    /// viewer opened since on another file, and not one whose `b` was undone.
+    pub fn awaits_blame(&self, generation: u64) -> bool {
+        matches!(self.blame, Some(BlameView::Loading(g)) if g == generation)
+    }
+
+    /// Show a finished blame, with the cursor on the first visible line.
+    pub fn set_blame(&mut self, blame: crate::git::blame::Blame) {
+        self.blame = Some(BlameView::Ready { blame, cursor: self.top });
+    }
+
+    pub fn cancel_blame(&mut self) {
+        self.blame = None;
+    }
+
+    pub(crate) fn blame_loading(&self) -> bool {
+        matches!(self.blame, Some(BlameView::Loading(_)))
+    }
+
+    /// The blame and its cursor line, when the column is showing: it only
+    /// accompanies raw text, so hex, the map, a Markdown render, an image or a
+    /// model put it away until you come back.
+    pub(crate) fn active_blame(&self) -> Option<(&crate::git::blame::Blame, usize)> {
+        match &self.blame {
+            Some(BlameView::Ready { blame, cursor }) if self.can_blame() => Some((blame, *cursor)),
+            _ => None,
+        }
+    }
+
+    /// What Enter on the cursor line opens: the repository root, the owning
+    /// commit and the file's path in it. `None` on a line no commit has yet.
+    pub fn blame_target(&self) -> Option<(PathBuf, String, String)> {
+        let (blame, cursor) = self.active_blame()?;
+        let c = blame.commit_of(cursor).filter(|c| !c.uncommitted())?;
+        Some((blame.toplevel.clone(), c.oid.clone(), c.path.clone()))
+    }
+
+    /// Move the blame cursor by `delta` lines, scrolling to keep it in view.
+    fn move_blame_cursor(&mut self, delta: isize) {
+        let Some(BlameView::Ready { cursor, .. }) = &self.blame else { return };
+        let target = (*cursor as isize).saturating_add(delta).max(0) as usize;
+        self.extend_to_line(target.saturating_add(1));
+        let to = target.min(self.line_count().saturating_sub(1));
+        if let Some(BlameView::Ready { cursor, .. }) = &mut self.blame {
+            *cursor = to;
+        }
+        self.reveal_line(to);
+    }
+
+    /// Scroll just enough that line `li` is on screen.
+    fn reveal_line(&mut self, li: usize) {
+        if li < self.top {
+            self.top = li;
+            return;
+        }
+        let rows = self.view_rows.max(1);
+        if !self.wrap {
+            if li >= self.top + rows {
+                self.top = li + 1 - rows;
+            }
+            return;
+        }
+        // Wrapped lines take several rows: move the top down until everything
+        // from it through `li` fits.
+        let width = self.view_cols.max(1);
+        let height = |v: &Self, i: usize| v.line_str(i).chars().count().div_ceil(width).max(1);
+        let mut used: usize = (self.top..=li).map(|i| height(self, i)).sum();
+        while used > rows && self.top < li {
+            used -= height(self, self.top);
+            self.top += 1;
+        }
+    }
+
+    /// The logical line drawn on content row `row`, accounting for wrap.
+    fn line_at_row(&self, row: usize) -> Option<usize> {
+        if !self.wrap {
+            let li = self.top + row;
+            return (li < self.line_count()).then_some(li);
+        }
+        let width = self.view_cols.max(1);
+        let mut y = 0;
+        for li in self.top..self.line_count() {
+            y += self.line_str(li).chars().count().div_ceil(width).max(1);
+            if row < y {
+                return Some(li);
+            }
+            if y > self.view_rows {
+                break;
+            }
+        }
+        None
     }
 
     /// Whether plain text is coloured by log level: a file with no syntax of its
@@ -830,6 +959,31 @@ impl ViewerState {
 
     /// The ordinary viewer keys — everything a model orbit did not claim.
     fn handle_view_key(&mut self, key: KeyEvent) -> ViewerSignal {
+        // While blaming, the navigation keys drive the line cursor, and Enter
+        // opens the commit under it.
+        if self.active_blame().is_some() {
+            let page = self.view_rows.saturating_sub(1).max(1) as isize;
+            match key.code {
+                KeyCode::Up => self.move_blame_cursor(-1),
+                KeyCode::Down => self.move_blame_cursor(1),
+                KeyCode::PageUp => self.move_blame_cursor(-page),
+                KeyCode::PageDown => self.move_blame_cursor(page),
+                KeyCode::Home => self.move_blame_cursor(isize::MIN),
+                KeyCode::End => {
+                    self.index_fully();
+                    self.move_blame_cursor(isize::MAX);
+                }
+                KeyCode::Enter if self.blame_target().is_some() => {
+                    return ViewerSignal::OpenBlameCommit;
+                }
+                _ => return self.handle_plain_view_key(key),
+            }
+            return ViewerSignal::Stay;
+        }
+        self.handle_plain_view_key(key)
+    }
+
+    fn handle_plain_view_key(&mut self, key: KeyEvent) -> ViewerSignal {
         match key.code {
             // F3 toggles the viewer (open in the panels, close here), matching
             // the footer's "Quit" label; F10 / Esc / q also close.
@@ -864,6 +1018,12 @@ impl ViewerState {
             KeyCode::F(7) => return ViewerSignal::OpenSearch,
             KeyCode::Char('n') => self.find_next(),
             KeyCode::Char('f') | KeyCode::Char('F') => self.toggle_follow(),
+            // `b` toggles the blame column (and forgets one still loading).
+            KeyCode::Char('b') | KeyCode::Char('B') => {
+                if self.blame.take().is_none() && self.can_blame() {
+                    return ViewerSignal::StartBlame;
+                }
+            }
             KeyCode::Down => self.scroll(1),
             KeyCode::Up => self.scroll(-1),
             KeyCode::PageDown => self.scroll(self.view_rows as isize - 1),
@@ -945,7 +1105,14 @@ impl ViewerState {
                     && row < a.y + a.height
                     && col >= a.x
                     && col < a.x + a.width;
-                if inside {
+                if inside && self.active_blame().is_some() {
+                    // While blaming, a click puts the cursor on that line.
+                    if let Some(li) = self.line_at_row((row - a.y) as usize)
+                        && let Some(BlameView::Ready { cursor, .. }) = &mut self.blame
+                    {
+                        *cursor = li;
+                    }
+                } else if inside {
                     // Below the vertical center pages down; above it pages up.
                     let mid = a.y + a.height / 2;
                     let page = (self.view_rows as isize - 1).max(1);
@@ -2173,6 +2340,125 @@ mod tests {
         assert!(row(2).starts_with("ERROR down"));
         assert_eq!(b[(0, 2)].fg, theme.error_fg, "an error line is drawn in the error colour");
         assert_ne!(b[(0, 1)].fg, theme.error_fg);
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// A blame of `lines` lines: the first half by an old commit, the second by
+    /// a newer one, and the last line not committed yet.
+    fn two_commit_blame(lines: usize) -> crate::git::blame::Blame {
+        use crate::git::blame::{Blame, BlameCommit};
+        let commit = |oid: &str, author: &str, time: i64| BlameCommit {
+            oid: oid.to_string(),
+            author: author.to_string(),
+            time,
+            summary: format!("by {author}"),
+            path: "src/t.txt".to_string(),
+        };
+        let mut owners: Vec<u32> = (0..lines).map(|l| u32::from(l >= lines / 2)).collect();
+        if let Some(last) = owners.last_mut() {
+            *last = 2;
+        }
+        Blame {
+            commits: vec![
+                commit(&"a".repeat(40), "Ada", 1_600_000_000),
+                commit(&"b".repeat(40), "Bob", 1_750_000_000),
+                commit(&"0".repeat(40), "Not Committed Yet", 1_760_000_000),
+            ],
+            lines: owners,
+            toplevel: PathBuf::from("/repo"),
+        }
+    }
+
+    #[test]
+    fn b_asks_for_a_blame_and_b_again_puts_it_away() {
+        let (mut v, path) = followable("blamekey", 20);
+        assert!(matches!(press(&mut v, KeyCode::Char('b')), ViewerSignal::StartBlame));
+        v.begin_blame(7);
+        assert!(v.awaits_blame(7) && !v.awaits_blame(6));
+        assert!(matches!(press(&mut v, KeyCode::Char('b')), ViewerSignal::Stay));
+        assert!(!v.awaits_blame(7), "b while loading forgets the request");
+
+        v.set_blame(two_commit_blame(20));
+        assert!(v.active_blame().is_some());
+        press(&mut v, KeyCode::Char('b'));
+        assert!(v.active_blame().is_none(), "b hides the column");
+
+        let mut mem = ViewerState::new("t".into(), many_lines(5));
+        assert!(matches!(press(&mut mem, KeyCode::Char('b')), ViewerSignal::Stay));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn the_blame_cursor_moves_by_line_and_page_and_keeps_in_view() {
+        let (mut v, path) = followable("blamecursor", 100); // 101 lines, 10 rows
+        v.set_blame(two_commit_blame(100));
+        let cursor = |v: &ViewerState| v.active_blame().unwrap().1;
+        for _ in 0..12 {
+            press(&mut v, KeyCode::Down);
+        }
+        assert_eq!((cursor(&v), v.top), (12, 3), "scrolled just enough to show it");
+        press(&mut v, KeyCode::PageUp);
+        assert_eq!((cursor(&v), v.top), (3, 3));
+        press(&mut v, KeyCode::End);
+        assert_eq!((cursor(&v), v.top), (100, 91));
+        press(&mut v, KeyCode::Home);
+        assert_eq!((cursor(&v), v.top), (0, 0));
+
+        // A click puts the cursor on the clicked line rather than paging.
+        v.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 30, 5));
+        assert_eq!((cursor(&v), v.top), (4, 0));
+
+        // In hex the column is put away, and the arrows scroll again.
+        press(&mut v, KeyCode::F(4));
+        assert!(v.active_blame().is_none());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn enter_opens_the_commit_of_a_committed_line_only() {
+        let (mut v, path) = followable("blameenter", 10);
+        v.set_blame(two_commit_blame(10));
+        press(&mut v, KeyCode::Down);
+        let (root, oid, file) = v.blame_target().expect("a committed line");
+        assert_eq!((root, oid, file), (PathBuf::from("/repo"), "a".repeat(40), "src/t.txt".into()));
+        assert!(matches!(press(&mut v, KeyCode::Enter), ViewerSignal::OpenBlameCommit));
+
+        press(&mut v, KeyCode::End);
+        press(&mut v, KeyCode::Up); // the uncommitted last line of the file
+        assert!(v.blame_target().is_none());
+        assert!(matches!(press(&mut v, KeyCode::Enter), ViewerSignal::Stay));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn the_blame_column_labels_each_run_once_and_shades_by_age() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let theme = crate::ui::theme::Theme::mc();
+        let (mut v, path) = followable("blamedraw", 6);
+        v.set_blame(two_commit_blame(6));
+        let mut t = Terminal::new(TestBackend::new(80, 10)).unwrap();
+        let mut draw = |v: &mut ViewerState| {
+            t.draw(|f| render::render(f, f.area(), v, &theme, None)).unwrap();
+            t.backend().buffer().clone()
+        };
+        let row = |b: &ratatui::buffer::Buffer, y: u16| -> String {
+            (0..b.area.width).map(|x| b[(x, y)].symbol()).collect()
+        };
+
+        let b = draw(&mut v);
+        assert!(row(&b, 1).starts_with("▌ Ada          2020-09-13 line0"), "{:?}", row(&b, 1));
+        assert!(row(&b, 2).starts_with("▌                         line1"), "labelled once a run");
+        assert!(row(&b, 4).starts_with("▌ Bob          2025-06-15 line3"), "{:?}", row(&b, 4));
+        assert!(row(&b, 6).starts_with("▌ uncommitted             line5"), "{:?}", row(&b, 6));
+        assert_ne!(b[(0, 1)].fg, b[(0, 4)].fg, "older and newer commits shade differently");
+        assert_eq!(b[(79, 1)].bg, theme.cursor_inactive.bg.unwrap(), "the cursor line is a bar");
+        assert!(row(&b, 0).contains("[Blame]") && row(&b, 0).contains("aaaaaaa  Ada"));
+
+        // Moving the cursor into the middle of a run labels it there too.
+        press(&mut v, KeyCode::Down);
+        let b = draw(&mut v);
+        assert!(row(&b, 2).starts_with("▌ Ada          2020-09-13 line1"), "{:?}", row(&b, 2));
         std::fs::remove_file(&path).ok();
     }
 

@@ -5387,6 +5387,74 @@ async fn ctrl_tab_and_ctrl_pageup_down_cycle_tabs() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// `b` in the viewer blames the file in the background, and Enter on a line
+/// walks the panel into history, to that line's commit, with the file focused.
+#[tokio::test]
+async fn enter_on_a_blamed_line_opens_its_commit_in_the_panel() {
+    let root = temp_dir("blame_open");
+    let run = |args: &[&str], date: &str| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@e")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@e")
+            .env("GIT_AUTHOR_DATE", date)
+            .env("GIT_COMMITTER_DATE", date)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    };
+    if !run(&["init", "-q"], "2026-01-01T00:00:00+00:00") {
+        return; // no git here
+    }
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/lib.rs"), b"one\ntwo\n").unwrap();
+    run(&["add", "-A"], "2026-01-01T00:00:00+00:00");
+    run(&["commit", "-qm", "Start"], "2026-01-01T00:00:00+00:00");
+    std::fs::write(root.join("src/lib.rs"), b"one\nTWO\n").unwrap();
+    run(&["commit", "-qam", "Shout"], "2026-02-01T00:00:00+00:00");
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(root.join("src"));
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.panels[0].cursor = st.panels[0].entries.iter().position(|e| e.name == "lib.rs").unwrap();
+    st.open_view().await;
+
+    st.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE)).await;
+    loop {
+        let ev = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+            .await
+            .expect("the blame arrives")
+            .expect("channel open");
+        let done = matches!(ev, AppEvent::BlameLoaded { .. });
+        st.apply_event(ev).await;
+        if done {
+            break;
+        }
+    }
+    assert!(st.viewer.as_ref().unwrap().active_blame().is_some(), "{:?}", st.dialog.is_some());
+
+    st.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).await;
+    st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+    assert!(st.viewer.is_none(), "the viewer makes way for the panel");
+    let p = &st.panels[0];
+    assert_eq!(p.cwd.scheme, "git");
+    let inner = p.cwd.path.to_string_lossy().into_owned();
+    assert!(inner.starts_with("/2026-02-01_00-00-00_") && inner.ends_with("_Shout/src"), "{inner}");
+    assert_eq!(p.current_entry().map(|e| e.name.as_str()), Some("lib.rs"));
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Full dispatch for the Git menu's *Browse a revision*: mounting points the
 /// active panel at the repository's history, walking into a commit lists that
 /// commit's tree, and `..` climbs back out to the work tree.

@@ -384,6 +384,10 @@ pub struct AppState {
     /// planning), so Esc on that spinner can abort it — otherwise an unreachable
     /// remote would hang with no escape.
     busy_task: Option<tokio::task::JoinHandle<()>>,
+    /// The viewer's running `git blame`, aborted (killing git) when the viewer
+    /// closes, and the generation that tells its answer from an older one's.
+    blame_task: Option<tokio::task::JoinHandle<()>>,
+    blame_gen: u64,
 }
 
 /// How long a lone Esc is held, waiting for a digit, before it is delivered as

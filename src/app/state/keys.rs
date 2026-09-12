@@ -134,7 +134,7 @@ impl AppState {
             if let Some(v) = self.viewer.as_ref() {
                 self.search_memory.viewer_query = v.search_seed().to_string();
             }
-            self.apply_viewer_signal(sig);
+            self.apply_viewer_signal(sig).await;
             return Flow::Continue;
         }
         if let Some(pv) = self.procview.as_mut() {

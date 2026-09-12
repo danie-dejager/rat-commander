@@ -260,6 +260,8 @@ used to share now lives on `Alt-T`.
   (model files) toggle Model / Raw; (byte map) toggle Density / Bytes colouring
 - `n` — Repeat the last search
 - `f` — Follow the file as it grows (`tail -f`); `f` again stops
+- `b` — Git blame: show who last changed each line; `↑ ↓` move a line cursor,
+  `Enter` opens that line's commit in the panel, `b` again hides the column
 - `↑ ↓` / `PgUp PgDn` / `Home End` — Scroll (in a **model view**: `← → ↑ ↓`
   orbit the camera, `+` / `-` zoom, `Home` re-frames; dragging orbits and the
   wheel zooms)
@@ -922,6 +924,29 @@ loading it into an editor.
   renamed, with a new file created in its place — is noticed too, and the viewer
   moves on to the new file, as `tail -F` would. Follow mode works on local files
   only; a remote file is viewed from a temporary copy, which never grows.
+- **Git blame** — **`b`** on a file inside a git work tree adds a column beside
+  the text saying which commit last changed each line. It runs `git blame` in
+  the background, so a long history never holds the viewer up; the header reads
+  **[Blame…]** until it is ready.
+
+  Each line gets a bar shaded by the **age** of its commit — the file's newest
+  change brightest, each older one a step dimmer. The steps go by the order of
+  the commits rather than their dates, so every change in the file stays
+  tellable apart even when most of its history happened in one busy week. The
+  author and date are written once for each run of lines from the same commit
+  (and on the cursor line), so a block reads as one change rather than a column
+  of repeated names. Lines that are not committed yet say so. On a narrow screen
+  the column shrinks to the date.
+
+  While the column is up, `↑ ↓` / `PgUp PgDn` / `Home End` (or a click) move a
+  **line cursor**, and the header shows that line's commit: its id, author, date
+  and subject. **Enter** closes the viewer and walks the active panel into the
+  repository's history — to the directory holding the file *as it was in that
+  commit*, with the file under the cursor (see *Browsing git history*). From
+  there **F3** shows that version, and *Compare files* diffs it against today's.
+  A file renamed since is found under its old name. **`b`** again hides the
+  column. Blame accompanies the raw text only: hex, the byte map and a rendered
+  Markdown view put it away until you come back.
 - **Log levels** — in a file with no syntax of its own that is either named like
   a log (`*.log`, `*.log.1`) or being followed, a line that names its severity
   near the start is drawn in that severity's colour: errors (`ERROR`, `FATAL`,

@@ -164,6 +164,8 @@ impl AppState {
             subshell_disabled,
             send_server: None,
             busy_task: None,
+            blame_task: None,
+            blame_gen: 0,
         }
     }
 
@@ -667,6 +669,9 @@ impl AppState {
             }
             AppEvent::GitStatusScanned { side, generation, status } => {
                 self.apply_git_status(side, generation, status.map(|b| *b));
+            }
+            AppEvent::BlameLoaded { generation, result } => {
+                self.apply_blame(generation, result);
             }
             AppEvent::TimelineTree { oid, generation, result } => {
                 self.apply_timeline_tree(oid, generation, result);

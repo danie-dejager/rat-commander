@@ -93,6 +93,9 @@ pub enum AppEvent {
     /// `generation` is ignored. `status` is `None` when the directory is not a
     /// git work tree (or git is unavailable).
     GitStatusScanned { side: usize, generation: u64, status: Option<Box<crate::git::GitStatus>> },
+    /// The viewer's background `git blame` finished. Only a viewer still waiting
+    /// on this `generation` takes it; the error is a message for a dialog.
+    BlameLoaded { generation: u64, result: Result<Box<crate::git::blame::Blame>, String> },
     /// One revision's file sizes arrived for the 3D time machine. A stale
     /// `generation` — the user scrubbed onward while this was in flight — is
     /// still cached, since it cost a `git` call, but does not become the scene.
