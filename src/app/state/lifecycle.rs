@@ -313,6 +313,12 @@ impl AppState {
             mv.refresh();
             dirty = true;
         }
+        // Follow mode: pick up whatever was appended to the viewed file.
+        if let Some(v) = self.viewer.as_mut()
+            && v.poll_follow()
+        {
+            dirty = true;
+        }
         // Spin the "working…" dialog while a privileged op runs.
         if let Some(Dialog::Busy(b)) = self.dialog.as_mut() {
             b.tick();
@@ -343,6 +349,8 @@ impl AppState {
             || !self.tasks.is_empty()
             || matches!(self.dialog, Some(Dialog::Busy(_)))
             || self.sizes_running()
+            // A followed file is polled for growth on the tick.
+            || self.viewer.as_ref().is_some_and(|v| v.following())
             // A debounced panel reload is still waiting to fire.
             || self.watch_pending()
             // A scrubbed revision is still waiting to be fetched. Without this

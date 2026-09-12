@@ -3791,6 +3791,38 @@ async fn f3_opens_image_viewer_and_falls_back_to_text() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Follow mode is driven by the render loop's tick, which only runs when
+/// something asks for it — with the status widget and animations off, nothing
+/// else would, and a followed log would sit still.
+#[tokio::test]
+async fn a_followed_file_keeps_the_tick_running_and_grows_on_it() {
+    let root = temp_dir("follow_tick");
+    let log = root.join("app.log");
+    std::fs::write(&log, b"one\n").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.config.system_status = false;
+    st.config.animation = false;
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.panels[0].cursor = st.panels[0].entries.iter().position(|e| e.name == "app.log").unwrap();
+    st.open_view().await;
+    assert!(!st.wants_ticks(), "an unfollowed viewer needs no tick");
+
+    st.handle_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)).await;
+    assert!(st.viewer.as_ref().unwrap().following(), "F3 on a local file can be followed");
+    assert!(st.wants_ticks());
+
+    use std::io::Write;
+    std::fs::OpenOptions::new().append(true).open(&log).unwrap().write_all(b"two\n").unwrap();
+    assert!(st.on_tick(), "the tick notices the growth and asks for a redraw");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// The command line's readline editor runs *before* the panel shortcuts, so a
 /// panel binding on a chord it always claims (Ctrl-A/B/F/D/K/Y/H, …) would never
 /// fire. This guards the Git bindings against that trap — `Ctrl-D` was chosen

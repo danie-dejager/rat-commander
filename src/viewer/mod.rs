@@ -7,6 +7,7 @@
 //! Scrolling is by logical line (text) or 16-byte row (hex).
 
 pub mod fingerprint;
+pub mod loglevel;
 pub mod markdown;
 pub mod render;
 pub mod search;
@@ -30,6 +31,11 @@ pub const MAX_VIEW_BYTES: usize = 64 * 1024 * 1024;
 /// larger than the editor ever opens, so the sweep is bounded rather than
 /// promising to mark every hit in a multi-gigabyte log.
 const FOUND_LINES_MAX: usize = 50_000;
+
+/// Most bytes one follow-mode poll indexes. A log that jumps by gigabytes
+/// between two ticks is caught up over several of them rather than stalling
+/// the frame that noticed.
+const FOLLOW_SCAN_BUDGET: usize = 4 * 1024 * 1024;
 
 /// Orbit and zoom rates for the model view, matching the 3D panel's.
 const ORBIT_YAW: f32 = 0.16;
@@ -225,8 +231,25 @@ pub enum ViewerSignal {
     OpenHelp,
 }
 
+/// Follow mode (`f`): the `tail -f` of the viewer.
+struct Follow {
+    /// The view was scrolled away from the end, so new lines are counted
+    /// rather than scrolled to. Reaching the end again resumes.
+    paused: bool,
+    /// Lines that arrived while paused.
+    new_lines: usize,
+    /// Identity (device, inode) of the file being paged, so a log rotated out
+    /// from under the viewer is noticed and the new file at the path picked up.
+    id: Option<(u64, u64)>,
+}
+
 pub struct ViewerState {
     pub name: String,
+    /// The local file this viewer pages, when it is one — not a temp copy of a
+    /// remote or archived file, and not in-memory text. Follow mode reopens a
+    /// rotated log through it.
+    path: Option<PathBuf>,
+    follow: Option<Follow>,
     src: Source,
     truncated: bool,
     /// A temp file to delete when the viewer closes (a fetched remote file).
@@ -317,6 +340,8 @@ impl ViewerState {
         let is_markdown = is_markdown_name(&name);
         ViewerState {
             name,
+            path: None,
+            follow: None,
             src: Source::Mem(data),
             truncated,
             temp: None,
@@ -368,6 +393,8 @@ impl ViewerState {
         let is_markdown = is_markdown_name(&name);
         ViewerState {
             name,
+            path: None,
+            follow: None,
             src: Source::File { file: RefCell::new(file), len },
             truncated: false,
             temp,
@@ -418,6 +445,169 @@ impl ViewerState {
         if self.src.len() <= crate::syntax::HL_MAX_BYTES {
             self.hl = Highlighter::for_file(&self.name, dark);
         }
+    }
+
+    /// Record the local file this viewer is paging (see [`ViewerState::path`]).
+    pub fn set_local_path(&mut self, path: PathBuf) {
+        self.path = Some(path);
+    }
+
+    /// Whether follow mode is on, so the app keeps its tick running to poll.
+    pub fn following(&self) -> bool {
+        self.follow.is_some()
+    }
+
+    /// Follow mode's state for the header: `None` when off, else whether it is
+    /// paused and how many lines arrived since.
+    pub(crate) fn follow_status(&self) -> Option<(bool, usize)> {
+        self.follow.as_ref().map(|f| (f.paused, f.new_lines))
+    }
+
+    /// `f`: start or stop following the file as it grows. Only a local file can
+    /// be followed — a temp copy of a remote one would never change — and
+    /// starting jumps to the end, as `End` does.
+    fn toggle_follow(&mut self) {
+        if self.follow.take().is_some() {
+            return;
+        }
+        let Source::File { file, .. } = &self.src else { return };
+        if self.path.is_none() {
+            return;
+        }
+        let id = file.borrow().metadata().ok().and_then(|m| file_id(&m));
+        self.follow = Some(Follow { paused: false, new_lines: 0, id });
+        if self.mode == ViewMode::Text {
+            self.index_fully();
+        }
+        if self.mode != ViewMode::Map {
+            self.top = self.max_top();
+        }
+    }
+
+    /// Follow mode's heartbeat, called on the app's ~100 ms tick: take in bytes
+    /// appended since the last look, start over on a file that was truncated or
+    /// rotated away, and keep the view on the last page unless it was scrolled
+    /// off it. Returns whether anything changed. A cheap `fstat` when nothing did.
+    pub fn poll_follow(&mut self) -> bool {
+        let Some(follow) = self.follow.as_ref() else { return false };
+        let Some(path) = self.path.clone() else { return false };
+        let Source::File { file, len } = &self.src else { return false };
+        let old_len = *len;
+
+        // A rotated log: the name now belongs to another file. Page that one,
+        // from its start, the way `tail -F` does. A path that is briefly missing
+        // (moved away, not yet recreated) keeps the old handle.
+        if let Some(known) = follow.id
+            && std::fs::metadata(&path).ok().and_then(|m| file_id(&m)).is_some_and(|id| id != known)
+            && let Ok(f) = File::open(&path)
+        {
+            let meta = f.metadata().ok();
+            let len = meta.as_ref().map_or(0, |m| m.len() as usize);
+            let id = meta.as_ref().and_then(file_id);
+            self.src = Source::File { file: RefCell::new(f), len };
+            self.restart();
+            if let Some(fo) = self.follow.as_mut() {
+                fo.id = id;
+            }
+            self.catch_up(0);
+            return true;
+        }
+
+        let now = file.borrow().metadata().map_or(old_len, |m| m.len() as usize);
+        if now == old_len {
+            return false;
+        }
+        if let Source::File { len, .. } = &mut self.src {
+            *len = now;
+        }
+        if now < old_len {
+            // Truncated in place (`> file`, logrotate's copytruncate): every
+            // offset indexed so far is meaningless now.
+            self.restart();
+            self.catch_up(0);
+            return true;
+        }
+        // Grown. The line that was last may have been only partly written when
+        // it was highlighted, so its colours (and everything after) are redone.
+        let before = self.line_count();
+        if let Some(hl) = self.hl.as_mut() {
+            hl.invalidate(before - 1);
+        }
+        // The same size cap `enable_syntax` applies on open: past it, colouring
+        // from the top down to a far-away last page costs too much.
+        if now > crate::syntax::HL_MAX_BYTES {
+            self.hl = None;
+        }
+        self.outline = None;
+        if self.mode != ViewMode::Map {
+            self.map = None;
+        }
+        self.catch_up(before);
+        true
+    }
+
+    /// Forget everything derived from the old content, after a truncation or a
+    /// rotation replaced it.
+    fn restart(&mut self) {
+        self.line_starts = vec![0];
+        self.scanned = 0;
+        if let Some(hl) = self.hl.as_mut() {
+            hl.invalidate(0);
+        }
+        self.found_lines.clear();
+        self.last_match = None;
+        self.outline = None;
+        self.map = None;
+        if self.mode == ViewMode::Map {
+            self.ensure_map();
+        }
+        self.top = 0;
+    }
+
+    /// Index what arrived (within the per-poll budget), then either scroll to
+    /// the new end or, when paused, count the lines that were added. `before`
+    /// is the line count the new lines are measured against.
+    fn catch_up(&mut self, before: usize) {
+        self.extend_to_byte(self.scanned + FOLLOW_SCAN_BUDGET);
+        let paused = self.follow.as_ref().is_some_and(|f| f.paused);
+        if paused {
+            let added = self.line_count().saturating_sub(before);
+            if let Some(f) = self.follow.as_mut() {
+                f.new_lines += added;
+            }
+        } else if self.mode == ViewMode::Hex
+            || (self.mode == ViewMode::Text && self.fully_indexed())
+        {
+            // A text end that is not indexed yet is unknown (`max_top` would be
+            // `usize::MAX`); the next poll finishes the job.
+            self.top = self.max_top();
+        }
+    }
+
+    /// Pause follow mode when the view has been moved off the last page, and
+    /// resume it when it is back there. Run after anything that can move the
+    /// view: keys, the mouse, Goto and search.
+    fn sync_follow(&mut self) {
+        if self.follow.is_none() || self.mode == ViewMode::Map {
+            return;
+        }
+        // Before the end is indexed there is no telling whether this is it.
+        if self.mode == ViewMode::Text && !self.fully_indexed() {
+            return;
+        }
+        let at_end = self.top >= self.max_top();
+        if let Some(f) = self.follow.as_mut() {
+            f.paused = !at_end;
+            if at_end {
+                f.new_lines = 0;
+            }
+        }
+    }
+
+    /// Whether plain text is coloured by log level: a file with no syntax of its
+    /// own that is either named like a log or being followed.
+    pub(crate) fn log_levels(&self) -> bool {
+        !self.has_syntax() && (self.follow.is_some() || loglevel::is_log_name(&self.name))
     }
 
     fn has_syntax(&self) -> bool {
@@ -577,6 +767,12 @@ impl ViewerState {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> ViewerSignal {
+        let signal = self.route_key(key);
+        self.sync_follow();
+        signal
+    }
+
+    fn route_key(&mut self, key: KeyEvent) -> ViewerSignal {
         // While the outline navigator is open it captures navigation keys.
         if self.outline_open {
             return self.handle_outline_key(key);
@@ -667,6 +863,7 @@ impl ViewerState {
             }
             KeyCode::F(7) => return ViewerSignal::OpenSearch,
             KeyCode::Char('n') => self.find_next(),
+            KeyCode::Char('f') | KeyCode::Char('F') => self.toggle_follow(),
             KeyCode::Down => self.scroll(1),
             KeyCode::Up => self.scroll(-1),
             KeyCode::PageDown => self.scroll(self.view_rows as isize - 1),
@@ -690,6 +887,12 @@ impl ViewerState {
     /// body scrolls down a page and the upper half scrolls up; the F-key bar
     /// acts as buttons.
     pub fn handle_mouse(&mut self, ev: MouseEvent) -> ViewerSignal {
+        let signal = self.route_mouse(ev);
+        self.sync_follow();
+        signal
+    }
+
+    fn route_mouse(&mut self, ev: MouseEvent) -> ViewerSignal {
         let (col, row) = (ev.column, ev.row);
 
         // The outline navigator, while open, captures the mouse (wheel scrolls it,
@@ -1047,6 +1250,7 @@ impl ViewerState {
             }
         };
         self.top = target.min(self.max_top());
+        self.sync_follow();
         true
     }
 
@@ -1088,7 +1292,12 @@ impl ViewerState {
             self.last_match = None;
         }
         self.search_seed = p.search.clone();
-        if p.find_all { self.find_all() } else { self.find_next() }
+        if p.find_all {
+            self.find_all()
+        } else {
+            self.find_next()
+        }
+        self.sync_follow();
     }
 
     /// Compile the current search, or `None` when it is unusable (bad regex, bad
@@ -1285,6 +1494,19 @@ fn compute_line_starts(data: &[u8]) -> Vec<usize> {
         starts.push(i + 1);
     }
     starts
+}
+
+/// A file's identity, (device, inode), for noticing a rotated log. Unix only:
+/// elsewhere follow mode still handles growth and truncation, just not rotation.
+#[cfg(unix)]
+fn file_id(meta: &std::fs::Metadata) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    Some((meta.dev(), meta.ino()))
+}
+
+#[cfg(not(unix))]
+fn file_id(_meta: &std::fs::Metadata) -> Option<(u64, u64)> {
+    None
 }
 
 /// Bytes scanned up-front when a file is opened. The rest of the line index is
@@ -1816,6 +2038,141 @@ mod tests {
         assert!(v.fully_indexed());
         assert_eq!(v.line_count(), 4); // a, b, c, trailing empty
         assert_eq!(v.line_str(1), "b");
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// A file-backed viewer over `lines` lines of a fresh temp file, with its
+    /// local path recorded (so it can be followed) and a 10-row layout.
+    fn followable(tag: &str, lines: usize) -> (ViewerState, PathBuf) {
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir()
+            .join(format!("rc_follow_{tag}_{}_{nanos}.txt", std::process::id()));
+        std::fs::write(&path, many_lines(lines)).unwrap();
+        let mut v = ViewerState::open_file("t.txt".into(), path.clone(), None).unwrap();
+        v.set_local_path(path.clone());
+        with_layout(&mut v);
+        (v, path)
+    }
+
+    fn append(path: &Path, bytes: &[u8]) {
+        use std::io::Write;
+        std::fs::OpenOptions::new().append(true).open(path).unwrap().write_all(bytes).unwrap();
+    }
+
+    fn press(v: &mut ViewerState, code: KeyCode) -> ViewerSignal {
+        v.handle_key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    #[test]
+    fn follow_picks_up_appended_lines_and_sticks_to_the_end() {
+        let (mut v, path) = followable("grow", 50); // 51 line starts, 10 rows
+        press(&mut v, KeyCode::Char('f'));
+        assert!(v.following());
+        assert_eq!(v.top, 41, "starting to follow jumps to the last page");
+        assert!(!v.poll_follow(), "nothing changed, nothing to do");
+
+        append(&path, b"more0\nmore1\nmore2\nmore3\nmore4\n");
+        assert!(v.poll_follow());
+        assert_eq!(v.line_count(), 56);
+        assert_eq!(v.top, 46, "the view moves with the end");
+        assert_eq!(v.line_str(54), "more4");
+        assert_eq!(v.follow_status(), Some((false, 0)));
+
+        press(&mut v, KeyCode::Char('f'));
+        assert!(!v.following(), "f again stops following");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn scrolling_up_pauses_follow_and_end_resumes() {
+        let (mut v, path) = followable("pause", 50);
+        press(&mut v, KeyCode::Char('f'));
+        press(&mut v, KeyCode::Up);
+        assert_eq!(v.follow_status(), Some((true, 0)), "leaving the end pauses");
+
+        append(&path, b"a\nb\nc\n");
+        assert!(v.poll_follow());
+        assert_eq!(v.top, 40, "a paused view stays where it was scrolled to");
+        assert_eq!(v.follow_status(), Some((true, 3)), "and counts what arrived");
+
+        press(&mut v, KeyCode::End);
+        assert_eq!(v.follow_status(), Some((false, 0)), "back at the end resumes");
+        assert_eq!(v.top, 44);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn a_partly_written_last_line_is_completed_by_the_next_poll() {
+        let (mut v, path) = followable("partial", 0);
+        std::fs::write(&path, b"abc").unwrap();
+        press(&mut v, KeyCode::Char('f'));
+        assert!(v.poll_follow());
+        assert_eq!(v.line_str(0), "abc");
+        append(&path, b"def\nxyz\n");
+        assert!(v.poll_follow());
+        assert_eq!(v.line_str(0), "abcdef");
+        assert_eq!(v.line_str(1), "xyz");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn a_truncated_file_is_read_again_from_the_start() {
+        let (mut v, path) = followable("trunc", 50);
+        press(&mut v, KeyCode::Char('f'));
+        std::fs::write(&path, b"fresh\nstart\n").unwrap();
+        assert!(v.poll_follow());
+        assert_eq!(v.line_count(), 3);
+        assert_eq!(v.line_str(0), "fresh");
+        assert_eq!(v.top, 0);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_rotated_log_is_followed_to_the_new_file() {
+        let (mut v, path) = followable("rotate", 50);
+        press(&mut v, KeyCode::Char('f'));
+        let rotated = path.with_extension("txt.1");
+        std::fs::rename(&path, &rotated).unwrap();
+        assert!(!v.poll_follow(), "a missing path keeps the old handle");
+        std::fs::write(&path, b"after rotation\n").unwrap();
+        assert!(v.poll_follow());
+        assert_eq!(v.line_str(0), "after rotation");
+        std::fs::remove_file(&path).ok();
+        std::fs::remove_file(&rotated).ok();
+    }
+
+    #[test]
+    fn only_a_local_file_can_be_followed() {
+        let mut mem = ViewerState::new("t".into(), many_lines(5));
+        press(&mut mem, KeyCode::Char('f'));
+        assert!(!mem.following(), "in-memory text never grows");
+
+        let (mut v, path) = followable("nopath", 5);
+        v.path = None; // a temp copy of a remote file
+        press(&mut v, KeyCode::Char('f'));
+        assert!(!v.following());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn header_shows_follow_state_and_log_lines_take_their_level_colour() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let theme = crate::ui::theme::Theme::mc();
+        let (mut v, path) = followable("header", 0);
+        std::fs::write(&path, b"INFO up\nERROR down\n").unwrap();
+        press(&mut v, KeyCode::Char('f'));
+        v.poll_follow();
+        let mut t = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        t.draw(|f| render::render(f, f.area(), &mut v, &theme, None)).unwrap();
+        let b = t.backend().buffer();
+        let row = |y: u16| -> String { (0..b.area.width).map(|x| b[(x, y)].symbol()).collect() };
+        assert!(row(0).contains("[Follow]"), "header: {:?}", row(0));
+        assert!(row(2).starts_with("ERROR down"));
+        assert_eq!(b[(0, 2)].fg, theme.error_fg, "an error line is drawn in the error colour");
+        assert_ne!(b[(0, 1)].fg, theme.error_fg);
         std::fs::remove_file(&path).ok();
     }
 

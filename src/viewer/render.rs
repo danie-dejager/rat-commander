@@ -487,10 +487,17 @@ fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
     let more = if v.mode == ViewMode::Text && !v.fully_indexed() { "+" } else { "" };
     let unit =
         if v.mode == ViewMode::Hex { crate::l10n::trd("rows") } else { crate::l10n::trd("lines") };
+    // Follow mode: on, or paused with a count of what arrived since.
+    let follow = match v.follow_status() {
+        None => String::new(),
+        Some((false, _)) => format!("  [{}]", crate::l10n::trd("Follow")),
+        Some((true, 0)) => format!("  [{}]", crate::l10n::trd("Paused")),
+        Some((true, n)) => format!("  [{} +{n}]", crate::l10n::trd("Paused")),
+    };
     let text = format!(
-        " {}: {}  [{mode}/{wrap}]  {}/{}{more} {unit}{trunc}",
+        " {}: {}  [{mode}/{wrap}]{follow}  {}/{}{more} {unit}{trunc}",
         crate::l10n::trd("View"),
-        ellipsize(&v.name, area.width.saturating_sub(40) as usize),
+        ellipsize(&v.name, area.width.saturating_sub(40 + follow.len() as u16) as usize),
         v.top + 1,
         total.max(1),
     );
@@ -512,6 +519,7 @@ fn render_text(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
     let width = area.width as usize;
     let rows = area.height as usize;
     let highlighted = v.has_syntax();
+    let log_levels = v.log_levels();
     let mut lines: Vec<Line> = Vec::with_capacity(rows);
     let mut line_idx = v.top;
 
@@ -531,6 +539,12 @@ fn render_text(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
                 }
             }
             out
+        } else if log_levels
+            && let Some(color) =
+                super::loglevel::level_of(&raw).and_then(|l| super::loglevel::color(l, theme))
+        {
+            // A log line naming a severity is drawn whole in its colour.
+            vec![color; chars.len()]
         } else {
             Vec::new()
         };

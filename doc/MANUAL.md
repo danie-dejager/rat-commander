@@ -249,7 +249,7 @@ used to share now lives on `Alt-T`.
 
 - `F1` — Help (opens this manual)
 - `F2` — Toggle line wrap
-- `F4` — Toggle hex / text mode
+- `F4` — Cycle text / hex / byte-map mode
 - `F5` — Goto (line / percent / byte offset)
 - `F6` — (Markdown files) show the document outline — a tree of the headings.
   Use `↑ ↓` / `PgUp PgDn` / `Home End` or the mouse to pick a heading, `Enter`
@@ -259,6 +259,7 @@ used to share now lives on `Alt-T`.
 - `F8` — (Markdown files) toggle Raw / Render; (image files) toggle Image / Raw;
   (model files) toggle Model / Raw; (byte map) toggle Density / Bytes colouring
 - `n` — Repeat the last search
+- `f` — Follow the file as it grows (`tail -f`); `f` again stops
 - `↑ ↓` / `PgUp PgDn` / `Home End` — Scroll (in a **model view**: `← → ↑ ↓`
   orbit the camera, `+` / `-` zoom, `Home` re-frames; dragging orbits and the
   wheel zooms)
@@ -907,6 +908,27 @@ loading it into an editor.
   it works on huge files without loading them.
 - **Goto** — **F5** jumps to a line number, a percentage through the file, or a
   decimal/hex byte offset (in hex mode the line number is a 16-byte row).
+- **Follow mode** — **`f`** keeps the view on the end of a file that is still
+  being written, the way `tail -f` does: jump to the last page, and move with it
+  as lines are appended. The header reads **[Follow]**.
+
+  Scroll up to read something and following **pauses** — the view stays put, and
+  the header counts what has arrived since (**[Paused +12]**). Scroll back down
+  to the last page, or press **End**, and it picks up again. **`f`** a second
+  time stops following altogether.
+
+  A file that is **truncated** (`> app.log`, or logrotate's `copytruncate`) is
+  read again from the start. On Linux and macOS a log that is **rotated** away —
+  renamed, with a new file created in its place — is noticed too, and the viewer
+  moves on to the new file, as `tail -F` would. Follow mode works on local files
+  only; a remote file is viewed from a temporary copy, which never grows.
+- **Log levels** — in a file with no syntax of its own that is either named like
+  a log (`*.log`, `*.log.1`) or being followed, a line that names its severity
+  near the start is drawn in that severity's colour: errors (`ERROR`, `FATAL`,
+  `err`, …) in the theme's error colour, warnings in its accent colour, and debug
+  and trace output dimmed. Syslog, logfmt (`level=warn`), bracketed (`[ERROR]`)
+  and most application loggers are all recognised; only the start of the line is
+  looked at, so a message that merely mentions an error is left alone.
 - **Syntax highlighting** colors recognized source files, using a bundled theme
   matched to the active light/dark UI. It covers syntect's default languages
   plus bundled extras (TOML, INI, Dockerfile, HCL/Terraform, GraphQL, Protobuf,

@@ -33,7 +33,9 @@ The installed executable is named **`rc`** for quick typing.
   recursion), and make-directory.
 - **Built-in viewer (F3)** — text and hex modes, goto, line wrap, syntax
   highlighting, a **rendered Markdown** mode for `.md` files, and hex-color
-  swatches. Pages huge files straight from disk. Opens **images** fullscreen —
+  swatches. Pages huge files straight from disk. **Follow mode** (`f`) tails a
+  growing file like `tail -f` — pausing while you scroll back, and surviving
+  truncation and log rotation — with log lines coloured by severity. Opens **images** fullscreen —
   true-pixel where the terminal supports graphics, half-block art otherwise
   (F8 toggles to the raw bytes).
 - **3D model viewer (F3)** — press F3 on an `.stl` or `.obj` and the mesh opens
@@ -257,6 +259,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `F4` | Cycle text / hex / byte-map mode |
 | `F5` | Goto (line / percent / byte offset) |
 | `F7` | Search (`n` repeats) |
+| `f` | Follow the file as it grows (`tail -f`) |
 | `F8` | (Markdown) toggle Raw / Render — (image) toggle Image / Raw — (model) toggle Model / Raw — (map) toggle Density / Bytes |
 | `← → ↑ ↓` / `Enter` | (map) move the cursor / open the hex view at that offset |
 | `← → ↑ ↓` | (model) orbit the camera |

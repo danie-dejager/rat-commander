@@ -306,6 +306,7 @@ impl AppState {
                 Ok(Ok((file, len, line_starts, scanned))) => {
                     let mut v =
                         ViewerState::from_scanned(name, file, len, line_starts, scanned, None);
+                    v.set_local_path(path.path.clone());
                     v.enable_syntax(dark);
                     v.set_search_seed(self.search_memory.viewer_query.clone());
                     // A find-file content hit opens the viewer at its matching
