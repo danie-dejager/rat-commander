@@ -103,7 +103,26 @@ code = "sr"
 "Use internal viewer" = "Koristi interni pregledač"
 "Use internal editor" = "Koristi interni uređivač"
 
-# -- Confirmations dialog --
+# Settings tabs, their group boxes, and fields that had no entry
+"Appearance" = "Izgled"
+"Panels" = "Paneli"
+"Programs" = "Programi"
+"Terminal" = "Terminal"
+"Display" = "Ekran"
+"Views" = "Prikazi"
+"Editor and viewer" = "Uređivač i pregledač"
+"Command line" = "Komandno okruženje"
+"Trash" = "Korpa za otpatke"
+"Capabilities" = "Mogućnosti"
+"Mouse selection" = "Izbor mišem"
+"Graphics" = "Grafika"
+"Brief view columns" = "Kolone kratkog prikaza"
+"Reshape RTL text" = "Preoblikuj RTL tekst"
+"3D view: show filesystem activity" = "3D prikaz: prikaži aktivnost fajl sistema"
+"Shell (blank = auto-detect)" = "Ljuska (prazno = automatski otkrij)"
+"Command history size (0 = off)" = "Veličina istorije komandi (0 = isključeno)"
+
+# -- Confirmations tab (Settings) --
 "Confirmations" = "Potvrde"
 "Confirm delete" = "Potvrdi brisanje"
 "Confirm overwrite" = "Potvrdi prepisivanje"

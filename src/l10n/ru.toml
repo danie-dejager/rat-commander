@@ -103,7 +103,26 @@ code = "ru"
 "Use internal viewer" = "Использовать встроенный просмотрщик"
 "Use internal editor" = "Использовать встроенный редактор"
 
-# -- Confirmations dialog --
+# Settings tabs, their group boxes, and fields that had no entry
+"Appearance" = "Внешний вид"
+"Panels" = "Панели"
+"Programs" = "Программы"
+"Terminal" = "Терминал"
+"Display" = "Отображение"
+"Views" = "Режимы просмотра"
+"Editor and viewer" = "Редактор и просмотрщик"
+"Command line" = "Командная оболочка"
+"Trash" = "Корзина"
+"Capabilities" = "Возможности"
+"Mouse selection" = "Выделение мышью"
+"Graphics" = "Графика"
+"Brief view columns" = "Столбцы краткого вида"
+"Reshape RTL text" = "Преобразовывать RTL-текст"
+"3D view: show filesystem activity" = "3D-вид: показывать активность файловой системы"
+"Shell (blank = auto-detect)" = "Оболочка (пусто = определить автоматически)"
+"Command history size (0 = off)" = "Размер истории команд (0 = выкл.)"
+
+# -- Confirmations tab (Settings) --
 "Confirmations" = "Подтверждения"
 "Confirm delete" = "Подтверждать удаление"
 "Confirm overwrite" = "Подтверждать перезапись"

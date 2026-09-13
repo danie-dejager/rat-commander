@@ -103,7 +103,26 @@ code = "ja"
 "Use internal viewer" = "内蔵ビューアを使う"
 "Use internal editor" = "内蔵エディタを使う"
 
-# -- Confirmations dialog --
+# Settings tabs, their group boxes, and fields that had no entry
+"Appearance" = "外観"
+"Panels" = "パネル"
+"Programs" = "プログラム"
+"Terminal" = "端末"
+"Display" = "表示"
+"Views" = "ビュー"
+"Editor and viewer" = "エディタとビューア"
+"Command line" = "コマンドライン"
+"Trash" = "ごみ箱"
+"Capabilities" = "機能"
+"Mouse selection" = "マウス選択"
+"Graphics" = "グラフィックス"
+"Brief view columns" = "簡易表示の列数"
+"Reshape RTL text" = "RTL テキストを整形"
+"3D view: show filesystem activity" = "3D 表示: ファイルシステムのアクティビティを表示"
+"Shell (blank = auto-detect)" = "シェル (空欄 = 自動検出)"
+"Command history size (0 = off)" = "コマンド履歴の件数 (0 = オフ)"
+
+# -- Confirmations tab (Settings) --
 "Confirmations" = "確認"
 "Confirm delete" = "削除を確認する"
 "Confirm overwrite" = "上書きを確認する"

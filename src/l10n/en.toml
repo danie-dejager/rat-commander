@@ -112,7 +112,26 @@ code = "en"
 "Use internal viewer" = "Use internal viewer"
 "Use internal editor" = "Use internal editor"
 
-# -- Confirmations dialog --
+# Settings tabs, their group boxes, and fields that had no entry
+"Appearance" = "Appearance"
+"Panels" = "Panels"
+"Programs" = "Programs"
+"Terminal" = "Terminal"
+"Display" = "Display"
+"Views" = "Views"
+"Editor and viewer" = "Editor and viewer"
+"Command line" = "Command line"
+"Trash" = "Trash"
+"Capabilities" = "Capabilities"
+"Mouse selection" = "Mouse selection"
+"Graphics" = "Graphics"
+"Brief view columns" = "Brief view columns"
+"Reshape RTL text" = "Reshape RTL text"
+"3D view: show filesystem activity" = "3D view: show filesystem activity"
+"Shell (blank = auto-detect)" = "Shell (blank = auto-detect)"
+"Command history size (0 = off)" = "Command history size (0 = off)"
+
+# -- Confirmations tab (Settings) --
 "Confirmations" = "Confirmations"
 "Confirm delete" = "Confirm delete"
 "Confirm overwrite" = "Confirm overwrite"

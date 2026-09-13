@@ -107,7 +107,26 @@ rtl = true
 "Use internal viewer" = "استخدام العارض الداخلي"
 "Use internal editor" = "استخدام المحرر الداخلي"
 
-# -- Confirmations dialog --
+# Settings tabs, their group boxes, and fields that had no entry
+"Appearance" = "المظهر"
+"Panels" = "اللوحات"
+"Programs" = "البرامج"
+"Terminal" = "الطرفية"
+"Display" = "العرض"
+"Views" = "طرق العرض"
+"Editor and viewer" = "المحرر والعارض"
+"Command line" = "الصدفة والأوامر"
+"Trash" = "سلة المهملات"
+"Capabilities" = "القدرات"
+"Mouse selection" = "التحديد بالفأرة"
+"Graphics" = "الرسوميات"
+"Brief view columns" = "أعمدة العرض الموجز"
+"Reshape RTL text" = "إعادة تشكيل النص من اليمين لليسار"
+"3D view: show filesystem activity" = "العرض ثلاثي الأبعاد: إظهار نشاط نظام الملفات"
+"Shell (blank = auto-detect)" = "الصدفة (فارغ = اكتشاف تلقائي)"
+"Command history size (0 = off)" = "حجم سجل الأوامر (0 = إيقاف)"
+
+# -- Confirmations tab (Settings) --
 "Confirmations" = "التأكيدات"
 "Confirm delete" = "تأكيد الحذف"
 "Confirm overwrite" = "تأكيد الاستبدال"

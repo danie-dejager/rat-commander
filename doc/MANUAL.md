@@ -114,10 +114,11 @@ The mouse works throughout:
   **Abort** button on a scan/search progress dialog.
 - In any dialog with input fields — **Copy/Move**, **Make directory**,
   **Chmod**, **Chown**, **Checksum**, **Select/Unselect group**, the
-  **FTP/SFTP/SCP connection** form, **Settings**, **Confirmations**, **Find
-  file**, editor **Search/Replace**, and more — click a **text field** to focus
-  it and place the caret, click a **checkbox** or **radio** to toggle it, click a
-  **dropdown** to open and pick from it, and click **OK/Cancel** to finish.
+  **FTP/SFTP/SCP connection** form, **Settings**, **Find file**, editor
+  **Search/Replace**, and more — click a **text field** to focus it and place the
+  caret, click a **checkbox** or **radio** to toggle it, click a **dropdown** to
+  open and pick from it, click a **tab** to switch to it, and click **OK/Cancel**
+  to finish.
 - Click an entry in the **user menu** (F2) or the **shell-history** window to run
   / recall it.
 - In the **disk explorer**, click a box to select it — or click one of the big
@@ -499,8 +500,9 @@ one from the **Left** / **Right** menu:
   commit or pull through the Git menu counts afresh). A narrow panel shows the
   latest weeks that fit, a wide one squares the cells, and a panel too short to
   spare the rows leaves it out. Days are counted on the same UTC clock as every
-  other time shown. The command palette's *Details view: git activity* setting
-  turns it off, for a repository big enough that each `git log` is felt.
+  other time shown. *Details view: git activity* (Settings → Panels, or the
+  command palette) turns it off, for a repository big enough that each `git log`
+  is felt.
 
   Beneath the metadata, a **preview** of the item is shown (loaded in the
   background so large or remote items stay responsive):
@@ -540,7 +542,7 @@ just color: `/` directory, `*` executable, `@` symlink, `!` broken symlink, and
 a leading space for plain files (keeps names aligned). File **names are colored**
 by type as well: archives, documents, images and audio/video each get a hue.
 
-**Nerd Font symbols.** Turning on *Options → Settings → Nerd Font symbols*
+**Nerd Font symbols.** Turning on *Options → Settings → Appearance → Nerd Font symbols*
 replaces those markers with a per-type icon — a folder, a chain link (broken for
 a dangling one), and a glyph picked from the file itself: its language for source
 files (Rust, Python, Go, …), the category for documents, images, audio, video,
@@ -1411,9 +1413,12 @@ shell = "pwsh"
 # shell = "/usr/bin/fish"
 ```
 
+The same setting is the **Shell** field in *Options → Settings… → Programs*.
 Give a **program only**, not a command line — the arguments that run a command
-(`-c`, `/C`, `-Command`) are added for you, chosen from the shell's name. The
-setting is read at startup, so restart `rc` after changing it.
+(`-c`, `/C`, `-Command`) are added for you, chosen from the shell's name. A change
+made in Settings applies to the next shell Rat Commander starts; the console shell
+already running behind `Ctrl-O` and the command line keeps its program until you
+`exit` it (an edit to `config.toml` itself needs a restart).
 
 Commands Rat Commander composes itself — launching an external editor or viewer,
 and the `%view` filters in `rc.ext` — keep running under plain `sh` on Unix,
@@ -1422,7 +1427,8 @@ since those are written in `sh` syntax; on Windows they use the shell above.
 ### Working without the command prompt
 
 **Ctrl-F5** hides the command line altogether (the same switch as **Command
-prompt** in *Options → Settings…*, and a toggle in the command palette). The
+prompt** in *Options → Settings… → Programs*, and a toggle in the command
+palette). The
 panels take over its row, and the choice is remembered across sessions.
 
 With it hidden, typing a printable character no longer enters text — it starts a
@@ -1527,9 +1533,10 @@ there is nowhere to move the file to, so F8 deletes outright there and says so.
 
 The trash is a plain directory, so restoring by hand needs no special UI — the
 command palette's **Go to Trash** entry points the panel at it, and **F6** moves
-anything back out. To turn the trash off entirely, use the palette's **Use trash
-bin** toggle or set `use_trash = false` in `config.toml`; F8 then deletes
-permanently as it always did.
+anything back out. To turn the trash off entirely, untick **Use trash bin** in
+*Options → Settings… → Confirmations* (or toggle it in the palette), or set
+`use_trash = false` in `config.toml`; F8 then deletes permanently as it always
+did.
 
 Trashing is a Linux/BSD feature. macOS's `~/.Trash` uses a different, undocumented
 format that Finder would not be able to restore from, and Windows needs the
@@ -1889,8 +1896,9 @@ a directory — re-reading it would throw the results away. A listing only
 re-reads for changes in the directory itself, not deeper down; the whole tree is
 watched only while a 3D view or an Activity log on the other panel is drawing it.
 
-**Turning it off.** Toggle *Auto-refresh panels* in the command palette
-(`Ctrl-P`), or set `auto_refresh = false` in `config.toml`. Worth doing on a
+**Turning it off.** Untick *Auto-refresh panels* in *Options → Settings… →
+Panels* or toggle it in the command palette (`Ctrl-P`), or set
+`auto_refresh = false` in `config.toml`. Worth doing on a
 sluggish network mount or a directory with very many files, where the re-listing
 costs more than it saves. On Linux each watched directory uses one inotify watch;
 if your `fs.inotify.max_user_watches` is exhausted, watching quietly fails and the
@@ -1957,8 +1965,9 @@ colour. Two cases keep their padding:
   fine — each row is one colour);
 - the rare terminal that erases to the *default* background instead of the
   current one, where the right-hand side of the editor would lose its colour.
-  Turn the behaviour off there: *Strip trailing spaces on copy* in the command
-  palette (**Ctrl-P**), or `strip_trailing_spaces = false` in `config.toml`.
+  Turn the behaviour off there: *Strip trailing spaces on copy* in *Options →
+  Settings… → Terminal* or the command palette (**Ctrl-P**), or
+  `strip_trailing_spaces = false` in `config.toml`.
 
 
 ## The directory hotlist (Ctrl-\)
@@ -2036,7 +2045,7 @@ levels down is not silently lost.
 This needs a **recursive** watch on the tree being shown, which costs one watch
 descriptor per directory. On a very large or network-mounted tree that is worth
 avoiding, so it can be switched off with **3D view: show filesystem activity**
-(`Ctrl-P`, or Settings). If the system refuses the recursive watch — the
+(`Ctrl-P`, or Settings → Panels). If the system refuses the recursive watch — the
 per-user inotify limit is the usual reason — the view quietly does without the
 glow and the panel keeps its ordinary auto-refresh.
 
@@ -2044,7 +2053,7 @@ glow and the panel keeps its ordinary auto-refresh.
 the view has nothing to show while the other panel is on an archive, FTP or SFTP
 directory, and `Alt-T` skips over the format on a remote panel.
 
-### Styles (Settings → Visual → 3D style)
+### Styles (Settings → Panels → 3D style)
 
 - **Cubes** (the default) — the tree described above: shaded boxes hanging in the
   panel's background, children fanned out on rings below their parent.
@@ -2079,7 +2088,7 @@ true pixels; elsewhere **half-block cell art**, or an ASCII ramp without 24-bit
 colour. Pictures are kept for coming back to, within a memory budget, and are
 let go when the panel leaves the format.
 
-**Size.** *Options → Settings… → Thumbnail size*: **Small**, **Medium** or
+**Size.** *Options → Settings… → Panels → Thumbnail size*: **Small**, **Medium** or
 **Large** cells.
 
 **Limits.** On a remote (SFTP / FTP / SCP) panel or inside an archive, images
@@ -2332,7 +2341,7 @@ name (defaulting to `<device>.img`), then streams the device out to that file.
 
 ## Screensaver
 
-*Options → Settings… → Screensaver* (off by default), or *Start screensaver* in
+*Options → Settings… → Appearance → Screensaver* (off by default), or *Start screensaver* in
 the command palette to see one now.
 
 After a set time — 1 to 30 minutes — with no key pressed and the mouse left
@@ -2386,7 +2395,8 @@ one you launched `rc` from (PowerShell, `pwsh`, Git-Bash, …), or whatever
 Configuration files live in your platform config directory
 (`~/.config/rat-commander/` on Linux):
 
-- **`config.toml`** — written by the Settings dialog. Holds the active theme and
+- **`config.toml`** — written by the Settings dialog, which can change every
+  setting described in this paragraph. Holds the active theme and
   language, the truecolor / animation / status-widget / `nerd_font` toggles, the external
   editor and viewer commands, the confirmation flags, the remembered remote
   servers (without passwords), and your directory **`bookmarks`** (used by the
@@ -2420,21 +2430,42 @@ Configuration files live in your platform config directory
 
 ### Settings (Options → Settings…)
 
-Choose the **theme** and **language**, toggle **truecolor**, **animations**, the
-**system-status widget**, the **command prompt** (the shell line below the
-panels — also `Ctrl-F5`; see *Working without the command prompt*), **Nerd Font
-symbols** (per-file-type icons in the listing — see *Panels*; needs a Nerd Font
-in your terminal) and **Reshape
-RTL text** (see *Language*), pick the
-**Graphics** mode (see *Terminal graphics* below), set an **external editor /
-viewer** command (used instead of the built-in ones), and choose whether to use
-the internal viewer/editor. When the external editor field is left blank, `rc`
-falls back to the **`$VISUAL`** then **`$EDITOR`** environment variable; the
-external viewer likewise falls back to **`$PAGER`**. Only if none of those is set
-does the built-in tool run. **Thumbnail size** picks the cell size of the
-thumbnail grid (see *Thumbnails*). **Screensaver** and **Screensaver style** set how
-long the program waits before its screensaver starts, and which one it plays
-(see *Screensaver*).
+The Settings dialog is split into **tabs**, shown along its top. Switch between
+them with **Ctrl-PgUp** / **Ctrl-PgDn** from anywhere in the dialog, by clicking
+a tab, or by moving the focus onto the tab row (**Shift-Tab** from a tab's first
+field) and using **←/→** (**Home**/**End** jump to the first/last tab); **↓** or
+**Tab** goes back down into the fields. **OK** saves the settings on every tab at
+once, and **Esc** discards them all. The dialog reopens on the tab you last left
+it on, until you quit.
+
+- **Appearance** — the **Theme**, **Animations**, **Nerd Font symbols**
+  (per-file-type icons in the listing — see *Panels*; needs a Nerd Font in your
+  terminal), the **System status widget**, and when the **Screensaver** starts
+  and which **Screensaver style** it plays (see *Screensaver*).
+- **Panels** — the number of **Brief view columns**, the **Thumbnail size** of
+  the thumbnail grid (see *Thumbnails*), the **3D style**, and three switches for
+  work done behind the listing: **Auto-refresh panels** (see *Auto-refreshing
+  panels*), **3D view: show filesystem activity** and **Details view: git
+  activity**.
+- **Programs** — the **External editor** and **External viewer** commands (used
+  instead of the built-in ones) and whether to **use the internal viewer/editor**
+  anyway; the **Command prompt** (the shell line below the panels — also
+  `Ctrl-F5`; see *Working without the command prompt*); the **Shell** program
+  (blank detects it — see *Which shell runs*); and the **Command history size**,
+  how many command lines are remembered (`0` turns the history off). Lowering it
+  drops the oldest entries straight away. When the external editor field is left
+  blank, `rc` falls back to the **`$VISUAL`** then **`$EDITOR`** environment
+  variable; the external viewer likewise falls back to **`$PAGER`**. Only if none
+  of those is set does the built-in tool run.
+- **Confirmations** — which actions ask first, and **Use trash bin** (see
+  *Confirmations* and *Deleting and the trash*).
+- **Language** — the UI **Language** and **Reshape RTL text** (see *Language*).
+- **Terminal** — the **Graphics** mode (see *Terminal graphics* below),
+  **Truecolor (gradients)**, and **Strip trailing spaces on copy** (see
+  *Selecting with the mouse, without the trailing spaces*).
+
+Most of the switches are also in the command palette (`Ctrl-P`), which flips
+one without opening the dialog.
 
 The **Theme**, **Language** and **Graphics** fields are dropdowns: press
 **Enter** to open the scrollable list, **↑/↓** (or the mouse wheel) to move
@@ -2502,8 +2533,11 @@ twice. The setting has no effect for left-to-right languages.
 
 ### Confirmations (Options → Confirmations…)
 
-Toggle which actions ask first: **delete** (on), **overwrite** (on), **execute /
-open with default app** (off), **unmount** (on) and **exit** (on).
+Opens Settings on its **Confirmations** tab. Toggle which actions ask first:
+**delete** (on), **overwrite** (on), **execute / open with default app** (off),
+**unmount** (on) and **exit** (on). The same tab holds **Use trash bin** (on),
+which decides whether F8 moves files to the trash (see *Deleting and the
+trash*).
 
 ### Themes (Options → Edit themes…)
 

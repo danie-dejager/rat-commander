@@ -590,22 +590,25 @@ fn create_mountpoint_confirm_yields_mount_create() {
 }
 
 #[test]
-fn confirmations_form_collects_toggles() {
+fn the_confirmations_tab_collects_toggles() {
     let cfg = crate::config::Config::default(); // delete=T, overwrite=T, execute=F, exit=T
+    let confirmations = || FormDialog::settings(&cfg, true).on_tab(SettingsTab::Confirmations);
     // Submitting the defaults reflects the config.
-    let mut d = FormDialog::confirmations(&cfg);
+    let mut d = confirmations();
     match d.handle_key(key(KeyCode::Enter)) {
-        DialogResult::Submit(Submit::Confirmations(v)) => {
-            assert!(v.delete && v.overwrite && !v.execute && v.exit);
+        DialogResult::Submit(Submit::Settings(v)) => {
+            assert!(v.confirm_delete && v.confirm_overwrite && !v.confirm_execute);
+            assert!(v.confirm_unmount && v.confirm_exit && v.use_trash);
         }
-        _ => panic!("expected Confirmations submit"),
+        _ => panic!("expected a Settings submit"),
     }
-    // Space toggles the focused field (Confirm delete); Enter then submits.
-    let mut d = FormDialog::confirmations(&cfg);
+    // The tab opens on its first field, Confirm delete: Space toggles it and
+    // Enter then submits.
+    let mut d = confirmations();
     d.handle_key(key(KeyCode::Char(' ')));
     match d.handle_key(key(KeyCode::Enter)) {
-        DialogResult::Submit(Submit::Confirmations(v)) => assert!(!v.delete),
-        _ => panic!("expected Confirmations submit"),
+        DialogResult::Submit(Submit::Settings(v)) => assert!(!v.confirm_delete),
+        _ => panic!("expected a Settings submit"),
     }
 }
 
@@ -984,11 +987,10 @@ fn form_ok_cancel_buttons_are_keyboard_navigable() {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::crossterm::event::{KeyCode, KeyEvent};
-    let cfg = crate::config::Config::default();
     let theme = crate::ui::theme::Theme::mc();
     let area = ratatui::layout::Rect::new(0, 0, 80, 24);
 
-    // Confirmations form has 5 fields; slot 5 = OK, slot 6 = Cancel.
+    // The Find duplicates form has 4 fields; slot 4 = OK, slot 5 = Cancel.
     let render_has = |d: &mut FormDialog, needle: &str| {
         let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
         t.draw(|f| d.render(f, area, &theme, None)).unwrap();
@@ -1003,8 +1005,8 @@ fn form_ok_cancel_buttons_are_keyboard_navigable() {
     };
 
     // Tab down onto OK → it renders highlighted, and Enter submits.
-    let mut d = FormDialog::confirmations(&cfg);
-    for _ in 0..5 {
+    let mut d = FormDialog::find_duplicates();
+    for _ in 0..4 {
         let _ = d.handle_key(KeyEvent::from(KeyCode::Tab));
     }
     assert!(render_has(&mut d, "< OK >"), "OK should highlight when focused");
@@ -1014,8 +1016,8 @@ fn form_ok_cancel_buttons_are_keyboard_navigable() {
     );
 
     // Tab once more onto Cancel → Enter cancels.
-    let mut d = FormDialog::confirmations(&cfg);
-    for _ in 0..6 {
+    let mut d = FormDialog::find_duplicates();
+    for _ in 0..5 {
         let _ = d.handle_key(KeyEvent::from(KeyCode::Tab));
     }
     assert!(render_has(&mut d, "< Cancel >"), "Cancel should highlight when focused");
@@ -1025,8 +1027,8 @@ fn form_ok_cancel_buttons_are_keyboard_navigable() {
     );
 
     // Left/Right toggles between the two buttons.
-    let mut d = FormDialog::confirmations(&cfg);
-    for _ in 0..5 {
+    let mut d = FormDialog::find_duplicates();
+    for _ in 0..4 {
         let _ = d.handle_key(KeyEvent::from(KeyCode::Tab));
     } // OK
     let _ = d.handle_key(KeyEvent::from(KeyCode::Right));
@@ -1035,18 +1037,13 @@ fn form_ok_cancel_buttons_are_keyboard_navigable() {
     assert!(render_has(&mut d, "< OK >"), "Left moves Cancel→OK");
 }
 
-#[test]
-fn settings_dialog_renders_three_group_boxes() {
+/// Render a form into an 80x24 buffer and return its text, one line per row.
+fn render_form(d: &mut FormDialog) -> String {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
-    use ratatui::layout::Rect;
-    let cfg = crate::config::Config::default();
     let theme = crate::ui::theme::Theme::default();
-    let area = Rect::new(0, 0, 80, 24);
-    let mut d = FormDialog::settings(&cfg, true);
-
     let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
-    t.draw(|f| d.render(f, area, &theme, None)).unwrap();
+    t.draw(|f| d.render(f, Rect::new(0, 0, 80, 24), &theme, None)).unwrap();
     let buf = t.backend().buffer();
     let mut s = String::new();
     for y in 0..buf.area.height {
@@ -1055,33 +1052,37 @@ fn settings_dialog_renders_three_group_boxes() {
         }
         s.push('\n');
     }
+    s
+}
 
-    // The three group titles are drawn as sub-box headers.
-    for title in ["Language", "Edit/View", "Visual"] {
-        assert!(s.contains(title), "settings should show the '{title}' group box");
+#[test]
+fn settings_dialog_renders_the_tab_strip_and_only_the_active_page() {
+    let cfg = crate::config::Config::default();
+    let mut d = FormDialog::settings(&cfg, true);
+    let s = render_form(&mut d);
+
+    // Every tab title sits on the strip, the first interior row.
+    let rect = d.outer_rect(Rect::new(0, 0, 80, 24));
+    let strip = s.lines().nth(rect.y as usize + 1).expect("the strip row");
+    for tab in ["Appearance", "Panels", "Programs", "Confirmations", "Language", "Terminal"] {
+        assert!(strip.contains(tab), "the tab strip should show '{tab}': {strip}");
     }
     // The program version is shown in the dialog title bar.
     assert!(s.contains(env!("CARGO_PKG_VERSION")), "settings should show the program version");
-    // A representative field from each group is present.
-    for field in [
-        "Reshape RTL text",
-        "External editor",
-        "Theme",
-        "Nerd Font symbols",
-        "Graphics",
-        "3D style",
-        "Screensaver style",
-    ] {
-        assert!(s.contains(field), "settings should show the '{field}' field");
+    // The first tab's group boxes and fields are drawn…
+    for text in ["Display", "Screensaver", "Theme", "Nerd Font symbols", "Screensaver style"] {
+        assert!(s.contains(text), "the Appearance tab should show '{text}'");
     }
-    // The Visual group is two columns wide, so a left-column field and a
-    // right-column one share a row. Nothing else pins that, and losing it would
-    // silently make the dialog several rows taller.
-    let row = s.lines().find(|l| l.contains("Theme")).expect("the Theme row");
-    assert!(
-        row.contains("Graphics"),
-        "Theme and Graphics should share a row in the two-column Visual group: {row}"
-    );
+    // …and no other tab's.
+    for text in ["External editor", "Confirm delete", "Reshape RTL text", "Graphics"] {
+        assert!(!s.contains(text), "'{text}' belongs to another tab");
+    }
+
+    let mut d = FormDialog::settings(&cfg, true).on_tab(SettingsTab::Programs);
+    let s = render_form(&mut d);
+    assert!(s.contains("Shell (blank = auto-detect)"), "the Programs tab shows the shell");
+    assert!(s.contains("Command history size (0 = off)"));
+    assert!(!s.contains("Nerd Font symbols"), "and hides the Appearance fields");
 }
 
 #[test]
@@ -1089,7 +1090,7 @@ fn form_ok_button_click_submits_over_a_focused_choice_field() {
     use ratatui::layout::Rect;
     let cfg = crate::config::Config::default();
     let area = Rect::new(0, 0, 80, 24);
-    // Settings' first field (the default focus) is the Language *Choice*: a bare
+    // Settings' first field (the default focus) is the Theme *Choice*: a bare
     // Enter there opens its dropdown. A mouse click on OK must still submit the
     // form rather than acting on that field. The box geometry comes from the
     // dialog itself, so adding a settings field doesn't invalidate the test.
@@ -1108,9 +1109,10 @@ fn form_ok_button_click_submits_over_a_focused_choice_field() {
     assert!(matches!(dlg.handle_click(area, x + w - 5, button_row), DialogResult::Cancel));
 
     // A click that isn't on the button row leaves the dialog open (here, the
-    // Theme choice row) — it must not submit or cancel.
+    // Theme choice row, below the tab strip and its box's top border) — it must
+    // not submit or cancel.
     let mut dlg = Dialog::Form(FormDialog::settings(&cfg, true));
-    assert!(matches!(dlg.handle_click(area, x + 5, y + 2), DialogResult::None));
+    assert!(matches!(dlg.handle_click(area, x + 5, y + 4), DialogResult::None));
 }
 
 #[test]
@@ -1384,26 +1386,32 @@ fn chown_form_mouse_focuses_the_clicked_text_field() {
 }
 
 #[test]
-fn settings_form_mouse_toggles_grouped_checkbox() {
-    // Settings uses three group boxes and the Visual one is two columns wide,
-    // filled column-major. Box 76x22 at {2,1}: the Visual box starts at y=12, so
-    // its six rows run y=13..18, the left column spanning x=4..38 and the right
-    // x=41..75. "Truecolor (gradients)" is the second field of the left column,
-    // "Command prompt" its fifth and "Nerd Font symbols" its sixth; the right
-    // column's "3D style" (a chooser) is clicked too, so this covers a field in
-    // the second column without opening anything.
+fn settings_form_mouse_toggles_checkboxes_on_the_active_tab() {
+    // Box 76x17 at {2,3}; the tab strip is row 4 and the page's boxes start at
+    // row 6. On Appearance the Display box holds rows 7-10 (Theme, Animations,
+    // Nerd Font symbols, System status widget); on Terminal the Capabilities
+    // box holds rows 7-8 (Graphics, Truecolor).
     let area = Rect::new(0, 0, 80, 24);
     let cfg = crate::config::Config::default();
     let mut dlg = Dialog::Form(FormDialog::settings(&cfg, true)); // truecolor starts on
-    assert!(matches!(dlg.handle_click(area, 10, 14), DialogResult::None));
-    assert!(matches!(dlg.handle_click(area, 10, 17), DialogResult::None));
-    assert!(matches!(dlg.handle_click(area, 10, 18), DialogResult::None));
-    // Click OK (button row y = 1 + 22 - 2 = 21, left half).
-    match dlg.handle_click(area, 10, 21) {
+    assert!(matches!(dlg.handle_click(area, 10, 8), DialogResult::None)); // Animations
+    assert!(matches!(dlg.handle_click(area, 10, 9), DialogResult::None)); // Nerd Font symbols
+    // " Terminal " is the last title on the strip, at x=58..67.
+    assert!(matches!(dlg.handle_click(area, 60, 4), DialogResult::None));
+    let Dialog::Form(d) = &dlg else { unreachable!() };
+    assert_eq!(d.settings_tab(), Some(SettingsTab::Terminal), "clicking a tab shows it");
+    assert!(matches!(dlg.handle_click(area, 10, 8), DialogResult::None)); // Truecolor
+    // Click OK: the button row is the box's last interior row.
+    let Dialog::Form(d) = &dlg else { unreachable!() };
+    let rect = d.outer_rect(area);
+    match dlg.handle_click(area, 10, rect.y + rect.height - 2) {
         DialogResult::Submit(Submit::Settings(v)) => {
-            assert!(!v.truecolor, "clicking the checkbox turned truecolor off");
-            assert!(!v.command_prompt, "clicking the checkbox hid the command prompt");
+            assert!(v.animation, "clicking the checkbox turned animations on");
             assert!(v.nerd_font, "clicking the checkbox turned Nerd Font symbols on");
+            assert!(!v.truecolor, "clicking the checkbox on the second tab turned truecolor off");
+            // The same rows on the tab that was hidden were never hit.
+            assert_eq!(v.system_status, cfg.system_status);
+            assert_eq!(v.viewer, cfg.viewer);
         }
         _ => panic!("clicking OK should submit the settings form"),
     }
@@ -1546,8 +1554,20 @@ fn settings_group_counts_match_the_field_counts() {
     assert_eq!(
         d.group_field_total(),
         Some(d.form.field_count()),
-        "SETTINGS_GROUPS counts must sum to the number of settings fields"
+        "SETTINGS_PAGES counts must sum to the number of settings fields"
     );
+    // Every tab is reachable, and names the page it opens.
+    for tab in [
+        SettingsTab::Appearance,
+        SettingsTab::Panels,
+        SettingsTab::Programs,
+        SettingsTab::Confirmations,
+        SettingsTab::Language,
+        SettingsTab::Terminal,
+    ] {
+        let d = FormDialog::settings(&cfg, true).on_tab(tab);
+        assert_eq!(d.settings_tab(), Some(tab));
+    }
 
     let d = FormDialog::editor_options(&crate::config::EditorOptions::default());
     assert_eq!(
@@ -1559,64 +1579,138 @@ fn settings_group_counts_match_the_field_counts() {
 
 /// The Settings box has to fit a classic 80x24 terminal. If a field or group is
 /// added and it overflows, `centered` clips the bottom and the OK/Cancel row
-/// silently becomes unclickable — so this pins the fit, and the slack the
-/// two-column Visual group buys back.
+/// silently becomes unclickable — so this pins the fit, for every tab.
 #[test]
 fn the_settings_dialog_still_fits_an_80x24_terminal() {
-    use ratatui::layout::Rect;
     let area = Rect::new(0, 0, 80, 24);
     let cfg = crate::config::Config::default();
     let rect = FormDialog::settings(&cfg, true).outer_rect(area);
     assert!(
-        rect.height <= area.height,
-        "the Settings dialog needs {} rows but only {} are available — widen a \
-         group to another column, or put new booleans in the command palette's \
-         toggle list instead",
+        rect.height <= area.height - 2,
+        "the Settings dialog needs {} rows of {} — keep some slack by moving the \
+         new setting to a shorter tab, or giving it a tab of its own",
         rect.height,
         area.height
     );
     // And the button row must land inside the box that actually gets drawn.
     assert!(rect.y + rect.height <= area.y + area.height);
-    // The two-column Visual group should leave real headroom, not merely fit:
-    // spending it again would put us back where we started.
-    assert!(
-        rect.height <= area.height - 2,
-        "the two-column layout should leave slack, but the box is {} of {} rows",
-        rect.height,
-        area.height
-    );
-    // Both columns must fit the longest row a chooser can produce — in German,
-    // "Design: Midnight Commander Dark ▾" is 33 cells.
-    assert!(rect.width >= 74, "a two-column group needs a wide enough box, got {}", rect.width);
+    // Sized for the tallest page, so switching tabs never resizes the box.
+    let tab = FormDialog::settings(&cfg, true).on_tab(SettingsTab::Language).outer_rect(area);
+    assert_eq!(tab, rect, "every tab shares one box");
+    // Wide enough for every English tab title on one strip, and for the longest
+    // row a chooser can produce — in German, "Design: Midnight Commander Dark ▾".
+    assert!(rect.width >= 74, "the settings box needs to be wide enough, got {}", rect.width);
 }
 
-/// The 3D style and the screensaver are the last fields of the Visual group,
-/// and the settings submit arm reads its fields by hard-coded index — so a field
-/// inserted above them would silently hand the wrong value to every setting
-/// after the insertion point.
+/// The submit reads every setting back by its label, so a label typo between the
+/// constructor and the reader panics — and this submits every one of them. Each
+/// value differs from its default, so a field handing its value to a
+/// neighbour shows up too.
 #[test]
-fn the_settings_form_round_trips_the_3d_style_and_the_screensaver() {
-    use crate::config::{SaverKind, Space3dStyle};
-    let cfg = crate::config::Config {
-        space3d_style: Space3dStyle::Fsn,
+fn the_settings_form_round_trips_every_value() {
+    use crate::config::{Config, SaverKind, Space3dStyle, ThumbSize};
+    let d = Config::default();
+    let theme = crate::ui::theme::palette_names()
+        .into_iter()
+        .find(|t| *t != d.theme)
+        .expect("a second theme");
+    let cfg = Config {
+        theme: theme.clone(),
+        animation: !d.animation,
+        nerd_font: !d.nerd_font,
+        system_status: !d.system_status,
         screensaver_minutes: 15,
         screensaver: SaverKind::Pipes,
-        ..crate::config::Config::default()
+        brief_columns: 4,
+        thumb_size: ThumbSize::Large,
+        space3d_style: Space3dStyle::Fsn,
+        auto_refresh: !d.auto_refresh,
+        space3d_activity: !d.space3d_activity,
+        details_activity: !d.details_activity,
+        editor: "vim".into(),
+        viewer: "less".into(),
+        use_internal_viewer: !d.use_internal_viewer,
+        use_internal_editor: !d.use_internal_editor,
+        command_prompt: !d.command_prompt,
+        shell: "/bin/fish".into(),
+        command_history_max: 250,
+        confirm_delete: !d.confirm_delete,
+        confirm_overwrite: !d.confirm_overwrite,
+        confirm_execute: !d.confirm_execute,
+        confirm_unmount: !d.confirm_unmount,
+        confirm_exit: !d.confirm_exit,
+        use_trash: !d.use_trash,
+        reshape_rtl: !d.reshape_rtl,
+        graphics: "sixel".into(),
+        strip_trailing_spaces: !d.strip_trailing_spaces,
+        ..Config::default()
     };
-    let mut d = Dialog::Form(FormDialog::settings(&cfg, true));
-    // Click OK: box 76x22 at {2,1}, so the button row is y = 1 + 22 - 2 = 21.
-    match d.handle_click(Rect::new(0, 0, 80, 24), 10, 21) {
+    let area = Rect::new(0, 0, 80, 24);
+    let mut dlg = Dialog::Form(FormDialog::settings(&cfg, false));
+    let Dialog::Form(f) = &dlg else { unreachable!() };
+    let rect = f.outer_rect(area);
+    match dlg.handle_click(area, rect.x + 5, rect.y + rect.height - 2) {
         DialogResult::Submit(Submit::Settings(v)) => {
-            assert_eq!(v.space3d_style, Space3dStyle::Fsn, "the form gives back what it was given");
-            assert_eq!((v.screensaver_minutes, v.screensaver), (15, SaverKind::Pipes));
-            assert_eq!(v.thumb_size, cfg.thumb_size);
-            // A spot-check either side of it, so a shifted index shows up here.
-            assert_eq!(v.brief_columns, cfg.brief_columns);
-            assert_eq!(v.theme, cfg.theme);
+            assert_eq!(v.theme, theme);
+            assert_eq!(v.animation, cfg.animation);
             assert_eq!(v.nerd_font, cfg.nerd_font);
+            assert_eq!(v.system_status, cfg.system_status);
+            assert_eq!((v.screensaver_minutes, v.screensaver), (15, SaverKind::Pipes));
+            assert_eq!(v.brief_columns, 4);
+            assert_eq!(v.thumb_size, ThumbSize::Large);
+            assert_eq!(v.space3d_style, Space3dStyle::Fsn);
+            assert_eq!(v.auto_refresh, cfg.auto_refresh);
+            assert_eq!(v.space3d_activity, cfg.space3d_activity);
+            assert_eq!(v.details_activity, cfg.details_activity);
+            assert_eq!((v.editor.as_str(), v.viewer.as_str()), ("vim", "less"));
+            assert_eq!(v.use_internal_viewer, cfg.use_internal_viewer);
+            assert_eq!(v.use_internal_editor, cfg.use_internal_editor);
+            assert_eq!(v.command_prompt, cfg.command_prompt);
+            assert_eq!(v.shell, "/bin/fish");
+            assert_eq!(v.command_history_max, Some(250));
+            assert_eq!(v.confirm_delete, cfg.confirm_delete);
+            assert_eq!(v.confirm_overwrite, cfg.confirm_overwrite);
+            assert_eq!(v.confirm_execute, cfg.confirm_execute);
+            assert_eq!(v.confirm_unmount, cfg.confirm_unmount);
+            assert_eq!(v.confirm_exit, cfg.confirm_exit);
+            assert_eq!(v.use_trash, cfg.use_trash);
+            // The active language is global state, so it stays English here.
+            assert_eq!(v.language, crate::l10n::active_name());
+            assert_eq!(v.reshape_rtl, cfg.reshape_rtl);
+            assert_eq!(v.graphics, "sixel");
+            assert!(!v.truecolor, "the form gives back the truecolor it was opened with");
+            assert_eq!(v.strip_trailing_spaces, cfg.strip_trailing_spaces);
         }
         _ => panic!("the settings form should submit settings"),
     }
+}
+
+/// The history size is typed, so it has to survive what people type: spaces
+/// are fine, and anything that isn't a number leaves the size alone rather than
+/// silently switching history off.
+#[test]
+fn the_settings_history_size_is_read_leniently() {
+    let cfg = crate::config::Config::default();
+    let submit_with = |typed: &str| {
+        let mut d = FormDialog::settings(&cfg, true).on_tab(SettingsTab::Programs);
+        // Tab from External editor down to the history size, the page's last field.
+        for _ in 0..6 {
+            d.handle_key(key(KeyCode::Tab));
+        }
+        for _ in 0..8 {
+            d.handle_key(key(KeyCode::Backspace));
+        }
+        for c in typed.chars() {
+            d.handle_key(key(KeyCode::Char(c)));
+        }
+        match d.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Submit(Submit::Settings(v)) => v.command_history_max,
+            _ => panic!("expected a Settings submit"),
+        }
+    };
+    assert_eq!(submit_with(" 250 "), Some(250));
+    assert_eq!(submit_with("0"), Some(0));
+    assert_eq!(submit_with("lots"), None);
 }
 
 /// A dialog field that opens pre-filled opens *marked*, the way the copy/rename
@@ -1691,11 +1785,9 @@ fn the_mark_does_not_follow_the_focus_to_another_field() {
         viewer: "less".into(),
         ..crate::config::Config::default()
     };
-    let mut d = FormDialog::settings(&cfg, true);
-    // Field 2 is "External editor" (0 = Language choice, 1 = Reshape RTL check).
-    for _ in 0..3 {
-        d.handle_key(key(KeyCode::Tab));
-    }
+    // The Programs tab opens on "External editor"; one Tab moves to the viewer.
+    let mut d = FormDialog::settings(&cfg, true).on_tab(SettingsTab::Programs);
+    d.handle_key(key(KeyCode::Tab));
     d.handle_key(key(KeyCode::Char('x')));
     match d.handle_key(key(KeyCode::Enter)) {
         DialogResult::Submit(Submit::Settings(v)) => {

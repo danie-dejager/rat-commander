@@ -308,7 +308,7 @@ impl AppState {
             MenuAction::DisconnectSession(id) => self.ask_disconnect_session(id),
             MenuAction::Drive(side) => self.open_drive_dialog(side),
             MenuAction::Settings => self.open_settings(),
-            MenuAction::Confirmations => self.open_confirmations(),
+            MenuAction::Confirmations => self.open_settings_at(SettingsTab::Confirmations),
             MenuAction::EditThemes => self.open_edit_themes(),
             MenuAction::EditExtensions => self.open_edit_extensions(),
             MenuAction::EditUserMenu => self.open_edit_user_menu(),

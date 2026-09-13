@@ -103,7 +103,26 @@ code = "nl"
 "Use internal viewer" = "Interne viewer gebruiken"
 "Use internal editor" = "Interne editor gebruiken"
 
-# -- Confirmations dialog --
+# Settings tabs, their group boxes, and fields that had no entry
+"Appearance" = "Uiterlijk"
+"Panels" = "Panelen"
+"Programs" = "Programma's"
+"Terminal" = "Terminal"
+"Display" = "Scherm"
+"Views" = "Weergaven"
+"Editor and viewer" = "Editor en viewer"
+"Command line" = "Opdrachtinvoer"
+"Trash" = "Prullenbak"
+"Capabilities" = "Mogelijkheden"
+"Mouse selection" = "Muisselectie"
+"Graphics" = "Grafisch"
+"Brief view columns" = "Kolommen in beknopte weergave"
+"Reshape RTL text" = "RTL-tekst omvormen"
+"3D view: show filesystem activity" = "3D-weergave: bestandssysteemactiviteit tonen"
+"Shell (blank = auto-detect)" = "Shell (leeg = automatisch detecteren)"
+"Command history size (0 = off)" = "Grootte opdrachtgeschiedenis (0 = uit)"
+
+# -- Confirmations tab (Settings) --
 "Confirmations" = "Bevestigingen"
 "Confirm delete" = "Verwijderen bevestigen"
 "Confirm overwrite" = "Overschrijven bevestigen"

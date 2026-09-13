@@ -103,7 +103,26 @@ code = "cs"
 "Use internal viewer" = "Použít interní prohlížeč"
 "Use internal editor" = "Použít interní editor"
 
-# -- Confirmations dialog --
+# Settings tabs, their group boxes, and fields that had no entry
+"Appearance" = "Vzhled"
+"Panels" = "Panely"
+"Programs" = "Programy"
+"Terminal" = "Terminál"
+"Display" = "Zobrazení"
+"Views" = "Režimy zobrazení"
+"Editor and viewer" = "Editor a prohlížeč"
+"Command line" = "Příkazy a shell"
+"Trash" = "Koš"
+"Capabilities" = "Schopnosti"
+"Mouse selection" = "Výběr myší"
+"Graphics" = "Grafika"
+"Brief view columns" = "Sloupce stručného zobrazení"
+"Reshape RTL text" = "Tvarovat text RTL"
+"3D view: show filesystem activity" = "3D zobrazení: ukazovat aktivitu souborového systému"
+"Shell (blank = auto-detect)" = "Shell (prázdné = rozpoznat automaticky)"
+"Command history size (0 = off)" = "Velikost historie příkazů (0 = vypnuto)"
+
+# -- Confirmations tab (Settings) --
 "Confirmations" = "Potvrzení"
 "Confirm delete" = "Potvrdit smazání"
 "Confirm overwrite" = "Potvrdit přepsání"

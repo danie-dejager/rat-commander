@@ -1,9 +1,10 @@
 //! Form dialog (settings, chmod, chown, symlink, connect, formatter).
 
 use super::widgets::*;
-use super::{ConfirmValues, DialogResult, DupCriteria, SettingsValues, Submit};
+use super::{DialogResult, DupCriteria, SettingsValues, Submit};
 use crate::util::checksum::ChecksumKind;
 use crate::vfs::remote::{Protocol, RemoteCreds};
+use std::ops::Range;
 
 /// The display label for a `graphics` config preference, for the settings chooser.
 fn graphics_label(pref: &str) -> &'static str {
@@ -33,27 +34,80 @@ fn graphics_pref(label: &str) -> String {
 /// the left column can never bleed into the right one.
 const GROUP_COL_GUTTER: u16 = 2;
 
-/// The Settings form's three visual groups: `(title, field count, columns)`, in
-/// the order the fields are built in [`FormDialog::settings`]. The field counts
-/// must sum to the number of settings fields.
+/// A titled group box of a grouped form: `(title, field count, columns)`.
 ///
 /// A group with more than one column fills **column-major**: the first
 /// `ceil(count / columns)` fields run down the left column, the next down the
 /// one beside it. That is what keeps `Down`/`Tab` reading as *down*, because
-/// focus movement is purely `index ± 1` — see [`Form::focus_next`].
+/// focus movement walks the fields in index order — see [`Form::focus_next`].
+type Group = (&'static str, usize, usize);
+
+/// The Settings dialog's tabs. The order here is not the order on screen — that
+/// is [`SETTINGS_PAGES`]'s — so a tab can be moved without renumbering anything.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SettingsTab {
+    #[default]
+    Appearance,
+    Panels,
+    Programs,
+    Confirmations,
+    Language,
+    Terminal,
+}
+
+/// One tab of the Settings dialog: its title and the group boxes on it.
+struct SettingsPage {
+    tab: SettingsTab,
+    title: &'static str,
+    groups: &'static [Group],
+}
+
+/// The Settings dialog's pages, left to right, in the order
+/// [`FormDialog::settings`] builds their fields. Every page's fields are one
+/// contiguous run of the form's flat field list, so the group counts must sum
+/// to the number of settings fields.
 ///
 /// **This form has to fit a classic 80x24 terminal**, and `centered` silently
 /// clips the OK/Cancel row off the bottom where it cannot be clicked if it does
-/// not. Its height is `Σ(ceil(count / columns) + 2) + 4`, so a field added to a
-/// one-column group still costs a row and a whole new group costs two more; the
-/// two-column Visual group is what buys the headroom.
-const SETTINGS_GROUPS: &[(&str, usize, usize)] =
-    &[("Language", 2, 1), ("Edit/View", 4, 1), ("Visual", 12, 2)];
+/// not. Its height is `TAB_STRIP_ROWS + tallest page + 4`, where a page is
+/// `Σ(ceil(count / columns) + 2)` — so only the tallest page costs rows, and a
+/// setting that doesn't fit belongs on another tab rather than in the palette.
+const SETTINGS_PAGES: &[SettingsPage] = &[
+    SettingsPage {
+        tab: SettingsTab::Appearance,
+        title: "Appearance",
+        groups: &[("Display", 4, 1), ("Screensaver", 2, 1)],
+    },
+    SettingsPage {
+        tab: SettingsTab::Panels,
+        title: "Panels",
+        groups: &[("Views", 3, 1), ("Activity", 3, 1)],
+    },
+    SettingsPage {
+        tab: SettingsTab::Programs,
+        title: "Programs",
+        groups: &[("Editor and viewer", 4, 1), ("Command line", 3, 1)],
+    },
+    SettingsPage {
+        tab: SettingsTab::Confirmations,
+        title: "Confirmations",
+        groups: &[("Confirmations", 5, 1), ("Trash", 1, 1)],
+    },
+    SettingsPage { tab: SettingsTab::Language, title: "Language", groups: &[("Language", 2, 1)] },
+    SettingsPage {
+        tab: SettingsTab::Terminal,
+        title: "Terminal",
+        groups: &[("Capabilities", 2, 1), ("Mouse selection", 1, 1)],
+    },
+];
+
+/// Rows a tabbed form gives its tab strip: the strip itself, plus a blank row so
+/// the first group box's title isn't read as a second row of tabs.
+const TAB_STRIP_ROWS: u16 = 2;
 
 /// The editor-options form's groups, in the order [`FormDialog::editor_options`]
-/// builds its fields: `(title, field count, columns)`. The counts must sum to
-/// the number of fields.
-const EDITOR_OPTION_GROUPS: &[(&str, usize, usize)] =
+/// builds its fields. The counts must sum to the number of fields.
+const EDITOR_OPTION_GROUPS: &[Group] =
     &[("Wrap mode", 1, 1), ("Tabulation", 3, 1), ("Other options", 10, 1)];
 
 /// Rows a group of `count` fields occupies when spread over `cols` columns; the
@@ -61,6 +115,16 @@ const EDITOR_OPTION_GROUPS: &[(&str, usize, usize)] =
 /// interior to draw.
 fn group_row_count(count: usize, cols: usize) -> u16 {
     count.div_ceil(cols.max(1)).max(1) as u16
+}
+
+/// Rows a stack of group boxes occupies: each box's rows plus its two borders.
+fn groups_height(groups: &[Group]) -> u16 {
+    groups.iter().map(|(_, n, cols)| group_row_count(*n, *cols) + 2).sum()
+}
+
+/// Fields a stack of group boxes holds.
+fn page_field_count(groups: &[Group]) -> usize {
+    groups.iter().map(|(_, n, _)| n).sum()
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +195,15 @@ impl Field {
     fn as_bool(&self) -> bool {
         matches!(self, Field::Check { value: true, .. })
     }
+
+    fn label(&self) -> &str {
+        match self {
+            Field::Text { label, .. }
+            | Field::Password { label, .. }
+            | Field::Check { label, .. }
+            | Field::Choice { label, .. } => label,
+        }
+    }
 }
 
 /// A vertical list of editable fields with a single focused row.
@@ -142,13 +215,21 @@ pub struct Form {
     /// focus move or click, so it only ever applies to the field it was set for —
     /// tabbing through a form of existing settings can never wipe one.
     selected: bool,
+    /// Whether the form is split into tabbed pages. A tabbed form has one more
+    /// focus slot, the tab strip, and only shows the fields of its current page.
+    tabbed: bool,
+    /// The page showing, on a tabbed form.
+    page: usize,
+    /// The fields on screen and in the focus ring: every field, unless tabbed.
+    visible: Range<usize>,
 }
 
 impl Form {
     pub fn new(fields: Vec<Field>) -> Self {
         let selected =
             matches!(fields.first(), Some(Field::Text { value, .. }) if !value.is_empty());
-        Form { fields, focus: 0, selected }
+        let visible = 0..fields.len();
+        Form { fields, focus: 0, selected, tabbed: false, page: 0, visible }
     }
 
     /// Number of fields (used to compute the dialog height for click geometry).
@@ -157,26 +238,44 @@ impl Form {
         self.fields.len()
     }
 
-    // The focus cycles over the fields plus two trailing "slots" for the OK and
-    // Cancel buttons, so they can be reached and activated with the keyboard.
-    fn slots(&self) -> usize {
-        self.fields.len() + 2
-    }
+    // Focus slots: each field's slot is its index, then OK and Cancel follow, so
+    // the buttons can be reached and activated with the keyboard. A tabbed form
+    // adds the tab strip after those. The numbers never depend on the page, so a
+    // slot stays valid across a tab switch.
     fn ok_slot(&self) -> usize {
         self.fields.len()
     }
     fn cancel_slot(&self) -> usize {
         self.fields.len() + 1
     }
+    fn strip_slot(&self) -> usize {
+        self.fields.len() + 2
+    }
     /// Whether focus is on the OK or Cancel button (not a field).
     fn on_button(&self) -> bool {
-        self.focus >= self.fields.len()
+        self.on_ok() || self.on_cancel()
     }
     fn on_ok(&self) -> bool {
         self.focus == self.ok_slot()
     }
     fn on_cancel(&self) -> bool {
         self.focus == self.cancel_slot()
+    }
+    /// Whether focus is on a tabbed form's tab strip.
+    fn on_strip(&self) -> bool {
+        self.tabbed && self.focus == self.strip_slot()
+    }
+
+    /// The focus slots in the order Tab visits them: the tab strip (on a tabbed
+    /// form), the visible fields, then OK and Cancel.
+    fn ring(&self) -> Vec<usize> {
+        let mut ring = Vec::with_capacity(self.visible.len() + 3);
+        if self.tabbed {
+            ring.push(self.strip_slot());
+        }
+        ring.extend(self.visible.clone());
+        ring.extend([self.ok_slot(), self.cancel_slot()]);
+        ring
     }
 
     /// Move focus to a slot, dropping the whole-field mark: a focus move means
@@ -187,12 +286,42 @@ impl Form {
     }
 
     fn focus_next(&mut self) {
-        self.focus = (self.focus + 1) % self.slots();
-        self.selected = false;
+        self.step_focus(true);
     }
 
     fn focus_prev(&mut self) {
-        self.focus = (self.focus + self.slots() - 1) % self.slots();
+        self.step_focus(false);
+    }
+
+    /// Step focus one slot along [`Form::ring`], wrapping at either end. A focus
+    /// that isn't in the ring (it can't normally happen) restarts at its head.
+    fn step_focus(&mut self, forward: bool) {
+        let ring = self.ring();
+        let n = ring.len();
+        let next = match ring.iter().position(|&s| s == self.focus) {
+            Some(i) if forward => ring[(i + 1) % n],
+            Some(i) => ring[(i + n - 1) % n],
+            None => ring[0],
+        };
+        self.focus_at(next);
+    }
+
+    /// Show page `page` of a tabbed form, whose fields are `visible`. Any open
+    /// dropdown closes — it belongs to a field that is about to disappear — and a
+    /// focused field hands focus to the new page's first one; focus on the tab
+    /// strip or a button stays put, so arrowing along the tabs keeps working.
+    pub(crate) fn show_page(&mut self, page: usize, visible: Range<usize>) {
+        for field in &mut self.fields {
+            if let Field::Choice { open, .. } = field {
+                *open = false;
+            }
+        }
+        if self.focus < self.fields.len() {
+            self.focus = visible.start;
+        }
+        self.tabbed = true;
+        self.page = page;
+        self.visible = visible;
         self.selected = false;
     }
 
@@ -236,7 +365,6 @@ fn form_target_title(verb: &str, targets: &[VfsPath]) -> String {
 /// What a form's values should become on submit.
 pub enum FormPurpose {
     Settings,
-    Confirmations,
     /// Change permissions of these targets (recursing into dirs if requested).
     Chmod(Vec<VfsPath>),
     /// Change ownership of these targets (recursing into dirs if requested).
@@ -331,86 +459,120 @@ pub struct FormDialog {
 
 impl FormDialog {
     pub fn settings(cfg: &crate::config::Config, truecolor: bool) -> Self {
-        // Fields are ordered to match the three visual groups drawn by `render`
-        // (see `SETTINGS_GROUPS`): Language, then Edit/View, then Visual. The
-        // submit block below reads them back by these indices.
+        use crate::config::{
+            SAVER_MINUTES, SaverKind, Space3dStyle, ThumbSize, saver_minutes_label,
+        };
+        // Field order is layout: `SETTINGS_PAGES` slices this list into tabs and
+        // group boxes by count. The submit reads fields back by label, so the
+        // order can change without touching it.
         let form = Form::new(vec![
-            // --- Language ---
-            Field::choice("Language", crate::l10n::available(), &crate::l10n::active_name()),
-            Field::check("Reshape RTL text", cfg.reshape_rtl),
-            // --- Edit/View ---
-            Field::text("External editor", cfg.editor.clone()),
-            Field::text("External viewer", cfg.viewer.clone()),
-            Field::check("Use internal viewer", cfg.use_internal_viewer),
-            Field::check("Use internal editor", cfg.use_internal_editor),
-            // --- Visual ---
+            // === Appearance ===
+            // --- Display ---
             Field::choice("Theme", crate::ui::theme::palette_names(), &cfg.theme),
-            Field::check("Truecolor (gradients)", truecolor),
             Field::check("Animations", cfg.animation),
-            Field::check("System status widget", cfg.system_status),
-            Field::check("Command prompt", cfg.command_prompt),
             Field::check("Nerd Font symbols", cfg.nerd_font),
+            Field::check("System status widget", cfg.system_status),
+            // --- Screensaver ---
             Field::choice(
-                "Graphics",
-                vec!["Auto".into(), "Off".into(), "Kitty".into(), "Sixel".into(), "iTerm2".into()],
-                graphics_label(&cfg.graphics),
+                "Screensaver",
+                SAVER_MINUTES.iter().map(|&m| saver_minutes_label(m)).collect(),
+                &saver_minutes_label(cfg.screensaver_minutes),
             ),
+            Field::choice(
+                "Screensaver style",
+                SaverKind::ALL.iter().map(|(_, l)| (*l).to_string()).collect(),
+                cfg.screensaver.label(),
+            ),
+            // === Panels ===
+            // --- Views ---
             Field::choice(
                 "Brief view columns",
                 (1..=6).map(|n| n.to_string()).collect(),
                 &cfg.brief_columns.to_string(),
             ),
-            // Appended last so the submit arm's hard-coded field indices below
-            // keep their meaning, and last in the Visual group is also where a
-            // new field belongs on screen — the foot of the right column.
-            Field::choice(
-                "3D style",
-                crate::config::Space3dStyle::ALL.iter().map(|(_, l)| (*l).to_string()).collect(),
-                cfg.space3d_style.label(),
-            ),
-            // Appended after the 3D style for the same reason it was.
-            Field::choice(
-                "Screensaver",
-                crate::config::SAVER_MINUTES
-                    .iter()
-                    .map(|&m| crate::config::saver_minutes_label(m))
-                    .collect(),
-                &crate::config::saver_minutes_label(cfg.screensaver_minutes),
-            ),
-            Field::choice(
-                "Screensaver style",
-                crate::config::SaverKind::ALL.iter().map(|(_, l)| (*l).to_string()).collect(),
-                cfg.screensaver.label(),
-            ),
             Field::choice(
                 "Thumbnail size",
-                crate::config::ThumbSize::ALL.iter().map(|(_, l)| (*l).to_string()).collect(),
+                ThumbSize::ALL.iter().map(|(_, l)| (*l).to_string()).collect(),
                 cfg.thumb_size.label(),
             ),
-        ]);
-        FormDialog {
-            title: "Settings".to_string(),
-            form,
-            purpose: FormPurpose::Settings,
-            connect: None,
-        }
-    }
-
-    /// Build the Confirmations form (which actions require a confirmation).
-    pub fn confirmations(cfg: &crate::config::Config) -> Self {
-        let form = Form::new(vec![
+            Field::choice(
+                "3D style",
+                Space3dStyle::ALL.iter().map(|(_, l)| (*l).to_string()).collect(),
+                cfg.space3d_style.label(),
+            ),
+            // --- Activity ---
+            Field::check("Auto-refresh panels", cfg.auto_refresh),
+            Field::check("3D view: show filesystem activity", cfg.space3d_activity),
+            Field::check("Details view: git activity", cfg.details_activity),
+            // === Programs ===
+            // --- Editor and viewer ---
+            Field::text("External editor", cfg.editor.clone()),
+            Field::text("External viewer", cfg.viewer.clone()),
+            Field::check("Use internal viewer", cfg.use_internal_viewer),
+            Field::check("Use internal editor", cfg.use_internal_editor),
+            // --- Command line ---
+            Field::check("Command prompt", cfg.command_prompt),
+            Field::text("Shell (blank = auto-detect)", cfg.shell.clone()),
+            Field::text("Command history size (0 = off)", cfg.command_history_max.to_string()),
+            // === Confirmations ===
+            // --- Confirmations ---
             Field::check("Confirm delete", cfg.confirm_delete),
             Field::check("Confirm overwrite", cfg.confirm_overwrite),
             Field::check("Confirm execute", cfg.confirm_execute),
             Field::check("Confirm unmount", cfg.confirm_unmount),
             Field::check("Confirm exit", cfg.confirm_exit),
+            // --- Trash ---
+            Field::check("Use trash bin", cfg.use_trash),
+            // === Language ===
+            Field::choice("Language", crate::l10n::available(), &crate::l10n::active_name()),
+            Field::check("Reshape RTL text", cfg.reshape_rtl),
+            // === Terminal ===
+            // --- Capabilities ---
+            Field::choice(
+                "Graphics",
+                vec!["Auto".into(), "Off".into(), "Kitty".into(), "Sixel".into(), "iTerm2".into()],
+                graphics_label(&cfg.graphics),
+            ),
+            Field::check("Truecolor (gradients)", truecolor),
+            // --- Mouse selection ---
+            Field::check("Strip trailing spaces on copy", cfg.strip_trailing_spaces),
         ]);
-        FormDialog {
-            title: "Confirmations".to_string(),
-            form,
-            purpose: FormPurpose::Confirmations,
-            connect: None,
+        let mut dlg = FormDialog::from_form("Settings", form, FormPurpose::Settings);
+        dlg.show_page(0);
+        dlg
+    }
+
+    /// Open a tabbed form on `tab` instead of its first tab.
+    pub fn on_tab(mut self, tab: SettingsTab) -> Self {
+        if let Some(page) = SETTINGS_PAGES.iter().position(|p| p.tab == tab) {
+            self.show_page(page);
         }
+        self
+    }
+
+    /// The tab a Settings form is showing, or `None` for any other form.
+    pub fn settings_tab(&self) -> Option<SettingsTab> {
+        self.pages().and_then(|pages| pages.get(self.form.page)).map(|p| p.tab)
+    }
+
+    /// The pages this form is split into, or `None` for an untabbed form.
+    fn pages(&self) -> Option<&'static [SettingsPage]> {
+        matches!(self.purpose, FormPurpose::Settings).then_some(SETTINGS_PAGES)
+    }
+
+    /// Switch a tabbed form to page `page` (see [`Form::show_page`]).
+    fn show_page(&mut self, page: usize) {
+        let Some(pages) = self.pages() else { return };
+        let Some(this) = pages.get(page) else { return };
+        let start: usize = pages[..page].iter().map(|p| page_field_count(p.groups)).sum();
+        self.form.show_page(page, start..start + page_field_count(this.groups));
+    }
+
+    /// Move a tabbed form one tab left or right, wrapping at the ends.
+    fn cycle_page(&mut self, forward: bool) {
+        let Some(n) = self.pages().map(<[_]>::len) else { return };
+        let page = self.form.page;
+        self.show_page(if forward { (page + 1) % n } else { (page + n - 1) % n });
     }
 
     /// Build the internal editor's options form (its Options → General), laid
@@ -737,6 +899,59 @@ impl FormDialog {
         })
     }
 
+    /// The settings field labelled `label`. Panics on a label the form doesn't
+    /// have: that is a typo between the constructor and the reader, and the
+    /// round-trip test submits every one of them.
+    fn setting(&self, label: &str) -> &Field {
+        self.form
+            .fields
+            .iter()
+            .find(|f| f.label() == label)
+            .unwrap_or_else(|| panic!("the settings form has no field labelled {label:?}"))
+    }
+
+    /// Collect the Settings form's values. Read by label rather than by
+    /// position, so moving a field to another tab or group can't hand its value
+    /// to a neighbour.
+    fn settings_values(&self) -> SettingsValues {
+        use crate::config::{SaverKind, Space3dStyle, ThumbSize, saver_minutes_from_label};
+        let text = |label| self.setting(label).as_text();
+        let on = |label| self.setting(label).as_bool();
+        SettingsValues {
+            theme: text("Theme").to_string(),
+            animation: on("Animations"),
+            nerd_font: on("Nerd Font symbols"),
+            system_status: on("System status widget"),
+            screensaver_minutes: saver_minutes_from_label(text("Screensaver")),
+            screensaver: SaverKind::from_label(text("Screensaver style")),
+            brief_columns: text("Brief view columns").parse().unwrap_or(2).clamp(1, 6),
+            thumb_size: ThumbSize::from_label(text("Thumbnail size")),
+            space3d_style: Space3dStyle::from_label(text("3D style")),
+            auto_refresh: on("Auto-refresh panels"),
+            space3d_activity: on("3D view: show filesystem activity"),
+            details_activity: on("Details view: git activity"),
+            editor: text("External editor").trim().to_string(),
+            viewer: text("External viewer").trim().to_string(),
+            use_internal_viewer: on("Use internal viewer"),
+            use_internal_editor: on("Use internal editor"),
+            command_prompt: on("Command prompt"),
+            shell: text("Shell (blank = auto-detect)").trim().to_string(),
+            // Unreadable input keeps the current size rather than guessing one.
+            command_history_max: text("Command history size (0 = off)").trim().parse().ok(),
+            confirm_delete: on("Confirm delete"),
+            confirm_overwrite: on("Confirm overwrite"),
+            confirm_execute: on("Confirm execute"),
+            confirm_unmount: on("Confirm unmount"),
+            confirm_exit: on("Confirm exit"),
+            use_trash: on("Use trash bin"),
+            language: text("Language").to_string(),
+            reshape_rtl: on("Reshape RTL text"),
+            graphics: graphics_pref(text("Graphics")),
+            truecolor: on("Truecolor (gradients)"),
+            strip_trailing_spaces: on("Strip trailing spaces on copy"),
+        }
+    }
+
     pub fn connect(
         protocol: Protocol,
         side: usize,
@@ -882,6 +1097,17 @@ impl FormDialog {
     }
 
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
+        // Ctrl-PgUp/PgDn switch tabs from anywhere in a tabbed form, as they
+        // switch a panel's tabs. Checked before the Choice dropdown, which would
+        // otherwise take them as a plain page up/down through its options.
+        if self.pages().is_some()
+            && key.modifiers.contains(ratatui::crossterm::event::KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::PageUp | KeyCode::PageDown)
+        {
+            self.cycle_page(key.code == KeyCode::PageDown);
+            return DialogResult::None;
+        }
+
         // Connect-form history dropdown: while open it captures navigation keys;
         // closed, pressing ↓ on the Host field opens it.
         let drop_open = self.connect.as_ref().is_some_and(|c| c.open);
@@ -950,9 +1176,25 @@ impl FormDialog {
             return DialogResult::Cancel;
         }
 
-        // Focus on the OK / Cancel buttons (the two slots after the fields):
-        // arrows move between them and back to the fields; Enter/Space activates.
-        if self.form.on_button() {
+        // Focus on the tab strip: Left/Right walk the tabs, Up/Down leave the
+        // strip, and Enter submits, as it does from any field.
+        if self.form.on_strip() {
+            let last = self.pages().map_or(0, |p| p.len().saturating_sub(1));
+            match key.code {
+                KeyCode::Left => self.cycle_page(false),
+                KeyCode::Right => self.cycle_page(true),
+                KeyCode::Home => self.show_page(0),
+                KeyCode::End => self.show_page(last),
+                KeyCode::Down | KeyCode::Tab => self.form.focus_next(),
+                KeyCode::Up | KeyCode::BackTab => self.form.focus_prev(),
+                _ => {}
+            }
+            if key.code != KeyCode::Enter {
+                return DialogResult::None;
+            }
+        } else if self.form.on_button() {
+            // Focus on the OK / Cancel buttons: arrows move between them and
+            // back to the fields; Enter/Space activates.
             match key.code {
                 KeyCode::Left | KeyCode::Right => {
                     self.form.focus = if self.form.on_cancel() {
@@ -984,34 +1226,7 @@ impl FormDialog {
         // Enter (on a field or OK) → build the submit payload.
         let fields = &self.form.fields;
         let submit = match &self.purpose {
-            FormPurpose::Settings => Submit::Settings(SettingsValues {
-                // Indices follow the grouped field order built in `settings()`.
-                language: fields[0].as_text().to_string(),
-                reshape_rtl: fields[1].as_bool(),
-                editor: fields[2].as_text().trim().to_string(),
-                viewer: fields[3].as_text().trim().to_string(),
-                use_internal_viewer: fields[4].as_bool(),
-                use_internal_editor: fields[5].as_bool(),
-                theme: fields[6].as_text().to_string(),
-                truecolor: fields[7].as_bool(),
-                animation: fields[8].as_bool(),
-                system_status: fields[9].as_bool(),
-                command_prompt: fields[10].as_bool(),
-                nerd_font: fields[11].as_bool(),
-                graphics: graphics_pref(fields[12].as_text()),
-                brief_columns: fields[13].as_text().parse().unwrap_or(2).clamp(1, 6),
-                space3d_style: crate::config::Space3dStyle::from_label(fields[14].as_text()),
-                screensaver_minutes: crate::config::saver_minutes_from_label(fields[15].as_text()),
-                screensaver: crate::config::SaverKind::from_label(fields[16].as_text()),
-                thumb_size: crate::config::ThumbSize::from_label(fields[17].as_text()),
-            }),
-            FormPurpose::Confirmations => Submit::Confirmations(ConfirmValues {
-                delete: fields[0].as_bool(),
-                overwrite: fields[1].as_bool(),
-                execute: fields[2].as_bool(),
-                unmount: fields[3].as_bool(),
-                exit: fields[4].as_bool(),
-            }),
+            FormPurpose::Settings => Submit::Settings(self.settings_values()),
             FormPurpose::Format(dev) => {
                 let fs = crate::mount::FsType::from_label(fields[0].as_text())
                     .unwrap_or(crate::mount::FsType::Fat32);
@@ -1184,20 +1399,26 @@ impl FormDialog {
         DialogResult::Submit(submit)
     }
 
-    /// The dialog's outer box size for the current form. The Settings form is
-    /// wider and taller to fit its three bordered group boxes; every other form
-    /// keeps the compact one-row-per-field box.
+    /// The dialog's outer box size for the current form. The grouped forms are
+    /// wider and taller to fit their bordered group boxes (and, on Settings, the
+    /// tab strip); every other form keeps the compact one-row-per-field box.
     fn outer_dims(&self, area: Rect) -> (u16, u16) {
         if let Some(groups) = self.groups() {
             // Each group box = the rows its fields need once spread over its
             // columns, + 2 border rows; plus a spacer and the hint/button row
-            // inside, and the outer border.
-            let group_rows: u16 =
-                groups.iter().map(|(_, n, cols)| group_row_count(*n, *cols) + 2).sum();
-            let height = group_rows + 1 /* spacer */ + 1 /* hint */ + 2 /* border */;
-            // 76 rather than 72 so a two-column half still holds the longest
-            // row a chooser can produce — in German, "Design: Midnight
-            // Commander Dark ▾" is 33 cells.
+            // inside, and the outer border. A tabbed form sizes itself for its
+            // tallest page, so the box doesn't jump as the tabs change.
+            let content = match self.pages() {
+                Some(pages) => {
+                    TAB_STRIP_ROWS
+                        + pages.iter().map(|p| groups_height(p.groups)).max().unwrap_or(0)
+                }
+                None => groups_height(groups),
+            };
+            let height = content + 1 /* spacer */ + 1 /* hint */ + 2 /* border */;
+            // 76 leaves room for every tab title on one strip, and for a
+            // chooser's longest row — in German, "Design: Midnight Commander
+            // Dark ▾" alone is 33 cells.
             let w = 76u16.min(area.width.saturating_sub(4));
             (w, height)
         } else {
@@ -1221,22 +1442,69 @@ impl FormDialog {
     /// real field list would mis-place rows as well as mis-size the dialog.
     #[cfg(test)]
     pub(crate) fn group_field_total(&self) -> Option<usize> {
-        self.groups().map(|g| g.iter().map(|(_, n, _)| *n).sum())
+        match self.pages() {
+            Some(pages) => Some(pages.iter().map(|p| page_field_count(p.groups)).sum()),
+            None => self.groups().map(page_field_count),
+        }
     }
 
-    /// The titled groups this form's fields are laid out in, or `None` for the
-    /// flat one-row-per-field forms.
-    fn groups(&self) -> Option<&'static [(&'static str, usize, usize)]> {
+    /// The titled groups on screen, or `None` for the flat one-row-per-field
+    /// forms. On a tabbed form, those of the page showing.
+    fn groups(&self) -> Option<&'static [Group]> {
         match self.purpose {
-            FormPurpose::Settings => Some(SETTINGS_GROUPS),
+            FormPurpose::Settings => SETTINGS_PAGES.get(self.form.page).map(|p| p.groups),
             FormPurpose::EditorOptions => Some(EDITOR_OPTION_GROUPS),
             _ => None,
         }
     }
 
+    /// Where a grouped form's boxes go inside the dialog interior: all of it, or
+    /// what the tab strip leaves on a tabbed form.
+    fn content_area(&self, inner: Rect) -> Rect {
+        if self.pages().is_none() {
+            return inner;
+        }
+        let strip = TAB_STRIP_ROWS.min(inner.height);
+        Rect { y: inner.y + strip, height: inner.height - strip, ..inner }
+    }
+
+    /// The tab strip's cells on the first interior row: each tab's display title
+    /// and the rect a click on it hits. Titles keep their natural width with a
+    /// space either side while they all fit; otherwise the row is shared evenly
+    /// and each title shortened to its share, as a panel's tab strip does.
+    fn tab_cells(&self, inner: Rect) -> Vec<(String, Rect)> {
+        use unicode_width::UnicodeWidthStr;
+        let Some(pages) = self.pages() else { return Vec::new() };
+        let titles: Vec<String> = pages.iter().map(|p| crate::l10n::trd(p.title)).collect();
+        let natural: usize = titles.iter().map(|t| t.width() + 2).sum();
+        let fits = natural <= inner.width as usize;
+        let share = (inner.width as usize / titles.len().max(1)).max(1);
+        let mut x = inner.x;
+        let end = inner.x + inner.width;
+        let mut cells = Vec::with_capacity(titles.len());
+        for title in titles {
+            if x >= end {
+                break;
+            }
+            let (text, w) = if fits {
+                let w = title.width() + 2;
+                (format!(" {title} "), w)
+            } else {
+                // Keep a space before the title while there's room for one.
+                let body = ellipsize(&title, share.saturating_sub(1));
+                (pad_right(&format!(" {body}"), share), share)
+            };
+            let w = (w as u16).min(end - x);
+            cells.push((text, Rect { x, y: inner.y, width: w, height: 1 }));
+            x += w;
+        }
+        cells
+    }
+
     /// A grouped form's boxes (title + rect), laid out vertically inside `inner`.
     fn group_boxes(&self, inner: Rect) -> Vec<(&'static str, Rect)> {
         let groups = self.groups().unwrap_or(&[]);
+        let inner = self.content_area(inner);
         let mut boxes = Vec::with_capacity(groups.len());
         let mut y = inner.y;
         for (title, count, cols) in groups {
@@ -1253,17 +1521,21 @@ impl FormDialog {
     ///
     /// A multi-column group is filled **column-major**, so field order still
     /// walks down one column and then down the next — which is what `Down` and
-    /// `Tab` do, since focus movement is only ever `index ± 1`. The row count
+    /// `Tab` do, since focus movement follows field order. The row count
     /// comes from the group's declared field count rather than from the box
     /// height, so a half-filled last column leaves no phantom rect for a click
     /// to land on.
+    ///
+    /// Fields on a tab that isn't showing get an empty rect, which no click can
+    /// land in.
     fn field_rows(&self, inner: Rect) -> Vec<Rect> {
         let Some(groups) = self.groups() else {
             return (0..self.form.fields.len())
                 .map(|i| Rect { y: inner.y + i as u16, height: 1, ..inner })
                 .collect();
         };
-        let mut rows = Vec::with_capacity(self.form.fields.len());
+        let mut rows = vec![Rect::default(); self.form.fields.len()];
+        let mut slots = rows.iter_mut().skip(self.form.visible.start);
         for ((_, count, cols), (_, brect)) in groups.iter().zip(self.group_boxes(inner)) {
             let inner_box = Rect {
                 x: brect.x + 1,
@@ -1275,14 +1547,14 @@ impl FormDialog {
             let per_col = group_row_count(*count, cols as usize) as usize;
             let gutter = if cols > 1 { GROUP_COL_GUTTER } else { 0 };
             let col_w = inner_box.width.saturating_sub(gutter * (cols - 1)) / cols;
-            for k in 0..*count {
+            for (k, slot) in slots.by_ref().take(*count).enumerate() {
                 let (c, r) = (k / per_col, k % per_col);
-                rows.push(Rect {
+                *slot = Rect {
                     x: inner_box.x + c as u16 * (col_w + gutter),
                     y: inner_box.y + r as u16,
                     width: col_w,
                     height: 1,
-                });
+                };
             }
         }
         rows
@@ -1316,8 +1588,22 @@ impl FormDialog {
         let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
         let focus_style = theme.dialog_selection;
 
-        // Settings groups its fields into three titled sub-boxes; other forms are
-        // a flat one-row-per-field column. `field_rows` maps each field index to
+        // A tabbed form's strip. The tab showing is marked in the title colour,
+        // and takes the selection colour only while the strip itself has focus,
+        // so it never looks like a second focused control.
+        for (i, (text, cell)) in self.tab_cells(inner).into_iter().enumerate() {
+            let style = if i != self.form.page {
+                base
+            } else if self.form.on_strip() {
+                focus_style
+            } else {
+                base.fg(theme.dialog_title).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            };
+            f.render_widget(Paragraph::new(Line::from(Span::styled(text, style))), cell);
+        }
+
+        // Grouped forms put their fields in titled sub-boxes; other forms are a
+        // flat one-row-per-field column. `field_rows` maps each field index to
         // its on-screen row either way.
         if self.groups().is_some() {
             for (title, brect) in self.group_boxes(inner) {
@@ -1341,6 +1627,9 @@ impl FormDialog {
 
         let mut caret: Option<Position> = None;
         for (i, field) in self.form.fields.iter().enumerate() {
+            if !self.form.visible.contains(&i) {
+                continue;
+            }
             let row = rows[i];
             let y = row.y;
             let focused = i == self.form.focus;
@@ -1421,6 +1710,7 @@ impl FormDialog {
         let hint = Rect { y: inner.y + inner.height.saturating_sub(1), height: 1, ..inner };
         let extra = match &self.purpose {
             FormPurpose::Chmod(_) => format!("  octal {:03o}", self.chmod_mode()),
+            FormPurpose::Settings => "  Ctrl-PgUp/PgDn tabs".to_string(),
             _ => String::new(),
         };
         // OK / Cancel buttons highlight when focused (reachable via ↑↓/Tab).
@@ -1481,9 +1771,11 @@ impl FormDialog {
             };
             let ok_label = label(&ok_txt, self.form.on_ok());
             let cancel_label = label(&cancel_txt, self.form.on_cancel());
-            let ok_w = (ok_label.chars().count() as u16).min(hint.width);
-            let cancel_w =
-                (cancel_label.chars().count() as u16).min(hint.width.saturating_sub(ok_w));
+            // Display width, not chars: a CJK label takes two cells a character,
+            // and sizing it by count pushed Cancel half off the right edge.
+            use unicode_width::UnicodeWidthStr;
+            let ok_w = (ok_label.width() as u16).min(hint.width);
+            let cancel_w = (cancel_label.width() as u16).min(hint.width.saturating_sub(ok_w));
             let cancel_x = hint.x + hint.width - cancel_w;
             let styled = |text: String, focused: bool| {
                 let style = if focused { theme.button_focused } else { theme.button };
@@ -1519,7 +1811,11 @@ impl FormDialog {
         // `choice_dropdown_geom`.) The scroll offset
         // `top` is nudged only when the highlight leaves the window, so the cursor
         // moves freely within it.
+        let shown = self.form.visible.clone();
         for (i, field) in self.form.fields.iter_mut().enumerate() {
+            if !shown.contains(&i) {
+                continue;
+            }
             if let Field::Choice { options, sel, top, open: true, .. } = field {
                 let frect = rows[i];
                 let visible = choice_visible_rows(frect, area, options.len());
@@ -1595,6 +1891,20 @@ impl FormDialog {
             return Some(DialogResult::None);
         }
         None
+    }
+
+    /// Route a click onto a tabbed form's tab strip: show the clicked tab and put
+    /// focus on the strip, so the arrow keys carry on from there. Returns `Some`
+    /// when a tab was hit.
+    pub(crate) fn click_tab(&mut self, area: Rect, col: u16, row: u16) -> Option<DialogResult> {
+        let inner = self.dialog_inner(area);
+        let page = self
+            .tab_cells(inner)
+            .iter()
+            .position(|(_, r)| row == r.y && col >= r.x && col < r.x + r.width)?;
+        self.show_page(page);
+        self.form.focus_at(self.form.strip_slot());
+        Some(DialogResult::None)
     }
 
     /// Route a click onto a Text/Password/Check field row: focus a text field and
@@ -1827,5 +2137,151 @@ mod choice_geom_tests {
         assert!(visible < 500, "clamped");
         assert!(rect.y + rect.height <= screen.y + screen.height, "never runs off screen");
         assert!(visible >= 1, "always shows at least one option");
+    }
+}
+
+#[cfg(test)]
+mod settings_tab_tests {
+    use super::*;
+    use ratatui::crossterm::event::KeyModifiers;
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn ctrl(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::CONTROL)
+    }
+
+    fn settings() -> FormDialog {
+        FormDialog::settings(&crate::config::Config::default(), true)
+    }
+
+    #[test]
+    fn ctrl_page_keys_cycle_the_tabs_and_wrap() {
+        let mut d = settings();
+        assert_eq!(d.settings_tab(), Some(SettingsTab::Appearance));
+        d.handle_key(ctrl(KeyCode::PageDown));
+        assert_eq!(d.settings_tab(), Some(SettingsTab::Panels));
+        // A focused field hands focus to the new tab's first field.
+        assert_eq!(d.form.focus, d.form.visible.start);
+        d.handle_key(ctrl(KeyCode::PageUp));
+        d.handle_key(ctrl(KeyCode::PageUp));
+        assert_eq!(d.settings_tab(), Some(SettingsTab::Terminal), "PgUp wraps to the last tab");
+        d.handle_key(ctrl(KeyCode::PageDown));
+        assert_eq!(d.settings_tab(), Some(SettingsTab::Appearance), "PgDn wraps to the first");
+        // Focus on a button stays on it.
+        d.form.focus_at(d.form.ok_slot());
+        d.handle_key(ctrl(KeyCode::PageDown));
+        assert!(d.form.on_ok(), "switching tabs doesn't move focus off OK");
+    }
+
+    #[test]
+    fn switching_tabs_closes_an_open_dropdown() {
+        let mut d = settings();
+        d.handle_key(key(KeyCode::Enter)); // open the Theme dropdown
+        assert!(d.open_choice_state().is_some());
+        // Ctrl-PgDn is a tab switch, not a page down through the theme list.
+        d.handle_key(ctrl(KeyCode::PageDown));
+        assert_eq!(d.settings_tab(), Some(SettingsTab::Panels));
+        assert!(d.open_choice_state().is_none(), "the hidden field's list is closed");
+    }
+
+    #[test]
+    fn the_tab_strip_is_in_the_focus_ring() {
+        let mut d = settings();
+        d.handle_key(key(KeyCode::BackTab));
+        assert!(d.form.on_strip(), "Shift-Tab from the first field reaches the strip");
+        d.handle_key(key(KeyCode::Right));
+        assert_eq!(d.settings_tab(), Some(SettingsTab::Panels));
+        d.handle_key(key(KeyCode::Left));
+        d.handle_key(key(KeyCode::Left));
+        assert_eq!(d.settings_tab(), Some(SettingsTab::Terminal), "Left wraps");
+        d.handle_key(key(KeyCode::Home));
+        assert_eq!(d.settings_tab(), Some(SettingsTab::Appearance));
+        d.handle_key(key(KeyCode::End));
+        assert_eq!(d.settings_tab(), Some(SettingsTab::Terminal));
+        assert!(d.form.on_strip(), "walking the tabs keeps the focus on the strip");
+
+        d.handle_key(key(KeyCode::Down));
+        assert_eq!(d.form.focus, d.form.visible.start, "Down enters the page");
+        d.handle_key(key(KeyCode::BackTab));
+        d.handle_key(key(KeyCode::BackTab));
+        assert!(d.form.on_cancel(), "Shift-Tab from the strip wraps to Cancel");
+        d.handle_key(key(KeyCode::Tab));
+        assert!(d.form.on_strip(), "Tab from Cancel wraps to the strip");
+        assert!(
+            matches!(d.handle_key(key(KeyCode::Enter)), DialogResult::Submit(Submit::Settings(_))),
+            "Enter on the strip submits, as it does from a field"
+        );
+    }
+
+    #[test]
+    fn focus_never_reaches_a_field_on_another_tab() {
+        let mut d = settings().on_tab(SettingsTab::Programs);
+        let (visible, ok, cancel, strip) =
+            (d.form.visible.clone(), d.form.ok_slot(), d.form.cancel_slot(), d.form.strip_slot());
+        for _ in 0..(visible.len() + 3) * 2 {
+            d.handle_key(key(KeyCode::Down));
+            let f = d.form.focus;
+            assert!(visible.contains(&f) || [ok, cancel, strip].contains(&f), "focus left the tab");
+        }
+    }
+
+    #[test]
+    fn fields_on_other_tabs_get_empty_rects() {
+        let d = settings().on_tab(SettingsTab::Confirmations);
+        let inner = d.dialog_inner(Rect::new(0, 0, 80, 24));
+        let rows = d.field_rows(inner);
+        for (i, r) in rows.iter().enumerate() {
+            let shown = d.form.visible.contains(&i);
+            assert_eq!(r.width > 0, shown, "field {i} has a rect only if its tab is showing");
+        }
+    }
+
+    #[test]
+    fn untabbed_forms_keep_their_focus_ring() {
+        let mut d = FormDialog::chmod(vec![VfsPath::local("/tmp/x")], 0o644);
+        // Ten fields, then OK and Cancel, then back round to the first field.
+        for expected in (1..12).chain([0, 1]) {
+            d.handle_key(key(KeyCode::Tab));
+            assert_eq!(d.form.focus, expected);
+        }
+        assert!(d.settings_tab().is_none() && d.tab_cells(Rect::new(0, 0, 60, 10)).is_empty());
+    }
+
+    #[test]
+    fn tab_titles_fit_in_english_and_shorten_evenly_when_narrow() {
+        let d = settings();
+        let inner = d.dialog_inner(Rect::new(0, 0, 80, 24));
+        let cells = d.tab_cells(inner);
+        assert_eq!(cells.len(), SETTINGS_PAGES.len());
+        for ((text, _), page) in cells.iter().zip(SETTINGS_PAGES) {
+            assert_eq!(text.trim(), page.title, "English titles are shown whole");
+        }
+        // Squeezed into 40 cells, every tab still gets a cell of its own, inside
+        // the row and not overlapping its neighbour.
+        let narrow = Rect { width: 40, ..inner };
+        let cells = d.tab_cells(narrow);
+        assert_eq!(cells.len(), SETTINGS_PAGES.len());
+        for pair in cells.windows(2) {
+            assert_eq!(pair[0].1.x + pair[0].1.width, pair[1].1.x, "cells abut without overlap");
+        }
+        let last = cells.last().unwrap().1;
+        assert!(last.x + last.width <= narrow.x + narrow.width);
+        assert!(cells.iter().any(|(t, _)| t.contains('~')), "long titles are ellipsized");
+    }
+
+    #[test]
+    fn clicking_a_tab_shows_it_and_focuses_the_strip() {
+        let area = Rect::new(0, 0, 80, 24);
+        let mut d = settings();
+        let inner = d.dialog_inner(area);
+        let (_, cell) = d.tab_cells(inner)[3].clone();
+        assert!(d.click_tab(area, cell.x + 1, cell.y).is_some());
+        assert_eq!(d.settings_tab(), Some(SettingsTab::Confirmations));
+        assert!(d.form.on_strip());
+        // A click beside the strip is not a tab.
+        assert!(d.click_tab(area, cell.x, cell.y + 1).is_none());
     }
 }

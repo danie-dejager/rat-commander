@@ -107,7 +107,26 @@ rtl = true
 "Use internal viewer" = "استفاده از نمایشگر داخلی"
 "Use internal editor" = "استفاده از ویرایشگر داخلی"
 
-# -- Confirmations dialog --
+# Settings tabs, their group boxes, and fields that had no entry
+"Appearance" = "ظاهر"
+"Panels" = "پنجره‌ها"
+"Programs" = "برنامه‌ها"
+"Terminal" = "پایانه"
+"Display" = "نمایش"
+"Views" = "نماها"
+"Editor and viewer" = "ویرایشگر و نمایشگر"
+"Command line" = "پوسته و فرمان‌ها"
+"Trash" = "زباله‌دان"
+"Capabilities" = "قابلیت‌ها"
+"Mouse selection" = "انتخاب با موشواره"
+"Graphics" = "گرافیک"
+"Brief view columns" = "ستون‌های نمای مختصر"
+"Reshape RTL text" = "تغییر شکل متن راست‌به‌چپ"
+"3D view: show filesystem activity" = "نمای سه‌بعدی: نمایش فعالیت سامانهٔ پرونده"
+"Shell (blank = auto-detect)" = "پوسته (خالی = تشخیص خودکار)"
+"Command history size (0 = off)" = "اندازهٔ تاریخچهٔ فرمان‌ها (0 = خاموش)"
+
+# -- Confirmations tab (Settings) --
 "Confirmations" = "تأییدها"
 "Confirm delete" = "تأیید حذف"
 "Confirm overwrite" = "تأیید بازنویسی"

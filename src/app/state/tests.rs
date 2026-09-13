@@ -2236,11 +2236,8 @@ async fn theme_preview_applies_and_reverts_on_cancel() {
     let original = st.theme.name.clone();
     st.open_settings();
     let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
-    // Theme lives in the "Visual" group (field index 6); Tab down to it, then
-    // Enter opens its dropdown and moving the highlight previews the theme live.
-    for _ in 0..6 {
-        st.handle_key(key(KeyCode::Tab)).await;
-    }
+    // Theme is the first field of the first tab, so it has the focus; Enter
+    // opens its dropdown and moving the highlight previews the theme live.
     st.handle_key(key(KeyCode::Enter)).await;
     st.handle_key(key(KeyCode::Down)).await;
     let previewed = st.theme.name.clone();
@@ -2260,9 +2257,9 @@ async fn nerd_font_symbols_preview_live_and_persist_on_ok() {
     st.config.nerd_font = false;
     st.open_settings();
     let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
-    // "Nerd Font symbols" is the sixth field of the Visual group (index 11);
-    // Tab down to it and toggle it with Space.
-    for _ in 0..11 {
+    // "Nerd Font symbols" is the Appearance tab's third field; Tab down to it
+    // and toggle it with Space.
+    for _ in 0..2 {
         st.handle_key(key(KeyCode::Tab)).await;
     }
     st.handle_key(key(KeyCode::Char(' '))).await;
@@ -2275,13 +2272,66 @@ async fn nerd_font_symbols_preview_live_and_persist_on_ok() {
 
     // …and submitting saves it.
     st.open_settings();
-    for _ in 0..11 {
+    for _ in 0..2 {
         st.handle_key(key(KeyCode::Tab)).await;
     }
     st.handle_key(key(KeyCode::Char(' '))).await;
     st.handle_key(key(KeyCode::Enter)).await;
     assert!(st.config.nerd_font, "OK stores the setting");
     assert!(st.nerd_font_active(), "and the listing keeps drawing the glyphs");
+}
+
+#[tokio::test]
+async fn the_confirmations_menu_item_opens_settings_on_its_tab() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
+    assert!(st.config.confirm_delete);
+    st.run_menu_action(MenuAction::Confirmations).await;
+    let tab = |st: &AppState| match &st.dialog {
+        Some(Dialog::Form(fd)) => fd.settings_tab(),
+        _ => None,
+    };
+    assert_eq!(tab(&st), Some(SettingsTab::Confirmations), "the menu item opens its tab");
+    // The tab opens on Confirm delete: Space unticks it, Enter saves.
+    st.handle_key(key(KeyCode::Char(' '))).await;
+    st.handle_key(key(KeyCode::Enter)).await;
+    assert!(st.dialog.is_none());
+    assert!(!st.config.confirm_delete, "the Confirmations tab saves through Settings");
+    // Plain Options → Settings… now comes back to the tab it was closed on.
+    st.open_settings();
+    assert_eq!(tab(&st), Some(SettingsTab::Confirmations), "the last tab is remembered");
+    // Switch tabs and cancel: that is remembered too.
+    let ctrl_pgdn = KeyEvent::new(KeyCode::PageDown, KeyModifiers::CONTROL);
+    st.handle_key(ctrl_pgdn).await;
+    st.handle_key(key(KeyCode::Esc)).await;
+    st.open_settings();
+    assert_eq!(tab(&st), Some(SettingsTab::Language));
+}
+
+#[tokio::test]
+async fn lowering_the_history_size_in_settings_trims_the_history() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
+    st.cmd.history = ["a", "b", "c", "d", "e"].map(String::from).to_vec();
+    st.open_settings_at(SettingsTab::Programs);
+    // The history size is the Programs tab's seventh and last field.
+    for _ in 0..6 {
+        st.handle_key(key(KeyCode::Tab)).await;
+    }
+    for _ in 0..3 {
+        st.handle_key(key(KeyCode::Backspace)).await;
+    }
+    st.handle_key(key(KeyCode::Char('2'))).await;
+    st.handle_key(key(KeyCode::Enter)).await;
+    assert_eq!(st.config.command_history_max, 2);
+    assert_eq!(st.cmd.history_max, 2);
+    assert_eq!(
+        st.cmd.history,
+        ["d", "e"],
+        "the oldest entries go at once, not on the next command"
+    );
 }
 
 #[tokio::test]

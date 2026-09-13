@@ -179,7 +179,7 @@ The installed executable is named **`rc`** for quick typing.
   on the **remote host** over the same SSH connection — its output on the same
   console backdrop, no second login.
 - **3D view** — a panel format that draws the directory the *other* panel is in. Two styles,
-  chosen in Settings → Visual: **Cubes**, a tree of boxes joined by lines, and
+  chosen in Settings → Panels: **Cubes**, a tree of boxes joined by lines, and
   **Spare no expense**, an homage to IRIX's *fsn* — pale platforms standing on a
   ground plane under a sky gradient, joined by lines running over the ground,
   with the files on them drawn as solids **shaped and coloured by file type**.

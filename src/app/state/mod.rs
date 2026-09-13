@@ -20,8 +20,8 @@ use crate::ui::dialog::{
     FlashTargetDialog, FormDialog, GitOutputDialog, GotoDialog, HotlistDialog, HotlistOutcome,
     ImageSaveDialog, InputDialog, InputPurpose, MessageDialog, MultiRenameDialog, OverwriteDialog,
     PaletteAction, PaletteCategory, PaletteEntry, ProgressDialog, ReceiveDialog, SaveAsDialog,
-    SearchReplaceDialog, SearchReplaceParams, SelectDialog, SendFileDialog, ShellHistoryDialog,
-    SpeedChart, Submit, SyncPreviewDialog, TabPickerDialog, UserMenuDialog,
+    SearchReplaceDialog, SearchReplaceParams, SelectDialog, SendFileDialog, SettingsTab,
+    ShellHistoryDialog, SpeedChart, Submit, SyncPreviewDialog, TabPickerDialog, UserMenuDialog,
 };
 use crate::ui::layout::SplitDir;
 use crate::ui::menu::{MenuAction, MenuBarState, MenuSignal};
@@ -284,6 +284,9 @@ pub struct AppState {
     graphics_backup: Option<String>,
     /// 3D view style to restore if the settings dialog is cancelled.
     space3d_backup: Option<crate::config::Space3dStyle>,
+    /// The Settings tab last closed on, so the dialog reopens where it was left.
+    /// Only for this session: it is where you were, not a preference.
+    settings_tab: SettingsTab,
     /// The F2 user menu — entries + pattern mode, from the config `menu` file.
     user_menu: UserMenu,
     /// File-association rules (loaded from the config `rc.ext` file), consulted

@@ -103,7 +103,26 @@ code = "sk"
 "Use internal viewer" = "Použiť interný prehliadač"
 "Use internal editor" = "Použiť interný editor"
 
-# -- Confirmations dialog --
+# Settings tabs, their group boxes, and fields that had no entry
+"Appearance" = "Vzhľad"
+"Panels" = "Panely"
+"Programs" = "Programy"
+"Terminal" = "Terminál"
+"Display" = "Zobrazenie"
+"Views" = "Režimy zobrazenia"
+"Editor and viewer" = "Editor a prehliadač"
+"Command line" = "Príkazy a shell"
+"Trash" = "Kôš"
+"Capabilities" = "Schopnosti"
+"Mouse selection" = "Výber myšou"
+"Graphics" = "Grafika"
+"Brief view columns" = "Stĺpce stručného zobrazenia"
+"Reshape RTL text" = "Tvarovať text RTL"
+"3D view: show filesystem activity" = "3D zobrazenie: ukazovať aktivitu súborového systému"
+"Shell (blank = auto-detect)" = "Shell (prázdne = rozpoznať automaticky)"
+"Command history size (0 = off)" = "Veľkosť histórie príkazov (0 = vypnuté)"
+
+# -- Confirmations tab (Settings) --
 "Confirmations" = "Potvrdenia"
 "Confirm delete" = "Potvrdiť odstránenie"
 "Confirm overwrite" = "Potvrdiť prepísanie"

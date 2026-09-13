@@ -129,12 +129,25 @@ impl CommandLine {
         // cap it to the configured maximum (dropping the oldest entries).
         if !cmd.trim().is_empty() && self.history.last() != Some(&cmd) {
             self.history.push(cmd.clone());
-            if self.history.len() > self.history_max {
-                let excess = self.history.len() - self.history_max;
-                self.history.drain(..excess);
-            }
+            self.trim_history();
         }
         cmd
+    }
+
+    /// Change how many history entries are kept, dropping the oldest ones that
+    /// no longer fit. The recall cursor is reset: it may point past the new end.
+    pub fn set_history_max(&mut self, max: usize) {
+        self.history_max = max;
+        self.history_pos = None;
+        self.trim_history();
+    }
+
+    /// Cap the history to `history_max`, oldest entries first out.
+    fn trim_history(&mut self) {
+        if self.history.len() > self.history_max {
+            let excess = self.history.len() - self.history_max;
+            self.history.drain(..excess);
+        }
     }
 
     /// Recall the previous history entry into the buffer.
@@ -253,6 +266,23 @@ mod tests {
         c.set("x".to_string());
         c.take();
         assert!(c.history.is_empty());
+    }
+
+    #[test]
+    fn lowering_history_max_trims_the_oldest_entries() {
+        let mut c = CommandLine::new();
+        for cmd in ["a", "b", "c", "d"] {
+            c.set(cmd.to_string());
+            c.take();
+        }
+        c.history_prev(); // leave the recall cursor somewhere the trim removes
+        c.history_prev();
+        c.history_prev();
+        c.set_history_max(2);
+        assert_eq!(c.history, vec!["c".to_string(), "d".to_string()]);
+        // Recall starts over from the newest entry rather than a stale index.
+        c.history_prev();
+        assert_eq!(c.buffer, "d");
     }
 
     #[test]

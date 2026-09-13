@@ -134,6 +134,7 @@ impl AppState {
             trim: Default::default(),
             graphics_backup: None,
             space3d_backup: None,
+            settings_tab: SettingsTab::default(),
             user_menu: usermenu::load_or_create(),
             ext_rules: crate::ext::ExtRules::load_or_create(),
             pending_run: None,

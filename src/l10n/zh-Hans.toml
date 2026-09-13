@@ -103,7 +103,26 @@ code = "zh-Hans"
 "Use internal viewer" = "使用内置查看器"
 "Use internal editor" = "使用内置编辑器"
 
-# -- Confirmations dialog --
+# Settings tabs, their group boxes, and fields that had no entry
+"Appearance" = "外观"
+"Panels" = "面板"
+"Programs" = "程序"
+"Terminal" = "终端"
+"Display" = "显示"
+"Views" = "视图"
+"Editor and viewer" = "编辑器与查看器"
+"Command line" = "命令行"
+"Trash" = "回收站"
+"Capabilities" = "功能"
+"Mouse selection" = "鼠标选择"
+"Graphics" = "图形"
+"Brief view columns" = "简略视图列数"
+"Reshape RTL text" = "重塑 RTL 文本"
+"3D view: show filesystem activity" = "3D 视图：显示文件系统活动"
+"Shell (blank = auto-detect)" = "外壳 (留空 = 自动检测)"
+"Command history size (0 = off)" = "命令历史条数 (0 = 关闭)"
+
+# -- Confirmations tab (Settings) --
 "Confirmations" = "确认"
 "Confirm delete" = "确认删除"
 "Confirm overwrite" = "确认覆盖"

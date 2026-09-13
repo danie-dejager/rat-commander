@@ -103,7 +103,26 @@ code = "uk"
 "Use internal viewer" = "Використовувати внутрішній переглядач"
 "Use internal editor" = "Використовувати внутрішній редактор"
 
-# -- Confirmations dialog --
+# Settings tabs, their group boxes, and fields that had no entry
+"Appearance" = "Зовнішній вигляд"
+"Panels" = "Панелі"
+"Programs" = "Програми"
+"Terminal" = "Термінал"
+"Display" = "Відображення"
+"Views" = "Режими перегляду"
+"Editor and viewer" = "Редактор і переглядач"
+"Command line" = "Командна оболонка"
+"Trash" = "Смітник"
+"Capabilities" = "Можливості"
+"Mouse selection" = "Виділення мишею"
+"Graphics" = "Графіка"
+"Brief view columns" = "Стовпці стислого вигляду"
+"Reshape RTL text" = "Перетворювати RTL-текст"
+"3D view: show filesystem activity" = "3D-вигляд: показувати активність файлової системи"
+"Shell (blank = auto-detect)" = "Оболонка (порожньо = визначити автоматично)"
+"Command history size (0 = off)" = "Розмір історії команд (0 = вимк.)"
+
+# -- Confirmations tab (Settings) --
 "Confirmations" = "Підтвердження"
 "Confirm delete" = "Підтверджувати видалення"
 "Confirm overwrite" = "Підтверджувати перезапис"

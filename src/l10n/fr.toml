@@ -103,7 +103,26 @@ code = "fr"
 "Use internal viewer" = "Utiliser la visionneuse interne"
 "Use internal editor" = "Utiliser l'éditeur interne"
 
-# -- Confirmations dialog --
+# Settings tabs, their group boxes, and fields that had no entry
+"Appearance" = "Apparence"
+"Panels" = "Panneaux"
+"Programs" = "Programmes"
+"Terminal" = "Terminal"
+"Display" = "Affichage"
+"Views" = "Vues"
+"Editor and viewer" = "Éditeur et visionneuse"
+"Command line" = "Ligne de commande"
+"Trash" = "Corbeille"
+"Capabilities" = "Capacités"
+"Mouse selection" = "Sélection à la souris"
+"Graphics" = "Graphismes"
+"Brief view columns" = "Colonnes de la vue résumée"
+"Reshape RTL text" = "Remodeler le texte RTL"
+"3D view: show filesystem activity" = "Vue 3D : montrer l'activité du système de fichiers"
+"Shell (blank = auto-detect)" = "Shell (vide = détection automatique)"
+"Command history size (0 = off)" = "Taille de l'historique des commandes (0 = désactivé)"
+
+# -- Confirmations tab (Settings) --
 "Confirmations" = "Confirmations"
 "Confirm delete" = "Confirmer la suppression"
 "Confirm overwrite" = "Confirmer l'écrasement"

@@ -103,7 +103,26 @@ code = "hi"
 "Use internal viewer" = "आंतरिक व्यूअर उपयोग करें"
 "Use internal editor" = "आंतरिक संपादक उपयोग करें"
 
-# -- Confirmations dialog --
+# Settings tabs, their group boxes, and fields that had no entry
+"Appearance" = "रूप-रंग"
+"Panels" = "पैनल"
+"Programs" = "प्रोग्राम"
+"Terminal" = "टर्मिनल"
+"Display" = "प्रदर्शन"
+"Views" = "दृश्य"
+"Editor and viewer" = "संपादक और व्यूअर"
+"Command line" = "कमांड लाइन"
+"Trash" = "रद्दी"
+"Capabilities" = "क्षमताएँ"
+"Mouse selection" = "माउस चयन"
+"Graphics" = "ग्राफ़िक्स"
+"Brief view columns" = "संक्षिप्त दृश्य के कॉलम"
+"Reshape RTL text" = "RTL पाठ पुनः आकार दें"
+"3D view: show filesystem activity" = "3D दृश्य: फ़ाइल सिस्टम गतिविधि दिखाएँ"
+"Shell (blank = auto-detect)" = "शेल (खाली = स्वतः पहचानें)"
+"Command history size (0 = off)" = "कमांड इतिहास का आकार (0 = बंद)"
+
+# -- Confirmations tab (Settings) --
 "Confirmations" = "पुष्टिकरण"
 "Confirm delete" = "मिटाने की पुष्टि करें"
 "Confirm overwrite" = "अधिलेखन की पुष्टि करें"

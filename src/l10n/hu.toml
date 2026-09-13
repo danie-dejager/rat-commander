@@ -103,7 +103,26 @@ code = "hu"
 "Use internal viewer" = "Belső megjelenítő használata"
 "Use internal editor" = "Belső szerkesztő használata"
 
-# -- Confirmations dialog --
+# Settings tabs, their group boxes, and fields that had no entry
+"Appearance" = "Megjelenés"
+"Panels" = "Panelek"
+"Programs" = "Programok"
+"Terminal" = "Terminál"
+"Display" = "Kijelző"
+"Views" = "Nézetek"
+"Editor and viewer" = "Szerkesztő és megjelenítő"
+"Command line" = "Parancsértelmező"
+"Trash" = "Kuka"
+"Capabilities" = "Képességek"
+"Mouse selection" = "Egérrel kijelölés"
+"Graphics" = "Grafika"
+"Brief view columns" = "Rövid nézet oszlopai"
+"Reshape RTL text" = "RTL szöveg átformálása"
+"3D view: show filesystem activity" = "3D nézet: fájlrendszer-aktivitás mutatása"
+"Shell (blank = auto-detect)" = "Héj (üres = automatikus felismerés)"
+"Command history size (0 = off)" = "Parancselőzmények mérete (0 = ki)"
+
+# -- Confirmations tab (Settings) --
 "Confirmations" = "Megerősítések"
 "Confirm delete" = "Törlés megerősítése"
 "Confirm overwrite" = "Felülírás megerősítése"

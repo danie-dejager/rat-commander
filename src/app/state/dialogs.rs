@@ -43,6 +43,13 @@ impl AppState {
     }
 
     pub(in crate::app::state) async fn handle_dialog_result(&mut self, res: DialogResult) -> Flow {
+        // Settings reopens on the tab it was closed on, whether by OK or Cancel.
+        if !matches!(res, DialogResult::None)
+            && let Some(Dialog::Form(fd)) = &self.dialog
+            && let Some(tab) = fd.settings_tab()
+        {
+            self.settings_tab = tab;
+        }
         match res {
             DialogResult::None => Flow::Continue,
             DialogResult::Cancel => {
@@ -326,44 +333,70 @@ impl AppState {
                 }
             }
             Submit::Settings(v) => {
-                self.config.editor = v.editor;
-                self.config.viewer = v.viewer;
-                self.config.use_internal_viewer = v.use_internal_viewer;
-                self.config.use_internal_editor = v.use_internal_editor;
-                self.config.theme = v.theme;
-                self.config.truecolor = Some(v.truecolor);
-                self.config.animation = v.animation;
-                self.config.system_status = v.system_status;
-                self.set_command_prompt(v.command_prompt);
-                self.config.nerd_font = v.nerd_font;
-                self.config.brief_columns = v.brief_columns;
-                self.config.space3d_style = v.space3d_style;
-                self.config.screensaver_minutes = v.screensaver_minutes;
-                self.config.screensaver = v.screensaver;
-                self.config.thumb_size = v.thumb_size;
-                self.truecolor = v.truecolor;
-                // Apply the chosen language (store English as the default => None).
+                let cfg = &mut self.config;
+                // Appearance
+                cfg.theme = v.theme;
+                cfg.animation = v.animation;
+                cfg.nerd_font = v.nerd_font;
+                cfg.system_status = v.system_status;
+                cfg.screensaver_minutes = v.screensaver_minutes;
+                cfg.screensaver = v.screensaver;
+                // Panels. The watches follow `auto_refresh` and the 3D view's
+                // activity switch, so re-arm them now rather than on the next
+                // directory change, as the palette toggles do.
+                let rewatch = cfg.auto_refresh != v.auto_refresh
+                    || cfg.space3d_activity != v.space3d_activity;
+                cfg.brief_columns = v.brief_columns;
+                cfg.thumb_size = v.thumb_size;
+                cfg.space3d_style = v.space3d_style;
+                cfg.auto_refresh = v.auto_refresh;
+                cfg.space3d_activity = v.space3d_activity;
+                cfg.details_activity = v.details_activity;
+                // Programs. The shell is process-wide state, so it is only
+                // touched when it actually changed.
+                cfg.editor = v.editor;
+                cfg.viewer = v.viewer;
+                cfg.use_internal_viewer = v.use_internal_viewer;
+                cfg.use_internal_editor = v.use_internal_editor;
+                if cfg.shell != v.shell {
+                    crate::shell::set_preferred(&v.shell);
+                    cfg.shell = v.shell;
+                }
+                if let Some(max) = v.command_history_max {
+                    cfg.command_history_max = max;
+                    self.cmd.set_history_max(max);
+                }
+                // Confirmations
+                cfg.confirm_delete = v.confirm_delete;
+                cfg.confirm_overwrite = v.confirm_overwrite;
+                cfg.confirm_execute = v.confirm_execute;
+                cfg.confirm_unmount = v.confirm_unmount;
+                cfg.confirm_exit = v.confirm_exit;
+                cfg.use_trash = v.use_trash;
+                // Language (store English as the default => None).
                 crate::l10n::set_active_by_name(&v.language);
-                self.config.language =
-                    if v.language == "English" { None } else { Some(v.language) };
-                self.config.reshape_rtl = v.reshape_rtl;
+                cfg.language = if v.language == "English" { None } else { Some(v.language) };
+                cfg.reshape_rtl = v.reshape_rtl;
                 crate::l10n::set_reshape_rtl(v.reshape_rtl);
-                self.config.graphics = v.graphics;
+                // Terminal. Rows already on screen keep their old ending until
+                // they are redrawn, and the diffing renderer wouldn't redraw
+                // them, so a changed trailing-space mode clears the screen.
+                if cfg.strip_trailing_spaces != v.strip_trailing_spaces {
+                    cfg.strip_trailing_spaces = v.strip_trailing_spaces;
+                    self.force_clear = true;
+                }
+                cfg.graphics = v.graphics;
+                cfg.truecolor = Some(v.truecolor);
+                self.truecolor = v.truecolor;
                 if let Some(g) = self.gfx.as_mut() {
                     g.apply_pref(&self.config.graphics);
                 }
+                self.set_command_prompt(v.command_prompt);
+                if rewatch {
+                    self.update_watches();
+                }
                 // Re-theme the running UI immediately.
                 self.theme = Theme::by_name(&self.config.theme, self.truecolor);
-                if let Err(e) = self.config.save() {
-                    self.show_error(format!("Could not save settings: {e}"));
-                }
-            }
-            Submit::Confirmations(v) => {
-                self.config.confirm_delete = v.delete;
-                self.config.confirm_overwrite = v.overwrite;
-                self.config.confirm_execute = v.execute;
-                self.config.confirm_unmount = v.unmount;
-                self.config.confirm_exit = v.exit;
                 if let Err(e) = self.config.save() {
                     self.show_error(format!("Could not save settings: {e}"));
                 }
@@ -732,17 +765,19 @@ impl AppState {
     }
 
     pub(in crate::app::state) fn open_settings(&mut self) {
+        self.open_settings_at(self.settings_tab);
+    }
+
+    /// Open Settings on `tab` (Options → Confirmations… opens its own tab).
+    pub(in crate::app::state) fn open_settings_at(&mut self, tab: SettingsTab) {
         // Remember the current theme + language so Esc can revert a live preview.
         self.theme_backup = Some(self.config.theme.clone());
         self.lang_backup = Some(crate::l10n::active_name());
         self.reshape_backup = Some(crate::l10n::reshape_rtl_enabled());
         self.graphics_backup = Some(self.config.graphics.clone());
         self.space3d_backup = Some(self.config.space3d_style);
-        self.dialog = Some(Dialog::Form(FormDialog::settings(&self.config, self.truecolor)));
-    }
-
-    pub(in crate::app::state) fn open_confirmations(&mut self) {
-        self.dialog = Some(Dialog::Form(FormDialog::confirmations(&self.config)));
+        self.dialog =
+            Some(Dialog::Form(FormDialog::settings(&self.config, self.truecolor).on_tab(tab)));
     }
 
     pub(in crate::app::state) fn open_chmod(&mut self) {

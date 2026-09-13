@@ -53,7 +53,7 @@ pub use dirhistory::DirHistoryDialog;
 pub use drive::DriveDialog;
 pub use find::{FindDialog, FindParams};
 pub use flash::{FileBrowserDialog, FlashTargetDialog, ImageSaveDialog};
-pub use form::FormDialog;
+pub use form::{FormDialog, SettingsTab};
 pub use gitout::GitOutputDialog;
 pub use goto::GotoDialog;
 pub use history::ShellHistoryDialog;
@@ -217,8 +217,6 @@ pub enum Submit {
         name: String,
     },
     Settings(SettingsValues),
-    /// Confirmation toggles from the Confirmations dialog.
-    Confirmations(ConfirmValues),
     /// Compress these (local) sources into an archive of the given name.
     Compress(Vec<VfsPath>, String),
     /// Go ahead with a bulk archive add whose overwrite prompt was confirmed.
@@ -393,42 +391,53 @@ pub struct DupCriteria {
 /// Values collected by the settings form.
 #[derive(Debug, Clone)]
 pub struct SettingsValues {
+    // -- Appearance --
+    pub theme: String,
+    pub animation: bool,
+    /// Draw per-file-type Nerd Font glyphs in the listing.
+    pub nerd_font: bool,
+    pub system_status: bool,
+    /// Idle minutes before the screensaver starts; 0 is off.
+    pub screensaver_minutes: u16,
+    pub screensaver: crate::config::SaverKind,
+    // -- Panels --
+    /// Number of columns in the Brief view.
+    pub brief_columns: usize,
+    pub thumb_size: crate::config::ThumbSize,
+    /// Which look the panel's 3D view draws.
+    pub space3d_style: crate::config::Space3dStyle,
+    pub auto_refresh: bool,
+    pub space3d_activity: bool,
+    pub details_activity: bool,
+    // -- Programs --
     pub editor: String,
     pub viewer: String,
     pub use_internal_viewer: bool,
     pub use_internal_editor: bool,
-    pub theme: String,
-    /// The chosen UI language (a language file's display name).
-    pub language: String,
-    pub truecolor: bool,
-    pub animation: bool,
-    pub system_status: bool,
     /// Show the shell command line below the panels.
     pub command_prompt: bool,
-    /// Draw per-file-type Nerd Font glyphs in the listing.
-    pub nerd_font: bool,
+    /// The shell program; empty = detect it.
+    pub shell: String,
+    /// Command-line history entries to keep; `None` when the field didn't hold
+    /// a number, which leaves the current size alone.
+    pub command_history_max: Option<usize>,
+    // -- Confirmations --
+    pub confirm_delete: bool,
+    pub confirm_overwrite: bool,
+    pub confirm_execute: bool,
+    pub confirm_unmount: bool,
+    pub confirm_exit: bool,
+    pub use_trash: bool,
+    // -- Language --
+    /// The chosen UI language (a language file's display name).
+    pub language: String,
     /// Reshape + bidi-reorder RTL text for display.
     pub reshape_rtl: bool,
+    // -- Terminal --
     /// Terminal pixel-graphics preference (`auto|off|kitty|sixel|iterm`).
     pub graphics: String,
-    /// Number of columns in the Brief view.
-    pub brief_columns: usize,
-    /// Which look the panel's 3D view draws.
-    pub space3d_style: crate::config::Space3dStyle,
-    /// Idle minutes before the screensaver starts; 0 is off.
-    pub screensaver_minutes: u16,
-    pub screensaver: crate::config::SaverKind,
-    pub thumb_size: crate::config::ThumbSize,
-}
-
-/// Values collected by the Confirmations form (which actions need confirming).
-#[derive(Debug, Clone, Copy)]
-pub struct ConfirmValues {
-    pub delete: bool,
-    pub overwrite: bool,
-    pub execute: bool,
-    pub unmount: bool,
-    pub exit: bool,
+    pub truecolor: bool,
+    pub strip_trailing_spaces: bool,
 }
 
 impl Dialog {
@@ -569,6 +578,11 @@ impl Dialog {
                     return res;
                 }
                 if let Some(res) = d.click_choice(area, col, row) {
+                    return res;
+                }
+                // Settings' tab strip. After the dropdowns, so a click on a tab
+                // while a list is open only closes the list.
+                if let Some(res) = d.click_tab(area, col, row) {
                     return res;
                 }
                 // A click on a text field focuses it (placing the caret) and a

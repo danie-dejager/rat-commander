@@ -103,7 +103,26 @@ code = "zh-Hant"
 "Use internal viewer" = "使用內建檢視器"
 "Use internal editor" = "使用內建編輯器"
 
-# -- Confirmations dialog --
+# Settings tabs, their group boxes, and fields that had no entry
+"Appearance" = "外觀"
+"Panels" = "面板"
+"Programs" = "程式"
+"Terminal" = "終端機"
+"Display" = "顯示"
+"Views" = "檢視"
+"Editor and viewer" = "編輯器與檢視器"
+"Command line" = "命令列"
+"Trash" = "回收筒"
+"Capabilities" = "功能"
+"Mouse selection" = "滑鼠選取"
+"Graphics" = "圖形"
+"Brief view columns" = "簡略檢視欄數"
+"Reshape RTL text" = "重塑 RTL 文字"
+"3D view: show filesystem activity" = "3D 檢視：顯示檔案系統活動"
+"Shell (blank = auto-detect)" = "Shell (空白 = 自動偵測)"
+"Command history size (0 = off)" = "命令歷程筆數 (0 = 關閉)"
+
+# -- Confirmations tab (Settings) --
 "Confirmations" = "確認"
 "Confirm delete" = "確認刪除"
 "Confirm overwrite" = "確認覆寫"
