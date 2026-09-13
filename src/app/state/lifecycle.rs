@@ -340,6 +340,12 @@ impl AppState {
         {
             dirty = true;
         }
+        // Binary mode: show an analysis that has finished in the background.
+        if let Some(v) = self.viewer.as_mut()
+            && v.poll_binary()
+        {
+            dirty = true;
+        }
         // Spin the "working…" dialog while a privileged op runs.
         if let Some(Dialog::Busy(b)) = self.dialog.as_mut() {
             b.tick();
@@ -374,8 +380,9 @@ impl AppState {
             || self.saver.is_some()
             // An Activity log's ages and event rate move on by themselves.
             || self.activity_shown()
-            // A followed file is polled for growth on the tick.
-            || self.viewer.as_ref().is_some_and(|v| v.following())
+            // A followed file is polled for growth on the tick, and a binary's
+            // background analysis for its result.
+            || self.viewer.as_ref().is_some_and(|v| v.following() || v.analyzing())
             // A debounced panel reload is still waiting to fire.
             || self.watch_pending()
             // A scrubbed revision is still waiting to be fetched. Without this
@@ -808,6 +815,9 @@ impl AppState {
                                 {
                                     v.set_image(iv);
                                 }
+                                // An executable from an archive or a remote
+                                // host opens in Binary mode, as a local one does.
+                                open_binary(&mut v, &temp).await;
                                 self.viewer = Some(v);
                             }
                             Ok(Err(e)) => {

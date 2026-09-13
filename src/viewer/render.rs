@@ -62,6 +62,7 @@ pub fn render(
         return;
     }
     match v.mode {
+        ViewMode::Binary => render_binary(f, content, v, theme),
         ViewMode::Map => render_map(f, content, v, theme, gfx),
         ViewMode::Hex => render_hex(f, content, v, theme),
         // Markdown files render the approximation by default; F8 shows the raw,
@@ -317,6 +318,312 @@ fn render_map(
     }
 }
 
+/// Binary mode's header: the file, what it is, where the highlight is in the
+/// list on screen, and the filter narrowing the lists.
+fn render_binary_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
+    let what = match v.active_binary() {
+        None => crate::l10n::trd("Analyzing…"),
+        Some(view) => {
+            let len = view.len(view.tab);
+            let at = if len == 0 { 0 } else { view.selected() + 1 };
+            let filter = view
+                .filter_term()
+                .map(|t| format!("  {}: \"{t}\"", crate::l10n::trd("Filter")))
+                .unwrap_or_default();
+            format!(
+                "{}  {} {at}/{len}{filter}",
+                view.bin.summary,
+                crate::l10n::trd(view.tab.label())
+            )
+        }
+    };
+    let text = format!(
+        " {}: {}  [{}]  {what}",
+        crate::l10n::trd("View"),
+        ellipsize(&v.name, 24),
+        crate::l10n::trd("Binary"),
+    );
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            pad_right(&ellipsize(&text, area.width as usize), area.width as usize),
+            theme.menubar.add_modifier(Modifier::BOLD),
+        ))),
+        area,
+    );
+}
+
+/// One cell of a Binary-mode row: its text and how it is drawn.
+type Cell = (String, Style);
+
+/// Draw Binary mode: the strip of tabs, the column headings of the one that is
+/// up, and its rows — fixed-width columns first, then an open-ended one (a
+/// name, a string) that takes the rest of the width and scrolls sideways.
+fn render_binary(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
+    use super::binary::{Tab, hex};
+    let base = Style::default().fg(theme.text_fg).bg(theme.panel_bg);
+    f.render_widget(ratatui::widgets::Block::default().style(base), area);
+    let Some(view) = v.active_binary_mut() else {
+        // The analysis has not landed yet.
+        let msg = crate::l10n::trd("Analyzing…");
+        let row = Rect { y: area.y + area.height / 2, height: 1, ..area };
+        f.render_widget(
+            Paragraph::new(msg).style(base).alignment(ratatui::layout::Alignment::Center),
+            row,
+        );
+        return;
+    };
+    if area.height < 3 || area.width < 8 {
+        return;
+    }
+    let strip = Rect { height: 1, ..area };
+    // A column of margin on the left, as a panel's border would give.
+    let heading = Rect { x: area.x + 1, y: area.y + 1, width: area.width - 1, height: 1 };
+    let list = Rect { y: area.y + 2, height: area.height - 2, ..heading };
+    view.page = list.height as usize;
+    view.list_area = list;
+    view.strip_row = strip.y;
+    render_binary_tabs(f, strip, view, theme);
+
+    let width = list.width as usize;
+    let top = view.scroll_into_view(list.height as usize);
+    let len = view.len(view.tab);
+    let b = &view.bin;
+    let number = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
+    let dim = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
+    let aw = if b.is_64 { 16 } else { 8 };
+    // Offsets are as wide as the largest one in the file needs, eight at least.
+    let file_end = b.sections.iter().filter_map(|s| s.offset.map(|o| o + s.size)).max();
+    let ow = file_end.unwrap_or(0).max(b.strings.last().map_or(0, |s| s.offset)).max(1);
+    let ow = (format!("{ow:x}").len()).max(8);
+    let addr = |a: u64| (hex(a, b.is_64), number);
+    let off = |o: Option<u64>| (o.map_or_else(|| "-".into(), |o| format!("{o:0ow$x}")), number);
+    let longest = |it: &mut dyn Iterator<Item = usize>, cap: usize| it.max().unwrap_or(0).min(cap);
+
+    // Each tab's columns: (heading, width, right-aligned) for the fixed ones,
+    // then the open-ended heading.
+    let (fixed, open): (Vec<(&str, usize, bool)>, &str) = match view.tab {
+        Tab::Info => {
+            let w = longest(
+                &mut b.facts.iter().map(|x| {
+                    unicode_width::UnicodeWidthStr::width(crate::l10n::trd(x.label).as_str())
+                }),
+                30,
+            );
+            (vec![("", w, true)], "")
+        }
+        Tab::Sections => (
+            vec![
+                ("Address", aw, false),
+                ("Offset", ow, false),
+                ("Size", 10, true),
+                ("Type", 6, false),
+            ],
+            "Name",
+        ),
+        Tab::Libraries => (vec![], "Name"),
+        Tab::Imports => {
+            let w = longest(&mut b.imports.iter().map(|s| s.library.chars().count()), 32);
+            (if w == 0 { vec![] } else { vec![("Library", w.max(7), false)] }, "Name")
+        }
+        Tab::Exports => (vec![("Address", aw, false)], "Name"),
+        Tab::Functions => (vec![("Address", aw, false), ("Size", 8, true)], "Name"),
+        Tab::Strings => {
+            let w = longest(&mut b.sections.iter().map(|s| s.name.chars().count()), 20);
+            (vec![("Offset", ow, false), ("Section", w.max(7), false), ("", 3, false)], "Text")
+        }
+    };
+
+    // The Info tab reads as `label : value`, the way the Details view lays out
+    // a file's metadata; the lists space their columns further apart.
+    let sep = if view.tab == Tab::Info { " " } else { "  " };
+    // The column headings.
+    let head = Style::default().fg(theme.header_fg).bg(theme.panel_bg).add_modifier(Modifier::BOLD);
+    let mut cells: Vec<Cell> = Vec::new();
+    for (title, w, right) in &fixed {
+        let t = if title.is_empty() { String::new() } else { crate::l10n::trd(title) };
+        cells.push((fit(&t, *w, *right), head));
+        cells.push((sep.into(), head));
+    }
+    let open_title = if open.is_empty() { String::new() } else { crate::l10n::trd(open) };
+    cells.push((open_title, head));
+    f.render_widget(Paragraph::new(binary_line(cells, width, head)), heading);
+
+    let mut lines = Vec::with_capacity(list.height as usize);
+    if len == 0 {
+        let none = dim.add_modifier(Modifier::ITALIC);
+        lines.push(binary_line(vec![(crate::l10n::trd("(none)"), none)], width, base));
+    }
+    let h = view.h_offset;
+    let scrolled = |s: &str| -> String {
+        s.chars().skip(h).map(|c| if c.is_control() { ' ' } else { c }).collect()
+    };
+    for i in top..(top + list.height as usize).min(len) {
+        let Some(idx) = view.row(view.tab, i) else { break };
+        // The fixed cells, then the open-ended one and anything that follows it.
+        let (fixed_cells, tail): (Vec<Cell>, Vec<Cell>) = match view.tab {
+            Tab::Info => {
+                let x = &b.facts[idx];
+                let value = if x.translate { crate::l10n::trd(&x.value) } else { x.value.clone() };
+                let label = Style::default().fg(theme.header_fg).bg(theme.panel_bg);
+                (
+                    vec![(crate::l10n::trd(x.label), label)],
+                    vec![(": ".into(), label), (scrolled(&value), base)],
+                )
+            }
+            Tab::Sections => {
+                let s = &b.sections[idx];
+                (
+                    vec![
+                        addr(s.address),
+                        off(s.offset),
+                        (s.size.to_string(), number),
+                        (s.kind.into(), dim),
+                    ],
+                    vec![(scrolled(&s.name), base)],
+                )
+            }
+            Tab::Libraries => {
+                let l = &b.libraries[idx];
+                (vec![], vec![(scrolled(&l.name), base), (format!("  {}", l.note), dim)])
+            }
+            Tab::Imports => {
+                let s = &b.imports[idx];
+                (vec![(s.library.clone(), dim)], vec![(scrolled(&view.name(s)), base)])
+            }
+            Tab::Exports => {
+                let s = &b.exports[idx];
+                let shown = if s.address == 0 { ("-".into(), number) } else { addr(s.address) };
+                (
+                    vec![shown],
+                    vec![(scrolled(&view.name(s)), base), (format!("  {}", s.library), dim)],
+                )
+            }
+            Tab::Functions => {
+                let s = &b.functions[idx];
+                let size = if s.size == 0 { String::new() } else { s.size.to_string() };
+                // A function no symbol names is drawn dimmed, as the stand-in it is.
+                let style = if s.name.is_empty() { dim } else { base };
+                (vec![addr(s.address), (size, number)], vec![(scrolled(&view.name(s)), style)])
+            }
+            Tab::Strings => {
+                let s = &b.strings[idx];
+                let section = b.section_at(s.offset).unwrap_or("").to_string();
+                let enc = if s.wide { "u16" } else { "" };
+                (
+                    vec![off(Some(s.offset)), (section, dim), (enc.into(), dim)],
+                    vec![(scrolled(&s.text), base)],
+                )
+            }
+        };
+        let mut cells: Vec<Cell> = Vec::new();
+        for ((text, style), (_, w, right)) in fixed_cells.into_iter().zip(&fixed) {
+            cells.push((fit(&text, *w, *right), style));
+            cells.push((sep.into(), base));
+        }
+        cells.extend(tail);
+        let selected = i == view.selected();
+        let cells = if selected {
+            cells.into_iter().map(|(t, _)| (t, theme.cursor)).collect()
+        } else {
+            cells
+        };
+        lines.push(binary_line(cells, width, if selected { theme.cursor } else { base }));
+    }
+    f.render_widget(Paragraph::new(lines).style(base), list);
+}
+
+/// The strip of tab titles above Binary mode's list, each with its row count —
+/// a `+` after one that stopped at the row cap. On a screen too narrow for all
+/// of it, only the tab that is up keeps its count, and the strip starts late
+/// enough that that tab is always on it.
+fn render_binary_tabs(
+    f: &mut Frame,
+    area: Rect,
+    view: &mut super::binary::view::BinaryView,
+    theme: &Theme,
+) {
+    use super::binary::Tab;
+    use unicode_width::UnicodeWidthStr;
+    let normal = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
+    let count_style = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
+    let titles: Vec<(String, String)> = Tab::ALL
+        .iter()
+        .map(|&t| {
+            let more = if view.bin.capped[t.index()] { "+" } else { "" };
+            let count =
+                if t == Tab::Info { String::new() } else { format!("{}{more}", view.len(t)) };
+            (crate::l10n::trd(t.label()), count)
+        })
+        .collect();
+    let width = area.width as usize;
+    let measure = |compact: bool| -> Vec<usize> {
+        titles
+            .iter()
+            .zip(Tab::ALL)
+            .map(|((title, count), t)| {
+                let shown = if compact && t != view.tab { 0 } else { count.width() + 1 };
+                title.width() + 2 + if count.is_empty() { 0 } else { shown } + 1
+            })
+            .collect()
+    };
+    let mut compact = false;
+    let mut widths = measure(false);
+    if widths.iter().sum::<usize>() > width {
+        compact = true;
+        widths = measure(true);
+    }
+    let active = view.tab.index();
+    let mut first = 0;
+    while first < active && widths[first..=active].iter().sum::<usize>() > width {
+        first += 1;
+    }
+
+    let mut spans = Vec::new();
+    let mut hits = Vec::new();
+    let mut x = area.x;
+    for (i, (title, count)) in titles.iter().enumerate().skip(first) {
+        let tab = Tab::ALL[i];
+        let style = if tab == view.tab { theme.cursor } else { normal };
+        let start = x;
+        spans.push(Span::styled(format!(" {title}"), style));
+        if !count.is_empty() && !(compact && tab != view.tab) {
+            let cs = if tab == view.tab { theme.cursor } else { count_style };
+            spans.push(Span::styled(format!(" {count}"), cs));
+        }
+        spans.push(Span::styled(" ", style));
+        spans.push(Span::styled(" ", normal));
+        x = x.saturating_add(widths[i] as u16);
+        hits.push((start, x.saturating_sub(1), tab));
+    }
+    view.tab_hits = hits;
+    f.render_widget(Paragraph::new(Line::from(spans)).style(normal), area);
+}
+
+/// `s` in exactly `w` columns, padded on the left or the right, cut with `~`.
+fn fit(s: &str, w: usize, right: bool) -> String {
+    let s = ellipsize(s, w);
+    if right { crate::util::text::pad_left(&s, w) } else { pad_right(&s, w) }
+}
+
+/// A row of cells, cut at `width` columns and padded out to it in `fill`, so a
+/// highlighted row is a bar across the whole list.
+fn binary_line(cells: Vec<Cell>, width: usize, fill: Style) -> Line<'static> {
+    let mut used = 0;
+    let mut spans = Vec::with_capacity(cells.len() + 1);
+    for (text, style) in cells {
+        if used >= width {
+            break;
+        }
+        let (t, w) = crate::util::text::truncate_width(&text, width - used);
+        used += w;
+        spans.push(Span::styled(t, style));
+    }
+    if used < width {
+        spans.push(Span::styled(" ".repeat(width - used), fill));
+    }
+    Line::from(spans)
+}
+
 /// Largest model raster built per frame.
 ///
 /// The same bound, and the same reasoning, as the 3D panel's: an orbit rebuilds
@@ -477,11 +784,16 @@ fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
         );
         return;
     }
+    if v.mode == ViewMode::Binary {
+        render_binary_header(f, area, v, theme);
+        return;
+    }
     let mode = match v.mode {
         ViewMode::Hex => crate::l10n::trd("Hex"),
         ViewMode::Text if v.markdown_active() => crate::l10n::trd("Markdown"),
         ViewMode::Text => crate::l10n::trd("Text"),
         ViewMode::Map => crate::l10n::trd("Map"),
+        ViewMode::Binary => crate::l10n::trd("Binary"),
     };
     let wrap = if v.wrap { crate::l10n::trd("Wrap") } else { crate::l10n::trd("Unwrap") };
     let trunc =
@@ -489,7 +801,7 @@ fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
     let total = match v.mode {
         ViewMode::Text => v.line_count(),
         ViewMode::Hex => v.hex_rows(),
-        ViewMode::Map => 1,
+        ViewMode::Map | ViewMode::Binary => 1,
     };
     // While the line index is still being built, the total is a lower bound, so
     // flag it with a trailing '+'.

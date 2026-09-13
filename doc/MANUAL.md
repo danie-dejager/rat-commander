@@ -249,7 +249,8 @@ used to share now lives on `Alt-T`.
 
 - `F1` — Help (opens this manual)
 - `F2` — Toggle line wrap
-- `F4` — Cycle text / hex / byte-map mode
+- `F4` — Cycle text / hex / byte-map mode (and the binary view, for an
+  executable or library)
 - `F5` — Goto (line / percent / byte offset)
 - `F6` — (Markdown files) show the document outline — a tree of the headings.
   Use `↑ ↓` / `PgUp PgDn` / `Home End` or the mouse to pick a heading, `Enter`
@@ -257,11 +258,14 @@ used to share now lives on `Alt-T`.
   `F1` lands on its outline.
 - `F7` — Search
 - `F8` — (Markdown files) toggle Raw / Render; (image files) toggle Image / Raw;
-  (model files) toggle Model / Raw; (byte map) toggle Density / Bytes colouring
+  (model files) toggle Model / Raw; (byte map) toggle Density / Bytes colouring;
+  (binary view) toggle demangled / raw symbol names
 - `n` — Repeat the last search
 - `f` — Follow the file as it grows (`tail -f`); `f` again stops
 - `b` — Git blame: show who last changed each line; `↑ ↓` move a line cursor,
   `Enter` opens that line's commit in the panel, `b` again hides the column
+- In the **binary view**: `Tab` / `Shift-Tab` or `1`–`7` switch lists, `Enter`
+  opens the hex view at the highlighted row, `Esc` drops a *Find all* filter
 - `↑ ↓` / `PgUp PgDn` / `Home End` — Scroll (in a **model view**: `← → ↑ ↓`
   orbit the camera, `+` / `-` zoom, `Home` re-frames; dragging orbits and the
   wheel zooms)
@@ -908,8 +912,8 @@ and shows its address as a **QR code**; scan it, choose files, and they arrive.
 ## The viewer (F3)
 
 A read-only file viewer with text and hex modes, search,
-syntax highlighting, a Markdown render mode, and fullscreen image and 3D model
-views.
+syntax highlighting, a Markdown render mode, fullscreen image and 3D model
+views, and a look inside executables and libraries.
 
 **Useful for** quickly reading a file — including very large ones — without
 loading it into an editor.
@@ -940,8 +944,8 @@ loading it into an editor.
 
   Model files also get their own colour in the panel listings and their own
   solid — a cut gem — in the 3D landscape view.
-- **Text / Hex / Map** — **F4** cycles the three. Hex mode shows an
-  offset / hex / ASCII dump.
+- **Text / Hex / Map** — **F4** cycles the three (and the binary view, for a
+  file that is one). Hex mode shows an offset / hex / ASCII dump.
 - **Byte map** — the third **F4** mode draws the **whole file as one picture**.
   Each cell is a span of the file, coloured either by **density** (its Shannon
   entropy, as a fraction of the most a sample that size could score) or, with
@@ -959,6 +963,66 @@ loading it into an editor.
   from the start of its span, so building the map costs the same bounded work on
   a 4 MB file as on a 40 GB disk image. The trade is that something small hiding
   in the middle of a large span will not register.
+- **Binary view** — **F3** on an **executable or a library** opens what it is
+  made of instead of a screen of bytes: **ELF** (Linux and the BSDs), **PE**
+  (Windows `.exe`, `.dll`, `.sys`, .NET assemblies) and **Mach-O** (macOS,
+  universal binaries included). All three are read natively on every platform,
+  so a Windows DLL can be looked into from Linux and a Mach-O from Windows. A
+  file is recognised by its contents rather than its name, so a program with no
+  extension opens this way too, and one that merely starts like a binary but
+  does not parse opens as text, as it always did. A find-file content hit still
+  opens on its matching line; **F4** reaches the binary view from there, and from
+  the binary view steps on to text, hex and the byte map.
+
+  Seven lists, one on screen at a time. **Tab** / **Shift-Tab** step through
+  them, **1**–**7** jump straight to one, and a click on a title opens it:
+
+  | List | What it holds |
+  | --- | --- |
+  | Info | Format, architecture, type (executable, position-independent executable, shared library, object file, core dump), entry point, interpreter, platform and minimum OS, subsystem, whether it is a .NET assembly, link time, the name it is loaded by and the paths it searches for libraries, whether it has a symbol table and debug info, its build ID (GNU build ID, Mach-O UUID or PDB signature), and its **hardening**: PIE, NX, RELRO, stack canary and FORTIFY for ELF; ASLR, DEP and CFG for PE; PIE and code signature for Mach-O |
+  | Sections | Address, file offset, size and kind of every section |
+  | Libraries | The shared libraries it loads, with delay-loaded, weak and re-exported ones marked, and a Mach-O library's version |
+  | Imports | Every symbol it takes from elsewhere, with the library it comes from (and the symbol version, on ELF) |
+  | Exports | The symbols it offers, and where a forwarded one really lives |
+  | Functions | Every function, with its address and size |
+  | Strings | The readable text inside it, with the section each string is in |
+
+  `↑ ↓` / `PgUp PgDn` / `Home End` (or a click, or the wheel) move the
+  highlight, and `← →` scroll a long name or string sideways. **Enter** opens
+  the **hex view at the highlighted row's bytes** — a section, a function, a
+  string — the same way out the byte map offers. **F8** shows Rust and C++
+  symbol names **demangled** (the default) or as the linker spells them.
+
+  **F7** searches the list on screen, and `n` moves on to the next match; a
+  symbol is found by either spelling of its name, or by its address. The search
+  dialog's **Find all** narrows **every** list to its matching rows at once — so
+  one term shows the imports, functions and strings to do with it — and the
+  header names the filter until **Esc** drops it. **F5** picks a row by number or
+  by percentage, or, given a byte offset, opens the hex view there.
+
+  **Functions in a stripped file.** Most programs ship without a symbol table,
+  but every one keeps the tables its exceptions and backtraces unwind through —
+  `.eh_frame` on ELF, `.pdata` on 64-bit Windows, `LC_FUNCTION_STARTS` on Mach-O
+  — and those list nearly every function's start and length. The functions list
+  merges them with whatever symbols and exports the file has; a function nothing
+  names shows as `sub_` and its address. 32-bit Windows images have no such
+  table, so only their exports are listed.
+
+  **Strings without the noise.** Text is found as UTF-8 (any script, not just
+  ASCII) and as UTF-16, the way Windows stores it. Unlike a plain `strings`, runs
+  with no letter or digit, or made of one repeated character, are dropped; a run
+  is split where a letter of one script runs straight into a letter of another,
+  which words never do and random bytes constantly do; and inside machine code
+  only sentence-like ASCII counts, so thousands of function prologues that
+  happen to be printable do not bury the real strings. A .NET assembly's code
+  section is IL and metadata rather than machine code, and is read as data.
+
+  The analysis runs **in the background**. An ordinary program opens straight
+  into its lists; a debug build of several hundred megabytes shows *Analyzing…*
+  for a second or two while the rest of the program carries on. Only headers and
+  tables are read from the file, the strings pass streams it, and every list
+  stops at 250,000 rows (its count then shown with a `+`), so a pathological file
+  costs bounded memory.
 - **Line wrap** — **F2** toggles soft wrapping.
 - **Search** — **F7** opens the **same search dialog the editor uses** (see
   *Search and replace* under the editor): Normal / Regular expression / Hex /

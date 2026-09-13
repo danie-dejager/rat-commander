@@ -58,6 +58,17 @@ The installed executable is named **`rc`** for quick typing.
   the byte offset and entropy under it; press **Enter** and the hex view opens
   *there*. The file is **sampled, not read whole**, so it costs the same bounded
   work on a 4 MB file as on a 40 GB one.
+- **Binary view (F3 on an executable)** — ELF, PE and Mach-O programs and
+  libraries, universal binaries included, open as what they are made of: format,
+  architecture, entry point, linking and **hardening** (PIE, NX, RELRO, canary,
+  ASLR, DEP, CFG), then scrollable lists of **sections**, **libraries**,
+  **imports**, **exports**, **functions** and **strings**. All three formats are
+  read natively on every platform. Functions are recovered from the unwind
+  tables even in a stripped file, Rust and C++ names are demangled, and the
+  strings list drops the noise a plain `strings` buries the text under. `Enter`
+  opens the hex view at a row's bytes, and *Find all* narrows every list to one
+  term. Analysis runs in the background; a file that does not parse opens as
+  text.
 - **Built-in editor (F4)** — `mcedit`-style block copy/move/delete, clipboard,
   search & replace, undo/redo, syntax highlighting, and an
   in-place **hex editor** for arbitrarily large files.
@@ -273,12 +284,14 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | --- | --- |
 | `F1` | Help (opens the user manual) |
 | `F2` | Toggle line wrap |
-| `F4` | Cycle text / hex / byte-map mode |
+| `F4` | Cycle text / hex / byte-map mode (and the binary view, for an executable) |
 | `F5` | Goto (line / percent / byte offset) |
 | `F7` | Search (`n` repeats) |
 | `f` | Follow the file as it grows (`tail -f`) |
 | `b` | Git blame column; `Enter` opens the cursor line's commit |
-| `F8` | (Markdown) toggle Raw / Render — (image) toggle Image / Raw — (model) toggle Model / Raw — (map) toggle Density / Bytes |
+| `F8` | (Markdown) toggle Raw / Render — (image) toggle Image / Raw — (model) toggle Model / Raw — (map) toggle Density / Bytes — (binary) toggle demangled / raw names |
+| `Tab` / `Shift-Tab` / `1`–`7` | (binary) switch between Info, Sections, Libraries, Imports, Exports, Functions and Strings |
+| `Enter` / `Esc` | (binary) open the hex view at the highlighted row / drop a *Find all* filter |
 | `← → ↑ ↓` / `Enter` | (map) move the cursor / open the hex view at that offset |
 | `← → ↑ ↓` | (model) orbit the camera |
 | `+` / `-` | (model) zoom in / out |

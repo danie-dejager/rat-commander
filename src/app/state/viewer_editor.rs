@@ -384,8 +384,15 @@ impl AppState {
                     v.set_search_seed(self.search_memory.viewer_query.clone());
                     // A find-file content hit opens the viewer at its matching
                     // line, so F3 on a result lands where the search matched.
-                    if let Some(line) = self.find_hit_lines.get(&path.display()) {
+                    let hit = self.find_hit_lines.get(&path.display()).copied();
+                    if let Some(line) = hit {
                         v.goto(&line.to_string(), crate::viewer::GotoMode::Line);
+                    }
+                    // An executable or a library opens in Binary mode — except
+                    // when F3 came from a content search, whose hit is in the
+                    // text. F4 reaches Binary mode from there.
+                    if hit.is_none() {
+                        open_binary(&mut v, &path.path).await;
                     }
                     // A supported image opens showing the decoded image fullscreen
                     // (it falls back to the raw text/hex view if it can't decode).

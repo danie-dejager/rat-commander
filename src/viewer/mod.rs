@@ -6,6 +6,7 @@
 //! advance a search. Only a per-line offset index is kept (8 bytes per line).
 //! Scrolling is by logical line (text) or 16-byte row (hex).
 
+pub mod binary;
 pub mod fingerprint;
 pub mod loglevel;
 pub mod markdown;
@@ -22,6 +23,8 @@ use std::cell::RefCell;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Maximum bytes read into an *in-memory* viewer (larger in-memory buffers are
 /// truncated with a note). File-backed sources are paged and never truncated.
@@ -95,6 +98,20 @@ pub enum ViewMode {
     Hex,
     /// The whole file as one picture — see [`fingerprint`].
     Map,
+    /// What an executable or library is made of — see [`binary`]. Only offered
+    /// for a file that sniffed as one, and where it opens.
+    Binary,
+}
+
+/// Binary mode's analysis: still running in the background, or done.
+enum BinaryState {
+    Pending {
+        rx: tokio::sync::oneshot::Receiver<Option<binary::Binary>>,
+        /// Raised when the viewer closes, so a long analysis stops rather than
+        /// finishing for no one.
+        cancel: Arc<AtomicBool>,
+    },
+    Ready(Box<binary::view::BinaryView>),
 }
 
 /// A decoded image shown fullscreen when F3 opens a supported image file. Falls
@@ -338,6 +355,8 @@ pub struct ViewerState {
     map_by_class: bool,
     /// Cells per row, recorded by the renderer so cursor keys move by a row.
     pub(crate) map_cols: usize,
+    /// Binary mode, for a file that sniffed as an executable or library.
+    binary: Option<BinaryState>,
 }
 
 impl ViewerState {
@@ -389,6 +408,7 @@ impl ViewerState {
             map_cell: 0,
             map_by_class: false,
             map_cols: 64,
+            binary: None,
         }
     }
 
@@ -443,6 +463,7 @@ impl ViewerState {
             map_cell: 0,
             map_by_class: false,
             map_cols: 64,
+            binary: None,
         }
     }
 
@@ -493,7 +514,7 @@ impl ViewerState {
         if self.mode == ViewMode::Text {
             self.index_fully();
         }
-        if self.mode != ViewMode::Map {
+        if !matches!(self.mode, ViewMode::Map | ViewMode::Binary) {
             self.top = self.max_top();
         }
     }
@@ -602,7 +623,7 @@ impl ViewerState {
     /// resume it when it is back there. Run after anything that can move the
     /// view: keys, the mouse, Goto and search.
     fn sync_follow(&mut self) {
-        if self.follow.is_none() || self.mode == ViewMode::Map {
+        if self.follow.is_none() || matches!(self.mode, ViewMode::Map | ViewMode::Binary) {
             return;
         }
         // Before the end is indexed there is no telling whether this is it.
@@ -842,8 +863,9 @@ impl ViewerState {
             ViewMode::Text => self.line_count(),
             ViewMode::Hex => self.hex_rows(),
             // The map fits the view by construction, so there is nowhere to
-            // scroll to and the top is pinned at zero.
-            ViewMode::Map => return 0,
+            // scroll to and the top is pinned at zero. Binary mode's lists keep
+            // their own scroll positions.
+            ViewMode::Map | ViewMode::Binary => return 0,
         };
         let rows = self.view_rows.max(1);
         let simple = total.saturating_sub(rows);
@@ -902,6 +924,10 @@ impl ViewerState {
         // While the outline navigator is open it captures navigation keys.
         if self.outline_open {
             return self.handle_outline_key(key);
+        }
+
+        if self.mode == ViewMode::Binary {
+            return self.handle_binary_key(key);
         }
 
         // The map takes the navigation keys too: they move its cursor, and
@@ -989,11 +1015,7 @@ impl ViewerState {
             }
             KeyCode::F(2) => self.wrap = !self.wrap,
             KeyCode::F(4) => {
-                self.mode = match self.mode {
-                    ViewMode::Text => ViewMode::Hex,
-                    ViewMode::Hex => ViewMode::Map,
-                    ViewMode::Map => ViewMode::Text,
-                };
+                self.mode = self.next_mode();
                 if self.mode == ViewMode::Map {
                     self.ensure_map();
                 }
@@ -1065,6 +1087,11 @@ impl ViewerState {
                 Some(i) => self.activate_fkey(i),
                 None => ViewerSignal::Stay,
             };
+        }
+
+        if self.mode == ViewMode::Binary {
+            self.handle_binary_mouse(ev);
+            return ViewerSignal::Stay;
         }
 
         // A displayed model takes the wheel and the drag: zoom and orbit, rather
@@ -1201,14 +1228,210 @@ impl ViewerState {
         self.map.as_ref().and_then(|f| f.cells.get(self.map_cell)).map_or(0, |c| c.start)
     }
 
+    /// Open in Binary mode and analyse the file at `path` in the background —
+    /// for a file whose head [sniffed](binary::sniff) as an executable or a
+    /// library. Until the analysis lands the view says it is working; if the
+    /// file turns out not to parse after all, the text view takes over.
+    pub fn analyze_binary(&mut self, path: PathBuf) {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let flag = cancel.clone();
+        let spawned = std::thread::Builder::new().name("binary-analysis".into()).spawn(move || {
+            let _ = tx.send(binary::analyze_file(&path, &flag));
+        });
+        if spawned.is_ok() {
+            self.binary = Some(BinaryState::Pending { rx, cancel });
+            self.mode = ViewMode::Binary;
+        }
+    }
+
+    /// Give a started analysis up to `wait` to finish, so an ordinary-sized
+    /// binary opens straight into its lists instead of flashing "Analyzing…"
+    /// for a frame. A slow one is left running for [`poll_binary`] to collect.
+    ///
+    /// [`poll_binary`]: ViewerState::poll_binary
+    pub async fn settle_binary(&mut self, wait: std::time::Duration) {
+        let Some(BinaryState::Pending { rx, .. }) = self.binary.as_mut() else { return };
+        if let Ok(result) = tokio::time::timeout(wait, rx).await {
+            self.finish_binary(result.ok().flatten());
+        }
+    }
+
+    /// Collect a background analysis that has finished, on the app's tick.
+    /// Returns whether anything changed on screen.
+    pub fn poll_binary(&mut self) -> bool {
+        let Some(BinaryState::Pending { rx, .. }) = self.binary.as_mut() else { return false };
+        match rx.try_recv() {
+            Ok(result) => self.finish_binary(result),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => return false,
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => self.finish_binary(None),
+        }
+        true
+    }
+
+    /// Whether an analysis is still running, so the app keeps its tick going.
+    pub fn analyzing(&self) -> bool {
+        matches!(self.binary, Some(BinaryState::Pending { .. }))
+    }
+
+    /// Show an analysis — or, when there is none to show, give up on Binary
+    /// mode and fall back to the text view it would otherwise have been.
+    fn finish_binary(&mut self, result: Option<binary::Binary>) {
+        match result {
+            Some(bin) => {
+                let view = binary::view::BinaryView::new(Box::new(bin));
+                self.binary = Some(BinaryState::Ready(Box::new(view)));
+            }
+            None => {
+                self.binary = None;
+                if self.mode == ViewMode::Binary {
+                    self.mode = ViewMode::Text;
+                    self.top = 0;
+                }
+            }
+        }
+    }
+
+    /// Attach a finished analysis and switch to showing it.
+    #[cfg(test)]
+    pub fn set_binary(&mut self, bin: binary::Binary) {
+        self.finish_binary(Some(bin));
+        self.mode = ViewMode::Binary;
+    }
+
+    /// Whether Binary mode is on offer (analysed, or being analysed).
+    fn has_binary(&self) -> bool {
+        self.binary.is_some()
+    }
+
+    /// Binary mode's lists, when it is showing and the analysis has landed.
+    pub(crate) fn active_binary(&self) -> Option<&binary::view::BinaryView> {
+        match &self.binary {
+            Some(BinaryState::Ready(view)) if self.mode == ViewMode::Binary => Some(view),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn active_binary_mut(&mut self) -> Option<&mut binary::view::BinaryView> {
+        match &mut self.binary {
+            Some(BinaryState::Ready(view)) if self.mode == ViewMode::Binary => Some(view),
+            _ => None,
+        }
+    }
+
+    /// Keys in Binary mode: they drive the lists, and Enter opens the hex view
+    /// at the highlighted row's offset — the same way out the byte map offers.
+    fn handle_binary_key(&mut self, key: KeyEvent) -> ViewerSignal {
+        use binary::Tab;
+        let shift_tab = key.code == KeyCode::BackTab
+            || (key.code == KeyCode::Tab && key.modifiers.contains(KeyModifiers::SHIFT));
+        let Some(view) = self.active_binary_mut() else {
+            // Still analysing: nothing to move through yet, but the viewer's
+            // own keys (F4, search, quit) still work.
+            return match key.code {
+                KeyCode::F(3) | KeyCode::F(10) | KeyCode::Esc | KeyCode::Char('q') => {
+                    ViewerSignal::Close
+                }
+                KeyCode::F(1) | KeyCode::F(4) => self.handle_plain_view_key(key),
+                _ => ViewerSignal::Stay,
+            };
+        };
+        let page = view.page.saturating_sub(1).max(1) as isize;
+        match key.code {
+            _ if shift_tab => view.cycle_tab(-1),
+            KeyCode::Tab => view.cycle_tab(1),
+            KeyCode::Char(c @ '1'..='7') => view.set_tab(Tab::ALL[c as usize - '1' as usize]),
+            KeyCode::Up => view.move_by(-1),
+            KeyCode::Down => view.move_by(1),
+            KeyCode::PageUp => view.move_by(-page),
+            KeyCode::PageDown => view.move_by(page),
+            KeyCode::Home => view.select(0),
+            KeyCode::End => view.select(usize::MAX),
+            KeyCode::Left => view.h_offset = view.h_offset.saturating_sub(8),
+            KeyCode::Right => view.h_offset += 8,
+            KeyCode::F(8) => view.demangle = !view.demangle,
+            // Esc first lets go of a filter; only then does it close the viewer.
+            KeyCode::Esc if view.clear_filter() => {}
+            KeyCode::Enter => {
+                if let Some(off) = view.selected_offset() {
+                    self.show_hex_at(off as usize);
+                }
+            }
+            KeyCode::Char('n') => self.find_next(),
+            KeyCode::F(1)
+            | KeyCode::F(3)
+            | KeyCode::F(4)
+            | KeyCode::F(5)
+            | KeyCode::F(7)
+            | KeyCode::F(10)
+            | KeyCode::Esc
+            | KeyCode::Char('q') => return self.handle_plain_view_key(key),
+            _ => {}
+        }
+        ViewerSignal::Stay
+    }
+
+    /// The mouse in Binary mode: the wheel scrolls the list, a click on a tab
+    /// title opens that tab, and a click on a row highlights it.
+    fn handle_binary_mouse(&mut self, ev: MouseEvent) {
+        let Some(view) = self.active_binary_mut() else { return };
+        match ev.kind {
+            MouseEventKind::ScrollDown => view.scroll_by(3),
+            MouseEventKind::ScrollUp => view.scroll_by(-3),
+            MouseEventKind::Down(MouseButton::Left) => {
+                if ev.row == view.strip_row
+                    && let Some(&(_, _, tab)) =
+                        view.tab_hits.iter().find(|(a, b, _)| ev.column >= *a && ev.column < *b)
+                {
+                    view.set_tab(tab);
+                    return;
+                }
+                let a = view.list_area;
+                if a.height > 0 && ev.row >= a.y && ev.row < a.y + a.height {
+                    let i = view.top() + (ev.row - a.y) as usize;
+                    if i < view.len(view.tab) {
+                        view.select(i);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Switch to the hex view with byte `off` on screen.
+    fn show_hex_at(&mut self, off: usize) {
+        self.mode = ViewMode::Hex;
+        self.top = (off / 16).min(self.max_top());
+    }
+
+    /// The mode F4 switches to: Text → Hex → Map, then Binary when the file is
+    /// one, and round again.
+    fn next_mode(&self) -> ViewMode {
+        match self.mode {
+            ViewMode::Text => ViewMode::Hex,
+            ViewMode::Hex => ViewMode::Map,
+            ViewMode::Map if self.has_binary() => ViewMode::Binary,
+            ViewMode::Map | ViewMode::Binary => ViewMode::Text,
+        }
+    }
+
     pub(crate) fn footer_labels(&self) -> [&'static str; 10] {
         let wrap = if self.wrap { "Unwrap" } else { "Wrap" };
-        // Names the mode F4 moves *to*, cycling Text → Hex → Map.
-        let mode = match self.mode {
-            ViewMode::Text => "Hex",
-            ViewMode::Hex => "Map",
-            ViewMode::Map => "Text",
+        // Names the mode F4 moves *to*, cycling Text → Hex → Map (→ Binary).
+        let mode = match self.next_mode() {
+            ViewMode::Text => "Text",
+            ViewMode::Hex => "Hex",
+            ViewMode::Map => "Map",
+            ViewMode::Binary => "Binary",
         };
+        if self.mode == ViewMode::Binary {
+            let f8 = match self.active_binary() {
+                Some(view) if view.demangle => "Raw",
+                Some(_) => "Demangle",
+                None => "",
+            };
+            return ["Help", "", "Quit", mode, "Goto", "", "Search", f8, "Next", "Quit"];
+        }
         // F8: for an image file, toggle Image/Raw; for a Markdown file in text
         // mode, "Raw" shows the source and "Render" the approximation.
         let f8 = if self.mode == ViewMode::Map {
@@ -1372,6 +1595,9 @@ impl ViewerState {
     /// logical lines; in hex mode they are 16-byte rows.
     pub fn goto(&mut self, value: &str, mode: GotoMode) -> bool {
         let v = value.trim();
+        if self.mode == ViewMode::Binary {
+            return self.goto_binary(v, mode);
+        }
         let text = self.mode == ViewMode::Text;
         // Parse first, then extend the index as far as the target needs before
         // computing the top row.
@@ -1393,7 +1619,7 @@ impl ViewerState {
                 let total = match self.mode {
                     ViewMode::Text => self.line_count(),
                     ViewMode::Hex => self.hex_rows(),
-                    ViewMode::Map => 1,
+                    ViewMode::Map | ViewMode::Binary => 1,
                 };
                 ((total.saturating_sub(1)) as f64 * p.clamp(0.0, 100.0) / 100.0).round() as usize
             }
@@ -1418,12 +1644,43 @@ impl ViewerState {
         true
     }
 
+    /// In Binary mode, Goto picks a row of the list on screen by number or by
+    /// percentage; a byte offset has no row, so it opens the hex view there.
+    fn goto_binary(&mut self, v: &str, mode: GotoMode) -> bool {
+        let offset = match mode {
+            GotoMode::DecimalOffset => v.parse::<usize>().ok(),
+            GotoMode::HexOffset => {
+                let hex = v.strip_prefix("0x").or_else(|| v.strip_prefix("0X")).unwrap_or(v);
+                usize::from_str_radix(hex, 16).ok()
+            }
+            GotoMode::Line | GotoMode::Percent => {
+                let Some(view) = self.active_binary_mut() else { return false };
+                let len = view.len(view.tab);
+                let row = if mode == GotoMode::Line {
+                    let Ok(n) = v.parse::<usize>() else { return false };
+                    n.saturating_sub(1)
+                } else {
+                    let Ok(p) = v.parse::<f64>() else { return false };
+                    (len.saturating_sub(1) as f64 * p.clamp(0.0, 100.0) / 100.0).round() as usize
+                };
+                view.select(row);
+                return true;
+            }
+        };
+        let Some(off) = offset else { return false };
+        self.show_hex_at(off);
+        true
+    }
+
     /// Byte offset the view is currently positioned at.
     fn top_offset(&self) -> usize {
         match self.mode {
             ViewMode::Text => self.line_starts.get(self.top).copied().unwrap_or(0),
             ViewMode::Hex => self.top * 16,
             ViewMode::Map => self.map_offset() as usize,
+            ViewMode::Binary => {
+                self.active_binary().and_then(|v| v.selected_offset()).unwrap_or(0) as usize
+            }
         }
     }
 
@@ -1433,8 +1690,9 @@ impl ViewerState {
             ViewMode::Text => self.byte_to_line(off),
             ViewMode::Hex => off / 16,
             // The map has no scroll position of its own; it shows the whole
-            // file at once and carries a cursor instead.
-            ViewMode::Map => 0,
+            // file at once and carries a cursor instead. Binary mode's rows are
+            // not byte offsets at all.
+            ViewMode::Map | ViewMode::Binary => 0,
         }
     }
 
@@ -1484,6 +1742,14 @@ impl ViewerState {
 
     fn find_next(&mut self) {
         let Some(needle) = self.needle() else { return };
+        // Binary mode searches the list on screen, from the highlighted row.
+        if self.mode == ViewMode::Binary {
+            let backwards = self.search.backwards;
+            if let Some(view) = self.active_binary_mut() {
+                view.find(&needle, backwards);
+            }
+            return;
+        }
         let found = if self.search.backwards {
             // Wrap to the end when there is nothing before the current hit.
             let before = self.last_match.unwrap_or(0);
@@ -1514,6 +1780,9 @@ impl ViewerState {
                     self.map_cell = fp.cell_at(off as u64);
                 }
             }
+            // Binary mode searches its rows rather than the bytes, so no byte
+            // hit ever lands here.
+            ViewMode::Binary => {}
         }
     }
 
@@ -1522,6 +1791,16 @@ impl ViewerState {
     /// big to mark exhaustively, and a bounded set keeps this from turning into an
     /// unbounded scan of a multi-gigabyte log.
     fn find_all(&mut self) {
+        // In Binary mode "Find all" narrows every list to its matching rows.
+        if self.mode == ViewMode::Binary {
+            let term = self.search.query.clone();
+            if let Some(needle) = self.needle()
+                && let Some(view) = self.active_binary_mut()
+            {
+                view.set_filter(&term, &needle);
+            }
+            return;
+        }
         self.found_lines.clear();
         let Some(needle) = self.needle() else { return };
         let mut at = 0usize;
@@ -1621,6 +1900,9 @@ impl ViewerState {
 
 impl Drop for ViewerState {
     fn drop(&mut self) {
+        if let Some(BinaryState::Pending { cancel, .. }) = &self.binary {
+            cancel.store(true, Ordering::Relaxed);
+        }
         if let Some(path) = self.temp.take() {
             let _ = std::fs::remove_file(path);
         }
@@ -3013,5 +3295,268 @@ mod tests {
             m.orbit(0.0, -1.0);
         }
         assert!(m.cam.pitch >= -MODEL_PITCH && m.cam.eye().y.is_finite());
+    }
+
+    /// A viewer in Binary mode on a small ELF object.
+    fn binary_viewer() -> ViewerState {
+        let data = binary::tests::sample_elf();
+        let bin = binary::analyze_bytes(&data).expect("the sample parses");
+        let mut v = ViewerState::new("tool.o".into(), data);
+        v.set_binary(bin);
+        v
+    }
+
+    fn key(v: &mut ViewerState, code: KeyCode) -> ViewerSignal {
+        v.handle_key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    fn draw_rows(v: &mut ViewerState, w: u16, h: u16) -> Vec<String> {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
+        t.draw(|f| render::render(f, f.area(), v, &theme, None)).unwrap();
+        let b = t.backend().buffer();
+        (0..b.area.height)
+            .map(|y| (0..b.area.width).map(|x| b[(x, y)].symbol().to_string()).collect())
+            .collect()
+    }
+
+    fn search(v: &mut ViewerState, term: &str, find_all: bool, backwards: bool) {
+        v.apply_search(&crate::ui::dialog::SearchReplaceParams {
+            replace: false,
+            search: term.into(),
+            replacement: String::new(),
+            regex: false,
+            case_sensitive: false,
+            whole_words: false,
+            backwards,
+            hex: false,
+            find_all,
+        });
+    }
+
+    #[test]
+    fn binary_mode_opens_on_info_and_tab_digits_and_backtab_switch_lists() {
+        use binary::Tab;
+        let mut v = binary_viewer();
+        assert_eq!(v.mode, ViewMode::Binary);
+        let tab = |v: &ViewerState| v.active_binary().unwrap().tab;
+        assert_eq!(tab(&v), Tab::Info);
+        key(&mut v, KeyCode::Tab);
+        assert_eq!(tab(&v), Tab::Sections);
+        key(&mut v, KeyCode::BackTab);
+        key(&mut v, KeyCode::BackTab);
+        assert_eq!(tab(&v), Tab::Strings, "Shift-Tab wraps round from the first tab");
+        key(&mut v, KeyCode::Char('6'));
+        assert_eq!(tab(&v), Tab::Functions);
+        // The keys the text view has for itself do nothing here.
+        key(&mut v, KeyCode::Char('f'));
+        key(&mut v, KeyCode::Char('b'));
+        assert!(!v.following() && v.mode == ViewMode::Binary);
+    }
+
+    #[test]
+    fn f4_passes_through_binary_mode_only_for_a_binary() {
+        let mut v = binary_viewer();
+        assert_eq!(v.footer_labels()[3], "Text");
+        key(&mut v, KeyCode::F(4));
+        assert_eq!(v.mode, ViewMode::Text);
+        key(&mut v, KeyCode::F(4));
+        key(&mut v, KeyCode::F(4));
+        assert_eq!(v.mode, ViewMode::Map);
+        assert_eq!(v.footer_labels()[3], "Binary");
+        key(&mut v, KeyCode::F(4));
+        assert_eq!(v.mode, ViewMode::Binary, "and back round to the analysis");
+
+        let mut plain = ViewerState::new("notes.txt".into(), b"hello\n".to_vec());
+        for _ in 0..3 {
+            key(&mut plain, KeyCode::F(4));
+        }
+        assert_eq!(plain.mode, ViewMode::Text, "a file that is no binary never offers the mode");
+    }
+
+    #[test]
+    fn enter_opens_the_hex_view_at_the_highlighted_rows_offset() {
+        let mut v = binary_viewer();
+        key(&mut v, KeyCode::Char('7'));
+        let view = v.active_binary().unwrap();
+        let row = (0..view.len(binary::Tab::Strings))
+            .find(|&i| view.bin.strings[i].text == "a string worth finding")
+            .expect("the string is listed");
+        let offset = view.bin.strings[row].offset as usize;
+        v.active_binary_mut().unwrap().select(row);
+        key(&mut v, KeyCode::Enter);
+        assert_eq!(v.mode, ViewMode::Hex);
+        assert_eq!(v.top, offset / 16, "the hex view shows that string's row");
+
+        // Imports have no bytes of their own to show, so Enter stays put.
+        let mut v = binary_viewer();
+        key(&mut v, KeyCode::Char('1'));
+        key(&mut v, KeyCode::Enter);
+        assert_eq!(v.mode, ViewMode::Binary);
+    }
+
+    #[test]
+    fn search_moves_between_rows_and_find_all_narrows_every_list_until_esc() {
+        use binary::Tab;
+        let mut v = binary_viewer();
+        key(&mut v, KeyCode::Char('6'));
+        let selected_name = |v: &ViewerState| {
+            let view = v.active_binary().unwrap();
+            let i = view.row(view.tab, view.selected()).unwrap();
+            view.bin.functions[i].name.clone()
+        };
+        search(&mut v, "helper", false, false);
+        assert_eq!(selected_name(&v), "local_helper");
+        // A demangled name is found by what it reads as, too.
+        search(&mut v, "widget::value", false, true);
+        assert_eq!(selected_name(&v), "_ZN4demo6Widget5valueEi");
+
+        search(&mut v, "entry", true, false);
+        let view = v.active_binary().unwrap();
+        assert_eq!(view.filter_term(), Some("entry"));
+        assert_eq!(view.len(Tab::Functions), 1);
+        assert_eq!(view.len(Tab::Sections), 0);
+        // The symbol's name is in the string table too, and only it.
+        let strings = view.len(Tab::Strings);
+        assert!(strings >= 1);
+        assert!((0..strings).all(|i| {
+            view.bin.strings[view.row(Tab::Strings, i).unwrap()].text.contains("entry")
+        }));
+        let rows = draw_rows(&mut v, 100, 12);
+        assert!(rows[0].contains("\"entry\""), "the header names the filter: {:?}", rows[0]);
+
+        assert!(
+            matches!(key(&mut v, KeyCode::Esc), ViewerSignal::Stay),
+            "Esc lets go of the filter"
+        );
+        let view = v.active_binary().unwrap();
+        assert_eq!(view.filter_term(), None);
+        assert_eq!(view.len(Tab::Functions), 3);
+        assert_eq!(selected_name(&v), "exported_entry", "the highlight stays on its row");
+        assert!(matches!(key(&mut v, KeyCode::Esc), ViewerSignal::Close), "and then closes");
+    }
+
+    #[test]
+    fn f8_switches_between_demangled_and_raw_names() {
+        let mut v = binary_viewer();
+        key(&mut v, KeyCode::Char('6'));
+        assert_eq!(v.footer_labels()[7], "Raw");
+        let shown = draw_rows(&mut v, 100, 12).join("\n");
+        assert!(shown.contains("demo::Widget::value(int)"), "{shown}");
+        key(&mut v, KeyCode::F(8));
+        assert_eq!(v.footer_labels()[7], "Demangle");
+        let shown = draw_rows(&mut v, 100, 12).join("\n");
+        assert!(shown.contains("_ZN4demo6Widget5valueEi") && !shown.contains("demo::Widget"));
+    }
+
+    #[test]
+    fn binary_mode_draws_its_tabs_headings_and_rows_at_any_width() {
+        let mut v = binary_viewer();
+        let rows = draw_rows(&mut v, 100, 16);
+        assert!(
+            rows[0].contains("[Binary]") && rows[0].contains("ELF 64-bit x86-64"),
+            "{:?}",
+            rows[0]
+        );
+        assert!(rows[1].contains("Info") && rows[1].contains("Functions 3"), "{:?}", rows[1]);
+        assert!(rows.iter().any(|r| r.contains("Architecture") && r.contains("x86-64")));
+
+        key(&mut v, KeyCode::Char('2'));
+        let rows = draw_rows(&mut v, 100, 16);
+        assert!(rows[2].contains("Address") && rows[2].contains("Name"), "headings: {:?}", rows[2]);
+        assert!(rows.iter().any(|r| r.contains(".text") && r.contains("code")));
+
+        // Too narrow for every title: the list that is up stays on the strip.
+        key(&mut v, KeyCode::Char('7'));
+        for w in [8u16, 20, 30, 45] {
+            let rows = draw_rows(&mut v, w, 8);
+            assert!(rows[1].contains("Str"), "width {w}: {:?}", rows[1]);
+        }
+        // And one line of screen or an empty list is no reason to panic.
+        draw_rows(&mut v, 10, 3);
+        let mut empty = binary_viewer();
+        key(&mut empty, KeyCode::Char('3'));
+        let rows = draw_rows(&mut empty, 60, 8);
+        assert!(rows.iter().any(|r| r.contains("(none)")));
+    }
+
+    #[test]
+    fn the_mouse_picks_tabs_and_rows_and_the_wheel_scrolls() {
+        use binary::Tab;
+        let mut v = binary_viewer();
+        draw_rows(&mut v, 100, 16);
+        let click = |v: &mut ViewerState, column: u16, row: u16, kind: MouseEventKind| {
+            v.handle_mouse(MouseEvent { kind, column, row, modifiers: KeyModifiers::NONE });
+        };
+        let &(x, _, _) = v
+            .active_binary()
+            .unwrap()
+            .tab_hits
+            .iter()
+            .find(|h| h.2 == Tab::Functions)
+            .expect("the strip has the tab");
+        click(&mut v, x + 1, 1, MouseEventKind::Down(MouseButton::Left));
+        assert_eq!(v.active_binary().unwrap().tab, Tab::Functions);
+        draw_rows(&mut v, 100, 16);
+        // The list starts under the strip and the headings.
+        click(&mut v, 5, 4, MouseEventKind::Down(MouseButton::Left));
+        assert_eq!(v.active_binary().unwrap().selected(), 1);
+        click(&mut v, 5, 4, MouseEventKind::ScrollDown);
+        click(&mut v, 5, 4, MouseEventKind::ScrollUp);
+        assert!(v.active_binary().unwrap().selected() < 3);
+    }
+
+    #[test]
+    fn goto_picks_a_row_or_opens_the_hex_view_at_an_offset() {
+        let mut v = binary_viewer();
+        key(&mut v, KeyCode::Char('6'));
+        assert!(v.goto("3", GotoMode::Line));
+        assert_eq!(v.active_binary().unwrap().selected(), 2);
+        assert!(v.goto("0", GotoMode::Percent));
+        assert_eq!(v.active_binary().unwrap().selected(), 0);
+        assert!(!v.goto("nonsense", GotoMode::Line));
+        assert!(v.goto("0x40", GotoMode::HexOffset));
+        assert_eq!((v.mode, v.top), (ViewMode::Hex, 4));
+    }
+
+    #[test]
+    fn a_pending_analysis_shows_that_it_is_working_then_lands_or_falls_back_to_text() {
+        // Still running: the view says so, and the lists' keys have nothing to do.
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let mut v = ViewerState::new("tool".into(), b"\x7fELF not really".to_vec());
+        v.binary = Some(BinaryState::Pending { rx, cancel: Arc::new(AtomicBool::new(false)) });
+        v.mode = ViewMode::Binary;
+        assert!(v.analyzing());
+        let rows = draw_rows(&mut v, 60, 8);
+        assert!(rows.iter().any(|r| r.contains("Analyzing")), "{rows:?}");
+        for code in [KeyCode::Down, KeyCode::Enter, KeyCode::Tab, KeyCode::F(8)] {
+            assert!(matches!(key(&mut v, code), ViewerSignal::Stay));
+        }
+        assert!(!v.poll_binary(), "nothing has arrived yet");
+
+        // It turned out not to parse: back to the text view.
+        tx.send(None).unwrap();
+        assert!(v.poll_binary());
+        assert_eq!(v.mode, ViewMode::Text);
+        assert!(!v.analyzing() && !v.has_binary());
+
+        // A real analysis on a real file lands in Binary mode.
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("rc_binary_{}_{nanos}.o", std::process::id()));
+        std::fs::write(&path, binary::tests::sample_elf()).unwrap();
+        let mut v = ViewerState::open_file("tool.o".into(), path.clone(), None).unwrap();
+        v.analyze_binary(path.clone());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while v.analyzing() && std::time::Instant::now() < deadline {
+            v.poll_binary();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(v.mode, ViewMode::Binary);
+        assert_eq!(v.active_binary().unwrap().bin.summary, "ELF 64-bit x86-64");
+        drop(v);
+        let _ = std::fs::remove_file(&path);
     }
 }

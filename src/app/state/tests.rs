@@ -3899,6 +3899,48 @@ async fn f3_opens_image_viewer_and_falls_back_to_text() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// F3 on an executable or library opens its analysis; on a file that only looks
+/// like one, or on text, the ordinary viewer.
+#[tokio::test]
+async fn f3_opens_a_binary_in_binary_mode_and_anything_else_as_text() {
+    let root = temp_dir("binview");
+    std::fs::write(root.join("tool.o"), crate::viewer::binary::tests::sample_elf()).unwrap();
+    let mut broken = b"\x7fELF\x02\x01\x01".to_vec();
+    broken.resize(256, 0xff);
+    std::fs::write(root.join("broken"), broken).unwrap();
+    std::fs::write(root.join("notes.txt"), b"hello world\n").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    let view = async |st: &mut AppState, name: &str| {
+        st.viewer = None;
+        st.panels[0].cursor = st.panels[0].entries.iter().position(|e| e.name == name).unwrap();
+        st.open_view().await;
+        // A slow machine may still be analysing once F3 returns; the tick
+        // collects it, as it would in the running program.
+        for _ in 0..500 {
+            if !st.viewer.as_ref().unwrap().analyzing() {
+                break;
+            }
+            st.on_tick();
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        st.viewer.as_ref().unwrap().mode
+    };
+
+    use crate::viewer::ViewMode;
+    assert_eq!(view(&mut st, "tool.o").await, ViewMode::Binary);
+    assert!(st.viewer.as_ref().unwrap().active_binary().is_some(), "the analysis landed");
+    assert_eq!(view(&mut st, "broken").await, ViewMode::Text, "unparseable: the text view");
+    assert_eq!(view(&mut st, "notes.txt").await, ViewMode::Text);
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Follow mode is driven by the render loop's tick, which only runs when
 /// something asks for it — with the status widget and animations off, nothing
 /// else would, and a followed log would sit still.

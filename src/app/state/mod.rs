@@ -693,6 +693,24 @@ async fn load_view_model(path: &Path) -> Option<crate::viewer::ViewerModel> {
     .ok()?
 }
 
+/// How long F3 waits for a binary's analysis before showing the viewer anyway.
+/// Enough for an ordinary executable to open straight into its lists; a large
+/// debug build keeps analysing behind an "Analyzing…" screen instead.
+const BINARY_SETTLE: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Open the viewer in Binary mode when the file at `path` is an executable or a
+/// library, with the analysis running in the background.
+async fn open_binary(v: &mut crate::viewer::ViewerState, path: &Path) {
+    let p = path.to_path_buf();
+    let sniffed = tokio::task::spawn_blocking(move || crate::viewer::binary::sniff_file(&p))
+        .await
+        .unwrap_or(false);
+    if sniffed {
+        v.analyze_binary(path.to_path_buf());
+        v.settle_binary(BINARY_SETTLE).await;
+    }
+}
+
 /// Stream `path` from `backend` to the local `temp` file, emitting throttled
 /// progress and honoring `cancel`. Returns `Ok(true)` when complete, `Ok(false)`
 /// when cancelled, or `Err` on I/O failure. The caller cleans up `temp`.

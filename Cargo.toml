@@ -136,6 +136,21 @@ getrandom = "0.2"
 # because graphics protocols draw pixels over the terminal cells.
 fontdue = "0.9.4"
 epaint_default_fonts = "0.36.2"
+# The viewer's Binary mode: reading ELF, PE and Mach-O executables and libraries
+# (sections, linked libraries, imports, exports, symbols). Pure Rust with only
+# the read side of the three formats enabled, so no C and no compression crates
+# come along, and every target — the ARM cross-compiles included — reads all
+# three regardless of which platform it runs on.
+object = { version = "0.40.0", default-features = false, features = ["read_core", "elf", "macho", "pe", "coff", "std"] }
+# Symbol names as written in the source rather than as the linker spells them:
+# Rust (legacy and v0) and C++ (Itanium ABI, as GCC and Clang emit). Pure Rust.
+rustc-demangle = "0.1.28"
+cpp_demangle = "0.5.1"
+
+[dev-dependencies]
+# Tests synthesise small ELF, COFF and Mach-O objects to analyse, rather than
+# carrying binary fixtures in the repository.
+object = { version = "0.40.0", default-features = false, features = ["write"] }
 
 # nix (chmod/chown/uid lookups, process signals) is Unix-only.
 [target.'cfg(unix)'.dependencies]

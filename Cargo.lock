@@ -537,6 +537,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cpp_demangle"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0667304c32ea56cb4cd6d2d7c0cfe9a2f8041229db8c033af7f8d69492429def"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "cpubits"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2187,6 +2196,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "object"
+version = "0.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd229a0361b9d0d4396176e02d65897f487eebeab7caa6d443855ee152ca0b9c"
+dependencies = [
+ "crc32fast",
+ "hashbrown 0.17.1",
+ "indexmap",
+ "memchr",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2811,6 +2832,7 @@ dependencies = [
  "ar-reshaper",
  "async-trait",
  "bzip2",
+ "cpp_demangle",
  "crc32fast",
  "crossterm",
  "crossterm_winapi",
@@ -2829,6 +2851,7 @@ dependencies = [
  "memchr",
  "nix 0.31.3",
  "notify",
+ "object",
  "portable-pty",
  "qrcode",
  "ratatui",
@@ -2838,6 +2861,7 @@ dependencies = [
  "rusqlite",
  "russh",
  "russh-sftp",
+ "rustc-demangle",
  "serde",
  "serde_json",
  "sevenz-rust2",
@@ -3215,6 +3239,12 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
 ]
+
+[[package]]
+name = "rustc-demangle"
+version = "0.1.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b74b56ffa8bb2830709a538c2cbcae9aa062db0d2a42563bfb09bdaae44020eb"
 
 [[package]]
 name = "rustc_version"
