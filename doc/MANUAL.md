@@ -2438,6 +2438,10 @@ field) and using **←/→** (**Home**/**End** jump to the first/last tab); **�
 once, and **Esc** discards them all. The dialog reopens on the tab you last left
 it on, until you quit.
 
+Below the tab's settings, a few lines **describe whatever has the focus**: what
+the setting does, what it costs, and when it is worth turning off. The text
+follows the focus as you move, so tabbing through a tab reads you its options.
+
 - **Appearance** — the **Theme**, **Animations**, **Nerd Font symbols**
   (per-file-type icons in the listing — see *Panels*; needs a Nerd Font in your
   terminal), the **System status widget**, and when the **Screensaver** starts

@@ -1387,23 +1387,25 @@ fn chown_form_mouse_focuses_the_clicked_text_field() {
 
 #[test]
 fn settings_form_mouse_toggles_checkboxes_on_the_active_tab() {
-    // Box 76x17 at {2,3}; the tab strip is row 4 and the page's boxes start at
-    // row 6. On Appearance the Display box holds rows 7-10 (Theme, Animations,
-    // Nerd Font symbols, System status widget); on Terminal the Capabilities
-    // box holds rows 7-8 (Graphics, Truecolor).
+    // Rows are counted from the box's top border: the tab strip is the first
+    // interior row (+1), a blank row follows, and the page's first group box
+    // starts at +3, so its fields run from +4. On Appearance the Display box
+    // holds Theme, Animations, Nerd Font symbols and System status widget; on
+    // Terminal the Capabilities box holds Graphics and Truecolor.
     let area = Rect::new(0, 0, 80, 24);
     let cfg = crate::config::Config::default();
     let mut dlg = Dialog::Form(FormDialog::settings(&cfg, true)); // truecolor starts on
-    assert!(matches!(dlg.handle_click(area, 10, 8), DialogResult::None)); // Animations
-    assert!(matches!(dlg.handle_click(area, 10, 9), DialogResult::None)); // Nerd Font symbols
-    // " Terminal " is the last title on the strip, at x=58..67.
-    assert!(matches!(dlg.handle_click(area, 60, 4), DialogResult::None));
-    let Dialog::Form(d) = &dlg else { unreachable!() };
-    assert_eq!(d.settings_tab(), Some(SettingsTab::Terminal), "clicking a tab shows it");
-    assert!(matches!(dlg.handle_click(area, 10, 8), DialogResult::None)); // Truecolor
-    // Click OK: the button row is the box's last interior row.
     let Dialog::Form(d) = &dlg else { unreachable!() };
     let rect = d.outer_rect(area);
+    let field_row = |n: u16| rect.y + 4 + n;
+    assert!(matches!(dlg.handle_click(area, 10, field_row(1)), DialogResult::None)); // Animations
+    assert!(matches!(dlg.handle_click(area, 10, field_row(2)), DialogResult::None)); // Nerd Font
+    // " Terminal " is the last title on the strip, at x=58..67.
+    assert!(matches!(dlg.handle_click(area, 60, rect.y + 1), DialogResult::None));
+    let Dialog::Form(d) = &dlg else { unreachable!() };
+    assert_eq!(d.settings_tab(), Some(SettingsTab::Terminal), "clicking a tab shows it");
+    assert!(matches!(dlg.handle_click(area, 10, field_row(1)), DialogResult::None)); // Truecolor
+    // Click OK: the button row is the box's last interior row.
     match dlg.handle_click(area, 10, rect.y + rect.height - 2) {
         DialogResult::Submit(Submit::Settings(v)) => {
             assert!(v.animation, "clicking the checkbox turned animations on");
@@ -1415,6 +1417,41 @@ fn settings_form_mouse_toggles_checkboxes_on_the_active_tab() {
         }
         _ => panic!("clicking OK should submit the settings form"),
     }
+}
+
+/// The foot of the Settings dialog describes whatever has focus: the setting,
+/// the tab strip or a button. The text follows the focus as it moves.
+#[test]
+fn settings_dialog_describes_the_focused_setting() {
+    let cfg = crate::config::Config::default();
+    let flat = |s: String| s.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    let mut d = FormDialog::settings(&cfg, true).on_tab(SettingsTab::Panels);
+    // Tab from Brief view columns down to Auto-refresh panels.
+    for _ in 0..3 {
+        d.handle_key(key(KeyCode::Tab));
+    }
+    let screen = render_form(&mut d);
+    assert!(
+        flat(screen.clone()).contains("Re-read a panel by itself"),
+        "the focused setting is described: {screen}"
+    );
+    assert!(!screen.contains("Make the 3D view light up"), "only the focused one");
+
+    d.handle_key(key(KeyCode::Tab));
+    let screen = flat(render_form(&mut d));
+    assert!(screen.contains("Make the 3D view light up"), "the text follows the focus");
+
+    // The tab strip and the buttons have descriptions of their own.
+    let mut d = FormDialog::settings(&cfg, true);
+    d.handle_key(key(KeyCode::BackTab));
+    assert!(flat(render_form(&mut d)).contains("switch tabs from anywhere"));
+    d.handle_key(key(KeyCode::BackTab));
+    assert!(flat(render_form(&mut d)).contains("without saving anything"));
+
+    // Other forms keep their layout: no description block.
+    let mut chmod = FormDialog::chmod(vec![VfsPath::local("/tmp/x")], 0o644);
+    assert!(!render_form(&mut chmod).contains('├'), "untabbed forms get no divider");
 }
 
 #[test]

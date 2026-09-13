@@ -54,6 +54,8 @@ pub use drive::DriveDialog;
 pub use find::{FindDialog, FindParams};
 pub use flash::{FileBrowserDialog, FlashTargetDialog, ImageSaveDialog};
 pub use form::{FormDialog, SettingsTab};
+#[cfg(test)]
+pub(crate) use form::{HELP_ROWS, HELP_WIDTH, settings_help_texts};
 pub use gitout::GitOutputDialog;
 pub use goto::GotoDialog;
 pub use history::ShellHistoryDialog;

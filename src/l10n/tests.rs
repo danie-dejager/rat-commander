@@ -45,6 +45,27 @@ fn every_language_covers_every_english_key() {
     }
 }
 
+/// The Settings dialog has a fixed number of lines for the focused setting's
+/// description, and a line cut off with an ellipsis loses exactly the part
+/// that says when to turn the setting off. So every description has to fit, in
+/// every language, not just in English.
+#[test]
+fn every_settings_description_fits_its_lines_in_every_language() {
+    use crate::ui::dialog::{HELP_ROWS, HELP_WIDTH, settings_help_texts};
+    for cat in builtin_catalogs() {
+        for key in settings_help_texts() {
+            let text = cat.get(key).unwrap_or(key);
+            let lines = crate::util::text::wrap(text, HELP_WIDTH);
+            assert!(
+                lines.len() <= HELP_ROWS,
+                "{}: the description takes {} lines of {HELP_WIDTH} cells, {HELP_ROWS} fit: {text}",
+                cat.name,
+                lines.len()
+            );
+        }
+    }
+}
+
 #[test]
 fn set_active_finds_known_and_rejects_unknown_languages() {
     // Deliberately keeps English active either way, so this never leaks German
@@ -188,6 +209,21 @@ fn reshape_reorders_arabic_leaves_latin_alone() {
     let last_logical = logical.chars().next_back().unwrap();
     assert_ne!(visual.chars().next().unwrap(), logical.chars().next().unwrap());
     let _ = last_logical;
+}
+
+#[test]
+fn a_wrapped_line_keeps_its_paragraphs_direction() {
+    // An Arabic paragraph wrapped so that a line starts with a Latin key name.
+    // Judged on its own that line is left-to-right, putting "F3" first; as part
+    // of the right-to-left paragraph "F3" belongs at its right-hand end.
+    let paragraph = "يفتح العارض عند الضغط على F3 في اللوحة";
+    let line = "F3 في اللوحة";
+    let alone = super::reshape_and_reorder(line);
+    assert!(alone.starts_with("F3"), "on its own the line runs left to right: {alone}");
+    let level = super::paragraph_level(paragraph);
+    assert!(level.is_some_and(|l| l.is_rtl()), "the paragraph is right to left");
+    let in_paragraph = super::reshape_and_reorder_at(line, level);
+    assert!(in_paragraph.ends_with("F3"), "in its paragraph it runs right to left: {in_paragraph}");
 }
 
 #[test]

@@ -134,13 +134,38 @@ pub fn display(s: &str) -> String {
     reshape_and_reorder(s)
 }
 
+/// [`display`] for the lines of one paragraph that has been wrapped: each line
+/// is shaped and reordered on its own (reordering has to follow the wrap, or the
+/// lines would read bottom-up), but all in the direction of the paragraph as a
+/// whole. A line of an Arabic paragraph that happens to start with a key name
+/// or a path still runs right to left; judged alone it would run left to right.
+pub fn display_lines(paragraph: &str, lines: &[String]) -> Vec<String> {
+    if !reshape_rtl_enabled() || !active_is_rtl() || !contains_rtl(paragraph) {
+        return lines.to_vec();
+    }
+    let level = paragraph_level(paragraph);
+    lines.iter().map(|line| reshape_and_reorder_at(line, level)).collect()
+}
+
+/// The embedding level a paragraph's first strong character gives it, as bidi
+/// would pick for the whole text.
+fn paragraph_level(s: &str) -> Option<unicode_bidi::Level> {
+    unicode_bidi::BidiInfo::new(s, None).paragraphs.first().map(|p| p.level)
+}
+
 /// Arabic-shape `s` and bidi-reorder it into visual order. The core transform
 /// behind [`display`], factored out so it can be unit-tested without global
 /// state.
 fn reshape_and_reorder(s: &str) -> String {
+    reshape_and_reorder_at(s, None)
+}
+
+/// [`reshape_and_reorder`] in a given paragraph direction; `None` takes it from
+/// the text's own first strong character.
+fn reshape_and_reorder_at(s: &str, level: Option<unicode_bidi::Level>) -> String {
     // Shape first (joining depends on logical adjacency), then reorder visually.
     let shaped = RESHAPER.reshape(s);
-    let info = unicode_bidi::BidiInfo::new(&shaped, None);
+    let info = unicode_bidi::BidiInfo::new(&shaped, level);
     match info.paragraphs.first() {
         Some(para) => info.reorder_line(para, para.range.clone()).into_owned(),
         None => shaped,

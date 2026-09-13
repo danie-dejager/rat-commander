@@ -105,6 +105,191 @@ const SETTINGS_PAGES: &[SettingsPage] = &[
 /// the first group box's title isn't read as a second row of tabs.
 const TAB_STRIP_ROWS: u16 = 2;
 
+/// Width of the grouped forms' box. 76 leaves room for every tab title on one
+/// strip, and for a chooser's longest row — in German, "Design: Midnight
+/// Commander Dark ▾" alone is 33 cells.
+const GROUPED_FORM_WIDTH: u16 = 76;
+
+/// Lines under a tabbed form's pages that describe the focused setting, below a
+/// divider. Every description has to fit in them at [`HELP_WIDTH`], in every
+/// language — the l10n tests check that.
+pub(crate) const HELP_ROWS: usize = 3;
+
+/// Cells a description line gets in a full-width box: the box less its border
+/// and a one-cell inset either side.
+#[cfg(test)]
+pub(crate) const HELP_WIDTH: usize = GROUPED_FORM_WIDTH as usize - 4;
+
+/// What each Settings field does, keyed by its label and shown while it has
+/// focus. The text is the English source, translated when drawn, so the catalogs
+/// need an entry for each. Only what the label alone doesn't make obvious is
+/// worth the space: what the setting costs, when to turn it off, what it falls
+/// back to.
+const SETTINGS_HELP: &[(&str, &str)] = &[
+    (
+        "Theme",
+        "The color theme of the whole interface. Moving through the list previews each one \
+         live; Options → Edit themes… changes them or adds your own.",
+    ),
+    (
+        "Animations",
+        "Let a theme's animated color gradients flow. Needs Truecolor. Off keeps them still \
+         and saves redraws, which helps over a slow remote connection.",
+    ),
+    (
+        "Nerd Font symbols",
+        "Show an icon for each file type in the listings instead of the / * @ markers. Needs \
+         a Nerd Font as the terminal's font, or the icons show as boxes.",
+    ),
+    ("System status widget", "Show CPU and memory use at the right end of the menu bar."),
+    (
+        "Screensaver",
+        "How long without a key press or mouse movement before the screensaver starts. Off \
+         never starts it; Start screensaver in the command palette shows one now.",
+    ),
+    (
+        "Screensaver style",
+        "Which animation the screensaver plays: a starfield, matrix rain, a drifting clock or \
+         growing pipes. Random picks a different one each time.",
+    ),
+    (
+        "Brief view columns",
+        "How many columns of file names the Brief view format puts side by side in a panel.",
+    ),
+    (
+        "Thumbnail size",
+        "The cell size of the Thumbnails view: Small fits the most pictures on screen, Large \
+         shows the most detail.",
+    ),
+    (
+        "3D style",
+        "How the 3D view draws a tree: Cubes, shaded boxes hanging on rings, or Spare no \
+         expense, an fsn-style landscape with files shaped by type.",
+    ),
+    (
+        "Auto-refresh panels",
+        "Re-read a panel by itself when its directory changes on disk, instead of waiting for \
+         Ctrl-R. Worth turning off on slow network mounts or huge directories.",
+    ),
+    (
+        "3D view: show filesystem activity",
+        "Make the 3D view light up directories as files are written in them. It watches every \
+         directory in the tree, so turn it off for huge or network-mounted trees.",
+    ),
+    (
+        "Details view: git activity",
+        "In a git work tree, the Details view shows a calendar of a year's commits for the \
+         selected item. Each one runs git log; turn it off for very large repositories.",
+    ),
+    (
+        "External editor",
+        "The command F4 edits files with, such as vim or code --wait. Blank uses $VISUAL or \
+         $EDITOR. Only used while Use internal editor is off.",
+    ),
+    (
+        "External viewer",
+        "The command F3 views files with, such as less or bat. Blank uses $PAGER. Only used \
+         while Use internal viewer is off.",
+    ),
+    (
+        "Use internal viewer",
+        "F3 opens Rat Commander's own viewer even when an external viewer is set. It is also \
+         used whenever no external viewer is configured.",
+    ),
+    (
+        "Use internal editor",
+        "F4 opens Rat Commander's own editor even when an external editor is set. It is also \
+         used whenever no external editor is configured.",
+    ),
+    (
+        "Command prompt",
+        "Show the shell command line below the panels. Without it, typing a letter starts a \
+         quick search in the active panel. Ctrl-F5 switches it too.",
+    ),
+    (
+        "Shell (blank = auto-detect)",
+        "The program the command line and Ctrl-O run, such as /bin/zsh or pwsh, without \
+         arguments. Blank uses $SHELL (on Windows, the shell rc was started from).",
+    ),
+    (
+        "Command history size (0 = off)",
+        "How many command lines are remembered across sessions, recalled with Alt-P, Alt-N \
+         and Alt-H. 0 turns the history off; lowering it drops the oldest at once.",
+    ),
+    ("Confirm delete", "Ask before F8 deletes the selection or moves it to the trash."),
+    (
+        "Confirm overwrite",
+        "Ask what to do when a copy or move meets a file that already exists. Off replaces it \
+         without asking.",
+    ),
+    (
+        "Confirm execute",
+        "Ask before Enter runs a program or opens a file in its default application.",
+    ),
+    ("Confirm unmount", "Ask before the disk manager unmounts a filesystem."),
+    ("Confirm exit", "Ask before F10 quits Rat Commander."),
+    (
+        "Use trash bin",
+        "F8 moves local files to the desktop trash, where they can be restored; Shift-F8 still \
+         deletes for good. Off makes F8 delete permanently too.",
+    ),
+    (
+        "Language",
+        "The language of menus, dialogs and messages, previewed live as you move through the \
+         list. Translations are files in the lang folder of the config directory.",
+    ),
+    (
+        "Reshape RTL text",
+        "Shape and reorder Arabic and Persian text for terminals without bidi support. Turn it \
+         off on terminals that do their own, such as mlterm or Konsole.",
+    ),
+    (
+        "Graphics",
+        "Pixel graphics for progress bars, graphs, thumbnails and dialog buttons. Auto uses \
+         Kitty, Sixel or iTerm2 when the terminal has one; Off draws them in text.",
+    ),
+    (
+        "Truecolor (gradients)",
+        "Use 24-bit color, which gradients need. Turn it off if colors look wrong: the terminal \
+         probably supports only 256 colors.",
+    ),
+    (
+        "Strip trailing spaces on copy",
+        "End screen rows with an erase instead of spaces, so text selected with the terminal's \
+         mouse copies without trailing blanks. Turn it off if backgrounds break up.",
+    ),
+];
+
+/// The description shown while the tab strip has focus.
+const HELP_TABS: &str = "Ctrl-PgUp and Ctrl-PgDn switch tabs from anywhere in this dialog; ← \
+                         and → switch them while the tab row is highlighted.";
+/// The descriptions shown while OK or Cancel has focus.
+const HELP_OK: &str = "Save the changes on every tab and close the dialog.";
+const HELP_CANCEL: &str =
+    "Close the dialog without saving anything on any tab, and undo the live previews.";
+
+/// Every description the Settings dialog can show, for the tests that check
+/// each one has a field and fits its lines in every language.
+#[cfg(test)]
+pub(crate) fn settings_help_texts() -> Vec<&'static str> {
+    SETTINGS_HELP.iter().map(|(_, h)| *h).chain([HELP_TABS, HELP_OK, HELP_CANCEL]).collect()
+}
+
+/// `text` wrapped into at most `rows` lines of `width` cells, the last one cut
+/// short with an ellipsis if there was more. Translations are checked to fit, so
+/// this only bites on a terminal too narrow for the full box.
+fn fit_lines(text: &str, width: usize, rows: usize) -> Vec<String> {
+    let mut lines = crate::util::text::wrap(text, width);
+    if lines.len() > rows {
+        lines.truncate(rows);
+        if let Some(last) = lines.last_mut() {
+            let (cut, _) = crate::util::text::truncate_width(last, width.saturating_sub(1));
+            *last = format!("{cut}…");
+        }
+    }
+    lines
+}
+
 /// The editor-options form's groups, in the order [`FormDialog::editor_options`]
 /// builds its fields. The counts must sum to the number of fields.
 const EDITOR_OPTION_GROUPS: &[Group] =
@@ -1410,16 +1595,13 @@ impl FormDialog {
             // tallest page, so the box doesn't jump as the tabs change.
             let content = match self.pages() {
                 Some(pages) => {
-                    TAB_STRIP_ROWS
-                        + pages.iter().map(|p| groups_height(p.groups)).max().unwrap_or(0)
+                    let tallest = pages.iter().map(|p| groups_height(p.groups)).max();
+                    TAB_STRIP_ROWS + tallest.unwrap_or(0) + 1 /* divider */ + HELP_ROWS as u16
                 }
                 None => groups_height(groups),
             };
             let height = content + 1 /* spacer */ + 1 /* hint */ + 2 /* border */;
-            // 76 leaves room for every tab title on one strip, and for a
-            // chooser's longest row — in German, "Design: Midnight Commander
-            // Dark ▾" alone is 33 cells.
-            let w = 76u16.min(area.width.saturating_sub(4));
+            let w = GROUPED_FORM_WIDTH.min(area.width.saturating_sub(4));
             (w, height)
         } else {
             let height = self.form.fields.len() as u16 + 4;
@@ -1456,6 +1638,35 @@ impl FormDialog {
             FormPurpose::EditorOptions => Some(EDITOR_OPTION_GROUPS),
             _ => None,
         }
+    }
+
+    /// A tabbed form's description block, at the foot of the interior just above
+    /// the spacer and button row: the divider row, and the rect its lines go in.
+    /// `None` for an untabbed form.
+    fn help_area(&self, inner: Rect) -> Option<(u16, Rect)> {
+        self.pages()?;
+        let rows = HELP_ROWS as u16;
+        let top = (inner.y + inner.height).saturating_sub(2 + rows);
+        let text =
+            Rect { x: inner.x + 1, y: top, width: inner.width.saturating_sub(2), height: rows };
+        Some((top.saturating_sub(1), text))
+    }
+
+    /// The description of whatever has focus on a tabbed form: the focused
+    /// setting, the tab strip, or a button.
+    fn help_text(&self) -> Option<&'static str> {
+        self.pages()?;
+        if self.form.on_strip() {
+            return Some(HELP_TABS);
+        }
+        if self.form.on_ok() {
+            return Some(HELP_OK);
+        }
+        if self.form.on_cancel() {
+            return Some(HELP_CANCEL);
+        }
+        let label = self.form.fields.get(self.form.focus)?.label();
+        SETTINGS_HELP.iter().find(|(l, _)| *l == label).map(|(_, help)| *help)
     }
 
     /// Where a grouped form's boxes go inside the dialog interior: all of it, or
@@ -1702,6 +1913,25 @@ impl FormDialog {
         }
         if dropdown_open {
             self.render_dropdown(f, inner, theme);
+        }
+
+        // The focused setting's description, under a divider that joins the
+        // dialog's border on both sides. Drawn before any open dropdown, which
+        // may hang over it.
+        if let Some((divider, text)) = self.help_area(inner) {
+            let border = Style::default().fg(theme.dialog_border_fg).bg(theme.dialog_border_bg);
+            let rule = format!("├{}┤", "─".repeat(inner.width as usize));
+            f.buffer_mut().set_string(inner.x.saturating_sub(1), divider, rule, border);
+            if let Some(help) = self.help_text() {
+                let help = crate::l10n::tr(help);
+                let lines = fit_lines(&help, text.width as usize, HELP_ROWS);
+                // Shaped per line, in the paragraph's direction (see
+                // `display_lines`), so RTL text still reads top to bottom.
+                for (i, line) in crate::l10n::display_lines(&help, &lines).into_iter().enumerate() {
+                    let row = Rect { y: text.y + i as u16, height: 1, ..text };
+                    f.render_widget(Paragraph::new(Span::styled(line, base)), row);
+                }
+            }
         }
 
         let choice_open =
@@ -2270,6 +2500,29 @@ mod settings_tab_tests {
         let last = cells.last().unwrap().1;
         assert!(last.x + last.width <= narrow.x + narrow.width);
         assert!(cells.iter().any(|(t, _)| t.contains('~')), "long titles are ellipsized");
+    }
+
+    /// Every Settings field has a description, and every description belongs to
+    /// a field — a renamed label would otherwise silently lose its help text.
+    #[test]
+    fn every_settings_field_has_a_description() {
+        let mut d = settings();
+        let mut described = 0;
+        for page in 0..SETTINGS_PAGES.len() {
+            d.show_page(page);
+            for field in d.form.visible.clone() {
+                d.form.focus_at(field);
+                assert!(d.help_text().is_some(), "field {field} on page {page} has no description");
+                described += 1;
+            }
+        }
+        assert_eq!(described, d.form.fields.len(), "every field was visited");
+        for (label, _) in SETTINGS_HELP {
+            assert!(
+                d.form.fields.iter().any(|f| f.label() == *label),
+                "stale description: {label}"
+            );
+        }
     }
 
     #[test]
