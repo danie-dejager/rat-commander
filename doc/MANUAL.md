@@ -2531,9 +2531,10 @@ works. If your terminal already does its own bidi (mlterm, a recent VTE-based
 terminal, Konsole), turn **Reshape RTL text** off so the text isn't processed
 twice. The setting has no effect for left-to-right languages.
 
-### Confirmations (Options → Confirmations…)
+### Confirmations (Options → Settings… → Confirmations)
 
-Opens Settings on its **Confirmations** tab. Toggle which actions ask first:
+The **Confirmations** tab of Settings (the command palette's *Confirmations*
+entry opens the dialog straight on it). Toggle which actions ask first:
 **delete** (on), **overwrite** (on), **execute / open with default app** (off),
 **unmount** (on) and **exit** (on). The same tab holds **Use trash bin** (on),
 which decides whether F8 moves files to the trash (see *Deleting and the

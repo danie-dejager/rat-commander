@@ -2282,7 +2282,7 @@ async fn nerd_font_symbols_preview_live_and_persist_on_ok() {
 }
 
 #[tokio::test]
-async fn the_confirmations_menu_item_opens_settings_on_its_tab() {
+async fn the_confirmations_command_opens_settings_on_its_tab() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
@@ -2292,7 +2292,7 @@ async fn the_confirmations_menu_item_opens_settings_on_its_tab() {
         Some(Dialog::Form(fd)) => fd.settings_tab(),
         _ => None,
     };
-    assert_eq!(tab(&st), Some(SettingsTab::Confirmations), "the menu item opens its tab");
+    assert_eq!(tab(&st), Some(SettingsTab::Confirmations), "the command opens its tab");
     // The tab opens on Confirm delete: Space unticks it, Enter saves.
     st.handle_key(key(KeyCode::Char(' '))).await;
     st.handle_key(key(KeyCode::Enter)).await;

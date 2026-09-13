@@ -113,13 +113,7 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
             "&Re-read directories",
             "&Toggle split V/H",
         ],
-        &[
-            "&Settings...",
-            "&Confirmations...",
-            "&Edit themes...",
-            "Edit e&xtensions...",
-            "Edit &menu file...",
-        ],
+        &["&Settings...", "&Edit themes...", "Edit e&xtensions...", "Edit &menu file..."],
         &[
             "&Full view",
             "&Brief view",

@@ -131,6 +131,8 @@ pub enum MenuAction {
     #[cfg_attr(not(windows), allow(dead_code))] // constructed only under cfg(windows)
     Drive(usize),
     Settings,
+    /// Open Settings on its Confirmations tab (a command-palette entry; the
+    /// Options menu has no item of its own for it).
     Confirmations,
     /// Open `themes.toml` in the internal editor.
     EditThemes,
@@ -311,7 +313,6 @@ impl MenuBarState {
         let options = Menu {
             items: vec![
                 item("&Settings...", MenuAction::Settings),
-                item("&Confirmations...", MenuAction::Confirmations),
                 item("&Edit themes...", MenuAction::EditThemes),
                 item("Edit e&xtensions...", MenuAction::EditExtensions),
                 item("Edit &menu file...", MenuAction::EditUserMenu),
@@ -631,13 +632,14 @@ mod tests {
         assert!(matches!(m.handle_key(key('l')), MenuSignal::Stay));
         assert_eq!(m.active, 0);
         // An item accelerator still wins over a top letter: in File 'c' is Copy
-        // (not "Command") and 'l' is "Send over LAN" (not the Left menu); in
-        // Options 'c' is Confirmations.
+        // (not "Command") and 'l' is "Send over LAN" (not the Left menu). In
+        // Options nothing claims 'c', so it moves on to the Command menu.
         let mut m = MenuBarState::new(1, &[], [false, false]);
         assert!(matches!(m.handle_key(key('c')), MenuSignal::Activate(MenuAction::Copy)));
         let mut m = MenuBarState::new(1, &[], [false, false]);
         assert!(matches!(m.handle_key(key('l')), MenuSignal::Activate(MenuAction::SendFile)));
         let mut m = MenuBarState::new(3, &[], [false, false]);
-        assert!(matches!(m.handle_key(key('c')), MenuSignal::Activate(MenuAction::Confirmations)));
+        assert!(matches!(m.handle_key(key('c')), MenuSignal::Stay));
+        assert_eq!(m.active, 2);
     }
 }

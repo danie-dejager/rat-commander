@@ -768,7 +768,7 @@ impl AppState {
         self.open_settings_at(self.settings_tab);
     }
 
-    /// Open Settings on `tab` (Options → Confirmations… opens its own tab).
+    /// Open Settings on `tab` (the palette's Confirmations entry opens its own tab).
     pub(in crate::app::state) fn open_settings_at(&mut self, tab: SettingsTab) {
         // Remember the current theme + language so Esc can revert a live preview.
         self.theme_backup = Some(self.config.theme.clone());
