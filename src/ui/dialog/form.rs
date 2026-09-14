@@ -1969,7 +1969,14 @@ impl FormDialog {
         let cancel_txt = crate::l10n::tr("Cancel");
         // Graphical buttons only when the font can render the labels; otherwise
         // fall back to the text button row (terminal font handles any script).
-        if gfx.as_deref().is_some_and(|g| g.buttons_ok()) && all_renderable(&[&ok_txt, &cancel_txt])
+        // Text buttons, too, while a dropdown is open: the list can hang over
+        // the button row, and a graphical button is an image the terminal lays
+        // over the cells, so it would stay on top of the list. Text buttons are
+        // plain cells the list simply covers.
+        if !dropdown_open
+            && !choice_open
+            && gfx.as_deref().is_some_and(|g| g.buttons_ok())
+            && all_renderable(&[&ok_txt, &cancel_txt])
         {
             // Graphical buttons: OK at the left, Cancel at the right, with the
             // navigation hint between them. Left/right halves still hit-test OK/Cancel.

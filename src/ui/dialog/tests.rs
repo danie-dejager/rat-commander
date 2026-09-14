@@ -1260,6 +1260,48 @@ fn graphical_buttons_paint_and_stay_clickable() {
 }
 
 #[test]
+fn an_open_dropdown_turns_the_graphical_buttons_into_text() {
+    use crate::ui::graphics::{Gfx, Slot};
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    let theme = crate::ui::theme::Theme::mc();
+    let area = Rect::new(0, 0, 80, 24);
+    // Renders `d` through a fresh graphics context and reports whether a button
+    // image was drawn. Asked of the context rather than read off the cells: a
+    // dropdown drawn afterwards overwrites the image's cells in the buffer, while
+    // a real terminal goes on showing the image on top of them.
+    let draws_button_images = |d: &mut FormDialog| {
+        let mut gfx = Gfx::test_halfblocks();
+        let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        t.draw(|f| d.render(f, area, &theme, Some(&mut gfx))).unwrap();
+        (0..2).any(|i| gfx.cached_sig(Slot::Button(i)).is_some())
+    };
+
+    // A Choice field's dropdown (the Settings theme list is one of these).
+    let mut d = FormDialog::format("/dev/sdb1".into());
+    assert!(draws_button_images(&mut d), "closed, the buttons are graphical");
+    d.handle_key(key(KeyCode::Enter)); // open the Filesystem dropdown
+    assert!(!draws_button_images(&mut d), "a Choice dropdown is open: no images over it");
+    d.handle_key(key(KeyCode::Esc)); // close it again
+    assert!(draws_button_images(&mut d), "closed again, the graphical buttons return");
+
+    // The connect form's recent-servers dropdown.
+    let history = vec![RemoteHistoryEntry {
+        protocol: "sftp".into(),
+        host: "a.example".into(),
+        port: 22,
+        user: "alice".into(),
+        path: "/srv".into(),
+        passive: true,
+        key_file: String::new(),
+    }];
+    let mut d = FormDialog::connect(Protocol::Sftp, 1, history);
+    assert!(draws_button_images(&mut d), "closed, the buttons are graphical");
+    d.handle_key(key(KeyCode::Down)); // open the recent-servers dropdown
+    assert!(!draws_button_images(&mut d), "the history dropdown is open: no images over it");
+}
+
+#[test]
 fn button_labels_fall_back_to_text_for_unrenderable_scripts() {
     use super::widgets::all_renderable;
     // Scripts the bundled graphics font covers → graphical buttons.
