@@ -16,7 +16,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 
-const LEFT_W: u16 = 40;
+pub(super) const LEFT_W: u16 = 40;
 
 /// Fill every cell of `area` with `style` (a background wash).
 fn fill(f: &mut Frame, area: Rect, style: Style) {
@@ -436,7 +436,7 @@ fn preview_panels(f: &mut Frame, area: Rect, ed: &ThemeEditor, pt: &Theme) {
     // Menu bar. Claimed as a bar row so a body gradient can't repaint it.
     let mb = Style::default().bg(pt.menu_bg).fg(pt.menu_fg);
     let bar = Rect { height: 1, ..area };
-    crate::ui::gradient::mark_bar(GradZone::Menubar, bar);
+    crate::ui::gradient::mark_zone(GradZone::Menubar, bar);
     let titles = "  Left   File   Command   Options   Right";
     bar_row(f, bar, titles, GradRole::MenubarBg, pt.menubar, pt.bar_fg, pt);
 
@@ -515,7 +515,7 @@ fn preview_panels(f: &mut Frame, area: Rect, ed: &ThemeEditor, pt: &Theme) {
     let total = area.width as usize;
     let seg = total / labels.len().max(1);
     let fkey_row = Rect { y: fy, height: 1, ..area };
-    crate::ui::gradient::mark_bar(GradZone::Fkeys, fkey_row);
+    crate::ui::gradient::mark_zone(GradZone::Fkeys, fkey_row);
     let mut text = String::new();
     for (i, label) in labels.iter().enumerate() {
         let num = (i + 1).to_string();
@@ -547,6 +547,9 @@ fn preview_panels(f: &mut Frame, area: Rect, ed: &ThemeEditor, pt: &Theme) {
             .border_style(Style::default().fg(pt.menu_fg).bg(pt.menu_bg))
             .style(Style::default().bg(pt.menu_bg).fg(pt.menu_fg));
         let mi = blk.inner(menu);
+        // Claimed as menu chrome, as the real dropdown is: it opens over the
+        // cursor bar's row, and its colors may well be the cursor's own.
+        crate::ui::gradient::mark_zone(GradZone::Menu, menu);
         f.render_widget(Clear, menu);
         f.render_widget(blk, menu);
         let items = ["Settings", "Edit themes", "Quit"];

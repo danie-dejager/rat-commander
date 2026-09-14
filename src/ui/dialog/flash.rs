@@ -195,7 +195,11 @@ impl FlashTargetDialog {
             let mid = lw.saturating_sub(name_col.chars().count() + right.chars().count() + 2);
             let info_col = pad_right(&ellipsize(&info, mid), mid);
             let text = format!("{name_col} {info_col} {right}");
-            let style = if i == self.cursor {
+            let selected = i == self.cursor;
+            if selected {
+                mark_menu_row(list, i - self.top);
+            }
+            let style = if selected {
                 theme.menu_selection
             } else if !self.fits(i) {
                 dim
@@ -492,6 +496,9 @@ impl FileBrowserDialog {
             let mark = if e.is_dir { "/" } else { " " };
             let text = format!(" {}{}", e.name, mark);
             let selected = i == self.cursor && self.focus == BrowseFocus::List;
+            if selected {
+                mark_menu_row(list, i - self.top);
+            }
             let style = if selected {
                 theme.menu_selection
             } else if e.is_dir {
@@ -766,6 +773,9 @@ impl ImageSaveDialog {
             let mark = if e.is_dir { "/" } else { " " };
             let text = format!(" {}{}", e.name, mark);
             let selected = i == self.cursor && self.focus == SaveFocus::List;
+            if selected {
+                mark_menu_row(list, i - self.top);
+            }
             let style = if selected {
                 theme.menu_selection
             } else if e.is_dir {

@@ -198,6 +198,16 @@ pub(crate) fn pulse_color(base: ratatui::style::Color, t: f64) -> ratatui::style
     }
 }
 
+/// Claim row `row` of `list` for a selection bar drawn in the pulldown menus'
+/// `menu_selection` style, so it ramps with their selection gradient (which
+/// only reaches menu chrome) like the menus themselves do.
+pub(crate) fn mark_menu_row(list: Rect, row: usize) {
+    if row < list.height as usize {
+        let bar = Rect { y: list.y + row as u16, height: 1, ..list };
+        crate::ui::gradient::mark_zone(crate::ui::theme::GradZone::Menu, bar);
+    }
+}
+
 /// A rectangle of fixed size centered within `area`.
 pub fn centered(area: Rect, width: u16, height: u16) -> Rect {
     let width = width.min(area.width);

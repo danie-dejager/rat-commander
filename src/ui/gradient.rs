@@ -12,18 +12,21 @@
 //! than a slice of one screen-wide ramp.
 //!
 //! Identifying an element by the color it painted is what keeps this cheap, and
-//! four rules keep it honest:
+//! five rules keep it honest:
 //!
-//! * the bars claim only the rows they were drawn on ([`mark_bar`]), so a
-//!   cursor gradient can't spill onto a menu bar that shares its teal;
+//! * the bars and the pulldown menus claim only the cells they were drawn on
+//!   ([`mark_zone`]), so a cursor gradient can't spill onto a menu bar that
+//!   shares its teal, nor a focused button's onto a dropdown of the same cyan;
 //! * cells a renderer already ramped itself are claimed ([`mark_painted`]) and
 //!   left alone, so a moving shade that happens to land exactly on the
 //!   element's flat color is not mistaken for an unpainted one;
+//! * the claim made last wins, just as the paint laid down last does, so a
+//!   dropdown opened over the cursor bar gets its own ramp on that row;
 //! * a foreground (frame) gradient only repaints box-drawing glyphs, never text
 //!   that happens to use the border color;
-//! * elements a theme paints in *the same* color are indistinguishable on
-//!   screen and so share a gradient — giving them distinct colors separates
-//!   them.
+//! * elements of one zone a theme paints in *the same* color are
+//!   indistinguishable on screen and so share a gradient — giving them distinct
+//!   colors separates them.
 //!
 //! The bars and the panel cursor bar paint their own gradient directly (they
 //! already build a style per cell) and claim the cells they painted, so this
@@ -36,26 +39,34 @@ use ratatui::layout::Rect;
 use ratatui::style::Color;
 use std::cell::RefCell;
 
+/// One area a renderer claimed this frame.
+#[derive(Clone, Copy)]
+enum Claim {
+    /// Drawn as part of a zone other than the body (see [`mark_zone`]).
+    Zone(GradZone, Rect),
+    /// Already ramped by its own renderer (see [`mark_painted`]).
+    Painted(Rect),
+}
+
 thread_local! {
-    /// The bar rows drawn so far this frame (see [`mark_bar`]).
-    static BARS: RefCell<Vec<(GradZone, Rect)>> = const { RefCell::new(Vec::new()) };
-    /// The areas already ramped by their own renderer (see [`mark_painted`]).
-    static PAINTED: RefCell<Vec<Rect>> = const { RefCell::new(Vec::new()) };
+    /// The claims made so far this frame, in drawing order.
+    static CLAIMS: RefCell<Vec<Claim>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Forget the claims of the previous frame. Called once at the top of the root
 /// [`draw`](super::draw).
 pub fn reset() {
-    BARS.with(|b| b.borrow_mut().clear());
-    PAINTED.with(|p| p.borrow_mut().clear());
+    CLAIMS.with(|c| c.borrow_mut().clear());
 }
 
-/// Record where a bar was drawn, so [`apply`] can tell that row apart from the
-/// body. Called by the menu-bar and F-key-bar renderers, wherever they are used
-/// (the panels, the editor, the viewer).
-pub fn mark_bar(zone: GradZone, area: Rect) {
+/// Record that `area` was drawn as part of `zone`, so [`apply`] can tell it
+/// apart from the body. Called by the menu-bar and F-key-bar renderers,
+/// wherever they are used (the panels, the editor, the viewer), and by the
+/// pulldown menus — which, drawn over the panels, also take back any cells the
+/// panels claimed beneath them.
+pub fn mark_zone(zone: GradZone, area: Rect) {
     if area.width > 0 && area.height > 0 {
-        BARS.with(|b| b.borrow_mut().push((zone, area)));
+        CLAIMS.with(|c| c.borrow_mut().push(Claim::Zone(zone, area)));
     }
 }
 
@@ -69,13 +80,22 @@ pub fn mark_bar(zone: GradZone, area: Rect) {
 /// ramp over that one cell — a bright speck flickering across the bar.
 pub fn mark_painted(area: Rect) {
     if area.width > 0 && area.height > 0 {
-        PAINTED.with(|p| p.borrow_mut().push(area));
+        CLAIMS.with(|c| c.borrow_mut().push(Claim::Painted(area)));
     }
 }
 
-/// The zone a cell belongs to: a bar it was drawn on, else the body.
-fn zone_at(bars: &[(GradZone, Rect)], x: u16, y: u16) -> GradZone {
-    bars.iter().find(|(_, r)| r.contains((x, y).into())).map_or(GradZone::Body, |(z, _)| *z)
+/// The zone a cell belongs to, by the last claim covering it (whatever was
+/// drawn there last): `None` when its renderer already ramped it, else the zone
+/// it was claimed for, else the body.
+fn zone_at(claims: &[Claim], x: u16, y: u16) -> Option<GradZone> {
+    let area = |c: &Claim| match *c {
+        Claim::Zone(_, r) | Claim::Painted(r) => r,
+    };
+    match claims.iter().rev().find(|c| area(c).contains((x, y).into())) {
+        Some(Claim::Painted(_)) => None,
+        Some(Claim::Zone(zone, _)) => Some(*zone),
+        None => Some(GradZone::Body),
+    }
 }
 
 /// Whether `symbol` is a box-drawing glyph — the frames, corners and column
@@ -116,8 +136,7 @@ pub fn apply(f: &mut Frame, area: Rect, theme: &Theme) {
             })
         })
         .collect();
-    let bars = BARS.with(|b| b.borrow().clone());
-    let painted = PAINTED.with(|p| p.borrow().clone());
+    let claims = CLAIMS.with(|c| c.borrow().clone());
 
     // 1. Tag every cell with the element whose flat color it still carries.
     //    `NONE` means the cell belongs to no gradient and is left alone.
@@ -135,10 +154,9 @@ pub fn apply(f: &mut Frame, area: Rect, theme: &Theme) {
                     continue;
                 };
                 // Cells their own renderer already ramped are finished.
-                if painted.iter().any(|r| r.contains((px, py).into())) {
+                let Some(zone) = zone_at(&claims, px, py) else {
                     continue;
-                }
-                let zone = zone_at(&bars, px, py);
+                };
                 let frame_glyph = is_frame_glyph(cell.symbol());
                 for (i, t) in targets.iter().enumerate() {
                     let hit = t.zone == zone
@@ -338,7 +356,7 @@ mod tests {
         let teal = Style::default().bg(Color::Rgb(0, 160, 160));
         let bar = Rect::new(0, 0, 20, 1);
         let buf = painted(&theme, |f| {
-            mark_bar(GradZone::Menubar, bar);
+            mark_zone(GradZone::Menubar, bar);
             fill(f, bar, teal);
             fill(f, Rect::new(0, 3, 20, 1), teal); // a cursor bar in the body
         });
@@ -393,7 +411,7 @@ mod tests {
         let base = theme.grad(GradRole::MenubarBg).unwrap().base;
         let mut drawn = Vec::new();
         let buf = painted_in(WAVE_BAR.width, 2, &theme, |f| {
-            mark_bar(GradZone::Menubar, WAVE_BAR);
+            mark_zone(GradZone::Menubar, WAVE_BAR);
             mark_painted(WAVE_BAR);
             drawn = self_paint(f, WAVE_BAR, GradRole::MenubarBg, &theme);
         });
@@ -448,6 +466,56 @@ mod tests {
                 "column {x} keeps the shade the cursor bar drew"
             );
         }
+    }
+
+    #[test]
+    fn a_menu_opened_over_the_cursor_bar_ramps_on_that_row_too() {
+        // The cursor bar ramps itself and claims its row. A dropdown drawn over
+        // it afterwards takes those cells back — else its row through the bar
+        // was left out of the menu's ramp, a flat stripe across the dropdown.
+        let black = Color::Rgb(0, 0, 0);
+        let mut spec = ramp_spec();
+        spec.menu_bg = black;
+        spec.gradients.menu_bg = Some(GradientSpec::new(Color::Rgb(255, 255, 255)));
+        let theme = Theme::from_spec(&spec, true);
+        let (cursor, menu) = (Rect::new(0, 2, 20, 1), Rect::new(4, 0, 10, 5));
+        let buf = painted(&theme, |f| {
+            mark_painted(cursor);
+            fill(f, cursor, Style::default().bg(black));
+            mark_zone(GradZone::Menu, menu);
+            fill(f, menu, Style::default().bg(black));
+        });
+        for y in menu.top()..menu.bottom() {
+            assert_eq!(
+                bg_at(&buf, menu.right() - 1, y),
+                Color::Rgb(255, 255, 255),
+                "row {y} ramps"
+            );
+        }
+        for x in [0, 19] {
+            assert_eq!(bg_at(&buf, x, 2), black, "the cursor bar beside the menu stays claimed");
+        }
+    }
+
+    #[test]
+    fn a_menu_takes_its_own_ramp_where_the_body_reuses_its_color() {
+        // Themes readily give a dropdown the focused button's color. Each still
+        // ramps with its own gradient, not with whichever is matched first.
+        let teal = Color::Rgb(0, 160, 160);
+        let mut spec = ramp_spec();
+        spec.menu_bg = teal;
+        spec.button_focused_bg = teal;
+        spec.gradients.menu_bg = Some(GradientSpec::new(Color::Rgb(255, 255, 255)));
+        spec.gradients.button_focused_bg = Some(GradientSpec::new(Color::Rgb(0, 0, 0)));
+        let theme = Theme::from_spec(&spec, true);
+        let (menu, button) = (Rect::new(0, 0, 10, 3), Rect::new(12, 4, 8, 1));
+        let buf = painted(&theme, |f| {
+            mark_zone(GradZone::Menu, menu);
+            fill(f, menu, Style::default().bg(teal));
+            fill(f, button, Style::default().bg(teal));
+        });
+        assert_eq!(bg_at(&buf, menu.right() - 1, 0), Color::Rgb(255, 255, 255), "the menu's own");
+        assert_eq!(bg_at(&buf, button.right() - 1, 4), Color::Rgb(0, 0, 0), "the button's own");
     }
 
     #[test]

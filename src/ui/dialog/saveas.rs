@@ -326,6 +326,9 @@ impl SaveAsDialog {
             let mark = if e.is_dir { "/" } else { " " };
             let text = format!(" {}{}", e.name, mark);
             let selected = i == self.cursor && self.focus == SaveFocus::List;
+            if selected {
+                mark_menu_row(list, i - self.top);
+            }
             let style = if selected {
                 theme.menu_selection
             } else if e.is_dir {

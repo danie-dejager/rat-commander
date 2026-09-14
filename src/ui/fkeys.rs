@@ -59,7 +59,7 @@ pub fn render<S: AsRef<str>>(f: &mut Frame, area: Rect, labels: &[S], theme: &Th
     // Claim the row, so a body gradient can't repaint the bar (and the bar's own
     // can't reach past it) when the two share a color. The cells below carry the
     // bar's ramp already, so the screen pass leaves them be.
-    crate::ui::gradient::mark_bar(GradZone::Fkeys, area);
+    crate::ui::gradient::mark_zone(GradZone::Fkeys, area);
     crate::ui::gradient::mark_painted(area);
     let n = labels.len().max(1);
     let total = area.width as usize;

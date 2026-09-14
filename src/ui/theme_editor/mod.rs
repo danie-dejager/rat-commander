@@ -844,6 +844,54 @@ mod tests {
     }
 
     #[test]
+    fn the_pulldown_preview_shows_the_menu_gradient_where_it_is_edited() {
+        // Colors reused elsewhere, as many themes do: the dropdown matches the
+        // focused button, its selection bar the cursor, and both of those ramp.
+        let mut ed = ThemeEditor::new("Rat Commander", true);
+        let s = &mut ed.spec;
+        s.gradients = Default::default();
+        s.menu_bg = s.button_focused_bg;
+        s.menu_selection_bg = s.cursor_bg;
+        s.gradients.button_focused_bg = Some(GradientSpec::new(Color::Rgb(255, 0, 0)));
+        s.gradients.cursor_bg = Some(GradientSpec::new(Color::Rgb(0, 0, 255)));
+        ed.item = THEME_FIELDS.iter().position(|m| m.role == Some(GradRole::MenuBg)).unwrap();
+
+        let theme = Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(120, 32)).unwrap();
+        let mut shown = |ed: &mut ThemeEditor, to: Color| {
+            ed.spec.set_color_at(ed.item, to);
+            t.draw(|f| render::render(f, f.area(), ed, &theme)).unwrap();
+            t.backend().buffer().clone()
+        };
+        let a = shown(&mut ed, Color::Rgb(0, 255, 0));
+        let b = shown(&mut ed, Color::Rgb(255, 255, 0));
+
+        // The preview's dropdown: its second row is the selected "Edit themes".
+        let text = buffer_text(&t);
+        let (ys, line) = text.lines().enumerate().find(|(_, l)| l.contains("Edit themes")).unwrap();
+        let xs = line[..line.find("Edit themes").unwrap()].chars().count() as u16;
+        let (x0, y0) = (xs - 1, ys as u16 - 2);
+        let x1 = (x0 + 1..120).find(|x| a[(*x, y0)].symbol() == "┐").expect("the menu's corner");
+        let menu = Rect { x: x0, y: y0, width: x1 - x0 + 1, height: 5 };
+
+        // The preview pane, right of the list and picker (which show the color).
+        let changed: Vec<(u16, u16)> = (0..32)
+            .flat_map(|y| (render::LEFT_W..120).map(move |x| (x, y)))
+            .filter(|p| a[*p].bg != b[*p].bg)
+            .collect();
+        for p in &changed {
+            assert!(menu.contains((*p).into()), "the edit shows only on the dropdown, not {p:?}");
+        }
+        // Every row of the box follows the edit — the one over the cursor too.
+        for y in menu.top()..menu.bottom() {
+            assert!(changed.contains(&(x1, y)), "row {y} of the dropdown follows the edit");
+        }
+        // The selection bar is the menu's, flat, not the cursor's ramp.
+        let sel = b[(x1 - 1, ys as u16)].bg;
+        assert_eq!(sel, ed.spec.menu_selection_bg, "the selection bar keeps its flat color");
+    }
+
+    #[test]
     fn opens_on_the_current_theme() {
         let ed = ThemeEditor::new("Midnight Commander", true);
         assert_eq!(norm(&ed.names[ed.picker]), norm("Midnight Commander"));

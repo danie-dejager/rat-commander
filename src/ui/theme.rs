@@ -175,12 +175,17 @@ pub enum GradPaint {
 /// over a full row of their own, so keeping them in their own zone stops a body
 /// gradient from bleeding into a bar that happens to share its color (the stock
 /// themes give the cursor, the menu bar and the F-key bar one and the same
-/// teal).
+/// teal). The pulldown menus get one too: themes readily reuse their colors for
+/// the cursor, a focused button or an input, and without it a dropdown would
+/// wear whichever of those gradients is matched first instead of its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GradZone {
     Body,
     Menubar,
     Fkeys,
+    /// The pulldown menus, and the menu-style selection bars of the dialogs'
+    /// file and device lists.
+    Menu,
 }
 
 /// Generate the gradient-carrying elements from one ordered list: the role enum,
@@ -256,8 +261,8 @@ gradient_roles! {
     CursorBg,          cursor_bg,           Bg, Body;
     CursorInactiveBg,  cursor_inactive_bg,  Bg, Body;
     DialogSelectionBg, dialog_selection_bg, Bg, Body;
-    MenuSelectionBg,   menu_selection_bg,   Bg, Body;
-    MenuBg,            menu_bg,             Bg, Body;
+    MenuSelectionBg,   menu_selection_bg,   Bg, Menu;
+    MenuBg,            menu_bg,             Bg, Menu;
     DialogBg,          dialog_bg,           Bg, Body;
     PanelBg,           panel_bg,            Bg, Body;
     MenubarBg,         menubar_bg,          Bg, Menubar;

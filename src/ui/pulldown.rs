@@ -6,7 +6,7 @@
 //! type is the caller's own enum — it only has to name a separator variant, via
 //! [`Action`].
 
-use crate::ui::theme::Theme;
+use crate::ui::theme::{GradZone, Theme};
 use ratatui::Frame;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
@@ -428,8 +428,11 @@ fn menu_width<A>(items: &[MenuItem<A>]) -> u16 {
         + 4
 }
 
-/// Clear `rect`, draw the menu border, and return the interior.
+/// Clear `rect`, draw the menu border, and return the interior. The box is
+/// claimed as menu chrome, so it takes the menu's own gradients even where the
+/// theme reuses its colors elsewhere, and over the cursor bar it covers.
 fn draw_menu_box(f: &mut Frame, rect: Rect, theme: &Theme) -> Rect {
+    crate::ui::gradient::mark_zone(GradZone::Menu, rect);
     f.render_widget(Clear, rect);
     let block = Block::default()
         .borders(Borders::ALL)
