@@ -408,6 +408,8 @@ pub struct SettingsValues {
     pub thumb_size: crate::config::ThumbSize,
     /// Which look the panel's 3D view draws.
     pub space3d_style: crate::config::Space3dStyle,
+    /// How audio files are drawn.
+    pub audio_display: crate::config::AudioDisplay,
     pub auto_refresh: bool,
     pub space3d_activity: bool,
     pub details_activity: bool,

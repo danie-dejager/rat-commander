@@ -373,6 +373,12 @@ impl AppState {
             return Flow::Continue;
         }
 
+        // A Details view showing audio takes the transport keys while it is the
+        // active panel; its own (hidden) listing has no use for them.
+        if self.details_audio_key(key) {
+            return Flow::Continue;
+        }
+
         match key.code {
             // -- Panel visibility (Norton-Commander style) --
             // Ctrl-F1 / Ctrl-F2 hide the left / right panel; Ctrl-F4 toggles the

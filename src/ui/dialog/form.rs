@@ -81,7 +81,7 @@ const SETTINGS_PAGES: &[SettingsPage] = &[
     SettingsPage {
         tab: SettingsTab::Panels,
         title: "Panels",
-        groups: &[("Views", 3, 1), ("Activity", 3, 1)],
+        groups: &[("Views", 4, 1), ("Activity", 3, 1)],
     },
     SettingsPage {
         tab: SettingsTab::Programs,
@@ -165,6 +165,11 @@ const SETTINGS_HELP: &[(&str, &str)] = &[
         "3D style",
         "How the 3D view draws a tree: Cubes, shaded boxes hanging on rings, or Spare no \
          expense, an fsn-style landscape with files shaped by type.",
+    ),
+    (
+        "Audio view",
+        "How the viewer and the Details view draw an audio file: Spectrogram, its frequencies \
+         over time, or Waveform, its loudness. F2 in the viewer switches between them.",
     ),
     (
         "Auto-refresh panels",
@@ -645,7 +650,7 @@ pub struct FormDialog {
 impl FormDialog {
     pub fn settings(cfg: &crate::config::Config, truecolor: bool) -> Self {
         use crate::config::{
-            SAVER_MINUTES, SaverKind, Space3dStyle, ThumbSize, saver_minutes_label,
+            AudioDisplay, SAVER_MINUTES, SaverKind, Space3dStyle, ThumbSize, saver_minutes_label,
         };
         // Field order is layout: `SETTINGS_PAGES` slices this list into tabs and
         // group boxes by count. The submit reads fields back by label, so the
@@ -684,6 +689,11 @@ impl FormDialog {
                 "3D style",
                 Space3dStyle::ALL.iter().map(|(_, l)| (*l).to_string()).collect(),
                 cfg.space3d_style.label(),
+            ),
+            Field::choice(
+                "Audio view",
+                AudioDisplay::ALL.iter().map(|(_, l)| (*l).to_string()).collect(),
+                cfg.audio_display.label(),
             ),
             // --- Activity ---
             Field::check("Auto-refresh panels", cfg.auto_refresh),
@@ -1099,7 +1109,9 @@ impl FormDialog {
     /// position, so moving a field to another tab or group can't hand its value
     /// to a neighbour.
     fn settings_values(&self) -> SettingsValues {
-        use crate::config::{SaverKind, Space3dStyle, ThumbSize, saver_minutes_from_label};
+        use crate::config::{
+            AudioDisplay, SaverKind, Space3dStyle, ThumbSize, saver_minutes_from_label,
+        };
         let text = |label| self.setting(label).as_text();
         let on = |label| self.setting(label).as_bool();
         SettingsValues {
@@ -1112,6 +1124,7 @@ impl FormDialog {
             brief_columns: text("Brief view columns").parse().unwrap_or(2).clamp(1, 6),
             thumb_size: ThumbSize::from_label(text("Thumbnail size")),
             space3d_style: Space3dStyle::from_label(text("3D style")),
+            audio_display: AudioDisplay::from_label(text("Audio view")),
             auto_refresh: on("Auto-refresh panels"),
             space3d_activity: on("3D view: show filesystem activity"),
             details_activity: on("Details view: git activity"),

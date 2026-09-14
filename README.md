@@ -49,6 +49,14 @@ The installed executable is named **`rc`** for quick typing.
   truecolor one, an ASCII ramp otherwise. F8 switches to the raw bytes, and a
   file that will not parse simply opens as hex. Model files also get their own
   colour in the listings and their own solid in the 3D landscape.
+- **Audio view (F3, and the Details preview)** — WAV, FLAC, MP3, Ogg Vorbis,
+  AAC/ALAC, AIFF and CAF files open as a **spectrogram** or a **waveform** of the
+  whole file (F2 switches; Settings → Panels picks the default), drawn while it
+  decodes in the background. Play, pause, stop, seek and set the volume from the
+  transport row, and **click or drag anywhere on the picture to jump there**. The
+  Details view shows the same picture for the file under the other panel's
+  cursor, playable without leaving the listing. Decoding is pure Rust; playback
+  uses the system audio (the `audio` build feature).
 - **Byte map (F4, third mode)** — the whole file as one picture, each cell a span
   coloured by how *dense* its bytes are (Shannon entropy) or by what they mostly
   **are** (zero padding / ASCII / high bytes / mixed). Compressed and encrypted
@@ -283,13 +291,16 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | Key | Action |
 | --- | --- |
 | `F1` | Help (opens the user manual) |
-| `F2` | Toggle line wrap |
+| `F2` | Toggle line wrap — (audio) switch Spectrogram / Waveform |
 | `F4` | Cycle text / hex / byte-map mode (and the binary view, for an executable) |
 | `F5` | Goto (line / percent / byte offset) |
 | `F7` | Search (`n` repeats) |
 | `f` | Follow the file as it grows (`tail -f`) |
 | `b` | Git blame column; `Enter` opens the cursor line's commit |
-| `F8` | (Markdown) toggle Raw / Render — (image) toggle Image / Raw — (model) toggle Model / Raw — (map) toggle Density / Bytes — (binary) toggle demangled / raw names |
+| `F8` | (Markdown) toggle Raw / Render — (image) toggle Image / Raw — (model) toggle Model / Raw — (audio) toggle Audio / Raw — (map) toggle Density / Bytes — (binary) toggle demangled / raw names |
+| `Space` / `s` | (audio) play / pause — stop |
+| `← →` / `PgUp PgDn` / `Home End` | (audio) seek 5 s / 30 s / to either end; click or drag on the picture to seek |
+| `+` / `-` / `↑ ↓` | (audio) volume |
 | `Tab` / `Shift-Tab` / `1`–`7` | (binary) switch between Info, Sections, Libraries, Imports, Exports, Functions and Strings |
 | `Enter` / `Esc` | (binary) open the hex view at the highlighted row / drop a *Find all* filter |
 | `← → ↑ ↓` / `Enter` | (map) move the cursor / open the hex view at that offset |
@@ -356,10 +367,13 @@ Grab a release from the **Releases** page:
 
 ### From source
 
-Requires a recent stable Rust toolchain (edition 2024, **Rust ≥ 1.85**), plus a
+Requires a recent stable Rust toolchain (edition 2024, **Rust ≥ 1.87**), plus a
 C/C++ compiler for the bundled `unrar` and SQLite libraries — add
 `--no-default-features` to build without RAR and SQLite-browsing support if
-you'd rather not have one.
+you'd rather not have one. On Linux, audio playback links the system ALSA
+library, so install its headers first (`sudo apt install libasound2-dev` on
+Debian/Ubuntu, `alsa-lib` on Arch); `--no-default-features` leaves playback out
+too (the audio view still draws files), and `--features audio` adds it back.
 
 The quickest route is to build straight from the repository:
 
@@ -416,9 +430,12 @@ cargo build --release --target x86_64-unknown-linux-gnu
 cargo deb --no-build --target x86_64-unknown-linux-gnu
 
 # Raspberry Pi (cross-compiled) – needs Docker + `cross`
-# (--no-default-features drops RAR, whose C++ lib won't cross-compile here)
+# (--no-default-features drops RAR, whose C++ lib won't cross-compile here;
+# Cross.toml installs the target's ALSA headers for the `audio` feature)
 cargo install cross
-cross build --release --no-default-features --target aarch64-unknown-linux-gnu
+PKG_CONFIG_ALLOW_CROSS=1 \
+PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/aarch64-linux-gnu/pkgconfig \
+cross build --release --no-default-features --features audio --target aarch64-unknown-linux-gnu
 cargo deb --no-build --no-strip --target aarch64-unknown-linux-gnu
 
 # Windows MSI – on Windows with the WiX toolset
@@ -435,7 +452,13 @@ Some dependencies (`unrar`, `bzip2`, `xz2`, archive backends) compile bundled
 C/C++ sources, so a C/C++ toolchain is required (provided automatically by
 `cross` for the Raspberry Pi targets). RAR support is an optional build feature
 (`rar`, on by default), omitted from the Raspberry Pi (arm) packages because the
-C++ `unrar` library doesn't build with those cross toolchains.
+C++ `unrar` library doesn't build with those cross toolchains. Audio playback
+(`audio`, on by default) links ALSA on Linux — the `.deb` depends on `libasound2`
+— and is kept in the 64-bit Raspberry Pi package. The 32-bit (`armhf`) package
+leaves it out and is built with `cargo deb --variant=noaudio`, which drops the
+ALSA dependency: Debian 13 and the Raspberry Pi OS built on it moved 32-bit ALSA
+to a 64-bit `time_t`, which a 32-bit Rust binary cannot safely call. It still
+draws audio files; it just cannot play them.
 
 ---
 

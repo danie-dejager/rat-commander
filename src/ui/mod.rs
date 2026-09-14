@@ -226,6 +226,9 @@ fn draw_body(f: &mut Frame, state: &mut AppState) {
             state.panels[i].hit = None;
             state.panels[i].quick_caret = None;
             state.panels[i].preview_image_area = None;
+            if let Some(av) = &state.details[i].audio {
+                av.clear_hits();
+            }
         }
     }
 
@@ -300,6 +303,15 @@ fn draw_body(f: &mut Frame, state: &mut AppState) {
             }
         }
         for i in 0..2 {
+            // An audio preview's spectrogram or waveform.
+            if let Some(area) = state.panels[i].preview_image_area
+                && let crate::details::Preview::Audio(_) = &state.details[i].preview
+                && let Some(av) = &state.details[i].audio
+                && let Some(g) = state.gfx.as_mut()
+            {
+                let slot = crate::ui::graphics::Slot::DetailsPreview(i as u16);
+                crate::audio::widget::draw_pixels(g, f, area, av, &theme, slot);
+            }
             if let Some(area) = state.panels[i].preview_image_area
                 && let crate::details::Preview::Image(pi) = &state.details[i].preview
                 && let Some(g) = state.gfx.as_mut()

@@ -129,6 +129,11 @@ pub fn render_panel(
     panel.quick_caret = None;
     // Cleared unless a Details image preview reserves an area below.
     panel.preview_image_area = None;
+    // The same for a Details audio preview's controls: set again only if they
+    // are drawn this frame.
+    if let Some(av) = &details.audio {
+        av.clear_hits();
+    }
     // Refilled by the thumbnail grid, when it is the format.
     panel.thumb_cells.clear();
 

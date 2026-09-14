@@ -39,7 +39,7 @@ pub fn render(
     // screen, so blank space never shows below the end of the file.
     // A model, like an image, replaces the document entirely, so there is no
     // page to index or clamp for it either.
-    if v.active_image().is_none() && v.active_model().is_none() {
+    if v.active_image().is_none() && v.active_model().is_none() && v.active_audio().is_none() {
         if v.mode == ViewMode::Text {
             v.extend_to_line(v.top + v.view_rows);
         }
@@ -47,6 +47,14 @@ pub fn render(
     }
 
     render_header(f, header, v, theme);
+    // An audio file shows its spectrogram or waveform with transport controls
+    // beneath; F8 toggles to the raw text/hex.
+    if let Some(a) = v.active_audio() {
+        f.render_widget(Clear, content);
+        crate::audio::widget::render(f, content, a, theme, gfx, crate::ui::graphics::Slot::ViewerAudio);
+        render_footer(f, footer, v, theme);
+        return;
+    }
     // An image file shows the decoded image fullscreen (pixel graphics where
     // available, else half-block cell art); F8 toggles to the raw text/hex.
     if v.active_image().is_some() {
@@ -723,6 +731,39 @@ fn render_image(
 }
 
 fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
+    // In audio mode the header names the file, its format, which picture is
+    // up, and where playback is.
+    if let Some(a) = v.active_audio() {
+        let display = crate::l10n::trd(a.display().label());
+        let state = if a.playing() { "▶" } else { "❚❚" };
+        let time = format!(
+            "{state} {} / {}",
+            crate::audio::format_time(a.position()),
+            crate::audio::format_time(a.duration())
+        );
+        let summary = a.info.summary();
+        let fixed = 12 + summary.chars().count() + display.chars().count() + time.chars().count();
+        let mut text = format!(
+            " {}: {}  [{summary}]  [{display}]  {time}",
+            crate::l10n::trd("View"),
+            ellipsize(&v.name, (area.width as usize).saturating_sub(fixed).max(8)),
+        );
+        // The track's tags, when the file has them and there is room.
+        let tags: Vec<&str> =
+            [a.info.artist.as_deref(), a.info.title.as_deref()].into_iter().flatten().collect();
+        if !tags.is_empty() {
+            text.push_str("  ");
+            text.push_str(&tags.join(" – "));
+        }
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                pad_right(&ellipsize(&text, area.width as usize), area.width as usize),
+                theme.menubar.add_modifier(Modifier::BOLD),
+            ))),
+            area,
+        );
+        return;
+    }
     // In model mode the header names the file, the format read, and how many
     // triangles it turned out to hold — the size that actually matters here.
     if let Some(m) = v.active_model() {

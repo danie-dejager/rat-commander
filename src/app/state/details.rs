@@ -22,6 +22,11 @@ const MAX_ARCHIVE_BYTES: u64 = 50 * 1024 * 1024;
 /// Longest edge of a decoded thumbnail (the graphics layer fits it to the cell
 /// area; the ASCII fallback downsamples further).
 const THUMB_MAX: u32 = 480;
+/// How long the cursor has to rest on an audio file before it is probed. Only a
+/// probe that lands while the cursor is still there starts the analysis, so
+/// holding an arrow key down a music folder does not decode every file on the
+/// way past.
+const AUDIO_DEBOUNCE: Duration = Duration::from_millis(250);
 /// How long the cursor has to rest on an item before its activity is counted,
 /// so running the cursor down a listing doesn't start a `git log` per row.
 const ACTIVITY_DEBOUNCE: Duration = Duration::from_millis(250);
@@ -178,6 +183,8 @@ impl AppState {
         if let Some(c) = self.details[viewer].cancel.take() {
             c.cancel();
         }
+        // The cursor moved off the audio file: stop drawing and playing it.
+        self.details[viewer].audio = None;
         self.details[viewer].generation = self.details[viewer].generation.wrapping_add(1);
         let generation = self.details[viewer].generation;
 
@@ -296,13 +303,71 @@ impl AppState {
         generation: u64,
         preview: Preview,
     ) {
-        let Some(d) = self.details.get_mut(viewer) else {
-            return;
-        };
-        if d.generation != generation {
+        if self.details.get(viewer).is_none_or(|d| d.generation != generation) {
             return;
         }
+        // An audio file starts its analysis only now that its probe has come
+        // back for the item the cursor is still on.
+        let audio = match &preview {
+            Preview::Audio(info) => Some(crate::audio::AudioView::new(
+                info.clone(),
+                self.config.audio_display,
+                self.audio_out.clone(),
+            )),
+            _ => None,
+        };
+        let d = &mut self.details[viewer];
+        d.audio = audio;
         d.preview = preview;
+    }
+
+    /// Catch the Details views' audio up with its analysis and the output, on
+    /// the tick. Returns whether any of it needs drawing.
+    pub(in crate::app::state) fn poll_details_audio(&mut self) -> bool {
+        let now = Instant::now();
+        let mut dirty = false;
+        for d in &mut self.details {
+            if let Some(a) = d.audio.as_mut() {
+                dirty |= a.busy();
+                a.poll(now);
+            }
+        }
+        dirty
+    }
+
+    /// A mouse event over a Details view's audio controls. Returns whether it
+    /// landed on them. The panel does not become the active one: the point is
+    /// to press Play and carry on browsing in the other.
+    pub(in crate::app::state) fn details_audio_mouse(&mut self, ev: MouseEvent) -> bool {
+        for (panel, d) in self.panels.iter().zip(self.details.iter_mut()) {
+            if panel.format == ViewFormat::Details
+                && let Some(a) = d.audio.as_mut()
+                && a.mouse(ev)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Whether a drag along a Details view's audio picture is under way.
+    pub(in crate::app::state) fn details_audio_scrubbing(&self) -> bool {
+        self.details.iter().any(|d| d.audio.as_ref().is_some_and(|a| a.scrubbing()))
+    }
+
+    /// The transport keys, while the active panel is a Details view showing
+    /// audio. Space and the arrows sideways belong to the command line once
+    /// something is typed there, and so does anything with a modifier.
+    pub(in crate::app::state) fn details_audio_key(&mut self, key: KeyEvent) -> bool {
+        if self.panels[self.active].format != ViewFormat::Details {
+            return false;
+        }
+        let vertical =
+            matches!(key.code, KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown);
+        if !vertical && !self.cmd.is_empty() {
+            return false;
+        }
+        self.details[self.active].audio.as_mut().is_some_and(|a| a.key(key))
     }
 
     /// Build the render-ready file overview, resolving owner/group names here
@@ -439,6 +504,17 @@ async fn build_preview(
         && let Some(pi) = load_image_preview(&backend, &path).await
     {
         return Preview::Image(pi);
+    }
+    // Audio on local disk: decoded straight from the file, so there is no size
+    // cap (a remote one would have to be fetched whole first).
+    if path.scheme == "file" && crate::audio::is_audio_name(&name) {
+        tokio::time::sleep(AUDIO_DEBOUNCE).await;
+        let (p, hint) = (path.path.clone(), crate::audio::hint_of(&name));
+        if let Ok(Some(info)) =
+            tokio::task::spawn_blocking(move || crate::audio::probe(&p, &hint)).await
+        {
+            return Preview::Audio(info);
+        }
     }
     // Native archives on local disk: list the root without mounting a panel.
     if ArchiveFormat::from_name(&name).is_some()

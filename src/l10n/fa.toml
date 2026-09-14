@@ -613,3 +613,18 @@ rtl = true
 "The time machine needs a local directory" = "ماشین زمان به یک پوشه محلی نیاز دارد"
 "This repository has no commits yet" = "این مخزن هنوز هیچ کامیتی ندارد"
 "no revisions" = "بدون بازبینی"
+
+# -- Audio view (viewer and Details view) --
+"Audio view" = "نمای صدا"
+"How the viewer and the Details view draw an audio file: Spectrogram, its frequencies over time, or Waveform, its loudness. F2 in the viewer switches between them." = "شیوهٔ ترسیم پروندهٔ صوتی در نمایشگر و نمای جزئیات: گزینهٔ Spectrogram بسامدهای آن در طول زمان، یا گزینهٔ Waveform بلندی صدای آن. F2 در نمایشگر جابه‌جا می‌کند."
+"Audio" = "صدا"
+"Spectrogram" = "طیف‌نگاره"
+"Waveform" = "شکل موج"
+"Mono" = "مونو"
+"Stereo" = "استریو"
+"No audio output" = "خروجی صدا در دسترس نیست"
+"Cannot decode audio" = "رمزگشایی صدا ممکن نیست"
+"Duration" = "مدت"
+"Artist" = "هنرمند"
+"Title" = "عنوان"
+"Album" = "آلبوم"

@@ -344,6 +344,12 @@ pub struct ViewerState {
     /// Whether the model (vs. the raw text/hex) is currently displayed —
     /// toggled with F8, like `show_image`.
     show_model: bool,
+    /// An audio file's spectrogram or waveform and its transport controls,
+    /// when this file could be decoded as audio (F3 on an audio file).
+    audio: Option<crate::audio::AudioView>,
+    /// Whether the audio view (vs. the raw text/hex) is currently displayed —
+    /// toggled with F8, like `show_model`.
+    show_audio: bool,
     /// Pointer position the in-progress model drag was last seen at, so an
     /// orbit is driven by the delta between frames rather than by absolutes.
     drag_from: Option<(u16, u16)>,
@@ -403,6 +409,8 @@ impl ViewerState {
             show_image: false,
             model: None,
             show_model: false,
+            audio: None,
+            show_audio: false,
             drag_from: None,
             map: None,
             map_cell: 0,
@@ -458,6 +466,8 @@ impl ViewerState {
             show_image: false,
             model: None,
             show_model: false,
+            audio: None,
+            show_audio: false,
             drag_from: None,
             map: None,
             map_cell: 0,
@@ -651,6 +661,7 @@ impl ViewerState {
             && !self.markdown_active()
             && self.active_image().is_none()
             && self.active_model().is_none()
+            && self.active_audio().is_none()
     }
 
     /// Mark a blame as requested, answered by the event carrying `generation`.
@@ -926,6 +937,28 @@ impl ViewerState {
             return self.handle_outline_key(key);
         }
 
+        // A displayed audio view takes the keys ahead of any mode: its picture
+        // replaces the document, so the document's keys (follow, blame,
+        // search, the mode cycle) would act on something that is not on
+        // screen. Only closing, help and its own F2/F8 get through.
+        if self.show_audio
+            && let Some(a) = self.audio.as_mut()
+        {
+            if a.key(key) {
+                return ViewerSignal::Stay;
+            }
+            match key.code {
+                KeyCode::Char('s') | KeyCode::Char('S') => a.stop(),
+                KeyCode::F(2) => a.toggle_display(),
+                KeyCode::F(8) => self.show_audio = false,
+                KeyCode::F(1) | KeyCode::F(3) | KeyCode::F(10) | KeyCode::Esc | KeyCode::Char('q') => {
+                    return self.handle_plain_view_key(key);
+                }
+                _ => {}
+            }
+            return ViewerSignal::Stay;
+        }
+
         if self.mode == ViewMode::Binary {
             return self.handle_binary_key(key);
         }
@@ -1025,6 +1058,8 @@ impl ViewerState {
             KeyCode::F(5) => return ViewerSignal::OpenGoto,
             // F6 (Markdown files in text mode): open the document outline.
             KeyCode::F(6) if self.is_markdown && self.mode == ViewMode::Text => self.open_outline(),
+            // F8 (audio files): back from the raw text/hex to the audio view.
+            KeyCode::F(8) if self.audio.is_some() => self.show_audio = !self.show_audio,
             // F8 (model files): toggle between the mesh and the raw text/hex.
             KeyCode::F(8) if self.model.is_some() => self.show_model = !self.show_model,
             // F8 (image files): toggle between the image and the raw text/hex.
@@ -1087,6 +1122,14 @@ impl ViewerState {
                 Some(i) => self.activate_fkey(i),
                 None => ViewerSignal::Stay,
             };
+        }
+
+        // The audio view's picture, progress row and buttons.
+        if self.show_audio
+            && let Some(a) = self.audio.as_mut()
+        {
+            a.mouse(ev);
+            return ViewerSignal::Stay;
         }
 
         if self.mode == ViewMode::Binary {
@@ -1178,13 +1221,42 @@ impl ViewerState {
         self.show_model.then_some(self.model.as_ref()).flatten()
     }
 
+    /// Attach an audio view and switch to showing it (F3 on an audio file).
+    pub fn set_audio(&mut self, a: crate::audio::AudioView) {
+        self.audio = Some(a);
+        self.show_audio = true;
+    }
+
+    /// The audio view, when it is currently being displayed (vs. the raw view).
+    pub(crate) fn active_audio(&self) -> Option<&crate::audio::AudioView> {
+        self.show_audio.then_some(self.audio.as_ref()).flatten()
+    }
+
+    /// Whether the audio view needs the app's tick: its picture is still
+    /// filling in, or it is playing. (Also while hidden behind the raw view —
+    /// what F8 goes back to should be current, and playback goes on.)
+    pub fn audio_busy(&self) -> bool {
+        self.audio.as_ref().is_some_and(|a| a.busy())
+    }
+
+    /// Catch the audio view up with its analysis and the output, on the tick.
+    /// Returns whether it needs drawing.
+    pub fn poll_audio(&mut self) -> bool {
+        let Some(a) = self.audio.as_mut() else { return false };
+        let busy = a.busy();
+        a.poll(std::time::Instant::now());
+        busy
+    }
+
     /// Whether a drag is under way that [`handle_mouse`] answers by orbiting the
     /// model — the pointer's travel since the press, which the viewer recorded
     /// itself, rather than anything the last frame drew.
     ///
     /// [`handle_mouse`]: ViewerState::handle_mouse
     pub fn orbiting(&self) -> bool {
-        !self.outline_open && self.active_model().is_some() && self.drag_from.is_some()
+        !self.outline_open
+            && ((self.active_model().is_some() && self.drag_from.is_some())
+                || self.active_audio().is_some_and(|a| a.scrubbing()))
     }
 
     /// Build the byte map, once. Sampled rather than read whole (see
@@ -1424,6 +1496,15 @@ impl ViewerState {
             ViewMode::Map => "Map",
             ViewMode::Binary => "Binary",
         };
+        // The audio view: F2 switches between its two pictures, F8 to the raw
+        // bytes. The document's keys are not offered, as they do not act here.
+        if let Some(a) = self.active_audio() {
+            let f2 = match a.display() {
+                crate::config::AudioDisplay::Spectrogram => "Waveform",
+                crate::config::AudioDisplay::Waveform => "Spectrogram",
+            };
+            return ["Help", f2, "Quit", "", "", "", "", "Raw", "", "Quit"];
+        }
         if self.mode == ViewMode::Binary {
             let f8 = match self.active_binary() {
                 Some(view) if view.demangle => "Raw",
@@ -1436,6 +1517,8 @@ impl ViewerState {
         // mode, "Raw" shows the source and "Render" the approximation.
         let f8 = if self.mode == ViewMode::Map {
             if self.map_by_class { "Density" } else { "Bytes" }
+        } else if self.audio.is_some() {
+            "Audio"
         } else if self.model.is_some() {
             if self.show_model { "Raw" } else { "Model" }
         } else if self.image.is_some() {
@@ -1900,6 +1983,9 @@ impl ViewerState {
 
 impl Drop for ViewerState {
     fn drop(&mut self) {
+        // The audio view first: it silences the output and stops its decode
+        // before the temp copy it reads from goes away below.
+        drop(self.audio.take());
         if let Some(BinaryState::Pending { cancel, .. }) = &self.binary {
             cancel.store(true, Ordering::Relaxed);
         }

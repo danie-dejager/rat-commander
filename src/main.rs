@@ -3,6 +3,7 @@
 
 mod activity;
 mod app;
+mod audio;
 mod config;
 mod console;
 mod details;

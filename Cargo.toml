@@ -22,8 +22,11 @@ priority = "optional"
 maintainer-scripts = "packaging/debian"
 # Explicit dependencies (skips dpkg-shlibdeps, which cannot analyse the
 # cross-compiled arm64/armhf binaries on an x86_64 CI host). These shared
-# libraries ship by default on Debian and Raspberry Pi OS.
-depends = "libc6, libgcc-s1, libstdc++6, liblzma5"
+# libraries ship by default on Debian and Raspberry Pi OS. `libasound2` is the
+# ALSA library audio playback links against; Debian 13 and Ubuntu 24.04 ship it
+# as `libasound2t64`, which provides the old name on 64-bit architectures (on
+# 32-bit ones it is a different ABI — see the `noaudio` variant below).
+depends = "libc6, libgcc-s1, libstdc++6, liblzma5, libasound2"
 extended-description = """
 rat-commander is a self-contained, Midnight-Commander-style two-panel file
 manager for the terminal: internal viewer/editor, archives browsed as
@@ -39,8 +42,15 @@ assets = [
     ["packaging/shell/rc.fish", "usr/share/rat-commander/rc.fish", "644"],
 ]
 
+# The package for a build without audio playback (the Raspberry Pi 32-bit one —
+# see release.yml): the same package, minus the ALSA dependency.
+# `cargo deb --variant=noaudio`.
+[package.metadata.deb.variants.noaudio]
+name = "rat-commander"
+depends = "libc6, libgcc-s1, libstdc++6, liblzma5"
+
 [features]
-default = ["rar", "sqlite"]
+default = ["rar", "sqlite", "audio"]
 # RAR read/extract support (pulls in the C++ `unrar` library). Disable it
 # (`--no-default-features`) where a C++ toolchain is unavailable or too old —
 # e.g. the Raspberry Pi cross-compile images.
@@ -49,6 +59,12 @@ rar = ["dep:unrar"]
 # Pulls in the bundled C SQLite, so disable it alongside `rar` where a C
 # toolchain is unavailable — the Raspberry Pi cross-compile images do both.
 sqlite = ["dep:rusqlite"]
+# Audio playback in the viewer's and the Details view's audio view (rodio over
+# cpal). On Linux cpal links the system ALSA library, so building needs
+# `libasound2-dev` (the Raspberry Pi cross images install it through
+# Cross.toml). Without it the spectrogram and waveform are still drawn — the
+# decoding is pure Rust — but nothing can be played.
+audio = ["dep:rodio"]
 
 [dependencies]
 async-trait = "0.1.92"
@@ -146,6 +162,15 @@ object = { version = "0.40.0", default-features = false, features = ["read_core"
 # Rust (legacy and v0) and C++ (Itanium ABI, as GCC and Clang emit). Pure Rust.
 rustc-demangle = "0.1.28"
 cpp_demangle = "0.5.1"
+# Decoding audio files (WAV, FLAC, MP3, Ogg Vorbis, AAC/ALAC in MP4, AIFF, CAF,
+# MKA) for the spectrogram and waveform. Pure Rust, and its own FFT does the
+# spectrogram's transform, so no separate FFT crate comes along. Pinned to the
+# 0.5 line because that is the one rodio decodes with, which keeps a single
+# symphonia in the tree.
+symphonia = { version = "0.5.5", default-features = false, features = ["all-formats", "all-codecs"] }
+# Audio playback (the `audio` feature). `symphonia-all` is what switches on
+# rodio's own symphonia decoder; the codecs themselves are the ones above.
+rodio = { version = "0.22.2", default-features = false, features = ["playback", "symphonia-all"], optional = true }
 
 [dev-dependencies]
 # Tests synthesise small ELF, COFF and Mach-O objects to analyse, rather than

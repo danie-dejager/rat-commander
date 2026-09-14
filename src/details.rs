@@ -38,6 +38,11 @@ pub struct DetailsData {
     /// when to ask again. Kept apart from `key`: whether an item is in a work
     /// tree is only known once the panel's git status arrives, which is later.
     pub(crate) activity_key: String,
+    /// The audio file under the other panel's cursor, drawn and playable, when
+    /// the preview is [`Preview::Audio`]. Lives here rather than in the preview
+    /// (which is plain data, cloned about) because it owns a running analysis
+    /// and a place in the audio output; dropping it silences it.
+    pub audio: Option<crate::audio::AudioView>,
 }
 
 /// The git activity calendar drawn between the metadata and the preview.
@@ -69,6 +74,9 @@ pub enum Preview {
     Archive(Vec<String>),
     /// A shallow tree of a directory's contents.
     Tree(Vec<PreviewTreeLine>),
+    /// An audio file's format and tags; its picture and controls are
+    /// [`DetailsData::audio`].
+    Audio(crate::audio::AudioInfo),
 }
 
 /// One highlighted source line: its text and per-run foreground colours.
@@ -178,7 +186,7 @@ pub fn render(
         return None;
     }
     let preview_area = Rect { y: top, height: body.y + body.height - top, ..body };
-    render_preview(f, preview_area, &data.preview, theme, graphics)
+    render_preview(f, preview_area, &data.preview, data.audio.as_ref(), theme, graphics)
 }
 
 /// Draw `label: value` metadata rows, returning how many interior rows were used
@@ -388,6 +396,7 @@ fn render_preview(
     f: &mut Frame,
     area: Rect,
     preview: &Preview,
+    audio: Option<&crate::audio::AudioView>,
     theme: &Theme,
     graphics: bool,
 ) -> Option<Rect> {
@@ -438,6 +447,10 @@ fn render_preview(
             render_preview_tree(f, content, rows, theme);
             None
         }
+        Preview::Audio(info) => {
+            let av = audio?;
+            render_audio_preview(f, content, info, av, theme, graphics)
+        }
         Preview::Image(pi) => {
             // An EXIF summary (when present) sits above the thumbnail; the image
             // gets the remaining rows.
@@ -461,6 +474,42 @@ fn render_preview(
             }
         }
     }
+}
+
+/// Draw an audio file's preview: its format and tags, then its picture with
+/// the progress and transport rows. Returns the rect for the caller to draw
+/// the pixel picture into, when there is one.
+fn render_audio_preview(
+    f: &mut Frame,
+    area: Rect,
+    info: &crate::audio::AudioInfo,
+    av: &crate::audio::AudioView,
+    theme: &Theme,
+    graphics: bool,
+) -> Option<Rect> {
+    let mut duration = crate::audio::format_time(av.duration());
+    if let Some(status) = crate::audio::widget::status_text(av) {
+        duration = format!("{duration}   {status}");
+    }
+    let mut rows: Vec<(String, String)> =
+        vec![("Audio".into(), info.summary()), ("Duration".into(), duration)];
+    for (label, value) in [("Artist", &info.artist), ("Title", &info.title), ("Album", &info.album)] {
+        if let Some(v) = value {
+            rows.push((label.into(), v.clone()));
+        }
+    }
+    // The description only when there is room left for the controls beneath.
+    let mut rest = area;
+    if area.height >= 8 {
+        let n = (rows.len() as u16).min(area.height - 6);
+        render_exif(f, Rect { height: n, ..area }, &rows, theme);
+        rest = Rect { y: area.y + n + 1, height: area.height - n - 1, ..area };
+    }
+    // With graphics, a row between the picture and the progress row: Sixel
+    // can draw a picture a row lower than it was placed.
+    let lay = crate::audio::widget::layout(rest, true, graphics && rest.height >= 6);
+    crate::audio::widget::render_cells(f, &lay, av, theme, graphics, true);
+    (graphics && lay.image.height > 0).then_some(lay.image)
 }
 
 /// Draw an EXIF `label : value` summary block. The labels are translated here

@@ -249,7 +249,7 @@ used to share now lives on `Alt-T`.
 ### Viewer (F3)
 
 - `F1` — Help (opens this manual)
-- `F2` — Toggle line wrap
+- `F2` — Toggle line wrap (in an **audio view**: switch Spectrogram / Waveform)
 - `F4` — Cycle text / hex / byte-map mode (and the binary view, for an
   executable or library)
 - `F5` — Goto (line / percent / byte offset)
@@ -259,8 +259,12 @@ used to share now lives on `Alt-T`.
   `F1` lands on its outline.
 - `F7` — Search
 - `F8` — (Markdown files) toggle Raw / Render; (image files) toggle Image / Raw;
-  (model files) toggle Model / Raw; (byte map) toggle Density / Bytes colouring;
-  (binary view) toggle demangled / raw symbol names
+  (model files) toggle Model / Raw; (audio files) toggle Audio / Raw; (byte map)
+  toggle Density / Bytes colouring; (binary view) toggle demangled / raw symbol
+  names
+- In an **audio view**: `Space` play / pause, `s` stop, `← →` seek 5 s,
+  `PgUp PgDn` seek 30 s, `Home End` jump to the start / end, `+ -` or `↑ ↓`
+  change the volume; click or drag on the picture to seek
 - `n` — Repeat the last search
 - `f` — Follow the file as it grows (`tail -f`); `f` again stops
 - `b` — Git blame: show who last changed each line; `↑ ↓` move a line cursor,
@@ -513,6 +517,17 @@ one from the **Left** / **Right** menu:
     a full-resolution photo isn't decoded just to shrink it), and a short **EXIF
     summary** (camera, lens, date, exposure) is shown above it when the image
     carries one;
+  - an **audio file** (local) → its format, length and tags, then its
+    spectrogram or waveform with the progress and transport rows — the same
+    controls as the viewer's *Audio view*, in a narrower form. **Click Play**
+    and it plays while you carry on browsing: the file list keeps the focus.
+    Click or drag on the picture to seek, and click − / + for the volume. With
+    the Details panel itself active (`Tab`), `Space` plays and pauses, `← →` and
+    `PgUp`/`PgDn` seek, `Home`/`End` jump to the ends and `+`/`-` or `↑`/`↓` set
+    the volume (`Space` and `← →` go to the command line instead once something
+    is typed there). Moving the cursor to another item stops it. The file is
+    decoded only once the cursor has rested on it for a moment, so running down
+    a music folder decodes nothing on the way past;
   - an **archive** (`.zip`, `.tar.*`, `.7z`, …) → its top-level file list;
   - a **directory** → a shallow tree of its contents.
 
@@ -946,6 +961,37 @@ loading it into an editor.
 
   Model files also get their own colour in the panel listings and their own
   solid — a cut gem — in the 3D landscape view.
+- **Audio view** — opening an audio file (`.wav`, `.flac`, `.mp3`, `.ogg`/`.oga`
+  Vorbis, `.m4a`/`.aac` AAC or ALAC, `.aiff`, `.caf`, `.mka`) draws the **whole
+  file** as a **spectrogram** — time across, frequency up on a log scale,
+  loudness as colour — or as a **waveform**, its peak envelope with the RMS level
+  inside. **F2** switches between the two for the file on screen; *Audio view*
+  (Settings → Panels) picks which one files open on. The picture fills in while
+  the file is decoded in the background, so even an hour-long recording shows up
+  at once and completes in seconds. It uses the usual three tiers: true pixels on
+  a graphics terminal, half-block art on a truecolor one, an ASCII ramp
+  otherwise.
+
+  Beneath the picture sit a **progress row** marking the play position, a time
+  scale, and the **transport row**: start, back 5 s, play / pause, stop, forward
+  5 s, the time played and the length, and the **volume** as a bar with − and +
+  beside it. All of it answers the mouse — **click anywhere on the picture or the
+  progress row to jump there**, or drag along it and let go where you want to be
+  — and the keys: `Space` plays and pauses, `s` stops, `← →` seek five seconds
+  and `PgUp`/`PgDn` thirty, `Home`/`End` jump to either end, and `+`/`-` (or
+  `↑`/`↓`) set the volume. The header names the format, the picture, the play
+  state and time, and the artist and title when the file is tagged. Nothing
+  plays until you ask, and closing the viewer stops it. **F8** toggles to the
+  raw bytes; Opus files, and anything that does not decode, open as raw bytes
+  straight away.
+
+  Only one file plays at a time, across the whole program: starting one stops
+  whatever the viewer or a Details view was playing, and the volume is shared
+  between them. Handing the terminal to another program — `Ctrl-O`, a command,
+  an external editor — pauses playback. Playback needs the **`audio`** build
+  feature (on by default); a build without it — the 32-bit Raspberry Pi package
+  is one — or a machine with no sound device still draws the picture and says
+  *No audio output* where the buttons are.
 - **Text / Hex / Map** — **F4** cycles the three (and the binary view, for a
   file that is one). Hex mode shows an offset / hex / ASCII dump.
 - **Byte map** — the third **F4** mode draws the **whole file as one picture**.
@@ -2404,7 +2450,9 @@ Configuration files live in your platform config directory
   `100`) — the maximum number of command-line entries kept in the persistent
   history; set it to `0` to disable history, `auto_refresh` (default `true`) —
   whether a panel re-reads itself when its directory changes on disk (see
-  *Auto-refreshing panels*), `strip_trailing_spaces` (default `true`) — whether
+  *Auto-refreshing panels*), `audio_display` (`"spectrogram"` by default, or
+  `"waveform"`) — how audio files are drawn (see *Audio view*),
+  `strip_trailing_spaces` (default `true`) — whether
   a line is ended with an erase rather than padded with blanks, so terminal
   selections copy no trailing whitespace (see *Selecting with the mouse, without
   the trailing spaces*), and `shell` (empty by default) — the
@@ -2447,7 +2495,9 @@ follows the focus as you move, so tabbing through a tab reads you its options.
   terminal), the **System status widget**, and when the **Screensaver** starts
   and which **Screensaver style** it plays (see *Screensaver*).
 - **Panels** — the number of **Brief view columns**, the **Thumbnail size** of
-  the thumbnail grid (see *Thumbnails*), the **3D style**, and three switches for
+  the thumbnail grid (see *Thumbnails*), the **3D style**, the **Audio view**
+  audio files open on (Spectrogram or Waveform — see *Audio view*), and three
+  switches for
   work done behind the listing: **Auto-refresh panels** (see *Auto-refreshing
   panels*), **3D view: show filesystem activity** and **Details view: git
   activity**.

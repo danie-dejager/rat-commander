@@ -102,6 +102,46 @@ impl WrapMode {
     }
 }
 
+/// How an audio file is drawn in the viewer and the Details view (Settings →
+/// Panels → "Audio view").
+///
+/// Both come from the same background analysis; only the picture differs. See
+/// `crate::audio`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AudioDisplay {
+    /// Frequency over time, loudness as colour.
+    #[default]
+    Spectrogram,
+    /// Amplitude over time: the peak envelope with the RMS level inside it.
+    Waveform,
+}
+
+impl AudioDisplay {
+    /// Both pictures in dialog order, with the labels the form shows. These
+    /// double as the stored chooser values, so they are never translated.
+    pub const ALL: [(AudioDisplay, &'static str); 2] =
+        [(AudioDisplay::Spectrogram, "Spectrogram"), (AudioDisplay::Waveform, "Waveform")];
+
+    pub fn label(self) -> &'static str {
+        Self::ALL.iter().find(|(m, _)| *m == self).map(|(_, l)| *l).unwrap_or("Spectrogram")
+    }
+
+    /// The picture a dialog label selects (unknown text falls back to the
+    /// spectrogram).
+    pub fn from_label(label: &str) -> Self {
+        Self::ALL.iter().find(|(_, l)| *l == label).map(|(m, _)| *m).unwrap_or_default()
+    }
+
+    /// The other picture, for the viewer's F2.
+    pub fn toggled(self) -> Self {
+        match self {
+            AudioDisplay::Spectrogram => AudioDisplay::Waveform,
+            AudioDisplay::Waveform => AudioDisplay::Spectrogram,
+        }
+    }
+}
+
 /// Which look the panel's 3D view draws (Settings → Visual → "3D style").
 ///
 /// Both styles come from the same renderer and the same size cache; only the
@@ -396,6 +436,11 @@ pub struct Config {
     /// repository may make worth turning off. (Missing from an old config → on.)
     #[serde(default = "crate::config::default_true")]
     pub details_activity: bool,
+    /// How audio files are drawn: a spectrogram or a waveform. (Missing from an
+    /// old config → the spectrogram.) Must stay **above** `panels`, like
+    /// `space3d_style`.
+    #[serde(default)]
+    pub audio_display: AudioDisplay,
     /// Minutes without a key press or mouse movement before the screensaver
     /// starts; 0 turns it off (the default: on a remote session its redrawing
     /// costs bandwidth nobody is watching).
@@ -485,6 +530,7 @@ impl Default for Config {
             space3d_style: Space3dStyle::default(),
             space3d_activity: true,
             details_activity: true,
+            audio_display: AudioDisplay::default(),
             screensaver_minutes: 0,
             screensaver: SaverKind::default(),
             thumb_size: ThumbSize::default(),
@@ -805,6 +851,32 @@ mod tests {
             text.find("space3d_style").unwrap() < text.find("[[panels]]").unwrap(),
             "space3d_style must be written before the panels tables:\n{text}"
         );
+    }
+
+    #[test]
+    fn audio_display_round_trips_through_toml() {
+        let mut c = Config::default();
+        assert_eq!(c.audio_display, AudioDisplay::Spectrogram, "the spectrogram is the default");
+        c.audio_display = AudioDisplay::Waveform;
+
+        let text = toml::to_string_pretty(&c).unwrap();
+        let back: Config = toml::from_str(&text).unwrap();
+        assert_eq!(back.audio_display, AudioDisplay::Waveform);
+        assert!(text.contains("audio_display = \"waveform\""), "{text}");
+        assert!(
+            text.find("audio_display").unwrap() < text.find("[[panels]]").unwrap(),
+            "audio_display must be written before the panels tables:\n{text}"
+        );
+    }
+
+    #[test]
+    fn audio_display_labels_map_both_ways() {
+        for (display, label) in AudioDisplay::ALL {
+            assert_eq!(AudioDisplay::from_label(label), display);
+            assert_eq!(display.label(), label);
+            assert_eq!(display.toggled().toggled(), display);
+        }
+        assert_eq!(AudioDisplay::from_label("nonsense"), AudioDisplay::Spectrogram);
     }
 
     #[test]

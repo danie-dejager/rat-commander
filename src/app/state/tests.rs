@@ -6040,3 +6040,133 @@ async fn git_browse_revisions_mounts_history_and_walks_back_out() {
 
     std::fs::remove_dir_all(&root).ok();
 }
+
+/// F3 on an audio file shows its spectrogram with the transport controls; the
+/// document's own keys are held back while it does, and F8 swaps in the bytes.
+#[tokio::test]
+async fn f3_opens_an_audio_file_on_its_picture_and_keeps_the_document_keys_out() {
+    let root = temp_dir("audioview");
+    crate::audio::tests::write_wav(&root.join("tone.wav"), 22_050, 1.0, 440.0, 0.4);
+    std::fs::write(root.join("fake.mp3"), b"not really an mp3 at all").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+
+    let idx = st.panels[0].entries.iter().position(|e| e.name == "tone.wav").unwrap();
+    st.panels[0].cursor = idx;
+    st.open_view().await;
+    let v = st.viewer.as_ref().expect("the viewer opened");
+    let a = v.active_audio().expect("an audio file opens on its audio view");
+    assert_eq!(a.display(), crate::config::AudioDisplay::Spectrogram, "the default picture");
+    assert_eq!(a.info.sample_rate, 22_050);
+    let labels = v.footer_labels();
+    assert_eq!((labels[1], labels[3], labels[7]), ("Waveform", "", "Raw"));
+    assert!(st.viewer.as_ref().unwrap().audio_busy(), "ticks while the picture fills in");
+
+    // F2 switches the picture; the document's keys do nothing here.
+    st.handle_key(KeyEvent::new(KeyCode::F(2), KeyModifiers::NONE)).await;
+    for code in [KeyCode::F(4), KeyCode::Char('f'), KeyCode::Char('b')] {
+        st.handle_key(KeyEvent::new(code, KeyModifiers::NONE)).await;
+    }
+    let v = st.viewer.as_ref().unwrap();
+    assert_eq!(v.active_audio().unwrap().display(), crate::config::AudioDisplay::Waveform);
+    assert_eq!(v.mode, crate::viewer::ViewMode::Text, "F4 did not cycle the hidden mode");
+    assert!(!v.following(), "f did not start following the file");
+
+    // Space plays (through the test output), and the tick keeps up with it.
+    st.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
+    assert!(st.viewer.as_ref().unwrap().active_audio().unwrap().playing());
+    assert!(st.wants_ticks());
+
+    // F8 shows the raw bytes and offers the audio view back.
+    st.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE)).await;
+    let v = st.viewer.as_ref().unwrap();
+    assert!(v.active_audio().is_none());
+    assert_eq!(v.footer_labels()[7], "Audio");
+    st.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE)).await;
+    assert!(st.viewer.as_ref().unwrap().active_audio().is_some());
+
+    // Closing the viewer silences it.
+    st.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)).await;
+    assert!(st.viewer.is_none());
+    assert!(!st.audio_out.active(), "closing the viewer stopped playback");
+
+    // Something named like audio that does not decode opens as bytes.
+    let idx = st.panels[0].entries.iter().position(|e| e.name == "fake.mp3").unwrap();
+    st.panels[0].cursor = idx;
+    st.open_view().await;
+    assert!(st.viewer.as_ref().unwrap().active_audio().is_none());
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The Details view previews an audio file with working controls, which a click
+/// operates without taking the focus from the file list; moving the cursor off
+/// the file stops it.
+#[tokio::test]
+async fn the_details_view_plays_audio_until_the_cursor_moves_on() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    let root = temp_dir("details_audio");
+    crate::audio::tests::write_wav(&root.join("tone.wav"), 22_050, 2.0, 440.0, 0.4);
+    std::fs::write(root.join("notes.txt"), b"hello\n").unwrap();
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.panels[1].format = ViewFormat::Details;
+
+    let idx = st.panels[0].entries.iter().position(|e| e.name == "tone.wav").unwrap();
+    st.panels[0].cursor = idx;
+    st.update_details();
+    drain_until_preview(&mut st, &mut rx).await;
+    assert!(matches!(st.details[1].preview, crate::details::Preview::Audio(_)));
+    assert!(st.details[1].audio.is_some(), "the preview is drawn and playable");
+
+    // Draw a frame so the controls have somewhere to be clicked.
+    let mut term = Terminal::new(TestBackend::new(160, 50)).unwrap();
+    term.draw(|f| crate::ui::draw(f, &mut st)).unwrap();
+    let screen: String = term.backend().buffer().content.iter().map(|c| c.symbol()).collect();
+    assert!(screen.contains("0:00/0:02"), "the time is shown: {screen}");
+    let hits = st.details[1].audio.as_ref().unwrap().hits();
+    let (play, _) = *hits
+        .buttons
+        .iter()
+        .find(|(_, t)| *t == crate::audio::view::Transport::PlayPause)
+        .expect("a play button was drawn");
+    let click = |kind| MouseEvent { kind, column: play.x + 1, row: play.y, modifiers: KeyModifiers::NONE };
+    st.handle_mouse(click(MouseEventKind::Down(MouseButton::Left))).await;
+    st.handle_mouse(click(MouseEventKind::Up(MouseButton::Left))).await;
+    assert!(st.details[1].audio.as_ref().unwrap().playing(), "the click pressed Play");
+    assert_eq!(st.active, 0, "and the file list kept the focus");
+
+    // With the Details view active, Space pauses — unless the command line
+    // has something typed in it, which Space then belongs to.
+    st.active = 1;
+    st.cmd.set("ls".into());
+    st.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
+    assert!(st.details[1].audio.as_ref().unwrap().playing());
+    assert_eq!(st.cmd.buffer, "ls ");
+    st.cmd.set(String::new());
+    st.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
+    assert!(!st.details[1].audio.as_ref().unwrap().playing(), "Space paused it");
+    st.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
+    assert!(st.wants_ticks(), "a playing preview keeps the tick going");
+    st.active = 0;
+
+    // Moving on stops it.
+    let idx = st.panels[0].entries.iter().position(|e| e.name == "notes.txt").unwrap();
+    st.panels[0].cursor = idx;
+    st.update_details();
+    assert!(st.details[1].audio.is_none());
+    assert!(!st.audio_out.active(), "moving the cursor off the file stopped it");
+
+    let _ = std::fs::remove_dir_all(&root);
+}

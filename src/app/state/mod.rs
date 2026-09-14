@@ -337,6 +337,9 @@ pub struct AppState {
     /// Details format): what to show about the *other* panel's cursor/selection,
     /// plus the background size-scan bookkeeping. Index = the panel displaying it.
     pub details: [crate::details::DetailsData; 2],
+    /// The one audio output every audio view (the viewer's, each Details
+    /// view's) plays through, so only one file is heard at a time.
+    pub audio_out: crate::audio::AudioOut,
     /// Per-panel Git-status background-scan bookkeeping: the last-scanned key (the
     /// panel's local cwd, or empty for a non-local panel) and a generation counter
     /// so a stale scan result is dropped. The scanned `GitStatus` lives on the
@@ -694,6 +697,24 @@ async fn load_view_model(path: &Path) -> Option<crate::viewer::ViewerModel> {
     })
     .await
     .ok()?
+}
+
+/// Probe a local audio file for the viewer, and start drawing it. `None` when
+/// `name` is not an audio file or it does not decode (the caller then shows the
+/// raw view). `name` is the original file name: a fetched temp copy has no
+/// extension of its own to hint the format with.
+pub(in crate::app::state) async fn load_view_audio(
+    path: &Path,
+    name: &str,
+    display: crate::config::AudioDisplay,
+    out: crate::audio::AudioOut,
+) -> Option<crate::audio::AudioView> {
+    if !crate::audio::is_audio_name(name) {
+        return None;
+    }
+    let (p, hint) = (path.to_path_buf(), crate::audio::hint_of(name));
+    let info = tokio::task::spawn_blocking(move || crate::audio::probe(&p, &hint)).await.ok()??;
+    Some(crate::audio::AudioView::new(info, display, out))
 }
 
 /// How long F3 waits for a binary's analysis before showing the viewer anyway.

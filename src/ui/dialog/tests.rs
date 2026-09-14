@@ -1428,7 +1428,7 @@ fn settings_dialog_describes_the_focused_setting() {
 
     let mut d = FormDialog::settings(&cfg, true).on_tab(SettingsTab::Panels);
     // Tab from Brief view columns down to Auto-refresh panels.
-    for _ in 0..3 {
+    for _ in 0..4 {
         d.handle_key(key(KeyCode::Tab));
     }
     let screen = render_form(&mut d);
@@ -1661,6 +1661,7 @@ fn the_settings_form_round_trips_every_value() {
         brief_columns: 4,
         thumb_size: ThumbSize::Large,
         space3d_style: Space3dStyle::Fsn,
+        audio_display: crate::config::AudioDisplay::Waveform,
         auto_refresh: !d.auto_refresh,
         space3d_activity: !d.space3d_activity,
         details_activity: !d.details_activity,
@@ -1696,6 +1697,7 @@ fn the_settings_form_round_trips_every_value() {
             assert_eq!(v.brief_columns, 4);
             assert_eq!(v.thumb_size, ThumbSize::Large);
             assert_eq!(v.space3d_style, Space3dStyle::Fsn);
+            assert_eq!(v.audio_display, crate::config::AudioDisplay::Waveform);
             assert_eq!(v.auto_refresh, cfg.auto_refresh);
             assert_eq!(v.space3d_activity, cfg.space3d_activity);
             assert_eq!(v.details_activity, cfg.details_activity);

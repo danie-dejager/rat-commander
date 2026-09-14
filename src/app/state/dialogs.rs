@@ -349,6 +349,7 @@ impl AppState {
                 cfg.brief_columns = v.brief_columns;
                 cfg.thumb_size = v.thumb_size;
                 cfg.space3d_style = v.space3d_style;
+                cfg.audio_display = v.audio_display;
                 cfg.auto_refresh = v.auto_refresh;
                 cfg.space3d_activity = v.space3d_activity;
                 cfg.details_activity = v.details_activity;

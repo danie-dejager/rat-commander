@@ -613,3 +613,18 @@ rtl = true
 "The time machine needs a local directory" = "تحتاج آلة الزمن إلى دليل محلي"
 "This repository has no commits yet" = "لا يحتوي هذا المستودع على أي إيداعات بعد"
 "no revisions" = "لا مراجعات"
+
+# -- Audio view (viewer and Details view) --
+"Audio view" = "عرض الصوت"
+"How the viewer and the Details view draw an audio file: Spectrogram, its frequencies over time, or Waveform, its loudness. F2 in the viewer switches between them." = "كيف يرسم العارض وعرض التفاصيل ملفًا صوتيًا: النمط Spectrogram يعرض تردداته عبر الزمن، أما Waveform فيعرض شدة صوته. يبدّل F2 بينهما في العارض."
+"Audio" = "صوت"
+"Spectrogram" = "مخطط طيفي"
+"Waveform" = "شكل الموجة"
+"Mono" = "أحادي"
+"Stereo" = "ستيريو"
+"No audio output" = "لا يوجد مخرج صوت"
+"Cannot decode audio" = "تعذّر فك ترميز الصوت"
+"Duration" = "المدة"
+"Artist" = "الفنان"
+"Title" = "العنوان"
+"Album" = "الألبوم"

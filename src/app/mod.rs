@@ -126,6 +126,10 @@ async fn run_loop(term: &mut Term, state: &mut AppState, rx: &mut AppReceiver) -
     // fresh stream is created on the way back.
     macro_rules! handing_over {
         ($call:expr) => {{
+            // Whatever is playing pauses: the program taking over the terminal
+            // should not have to talk over it, and nothing on screen would say
+            // how to stop it.
+            state.audio_out.pause_all();
             drop(events);
             let result = $call.await;
             events = EventStream::new();

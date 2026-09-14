@@ -52,6 +52,8 @@ pub enum Slot {
     ViewerModel,
     /// The F3 viewer's byte map.
     ViewerFingerprint,
+    /// The F3 viewer's audio spectrogram or waveform.
+    ViewerAudio,
     /// The QR code in the "Send file over LAN" dialog.
     SendQr,
 }
@@ -108,6 +110,15 @@ impl Gfx {
     /// stay cell-exact and keep the graphical buttons.
     pub fn buttons_ok(&self) -> bool {
         self.enabled && self.picker.protocol_type() != ProtocolType::Sixel
+    }
+
+    /// Whether an image may be drawn a row below the cell it was addressed to
+    /// (Sixel — see [`buttons_ok`]), so a caller keeps the row under a picture
+    /// free of anything that must stay visible.
+    ///
+    /// [`buttons_ok`]: Gfx::buttons_ok
+    pub fn may_land_low(&self) -> bool {
+        self.picker.protocol_type() == ProtocolType::Sixel
     }
 
     /// Apply a `graphics` preference at runtime (Settings live preview): `off`
@@ -213,6 +224,43 @@ impl Gfx {
         if let Some(c) = self.cache.get_mut(&slot) {
             f.render_stateful_widget(
                 StatefulImage::default().resize(Resize::Fit(None)),
+                area,
+                &mut c.proto,
+            );
+        }
+    }
+
+    /// Like [`draw_cached`], but the image is scaled to fill `area` — up as
+    /// well as down. `Fit` never enlarges, so an image built smaller than the
+    /// area would sit in its top-left corner; a caller that maps positions in
+    /// the image back to cells (a click on a timeline) needs it to cover the
+    /// whole rect. Build the image at the area's aspect ratio for it to fill
+    /// both ways.
+    ///
+    /// [`draw_cached`]: Gfx::draw_cached
+    pub fn draw_cached_scaled(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        slot: Slot,
+        sig: u64,
+        build: impl FnOnce() -> RgbaImage,
+    ) {
+        if !self.enabled || area.width == 0 || area.height == 0 {
+            return;
+        }
+        let fresh = match self.cache.get(&slot) {
+            Some(c) => c.sig != sig,
+            None => true,
+        };
+        if fresh {
+            let proto = self.picker.new_resize_protocol(DynamicImage::ImageRgba8(build()));
+            self.cache.insert(slot, Cached { sig, proto });
+        }
+        if let Some(c) = self.cache.get_mut(&slot) {
+            f.render_stateful_widget(
+                StatefulImage::default()
+                    .resize(Resize::Scale(Some(image::imageops::FilterType::Triangle))),
                 area,
                 &mut c.proto,
             );

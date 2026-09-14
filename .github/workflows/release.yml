@@ -20,9 +20,16 @@ jobs:
       matrix:
         include:
           # ---- Linux (archive + .deb) ----
+          # `features` applies to the cross builds only. The Raspberry Pi
+          # 32-bit build leaves audio playback out: Debian 13 (and Raspberry Pi
+          # OS based on it) moved armhf's ALSA to a 64-bit time_t
+          # (`libasound2t64`), which a 32-bit-time_t Rust binary would pass
+          # undersized timestamp structs to, so a 32-bit package with playback
+          # could be neither safely run nor installed there. Its `.deb` is the
+          # `noaudio` variant, without the ALSA dependency.
           - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, kind: linux, deb: true, cross: false }
-          - { os: ubuntu-latest, target: aarch64-unknown-linux-gnu, kind: linux, deb: true, cross: true }   # Raspberry Pi 64-bit
-          - { os: ubuntu-latest, target: armv7-unknown-linux-gnueabihf, kind: linux, deb: true, cross: true } # Raspberry Pi 32-bit
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-gnu, kind: linux, deb: true, cross: true, features: "--no-default-features --features audio" }   # Raspberry Pi 64-bit
+          - { os: ubuntu-latest, target: armv7-unknown-linux-gnueabihf, kind: linux, deb: true, cross: true, features: "--no-default-features", deb_variant: "--variant=noaudio" } # Raspberry Pi 32-bit
           # ---- Windows (archive + .msi) ----
           - { os: windows-latest, target: x86_64-pc-windows-msvc, kind: windows, deb: false, cross: false }
           # ---- macOS (archive + .pkg) ----
@@ -60,12 +67,25 @@ jobs:
           tool: cargo-deb
 
       # ---- Build ----
+      # Audio playback links ALSA on Linux. The native Linux job needs its
+      # headers; the cross images get the target's from Cross.toml.
+      - name: Install ALSA headers
+        if: matrix.kind == 'linux' && !matrix.cross
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
       # RAR support pulls in the C++ `unrar` library, whose vendored source does
-      # not compile with the older C++ toolchain in the arm cross images, so it
-      # is disabled (--no-default-features) for the cross targets.
+      # not compile with the older C++ toolchain in the arm cross images, so the
+      # default features are switched off for the cross targets (SQLite goes
+      # with RAR: it needs a C toolchain too), and audio playback is switched
+      # back on where the matrix says so. pkg-config refuses to look for a
+      # foreign target's ALSA unless told that is intended, and where that
+      # target's .pc files are; Cross.toml installs them and passes these in.
       - name: Build (cross)
         if: matrix.cross
-        run: cross build --locked --release --no-default-features --target ${{ matrix.target }}
+        env:
+          PKG_CONFIG_ALLOW_CROSS: "1"
+          PKG_CONFIG_PATH_aarch64_unknown_linux_gnu: /usr/lib/aarch64-linux-gnu/pkgconfig
+        run: cross build --locked --release ${{ matrix.features }} --target ${{ matrix.target }}
 
       - name: Build (cargo)
         if: ${{ !matrix.cross }}
@@ -95,7 +115,7 @@ jobs:
       - name: Build .deb
         if: matrix.deb
         run: |
-          cargo deb --no-build --no-strip --target ${{ matrix.target }} --output "dist/"
+          cargo deb --no-build --no-strip --target ${{ matrix.target }} ${{ matrix.deb_variant }} --output "dist/"
 
       # ---- Windows MSI (WiX) ----
       - name: Build MSI

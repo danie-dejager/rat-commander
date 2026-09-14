@@ -196,6 +196,8 @@ impl AppState {
                     // before the listing, since the strip sits inside the panel.
                     self.active = side;
                     self.tab_select(side, index).await;
+                } else if self.details_audio_mouse(ev) {
+                    // A click on a Details view's audio picture or controls.
                 } else if self.scrub_click(col, row) {
                     // A click on the time machine's track seeks to that point in
                     // the history; the ◀/▶ ends step one commit.
@@ -237,7 +239,7 @@ impl AppState {
                 }
             }
             MouseEventKind::Drag(MouseButton::Left) => {
-                if self.drag_orbit_step(col, row) {
+                if self.details_audio_mouse(ev) || self.drag_orbit_step(col, row) {
                     return Flow::Continue;
                 }
                 self.panel_point(col, row, PointAction::Cursor);
@@ -256,7 +258,12 @@ impl AppState {
                 }
                 self.panel_point(col, row, PointAction::InvertPaint);
             }
-            MouseEventKind::Up(_) => self.drag_orbit = None,
+            MouseEventKind::Up(_) => {
+                // Letting go of a drag along an audio picture seeks there.
+                self.details_audio_mouse(ev);
+                self.drag_orbit = None;
+            }
+            MouseEventKind::ScrollDown | MouseEventKind::ScrollUp if self.details_audio_mouse(ev) => {}
             MouseEventKind::ScrollDown => self.panel_wheel(col, row, true),
             MouseEventKind::ScrollUp => self.panel_wheel(col, row, false),
             _ => {}
@@ -316,7 +323,7 @@ impl AppState {
         {
             return false;
         }
-        self.drag_orbit.is_some()
+        self.drag_orbit.is_some() || self.details_audio_scrubbing()
     }
 
     /// Start tracking a drag over a 3D panel, so moving the pointer orbits the

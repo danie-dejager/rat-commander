@@ -42,6 +42,11 @@ jobs:
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
 
+      # The default `audio` feature links ALSA (through cpal), whose headers
+      # ubuntu-latest does not ship.
+      - name: Install ALSA headers
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
       # The default `rar` feature needs a C++ toolchain, which ubuntu-latest has
       # (unlike the ARM cross images, where release.yml passes
       # --no-default-features), so the default feature set is tested here.

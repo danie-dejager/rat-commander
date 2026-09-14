@@ -173,6 +173,7 @@ impl AppState {
             blame_gen: 0,
             activity_cache: std::collections::VecDeque::new(),
             activity_task: [None, None],
+            audio_out: crate::audio::AudioOut::new(),
             last_input: Instant::now(),
             saver: None,
             saver_dialog: None,
@@ -347,6 +348,15 @@ impl AppState {
         {
             dirty = true;
         }
+        // Audio: the picture filling in, and the play position moving on.
+        if let Some(v) = self.viewer.as_mut()
+            && v.poll_audio()
+        {
+            dirty = true;
+        }
+        if self.poll_details_audio() {
+            dirty = true;
+        }
         // Spin the "working…" dialog while a privileged op runs.
         if let Some(Dialog::Busy(b)) = self.dialog.as_mut() {
             b.tick();
@@ -383,7 +393,9 @@ impl AppState {
             || self.activity_shown()
             // A followed file is polled for growth on the tick, and a binary's
             // background analysis for its result.
-            || self.viewer.as_ref().is_some_and(|v| v.following() || v.analyzing())
+            || self.viewer.as_ref().is_some_and(|v| v.following() || v.analyzing() || v.audio_busy())
+            // A Details view's audio is still being analysed, or is playing.
+            || self.details.iter().any(|d| d.audio.as_ref().is_some_and(|a| a.busy()))
             // A debounced panel reload is still waiting to fire.
             || self.watch_pending()
             // A scrubbed revision is still waiting to be fetched. Without this
@@ -819,6 +831,18 @@ impl AppState {
                                 // An executable from an archive or a remote
                                 // host opens in Binary mode, as a local one does.
                                 open_binary(&mut v, &temp).await;
+                                // Audio from an archive or a remote host is
+                                // drawn and played from the temp copy.
+                                if let Some(av) = load_view_audio(
+                                    &temp,
+                                    &v.name,
+                                    self.config.audio_display,
+                                    self.audio_out.clone(),
+                                )
+                                .await
+                                {
+                                    v.set_audio(av);
+                                }
                                 self.viewer = Some(v);
                             }
                             Ok(Err(e)) => {

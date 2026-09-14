@@ -1,0 +1,15 @@
+# `cross` settings for the Raspberry Pi builds (see .github/workflows/release.yml).
+#
+# Audio playback links the target's ALSA library, so its headers are installed
+# into the 64-bit cross image before building. (The 32-bit build leaves
+# playback out; release.yml says why.) The pkg-config variables the release
+# workflow sets are passed through into the container.
+
+[build.env]
+passthrough = ["PKG_CONFIG_ALLOW_CROSS", "PKG_CONFIG_PATH_aarch64_unknown_linux_gnu"]
+
+[target.aarch64-unknown-linux-gnu]
+pre-build = [
+    "dpkg --add-architecture $CROSS_DEB_ARCH",
+    "apt-get update && apt-get install --assume-yes libasound2-dev:$CROSS_DEB_ARCH",
+]
