@@ -1044,6 +1044,20 @@ const SHOWCASE_BACKDROPS: [Backdrop; 5] = [
     Backdrop { name: "Coral Reef", panels: 0x56303a, dialogs: 0x3c3040 },
 ];
 
+/// The presets built on a pair of opposing hues frame their dialogs in one hue
+/// and wash the inside towards a deep shade of the other — Anaglyph's cyan frame
+/// around a red wash, Fire and Ice's ice around embers — so every dialog carries
+/// the pair. Each wash stays about as dark as the surface it leaves, so the text
+/// keeps its contrast across the whole dialog. Only the dialog ramp's far end is
+/// replaced; its direction and everything else stay derived.
+const CONTRAST_DIALOGS: [(&str, u32); 5] = [
+    ("Anaglyph", 0x561424),
+    ("Fire and Ice", 0x50240c),
+    ("Acid", 0x520f40),
+    ("Regalia", 0x4a1450),
+    ("Patina", 0x0a3a37),
+];
+
 /// The gradients a preset carries by default, derived from its own colors.
 ///
 /// The chrome that marks *where you are* — the cursor and the two bars — sweeps
@@ -1123,6 +1137,12 @@ fn builtin_specs() -> Vec<ThemeSpec> {
                     g.to = rgb(to);
                 }
             }
+        }
+        if let Some((_, to)) =
+            CONTRAST_DIALOGS.iter().find(|(n, _)| norm_name(n) == norm_name(&spec.name))
+            && let Some(g) = spec.gradients.dialog_bg.as_mut()
+        {
+            g.to = rgb(*to);
         }
     }
     specs
@@ -2468,10 +2488,13 @@ pub static PALETTES: &[Palette] = &[
     },
     // Themes built on a pair of opposing hues: one carries the cursor, the bars
     // and the directories, the other the frames, the dialogs and whatever is
-    // marked, so the two kinds of chrome never blur into each other.
+    // marked, so the two kinds of chrome never blur into each other. Inside, each
+    // dialog washes back towards the first hue (see [`CONTRAST_DIALOGS`]), so the
+    // text fields take a color well away from that wash.
     //
     // Anaglyph: the red and cyan of 3D glasses over a near-black screen — a red
-    // cursor sweeping into violet, cyan frames and dialogs, ice-cyan highlights.
+    // cursor sweeping into violet, cyan frames around red-washed dialogs, and
+    // ice-cyan highlights.
     Palette {
         name: "Anaglyph",
         bg: rgb(0x0b0d11),
@@ -2494,7 +2517,8 @@ pub static PALETTES: &[Palette] = &[
         bright_white: rgb(0xffffff),
     },
     // Fire and Ice: a deep-navy night with a cursor burning orange into crimson,
-    // and frames, dialogs and highlights in cold ice blue.
+    // and frames, highlights and text fields in cold ice blue around dialogs
+    // glowing with embers.
     Palette {
         name: "Fire and Ice",
         bg: rgb(0x0b1426),
@@ -2517,7 +2541,8 @@ pub static PALETTES: &[Palette] = &[
         bright_white: rgb(0xffffff),
     },
     // Acid: hot magenta against lime on black — a magenta cursor sweeping into
-    // violet, lime frames and dialogs.
+    // violet, lime frames around magenta-washed dialogs, green menus and text
+    // fields.
     Palette {
         name: "Acid",
         bg: rgb(0x0c0a0f),
@@ -2526,7 +2551,7 @@ pub static PALETTES: &[Palette] = &[
         red: rgb(0xff2e7e),
         green: rgb(0x9cff2e),
         yellow: rgb(0xff9a3d),
-        blue: rgb(0x3a1450),
+        blue: rgb(0x1f5a0a),
         magenta: rgb(0xb0189a),
         cyan: rgb(0x7cff6a),
         white: rgb(0xeef0e6),
@@ -2540,7 +2565,7 @@ pub static PALETTES: &[Palette] = &[
         bright_white: rgb(0xffffff),
     },
     // Regalia: violet and gold on deep aubergine — a violet cursor sweeping into
-    // orchid, gold frames, dialogs and highlights.
+    // orchid, gold frames and highlights, dialogs washed with plum.
     Palette {
         name: "Regalia",
         bg: rgb(0x170f26),
@@ -2549,7 +2574,7 @@ pub static PALETTES: &[Palette] = &[
         red: rgb(0xe0457b),
         green: rgb(0x9ccf6a),
         yellow: rgb(0xe8b04a),
-        blue: rgb(0x3a2270),
+        blue: rgb(0x4f2f9a),
         magenta: rgb(0x9a2e88),
         cyan: rgb(0xd9b86a),
         white: rgb(0xece4f5),
@@ -2563,7 +2588,8 @@ pub static PALETTES: &[Palette] = &[
         bright_white: rgb(0xffffff),
     },
     // Patina: verdigris and copper on dark bronze — a teal cursor sweeping into
-    // blue, copper frames and dialogs, pale apricot highlights.
+    // blue, copper frames, menus and text fields around verdigris-washed
+    // dialogs, pale apricot highlights.
     Palette {
         name: "Patina",
         bg: rgb(0x191410),
@@ -2572,7 +2598,7 @@ pub static PALETTES: &[Palette] = &[
         red: rgb(0xc8553a),
         green: rgb(0x5fa87a),
         yellow: rgb(0xe8b86a),
-        blue: rgb(0x1d5550),
+        blue: rgb(0x5a3218),
         magenta: rgb(0x2a5cc0),
         cyan: rgb(0x2aa89c),
         white: rgb(0xeee4d8),
@@ -2710,6 +2736,31 @@ mod tests {
             assert_eq!(spec.gradients.panel_bg.expect("a panel ramp").to, rgb(b.panels));
             assert_eq!(spec.gradients.dialog_bg.expect("a dialog ramp").to, rgb(b.dialogs));
             assert_eq!(spec.gradients.menu_bg.expect("a menu ramp").to, rgb(b.dialogs));
+        }
+    }
+
+    #[test]
+    fn the_contrast_presets_wash_their_dialogs_and_nothing_else() {
+        let specs = builtin_specs();
+        for (name, wash) in CONTRAST_DIALOGS {
+            let spec = specs
+                .iter()
+                .find(|s| norm_name(&s.name) == norm_name(name))
+                .unwrap_or_else(|| panic!("{name} is not a preset"));
+            let ramp = spec.gradients.dialog_bg.expect("a dialog ramp");
+            assert_eq!(ramp.to, rgb(wash), "{name}: the dialog washes to its own color");
+            // The panels and menus keep the ramps every other preset derives.
+            let derived = derive_gradients(spec);
+            assert_eq!(spec.gradients.panel_bg, derived.panel_bg, "{name}: panels stay derived");
+            assert_eq!(spec.gradients.menu_bg, derived.menu_bg, "{name}: menus stay derived");
+            // A text field sitting where the wash is deepest must still read as
+            // a field rather than a hole in the dialog.
+            assert!(
+                spread(spec.input_bg, ramp.to) >= 60,
+                "{name}: the text fields {:?} vanish into the wash {:?}",
+                spec.input_bg,
+                ramp.to
+            );
         }
     }
 
