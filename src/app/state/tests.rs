@@ -6095,6 +6095,17 @@ async fn f3_opens_an_audio_file_on_its_picture_and_keeps_the_document_keys_out()
     assert!(st.viewer.is_none());
     assert!(!st.audio_out.active(), "closing the viewer stopped playback");
 
+    // With auto-play on, the viewer opens the file already playing.
+    assert!(!st.config.audio_autoplay, "auto-play is off unless turned on");
+    st.config.audio_autoplay = true;
+    let idx = st.panels[0].entries.iter().position(|e| e.name == "tone.wav").unwrap();
+    st.panels[0].cursor = idx;
+    st.open_view().await;
+    assert!(st.viewer.as_ref().unwrap().active_audio().unwrap().playing(), "auto-play started it");
+    st.viewer = None;
+    assert!(!st.audio_out.active());
+    st.config.audio_autoplay = false;
+
     // Something named like audio that does not decode opens as bytes.
     let idx = st.panels[0].entries.iter().position(|e| e.name == "fake.mp3").unwrap();
     st.panels[0].cursor = idx;
@@ -6122,6 +6133,8 @@ async fn the_details_view_plays_audio_until_the_cursor_moves_on() {
     st.panels[0].backend = st.registry.local();
     st.panels[0].reload().await.unwrap();
     st.panels[1].format = ViewFormat::Details;
+    // Auto-play is the viewer's alone: the preview must still wait for Play.
+    st.config.audio_autoplay = true;
 
     let idx = st.panels[0].entries.iter().position(|e| e.name == "tone.wav").unwrap();
     st.panels[0].cursor = idx;
@@ -6129,6 +6142,8 @@ async fn the_details_view_plays_audio_until_the_cursor_moves_on() {
     drain_until_preview(&mut st, &mut rx).await;
     assert!(matches!(st.details[1].preview, crate::details::Preview::Audio(_)));
     assert!(st.details[1].audio.is_some(), "the preview is drawn and playable");
+    assert!(!st.details[1].audio.as_ref().unwrap().playing(), "a preview never plays by itself");
+    assert!(!st.audio_out.active());
 
     // Draw a frame so the controls have somewhere to be clicked.
     let mut term = Terminal::new(TestBackend::new(160, 50)).unwrap();

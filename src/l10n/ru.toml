@@ -612,7 +612,9 @@ code = "ru"
 
 # -- Audio view (viewer and Details view) --
 "Audio view" = "Вид аудио"
-"How the viewer and the Details view draw an audio file: Spectrogram, its frequencies over time, or Waveform, its loudness. F2 in the viewer switches between them." = "Как просмотрщик и подробности показывают аудиофайл: Spectrogram — его частоты во времени, или Waveform — его громкость. F2 в просмотрщике переключает их."
+"How the viewer and the Details view draw an audio file: Spectrogram, its frequencies over time, or Waveform, its loudness. F2 in the viewer switches between them." = "Как просмотрщик и «Подробный вид» показывают аудиофайл: Spectrogram — его частоты во времени, или Waveform — его громкость. F2 в просмотрщике переключает их."
+"Auto-play audio in the viewer" = "Автовоспроизведение аудио в просмотрщике"
+"Start playing an audio file as soon as F3 opens it in the viewer. The Details view never plays by itself: there, playback starts only when you press ▶." = "Начинает воспроизведение аудиофайла, как только F3 открывает его в просмотрщике. «Подробный вид» никогда не воспроизводит сам: там воспроизведение начинается только по нажатию ▶."
 "Audio" = "Аудио"
 "Spectrogram" = "Спектрограмма"
 "Waveform" = "Волна"

@@ -612,7 +612,9 @@ code = "sr"
 
 # -- Audio view (viewer and Details view) --
 "Audio view" = "Prikaz zvuka"
-"How the viewer and the Details view draw an audio file: Spectrogram, its frequencies over time, or Waveform, its loudness. F2 in the viewer switches between them." = "Kako pregledač i prikaz detalja crtaju zvučni fajl: Spectrogram, njegove frekvencije kroz vreme, ili Waveform, njegovu jačinu. F2 u pregledaču menja prikaz."
+"How the viewer and the Details view draw an audio file: Spectrogram, its frequencies over time, or Waveform, its loudness. F2 in the viewer switches between them." = "Kako pregledač i Detaljan prikaz crtaju zvučni fajl: Spectrogram, njegove frekvencije kroz vreme, ili Waveform, njegovu jačinu. F2 u pregledaču menja prikaz."
+"Auto-play audio in the viewer" = "Automatski pusti zvuk u pregledaču"
+"Start playing an audio file as soon as F3 opens it in the viewer. The Details view never plays by itself: there, playback starts only when you press ▶." = "Pušta zvučni fajl čim ga F3 otvori u pregledaču. Detaljan prikaz nikada ne pušta sam od sebe: tamo reprodukcija počinje tek kada pritisnete ▶."
 "Audio" = "Zvuk"
 "Spectrogram" = "Spektrogram"
 "Waveform" = "Talasni oblik"

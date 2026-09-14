@@ -699,14 +699,18 @@ async fn load_view_model(path: &Path) -> Option<crate::viewer::ViewerModel> {
     .ok()?
 }
 
-/// Probe a local audio file for the viewer, and start drawing it. `None` when
-/// `name` is not an audio file or it does not decode (the caller then shows the
-/// raw view). `name` is the original file name: a fetched temp copy has no
-/// extension of its own to hint the format with.
+/// Probe a local audio file for the viewer, and start drawing it — and playing
+/// it, when *Auto-play audio in the viewer* is on. `None` when `name` is not an
+/// audio file or it does not decode (the caller then shows the raw view).
+/// `name` is the original file name: a fetched temp copy has no extension of
+/// its own to hint the format with.
+///
+/// Only the viewer comes through here. The Details view builds its audio
+/// preview itself and never starts it playing.
 pub(in crate::app::state) async fn load_view_audio(
     path: &Path,
     name: &str,
-    display: crate::config::AudioDisplay,
+    config: &crate::config::Config,
     out: crate::audio::AudioOut,
 ) -> Option<crate::audio::AudioView> {
     if !crate::audio::is_audio_name(name) {
@@ -714,7 +718,11 @@ pub(in crate::app::state) async fn load_view_audio(
     }
     let (p, hint) = (path.to_path_buf(), crate::audio::hint_of(name));
     let info = tokio::task::spawn_blocking(move || crate::audio::probe(&p, &hint)).await.ok()??;
-    Some(crate::audio::AudioView::new(info, display, out))
+    let mut view = crate::audio::AudioView::new(info, config.audio_display, out);
+    if config.audio_autoplay {
+        view.toggle_play();
+    }
+    Some(view)
 }
 
 /// How long F3 waits for a binary's analysis before showing the viewer anyway.

@@ -81,7 +81,7 @@ const SETTINGS_PAGES: &[SettingsPage] = &[
     SettingsPage {
         tab: SettingsTab::Panels,
         title: "Panels",
-        groups: &[("Views", 4, 1), ("Activity", 3, 1)],
+        groups: &[("Views", 5, 1), ("Activity", 3, 1)],
     },
     SettingsPage {
         tab: SettingsTab::Programs,
@@ -170,6 +170,11 @@ const SETTINGS_HELP: &[(&str, &str)] = &[
         "Audio view",
         "How the viewer and the Details view draw an audio file: Spectrogram, its frequencies \
          over time, or Waveform, its loudness. F2 in the viewer switches between them.",
+    ),
+    (
+        "Auto-play audio in the viewer",
+        "Start playing an audio file as soon as F3 opens it in the viewer. The Details view \
+         never plays by itself: there, playback starts only when you press ▶.",
     ),
     (
         "Auto-refresh panels",
@@ -695,6 +700,7 @@ impl FormDialog {
                 AudioDisplay::ALL.iter().map(|(_, l)| (*l).to_string()).collect(),
                 cfg.audio_display.label(),
             ),
+            Field::check("Auto-play audio in the viewer", cfg.audio_autoplay),
             // --- Activity ---
             Field::check("Auto-refresh panels", cfg.auto_refresh),
             Field::check("3D view: show filesystem activity", cfg.space3d_activity),
@@ -1125,6 +1131,7 @@ impl FormDialog {
             thumb_size: ThumbSize::from_label(text("Thumbnail size")),
             space3d_style: Space3dStyle::from_label(text("3D style")),
             audio_display: AudioDisplay::from_label(text("Audio view")),
+            audio_autoplay: on("Auto-play audio in the viewer"),
             auto_refresh: on("Auto-refresh panels"),
             space3d_activity: on("3D view: show filesystem activity"),
             details_activity: on("Details view: git activity"),

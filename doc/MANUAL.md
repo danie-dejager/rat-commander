@@ -525,7 +525,8 @@ one from the **Left** / **Right** menu:
     the Details panel itself active (`Tab`), `Space` plays and pauses, `← →` and
     `PgUp`/`PgDn` seek, `Home`/`End` jump to the ends and `+`/`-` or `↑`/`↓` set
     the volume (`Space` and `← →` go to the command line instead once something
-    is typed there). Moving the cursor to another item stops it. The file is
+    is typed there). Moving the cursor to another item stops it. A preview never
+    starts playing by itself, whatever *Auto-play audio in the viewer* is set to. The file is
     decoded only once the cursor has rested on it for a moment, so running down
     a music folder decodes nothing on the way past;
   - an **archive** (`.zip`, `.tar.*`, `.7z`, …) → its top-level file list;
@@ -981,7 +982,9 @@ loading it into an editor.
   and `PgUp`/`PgDn` thirty, `Home`/`End` jump to either end, and `+`/`-` (or
   `↑`/`↓`) set the volume. The header names the format, the picture, the play
   state and time, and the artist and title when the file is tagged. Nothing
-  plays until you ask, and closing the viewer stops it. **F8** toggles to the
+  plays until you ask — unless *Auto-play audio in the viewer* (Settings →
+  Panels) is on, in which case F3 starts the file playing as it opens — and
+  closing the viewer stops it. **F8** toggles to the
   raw bytes; Opus files, and anything that does not decode, open as raw bytes
   straight away.
 
@@ -2451,7 +2454,9 @@ Configuration files live in your platform config directory
   history; set it to `0` to disable history, `auto_refresh` (default `true`) —
   whether a panel re-reads itself when its directory changes on disk (see
   *Auto-refreshing panels*), `audio_display` (`"spectrogram"` by default, or
-  `"waveform"`) — how audio files are drawn (see *Audio view*),
+  `"waveform"`) — how audio files are drawn (see *Audio view*), `audio_autoplay`
+  (default `false`) — whether the viewer starts an audio file playing when it
+  opens it,
   `strip_trailing_spaces` (default `true`) — whether
   a line is ended with an erase rather than padded with blanks, so terminal
   selections copy no trailing whitespace (see *Selecting with the mouse, without
@@ -2496,8 +2501,9 @@ follows the focus as you move, so tabbing through a tab reads you its options.
   and which **Screensaver style** it plays (see *Screensaver*).
 - **Panels** — the number of **Brief view columns**, the **Thumbnail size** of
   the thumbnail grid (see *Thumbnails*), the **3D style**, the **Audio view**
-  audio files open on (Spectrogram or Waveform — see *Audio view*), and three
-  switches for
+  audio files open on (Spectrogram or Waveform — see *Audio view*), **Auto-play
+  audio in the viewer** (F3 starts an audio file playing as it opens it; the
+  Details view still waits for Play), and three switches for
   work done behind the listing: **Auto-refresh panels** (see *Auto-refreshing
   panels*), **3D view: show filesystem activity** and **Details view: git
   activity**.

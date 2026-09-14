@@ -622,6 +622,8 @@ code = "en"
 # -- Audio view (viewer and Details view) --
 "Audio view" = "Audio view"
 "How the viewer and the Details view draw an audio file: Spectrogram, its frequencies over time, or Waveform, its loudness. F2 in the viewer switches between them." = "How the viewer and the Details view draw an audio file: Spectrogram, its frequencies over time, or Waveform, its loudness. F2 in the viewer switches between them."
+"Auto-play audio in the viewer" = "Auto-play audio in the viewer"
+"Start playing an audio file as soon as F3 opens it in the viewer. The Details view never plays by itself: there, playback starts only when you press ▶." = "Start playing an audio file as soon as F3 opens it in the viewer. The Details view never plays by itself: there, playback starts only when you press ▶."
 "Audio" = "Audio"
 "Spectrogram" = "Spectrogram"
 "Waveform" = "Waveform"

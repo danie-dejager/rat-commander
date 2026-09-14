@@ -613,6 +613,8 @@ code = "zh-Hans"
 # -- Audio view (viewer and Details view) --
 "Audio view" = "音频显示"
 "How the viewer and the Details view draw an audio file: Spectrogram, its frequencies over time, or Waveform, its loudness. F2 in the viewer switches between them." = "查看器和详细信息视图绘制音频文件的方式：Spectrogram 显示频率随时间的变化，Waveform 显示音量。在查看器中按 F2 切换。"
+"Auto-play audio in the viewer" = "在查看器中自动播放音频"
+"Start playing an audio file as soon as F3 opens it in the viewer. The Details view never plays by itself: there, playback starts only when you press ▶." = "F3 在查看器中打开音频文件时立即开始播放。详细信息视图从不自动播放：只有按下 ▶ 时才开始播放。"
 "Audio" = "音频"
 "Spectrogram" = "频谱图"
 "Waveform" = "波形"

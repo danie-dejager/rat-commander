@@ -410,13 +410,10 @@ impl AppState {
                         v.set_model(mv);
                     }
                     // An audio file opens on its spectrogram (or waveform),
-                    // ready to play; F8 switches to the bytes.
-                    if let Some(av) = load_view_audio(
-                        &path.path,
-                        &v.name,
-                        self.config.audio_display,
-                        self.audio_out.clone(),
-                    )
+                    // ready to play (or playing, with auto-play on); F8
+                    // switches to the bytes.
+                    if let Some(av) =
+                        load_view_audio(&path.path, &v.name, &self.config, self.audio_out.clone())
                     .await
                     {
                         v.set_audio(av);

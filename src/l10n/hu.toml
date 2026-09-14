@@ -612,7 +612,9 @@ code = "hu"
 
 # -- Audio view (viewer and Details view) --
 "Audio view" = "Hangnézet"
-"How the viewer and the Details view draw an audio file: Spectrogram, its frequencies over time, or Waveform, its loudness. F2 in the viewer switches between them." = "Hogyan rajzolja a megjelenítő és a részletes nézet a hangfájlt: Spectrogram – frekvenciái az időben, vagy Waveform – a hangereje. Az F2 a megjelenítőben vált."
+"How the viewer and the Details view draw an audio file: Spectrogram, its frequencies over time, or Waveform, its loudness. F2 in the viewer switches between them." = "Hogyan rajzolja a megjelenítő és a Részletes nézet a hangfájlt: Spectrogram – frekvenciái az időben, vagy Waveform – a hangereje. Az F2 a megjelenítőben vált."
+"Auto-play audio in the viewer" = "Hang automatikus lejátszása a megjelenítőben"
+"Start playing an audio file as soon as F3 opens it in the viewer. The Details view never plays by itself: there, playback starts only when you press ▶." = "Elindítja a hangfájl lejátszását, amint az F3 megnyitja a megjelenítőben. A Részletes nézet sosem játszik le magától: ott a lejátszás csak a ▶ megnyomására indul."
 "Audio" = "Hang"
 "Spectrogram" = "Spektrogram"
 "Waveform" = "Hullámforma"

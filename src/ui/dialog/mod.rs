@@ -410,6 +410,8 @@ pub struct SettingsValues {
     pub space3d_style: crate::config::Space3dStyle,
     /// How audio files are drawn.
     pub audio_display: crate::config::AudioDisplay,
+    /// Whether the viewer starts playing an audio file when it opens it.
+    pub audio_autoplay: bool,
     pub auto_refresh: bool,
     pub space3d_activity: bool,
     pub details_activity: bool,

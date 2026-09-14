@@ -350,6 +350,7 @@ impl AppState {
                 cfg.thumb_size = v.thumb_size;
                 cfg.space3d_style = v.space3d_style;
                 cfg.audio_display = v.audio_display;
+                cfg.audio_autoplay = v.audio_autoplay;
                 cfg.auto_refresh = v.auto_refresh;
                 cfg.space3d_activity = v.space3d_activity;
                 cfg.details_activity = v.details_activity;

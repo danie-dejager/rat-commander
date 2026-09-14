@@ -613,6 +613,8 @@ code = "zh-Hant"
 # -- Audio view (viewer and Details view) --
 "Audio view" = "音訊顯示"
 "How the viewer and the Details view draw an audio file: Spectrogram, its frequencies over time, or Waveform, its loudness. F2 in the viewer switches between them." = "檢視器與詳細資訊檢視繪製音訊檔案的方式：Spectrogram 顯示頻率隨時間的變化，Waveform 顯示音量。在檢視器中按 F2 切換。"
+"Auto-play audio in the viewer" = "在檢視器中自動播放音訊"
+"Start playing an audio file as soon as F3 opens it in the viewer. The Details view never plays by itself: there, playback starts only when you press ▶." = "F3 在檢視器中開啟音訊檔案時立即開始播放。詳細資訊檢視從不自動播放：只有按下 ▶ 時才開始播放。"
 "Audio" = "音訊"
 "Spectrogram" = "頻譜圖"
 "Waveform" = "波形"

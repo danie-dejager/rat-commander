@@ -617,6 +617,8 @@ rtl = true
 # -- Audio view (viewer and Details view) --
 "Audio view" = "عرض الصوت"
 "How the viewer and the Details view draw an audio file: Spectrogram, its frequencies over time, or Waveform, its loudness. F2 in the viewer switches between them." = "كيف يرسم العارض وعرض التفاصيل ملفًا صوتيًا: النمط Spectrogram يعرض تردداته عبر الزمن، أما Waveform فيعرض شدة صوته. يبدّل F2 بينهما في العارض."
+"Auto-play audio in the viewer" = "تشغيل الصوت تلقائيًا في العارض"
+"Start playing an audio file as soon as F3 opens it in the viewer. The Details view never plays by itself: there, playback starts only when you press ▶." = "يبدأ تشغيل الملف الصوتي فور فتحه في العارض بالمفتاح F3. لا يشغّل عرض التفاصيل الصوت تلقائيًا أبدًا: فهناك يبدأ التشغيل فقط عند الضغط على ▶."
 "Audio" = "صوت"
 "Spectrogram" = "مخطط طيفي"
 "Waveform" = "شكل الموجة"

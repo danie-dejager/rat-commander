@@ -441,6 +441,11 @@ pub struct Config {
     /// `space3d_style`.
     #[serde(default)]
     pub audio_display: AudioDisplay,
+    /// Whether F3 on an audio file starts playing it straight away. Only the
+    /// viewer: a Details view never plays by itself, since it changes file with
+    /// every cursor move. (Missing from an old config → off.)
+    #[serde(default)]
+    pub audio_autoplay: bool,
     /// Minutes without a key press or mouse movement before the screensaver
     /// starts; 0 turns it off (the default: on a remote session its redrawing
     /// costs bandwidth nobody is watching).
@@ -531,6 +536,7 @@ impl Default for Config {
             space3d_activity: true,
             details_activity: true,
             audio_display: AudioDisplay::default(),
+            audio_autoplay: false,
             screensaver_minutes: 0,
             screensaver: SaverKind::default(),
             thumb_size: ThumbSize::default(),
@@ -857,12 +863,22 @@ mod tests {
     fn audio_display_round_trips_through_toml() {
         let mut c = Config::default();
         assert_eq!(c.audio_display, AudioDisplay::Spectrogram, "the spectrogram is the default");
+        assert!(!c.audio_autoplay, "nothing plays by itself unless asked to");
         c.audio_display = AudioDisplay::Waveform;
+        c.audio_autoplay = true;
 
         let text = toml::to_string_pretty(&c).unwrap();
         let back: Config = toml::from_str(&text).unwrap();
         assert_eq!(back.audio_display, AudioDisplay::Waveform);
+        assert!(back.audio_autoplay);
         assert!(text.contains("audio_display = \"waveform\""), "{text}");
+        assert!(
+            text.find("audio_autoplay").unwrap() < text.find("[[panels]]").unwrap(),
+            "audio_autoplay must be written before the panels tables:\n{text}"
+        );
+        // An old config without the keys reads as the defaults.
+        let old: Config = toml::from_str("theme = \"Norton\"\n").unwrap();
+        assert_eq!((old.audio_display, old.audio_autoplay), (AudioDisplay::Spectrogram, false));
         assert!(
             text.find("audio_display").unwrap() < text.find("[[panels]]").unwrap(),
             "audio_display must be written before the panels tables:\n{text}"

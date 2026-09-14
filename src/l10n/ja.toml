@@ -613,6 +613,8 @@ code = "ja"
 # -- Audio view (viewer and Details view) --
 "Audio view" = "音声の表示"
 "How the viewer and the Details view draw an audio file: Spectrogram, its frequencies over time, or Waveform, its loudness. F2 in the viewer switches between them." = "ビューアと詳細表示での音声ファイルの描き方です。Spectrogram は周波数の時間変化、Waveform は音量を表します。ビューアでは F2 で切り替えます。"
+"Auto-play audio in the viewer" = "ビューアで音声を自動再生"
+"Start playing an audio file as soon as F3 opens it in the viewer. The Details view never plays by itself: there, playback starts only when you press ▶." = "F3 でビューアに開いたとたんに音声ファイルを再生します。詳細表示では自動再生されず、▶ を押したときにだけ再生が始まります。"
 "Audio" = "音声"
 "Spectrogram" = "スペクトログラム"
 "Waveform" = "波形"

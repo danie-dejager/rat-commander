@@ -613,6 +613,8 @@ code = "nl"
 # -- Audio view (viewer and Details view) --
 "Audio view" = "Audioweergave"
 "How the viewer and the Details view draw an audio file: Spectrogram, its frequencies over time, or Waveform, its loudness. F2 in the viewer switches between them." = "Hoe de viewer en de detailweergave een audiobestand tekenen: Spectrogram, de frequenties in de tijd, of Waveform, het volume. F2 in de viewer wisselt tussen beide."
+"Auto-play audio in the viewer" = "Audio automatisch afspelen in de viewer"
+"Start playing an audio file as soon as F3 opens it in the viewer. The Details view never plays by itself: there, playback starts only when you press ▶." = "Speel een audiobestand af zodra F3 het in de viewer opent. De detailweergave speelt nooit vanzelf af: daar begint het afspelen pas als u op ▶ drukt."
 "Audio" = "Audio"
 "Spectrogram" = "Spectrogram"
 "Waveform" = "Golfvorm"

@@ -836,7 +836,7 @@ impl AppState {
                                 if let Some(av) = load_view_audio(
                                     &temp,
                                     &v.name,
-                                    self.config.audio_display,
+                                    &self.config,
                                     self.audio_out.clone(),
                                 )
                                 .await

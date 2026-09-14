@@ -612,7 +612,9 @@ code = "cs"
 
 # -- Audio view (viewer and Details view) --
 "Audio view" = "Zobrazení zvuku"
-"How the viewer and the Details view draw an audio file: Spectrogram, its frequencies over time, or Waveform, its loudness. F2 in the viewer switches between them." = "Jak prohlížeč a podrobné zobrazení kreslí zvukový soubor: Spectrogram, jeho frekvence v čase, nebo Waveform, jeho hlasitost. F2 v prohlížeči mezi nimi přepíná."
+"How the viewer and the Details view draw an audio file: Spectrogram, its frequencies over time, or Waveform, its loudness. F2 in the viewer switches between them." = "Jak prohlížeč a Podrobné zobrazení kreslí zvukový soubor: Spectrogram, jeho frekvence v čase, nebo Waveform, jeho hlasitost. F2 v prohlížeči mezi nimi přepíná."
+"Auto-play audio in the viewer" = "Automaticky přehrát zvuk v prohlížeči"
+"Start playing an audio file as soon as F3 opens it in the viewer. The Details view never plays by itself: there, playback starts only when you press ▶." = "Spustí přehrávání zvukového souboru, jakmile ho F3 otevře v prohlížeči. Podrobné zobrazení nikdy nepřehrává samo: tam přehrávání začne, až stisknete ▶."
 "Audio" = "Zvuk"
 "Spectrogram" = "Spektrogram"
 "Waveform" = "Průběh vlny"
