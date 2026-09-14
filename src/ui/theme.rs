@@ -759,12 +759,15 @@ fn rat_commander_spec() -> ThemeSpec {
         panel_bg: rgb(0x0000cd),
         panel_fg: rgb(0xc6c6c6),
         text_fg: rgb(0xd7d7d7),
-        panel_border: rgb(0x5959ca),
+        // Doubles as the dim text color on the blue panels, the grey dialogs and
+        // the cyan menus alike, so it sits at a brightness all three can read; a
+        // greyed lavender reads more clearly on the blue than a saturated one.
+        panel_border: rgb(0x7474b2),
         panel_border_active: rgb(0x55ffff),
         header_fg: rgb(0xffff55),
         cursor_bg: rgb(0x00a3a3),
         cursor_fg: rgb(0x000000),
-        cursor_inactive_bg: rgb(0x1818cc),
+        cursor_inactive_bg: rgb(0x3333dd),
         cursor_inactive_fg: rgb(0xc6c6c6),
         marked_fg: rgb(0xffff55),
         dir_fg: rgb(0xc6c6c6),
@@ -772,7 +775,7 @@ fn rat_commander_spec() -> ThemeSpec {
         exec_fg: rgb(0x55ff55),
         symlink_fg: rgb(0x55ffff),
         archive_fg: rgb(0xff55ff),
-        doc_fg: rgb(0xaa5500),
+        doc_fg: rgb(0xd7a700),
         image_fg: rgb(0x55ffff),
         media_fg: rgb(0x55ff55),
         model_fg: rgb(0xff9944),
@@ -1125,6 +1128,25 @@ fn builtin_specs() -> Vec<ThemeSpec> {
     specs
 }
 
+/// The flat colors of presets as an earlier release shipped them, before they
+/// were retouched. Only the colors matter: the gradients a preset carried have
+/// changed from release to release on their own.
+fn retired_presets() -> Vec<ThemeSpec> {
+    // Rat Commander before its low-contrast colors were lifted: the dim text
+    // (and inactive frame), the inactive cursor bar and the document color. The
+    // Neon showcase inherited the document color.
+    let old_doc = rgb(0xaa5500);
+    vec![
+        ThemeSpec {
+            panel_border: rgb(0x5959ca),
+            cursor_inactive_bg: rgb(0x1818cc),
+            doc_fg: old_doc,
+            ..rat_commander_spec()
+        },
+        ThemeSpec { doc_fg: old_doc, ..rat_commander_neon_spec() },
+    ]
+}
+
 static BUILTIN: LazyLock<Vec<ThemeSpec>> = LazyLock::new(builtin_specs);
 /// The themes currently in effect (built-ins until `themes.toml` is loaded).
 static ACTIVE: LazyLock<RwLock<Vec<ThemeSpec>>> = LazyLock::new(|| RwLock::new(builtin_specs()));
@@ -1190,6 +1212,53 @@ fn adopt_preset_gradients(specs: &mut [ThemeSpec]) -> bool {
     changed
 }
 
+/// Move the stock presets in an older `themes.toml` onto the colors they have
+/// since been retouched to. As with [`adopt_preset_gradients`], only a theme
+/// whose colors still match an earlier release's preset one for one is upgraded,
+/// so a preset the user has recolored keeps their colors. Its gradients stay as
+/// they are, except that a ramp running to a retired color runs to the color
+/// that replaced it. Returns whether anything changed.
+fn adopt_retouched_presets(specs: &mut [ThemeSpec]) -> bool {
+    let colors = |s: &ThemeSpec| ThemeSpec {
+        name: String::new(),
+        gradients: Gradients::default(),
+        ..s.clone()
+    };
+    let retired = retired_presets();
+    let mut changed = false;
+    for spec in specs.iter_mut() {
+        let key = norm_name(&spec.name);
+        let Some(builtin) = BUILTIN.iter().find(|b| norm_name(&b.name) == key) else {
+            continue;
+        };
+        let Some(old) =
+            retired.iter().find(|r| norm_name(&r.name) == key && colors(r) == colors(spec))
+        else {
+            continue;
+        };
+        let mut gradients = std::mem::take(&mut spec.gradients);
+        for (i, field) in THEME_FIELDS.iter().enumerate() {
+            let (was, now) = (old.color_at(i), builtin.color_at(i));
+            if field.role.is_some() || was == now {
+                continue;
+            }
+            for role in GradRole::ALL {
+                if let Some(g) = gradients.slot(role) {
+                    if g.to == was {
+                        g.to = now;
+                    }
+                    if g.from == Some(was) {
+                        g.from = Some(now);
+                    }
+                }
+            }
+        }
+        *spec = ThemeSpec { name: spec.name.clone(), gradients, ..builtin.clone() };
+        changed = true;
+    }
+    changed
+}
+
 /// The names of every shipped preset, in file order.
 fn preset_names() -> Vec<String> {
     BUILTIN.iter().map(|s| s.name.clone()).collect()
@@ -1233,11 +1302,11 @@ pub fn load_user_themes() {
 }
 
 /// Read `themes.toml` and bring it up to date with this release: newly-added
-/// color fields, the gradients the presets now ship with, and any preset the
-/// file has never been offered. The file is written back when any of that
-/// changed. Returns the themes to make active, or `None` when it can't be read
-/// or parsed — in which case the built-ins stay in effect rather than the user's
-/// file being clobbered.
+/// color fields, retouched preset colors, the gradients the presets now ship
+/// with, and any preset the file has never been offered. The file is written
+/// back when any of that changed. Returns the themes to make active, or `None`
+/// when it can't be read or parsed — in which case the built-ins stay in effect
+/// rather than the user's file being clobbered.
 fn upgrade_themes_file(path: &Path) -> Option<Vec<ThemeSpec>> {
     let text = std::fs::read_to_string(path).ok()?;
     // Upgrade an older file in place: add any newly-introduced color fields with
@@ -1248,12 +1317,13 @@ fn upgrade_themes_file(path: &Path) -> Option<Vec<ThemeSpec>> {
     if tf.theme.is_empty() {
         return None;
     }
+    let retouched = adopt_retouched_presets(&mut tf.theme);
     let adopted = adopt_preset_gradients(&mut tf.theme);
     let added = add_new_presets(&mut tf);
     // Record the offer even when nothing was added, so a file written before
     // `known_presets` existed starts keeping its deletions from now on.
     let recorded = tf.known_presets != preset_names();
-    if migrated.is_some() || adopted || added || recorded {
+    if migrated.is_some() || retouched || adopted || added || recorded {
         let _ = write_themes(path, &tf.theme);
     }
     Some(tf.theme)
@@ -2626,6 +2696,67 @@ mod tests {
 
         // Running again finds nothing left to do, so the file is not rewritten.
         assert!(!adopt_preset_gradients(&mut specs));
+    }
+
+    #[test]
+    fn an_older_themes_file_gains_retouched_preset_colors_but_keeps_edits() {
+        let retired = retired_presets();
+        let old = |name: &str| retired.iter().find(|r| r.name == name).unwrap().clone();
+        let builtin = |name: &str| BUILTIN.iter().find(|b| b.name == name).unwrap().clone();
+
+        // Rat Commander as the last release wrote it: the old colors, and ramps
+        // derived from them — the active frame fading to the old dim color.
+        let rat = old("Rat Commander");
+        let shipped = ThemeSpec { gradients: derive_gradients(&rat), ..rat.clone() };
+        assert_eq!(shipped.gradients.panel_border_active.unwrap().to, rat.panel_border);
+        // The first release with gradients derived a darker menu ramp.
+        let mut first = shipped.clone();
+        first.gradients.menu_bg.as_mut().unwrap().to = rgb(0x0bb4b4);
+        // One from before gradients, under the user's own spelling of the name.
+        let flat = ThemeSpec { name: "rat commander".to_string(), ..rat.clone() };
+        // A recolored preset, and a theme of the user's own made from the old one.
+        let mut tweaked = shipped.clone();
+        tweaked.panel_bg = rgb(0x123456);
+        let mine = ThemeSpec { name: "Mine".to_string(), ..shipped.clone() };
+        let mut specs =
+            vec![shipped, first, flat, old("Rat Commander Neon"), tweaked.clone(), mine.clone()];
+
+        assert!(adopt_retouched_presets(&mut specs), "the untouched presets are upgraded");
+        assert!(adopt_preset_gradients(&mut specs), "and the flat one gains its ramps");
+        let now = builtin("Rat Commander");
+        assert_eq!(specs[0], now, "the shipped copy takes the new colors, frame ramp and all");
+        assert_eq!(specs[1].gradients.menu_bg.unwrap().to, rgb(0x0bb4b4), "its ramps stay");
+        assert_eq!(specs[1], ThemeSpec { gradients: specs[1].gradients.clone(), ..now.clone() });
+        assert_eq!(
+            specs[2],
+            ThemeSpec { name: "rat commander".to_string(), ..now },
+            "one from before gradients ends up as the preset, keeping its name"
+        );
+        assert_eq!(specs[3], builtin("Rat Commander Neon"), "Neon follows what it inherited");
+        assert_eq!(specs[4], tweaked, "a recolored preset is left alone");
+        assert_eq!(specs[5], mine, "so is a theme of the user's own");
+
+        // Running again finds nothing left to do, so the file is not rewritten.
+        assert!(!adopt_retouched_presets(&mut specs));
+        assert!(!adopt_preset_gradients(&mut specs));
+    }
+
+    #[test]
+    fn rat_commander_keeps_its_quiet_colors_legible() {
+        let s = BUILTIN.iter().find(|b| b.name == "Rat Commander").unwrap();
+        let apart = |a: Color, b: Color| (luma(a) - luma(b)).abs();
+        // The dim text is drawn on the panels, the dialogs and the menus, so it
+        // has to hold up on every one of them — most of all on the panels.
+        assert!(apart(s.panel_border, s.panel_bg) >= 90.0, "dim text on the panel");
+        assert!(apart(s.panel_border, s.dialog_bg) >= 60.0, "dim text on a dialog");
+        assert!(apart(s.panel_border, s.menu_bg) >= 20.0, "a disabled menu item");
+        // …while staying quieter than the text it sits beside.
+        assert!(apart(s.panel_border, s.panel_bg) < apart(s.panel_fg, s.panel_bg));
+        // The inactive cursor bar — also what marks the viewer's and editor's
+        // "Find all" lines — has to show against the panel at all.
+        assert!(spread(s.cursor_inactive_bg, s.panel_bg) >= 90, "inactive cursor bar");
+        assert!(apart(s.cursor_inactive_fg, s.cursor_inactive_bg) >= 90.0, "its text");
+        assert!(apart(s.doc_fg, s.panel_bg) >= 120.0, "documents");
     }
 
     #[test]
