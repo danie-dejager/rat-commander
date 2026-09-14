@@ -568,7 +568,7 @@ impl AppState {
                 }
             }
             KeyCode::Char('r') if ctrl => {
-                let _ = self.active_panel().reload().await;
+                let _ = self.active_panel().refresh().await;
             }
             KeyCode::Char('t') if ctrl => self.active_panel().toggle_mark_and_advance(),
             KeyCode::Char('x') if ctrl => self.split = self.split.toggle(),

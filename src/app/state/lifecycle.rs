@@ -506,7 +506,7 @@ impl AppState {
     /// Reload both panels after a filesystem-changing operation.
     pub async fn reload_all(&mut self) {
         for p in self.panels.iter_mut() {
-            let _ = p.reload().await;
+            let _ = p.refresh().await;
         }
         // The working tree may have changed (delete/copy/move/save): re-scan git.
         self.invalidate_git();
@@ -651,7 +651,7 @@ impl AppState {
                     p.selection.clear();
                 }
                 self.reload_all().await;
-                // Land the cursor on a remembered entry: the file above a delete,
+                // Land the cursor on a remembered entry: the file after a delete,
                 // or the just-renamed/moved item on its destination panel.
                 if let Some((idx, name)) = self.pending_focus.take()
                     && let Some(p) = self.panels.get_mut(idx)

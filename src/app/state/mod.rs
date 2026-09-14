@@ -344,7 +344,7 @@ pub struct AppState {
     pub(in crate::app::state) git_key: [String; 2],
     pub(in crate::app::state) git_gen: [u64; 2],
     /// After an operation completes, place a panel's cursor on a named entry: the
-    /// surviving file above a delete, or the newly renamed/moved item. Stored as
+    /// surviving file after a delete, or the newly renamed/moved item. Stored as
     /// `(panel index, entry name)`.
     pending_focus: Option<(usize, String)>,
     /// Search/replace terms remembered in memory across editor and viewer

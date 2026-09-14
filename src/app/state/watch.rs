@@ -381,9 +381,10 @@ impl AppState {
             if !self.config.auto_refresh || watch_key(&self.panels[side], true).is_empty() {
                 continue;
             }
-            // `reload` keeps the cursor on its named entry and prunes the marks
-            // against the new listing, so a refresh is not felt.
-            let _ = self.panels[side].reload().await;
+            // `refresh` keeps the cursor on its named entry (or its row, when the
+            // entry itself went away) and prunes the marks against the new
+            // listing, so a refresh is not felt.
+            let _ = self.panels[side].refresh().await;
             reloaded = true;
         }
         if reloaded {

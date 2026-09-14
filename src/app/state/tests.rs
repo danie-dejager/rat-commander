@@ -1602,6 +1602,74 @@ async fn delete_anchor_targets_next_file() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// Trashing the file under the cursor (F8's default) leaves the cursor on the
+/// same row, now showing the entry that followed — in a listing sorted by
+/// modification time, where that is not the next name. A second panel showing
+/// the same directory with its cursor on the trashed file keeps its row too.
+#[tokio::test]
+async fn trash_keeps_cursor_row_in_mtime_sorted_panel() {
+    use crate::panel::sort::SortKey;
+    use crate::ui::dialog::Submit;
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_trashcur_{}_{nanos}", std::process::id()));
+    let dir = root.join("dir");
+    let home = root.join("home");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    // Never touch the real trash; the temp home shares the files' filesystem.
+    let _guard = crate::trash::test_home::TempHome::set(&home);
+
+    // Oldest to newest, deliberately out of name order.
+    let base = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+    for (i, n) in ["c.txt", "a.txt", "d.txt", "b.txt"].iter().enumerate() {
+        let path = dir.join(n);
+        std::fs::write(&path, b"x").unwrap();
+        let stamp = base + std::time::Duration::from_secs(60 * i as u64);
+        std::fs::File::options().write(true).open(&path).unwrap().set_modified(stamp).unwrap();
+    }
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    for side in 0..2 {
+        st.panels[side].cwd = VfsPath::local(&dir);
+        st.panels[side].backend = st.registry.local();
+        st.panels[side].sort.key = SortKey::ModifyTime;
+        st.panels[side].reload().await.unwrap();
+    }
+    let names = |st: &AppState, side: usize| -> Vec<String> {
+        st.panels[side].entries.iter().map(|e| e.name.clone()).collect()
+    };
+    assert_eq!(names(&st, 0), ["..", "c.txt", "a.txt", "d.txt", "b.txt"], "sorted by mtime");
+
+    for side in 0..2 {
+        st.panels[side].cursor = 2; // a.txt
+    }
+    let targets = st.panels[0].operation_targets();
+    st.handle_submit(Submit::Trash(targets)).await;
+    drain_taskdone(&mut st, &mut rx).await;
+
+    assert!(!dir.join("a.txt").exists(), "a.txt went to the trash");
+    for side in 0..2 {
+        assert_eq!(st.panels[side].cursor, 2, "panel {side}: cursor keeps its row");
+        assert_eq!(
+            st.panels[side].current_entry().map(|e| e.name.as_str()),
+            Some("d.txt"),
+            "panel {side}: cursor lands on the file that followed",
+        );
+    }
+
+    // Trashing the last entry falls back to the one above it.
+    st.panels[0].cursor = 3; // b.txt
+    let targets = st.panels[0].operation_targets();
+    st.handle_submit(Submit::Trash(targets)).await;
+    drain_taskdone(&mut st, &mut rx).await;
+    assert_eq!(st.panels[0].current_entry().map(|e| e.name.as_str()), Some("d.txt"));
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
 /// A file operation on the active panel must not disturb an unrelated selection
 /// (or the cursor) sitting on the *inactive* panel: only the panel whose files
 /// the op consumed has its marks cleared.

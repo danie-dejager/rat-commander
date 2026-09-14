@@ -399,15 +399,30 @@ impl Panel {
     pub async fn reload_keeping(&mut self, focus_name: Option<&str>) -> Result<()> {
         let prev_name =
             focus_name.map(str::to_string).or_else(|| self.current_entry().map(|e| e.name.clone()));
-        self.reload_focusing(prev_name.as_deref()).await
+        self.reload_focusing(prev_name.as_deref(), 0).await
     }
 
-    /// Reload, placing the cursor on `focus_name` if that entry exists and at the
-    /// top of the listing otherwise. Unlike [`Panel::reload_keeping`] there is no
-    /// fallback to the current cursor: when the panel changes directory, the name
-    /// it was sitting on says nothing about where the cursor belongs in the new
-    /// listing (a file that happens to share the directory's name would steal it).
-    async fn reload_focusing(&mut self, focus_name: Option<&str>) -> Result<()> {
+    /// Reload the directory the panel is already showing. The cursor stays on
+    /// its entry, and when that entry has gone (deleted, trashed or moved away)
+    /// it keeps its row instead, landing on the entry that followed — so to the
+    /// user the cursor does not move. Only for an unchanged directory: in a
+    /// different listing the old row would be an arbitrary spot.
+    pub async fn refresh(&mut self) -> Result<()> {
+        let name = self.current_entry().map(|e| e.name.clone());
+        self.reload_focusing(name.as_deref(), self.cursor).await
+    }
+
+    /// Reload, placing the cursor on `focus_name` if that entry exists and on
+    /// row `fallback_row` (clamped) otherwise. Unlike [`Panel::reload_keeping`]
+    /// there is no fallback to the current cursor: when the panel changes
+    /// directory, the name it was sitting on says nothing about where the cursor
+    /// belongs in the new listing (a file that happens to share the directory's
+    /// name would steal it).
+    async fn reload_focusing(
+        &mut self,
+        focus_name: Option<&str>,
+        fallback_row: usize,
+    ) -> Result<()> {
         // Reloading leaves any find-file panelization.
         self.result_paths = None;
 
@@ -438,8 +453,9 @@ impl Panel {
         self.disk = self.backend.disk_usage(&self.cwd).await.ok().flatten();
 
         // Restore cursor.
-        self.cursor =
-            focus_name.and_then(|n| self.entries.iter().position(|e| e.name == n)).unwrap_or(0);
+        self.cursor = focus_name
+            .and_then(|n| self.entries.iter().position(|e| e.name == n))
+            .unwrap_or(fallback_row);
         self.clamp_cursor();
         Ok(())
     }
@@ -460,7 +476,7 @@ impl Panel {
         let prev_backend = std::mem::replace(&mut self.backend, backend);
         let prev_selection = std::mem::replace(&mut self.selection, Selection::new());
 
-        let _ = self.reload_focusing(focus_name).await;
+        let _ = self.reload_focusing(focus_name, 0).await;
         let ok = if self.error.is_some() {
             // Couldn't list the target: undo the move and stay put.
             self.cwd = prev_cwd;

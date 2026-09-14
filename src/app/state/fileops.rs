@@ -119,9 +119,10 @@ impl AppState {
         if self.refuse_lossy(&sources) {
             return;
         }
-        // For a delete, remember the surviving entry just above the deleted one
-        // so the cursor lands there (not at the top) once the listing reloads.
-        if kind == OpKind::Delete {
+        // For a delete or trash, remember the surviving entry that follows the
+        // doomed ones so the cursor lands there (not at the top) once the
+        // listing reloads.
+        if matches!(kind, OpKind::Delete | OpKind::Trash) {
             let active = self.active;
             self.pending_focus = self.delete_anchor(&sources).map(|n| (active, n));
         }
@@ -450,6 +451,8 @@ impl AppState {
         let Some(container) = targets.first().and_then(|t| t.container.clone()) else {
             return;
         };
+        let active = self.active;
+        self.pending_focus = self.delete_anchor(&targets).map(|n| (active, n));
         let set: HashSet<String> =
             targets.iter().map(|t| t.path.to_string_lossy().into_owned()).collect();
         self.spawn_archive_op("Updating archive", move || {
