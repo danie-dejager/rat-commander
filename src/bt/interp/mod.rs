@@ -149,10 +149,14 @@ impl Frame {
     }
 }
 
-/// Frame numbers at or above this address the saved locals of struct node
-/// `number - NODE_FRAMES`: a struct's locals outlive its body, reachable by
-/// path (`header.count`) like its members.
-const NODE_FRAMES: usize = 1 << 40;
+/// Where a variable's frame is: on the frame stack, or the saved locals of a
+/// struct node — a struct's locals outlive its body, reachable by path
+/// (`header.count`) like its members.
+#[derive(Debug, Clone, Copy)]
+pub enum FrameRef {
+    Stack(usize),
+    Node(u32),
+}
 
 /// One step into a local value.
 #[derive(Debug, Clone)]
@@ -165,7 +169,7 @@ pub enum Step {
 #[derive(Debug, Clone)]
 pub enum Place {
     Var {
-        frame: usize,
+        frame: FrameRef,
         slot: usize,
         path: Vec<Step>,
     },
@@ -407,19 +411,17 @@ impl Interp {
         Some(NodeRef::new(ROOT))
     }
 
-    fn frame_at(&self, f: usize) -> &Frame {
-        if f >= NODE_FRAMES {
-            &self.node_locals[&((f - NODE_FRAMES) as u32)]
-        } else {
-            &self.frames[f]
+    fn frame_at(&self, f: FrameRef) -> &Frame {
+        match f {
+            FrameRef::Stack(i) => &self.frames[i],
+            FrameRef::Node(id) => &self.node_locals[&id],
         }
     }
 
-    fn frame_at_mut(&mut self, f: usize) -> &mut Frame {
-        if f >= NODE_FRAMES {
-            self.node_locals.get_mut(&((f - NODE_FRAMES) as u32)).expect("node locals exist")
-        } else {
-            &mut self.frames[f]
+    fn frame_at_mut(&mut self, f: FrameRef) -> &mut Frame {
+        match f {
+            FrameRef::Stack(i) => &mut self.frames[i],
+            FrameRef::Node(id) => self.node_locals.get_mut(&id).expect("node locals exist"),
         }
     }
 
@@ -430,11 +432,10 @@ impl Interp {
             .iter()
             .rposition(|f| matches!(f.kind, FrameKind::Struct(r) if r.id == id))
         {
-            Some(i) if self.frames[i].find(s).is_some() => (i, self.frames[i].find(s)?),
-            _ => {
-                let f = self.node_locals.get(&id)?;
-                (NODE_FRAMES + id as usize, f.find(s)?)
+            Some(i) if self.frames[i].find(s).is_some() => {
+                (FrameRef::Stack(i), self.frames[i].find(s)?)
             }
+            _ => (FrameRef::Node(id), self.node_locals.get(&id)?.find(s)?),
         };
         Some(match &self.frame_at(frame).vars[slot].1 {
             Slot::Ref(p) => Target::Place(p.clone()),
@@ -472,7 +473,11 @@ impl Interp {
                 return Ok(match &self.frames[i].vars[slot].1 {
                     Slot::Ref(p) => Target::Place(p.clone()),
                     Slot::Node(r) => Target::Place(Place::Node(*r)),
-                    Slot::Val(..) => Target::Place(Place::Var { frame: i, slot, path: Vec::new() }),
+                    Slot::Val(..) => Target::Place(Place::Var {
+                        frame: FrameRef::Stack(i),
+                        slot,
+                        path: Vec::new(),
+                    }),
                 });
             }
             match self.frames[i].kind {
@@ -799,7 +804,7 @@ impl Interp {
     fn path_type(
         &self,
         _prog: &Program,
-        frame: usize,
+        frame: FrameRef,
         slot: usize,
         path: &[Step],
     ) -> Option<TypeId> {
