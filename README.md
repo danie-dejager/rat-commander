@@ -1,5 +1,7 @@
 # Rat Commander (`rc`)
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/W7J0271P9Q)
+
 A self-contained terminal file manager with modern features and built-in tools,
 while staying true to the heritage of classics such as Norton Commander and
 [Midnight Commander](https://midnight-commander.org/). Written in Rust with
