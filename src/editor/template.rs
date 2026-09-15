@@ -1468,6 +1468,48 @@ mod tests {
     }
 
     #[test]
+    fn the_background_ramp_runs_on_past_the_tree_cursor_below_the_bytes() {
+        // In a narrow window the tree sits below the bytes, and its cursor bar
+        // runs the full width of the editor, cutting the page's background in
+        // two. The part below the bar used to start the ramp over.
+        use crate::ui::theme::{GradientDir, GradientSpec};
+        use ratatui::style::Color;
+        let p = zip_file("ramp");
+        let mut e = hex_editor(&p);
+        let mut spec = crate::ui::theme::active_specs().into_iter().next().unwrap();
+        spec.panel_bg = Color::Rgb(0, 0, 0);
+        spec.cursor_bg = Color::Rgb(200, 0, 0);
+        spec.cursor_inactive_bg = Color::Rgb(200, 0, 0);
+        spec.gradients = Default::default();
+        spec.gradients.panel_bg = Some(GradientSpec {
+            direction: GradientDir::Vertical,
+            ..GradientSpec::new(Color::Rgb(255, 255, 255))
+        });
+        let theme = Theme::from_spec(&spec, true);
+        let (w, h) = (80, 40);
+        let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
+        t.draw(|f| {
+            crate::ui::gradient::reset();
+            crate::editor::render::render(f, f.area(), &mut e, &theme);
+            let area = f.area();
+            crate::ui::gradient::apply(f, area, &theme);
+        })
+        .unwrap();
+        assert!(e.tpl_area.y > e.text_area.y, "the tree sits below the bytes");
+        let tpl = e.tpl.as_ref().unwrap();
+        let bar = tpl.list_area.y + (tpl.cursor - tpl.scroll) as u16;
+        let b = t.backend().buffer();
+        assert_eq!(b[(w - 1, bar)].bg, Color::Rgb(200, 0, 0), "the cursor bar cuts across");
+        let shade = |y| match b[(w - 1, y)].bg {
+            Color::Rgb(r, _, _) => r,
+            c => panic!("row {y} is not ramped: {c:?}"),
+        };
+        let (above, below) = (shade(bar - 1), shade(bar + 1));
+        assert!(below > above, "the ramp runs on below the bar: {above} above, {below} below");
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
     fn a_zip_gets_the_zip_template_with_a_tree_and_coloured_bytes() {
         let p = zip_file("auto");
         let mut e = hex_editor(&p);

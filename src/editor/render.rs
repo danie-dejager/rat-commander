@@ -24,6 +24,9 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
         if ed.json_checked() && !ed.sheet_active() { JSON_GUTTER.min(body.width) } else { 0 };
     let gutter = Rect { width: gutter_w, ..body };
     let text_area = Rect { x: body.x + gutter_w, width: body.width - gutter_w, ..body };
+    // One page for the background gradient, however the template tree or a
+    // full-width cursor bar cuts across it.
+    crate::ui::gradient::mark_surface(crate::ui::theme::GradRole::PanelBg, body);
 
     ed.view_rows = text_area.height as usize;
     ed.view_cols = text_area.width as usize;

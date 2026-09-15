@@ -27,6 +27,9 @@ pub fn render(
     // which is the width wrapping and scrolling have to measure against.
     let gutter_w = if v.active_blame().is_some() { blame_gutter_width(content.width) } else { 0 };
     let text_area = Rect { x: content.x + gutter_w, width: content.width - gutter_w, ..content };
+    // One page for the background gradient, however a full-width cursor bar
+    // cuts across it.
+    crate::ui::gradient::mark_surface(crate::ui::theme::GradRole::PanelBg, content);
 
     v.view_rows = content.height as usize;
     v.view_cols = text_area.width as usize;

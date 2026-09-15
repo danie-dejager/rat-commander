@@ -1056,6 +1056,47 @@ fn render_form(d: &mut FormDialog) -> String {
 }
 
 #[test]
+fn the_settings_help_text_continues_the_dialog_background_ramp() {
+    // A theme may frame its dialogs in a color of their own. The divider over the
+    // Settings help text belongs to that frame and runs the width of the box,
+    // cutting the dialog's background in two — and the help text below it used
+    // to start the ramp over.
+    use crate::ui::theme::{GradientDir, GradientSpec, Theme};
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::style::Color;
+    let mut spec = crate::ui::theme::active_specs().into_iter().next().unwrap();
+    spec.dialog_bg = Color::Rgb(0, 0, 0);
+    spec.dialog_border_bg = Color::Rgb(0, 0, 200);
+    spec.gradients = Default::default();
+    spec.gradients.dialog_bg = Some(GradientSpec {
+        direction: GradientDir::Vertical,
+        ..GradientSpec::new(Color::Rgb(255, 255, 255))
+    });
+    let theme = Theme::from_spec(&spec, true);
+    let mut d = FormDialog::settings(&crate::config::Config::default(), true);
+    let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    t.draw(|f| {
+        crate::ui::gradient::reset();
+        d.render(f, f.area(), &theme, None);
+        let area = f.area();
+        crate::ui::gradient::apply(f, area, &theme);
+    })
+    .unwrap();
+    let b = t.backend().buffer();
+    let (x, divider) = (0..24u16)
+        .flat_map(|y| (0..80u16).map(move |x| (x, y)))
+        .find(|&(x, y)| b[(x, y)].symbol() == "├")
+        .expect("the help divider");
+    let shade = |y| match b[(x + 2, y)].bg {
+        Color::Rgb(r, _, _) => r,
+        c => panic!("row {y} is not ramped: {c:?}"),
+    };
+    let (above, below) = (shade(divider - 1), shade(divider + 1));
+    assert!(below > above, "the ramp runs on under the divider: {above} above, {below} below");
+}
+
+#[test]
 fn settings_dialog_renders_the_tab_strip_and_only_the_active_page() {
     let cfg = crate::config::Config::default();
     let mut d = FormDialog::settings(&cfg, true);
