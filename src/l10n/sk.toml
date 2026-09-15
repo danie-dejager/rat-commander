@@ -630,3 +630,15 @@ code = "sk"
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "Tabuľka"
 "Header" = "Hlavička"
+
+# -- Editor: spreadsheet grid (CSV/TSV) --
+"Toggle sprea&dsheet" = "Tabuľkové zobrazenie (&D)"
+"Insert &row" = "Vložiť riadok (&R)"
+"Delete ro&w" = "Odstrániť riadok (&W)"
+"Insert &column" = "Vložiť stĺpec (&C)"
+"Delete co&lumn" = "Odstrániť stĺpec (&L)"
+"First row is &header" = "Prvý riadok je hlavička (&H)"
+"InsRow" = "VloRia"
+"InsCol" = "VloStĺ"
+"DelRow" = "OdsRia"
+"DelCol" = "OdsStĺ"

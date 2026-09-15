@@ -16,6 +16,10 @@ pub const PANEL_LABELS: [&str; 10] =
 pub const EDITOR_LABELS: [&str; 10] =
     ["Help", "Save", "Mark", "Replac", "Copy", "Move", "Search", "Delete", "PullDn", "Quit"];
 
+/// Labels for the editor's spreadsheet grid (CSV / TSV files).
+pub const SHEET_LABELS: [&str; 10] =
+    ["Help", "Save", "Header", "Replac", "InsRow", "InsCol", "Search", "DelRow", "PullDn", "Quit"];
+
 /// Labels for the editor's hex mode (only the supported functions are shown).
 pub const HEX_LABELS: [&str; 10] =
     ["", "Save", "", "Replac", "", "", "Search", "", "PullDn", "Quit"];

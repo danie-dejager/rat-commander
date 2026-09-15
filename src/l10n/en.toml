@@ -639,3 +639,15 @@ code = "en"
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "Table"
 "Header" = "Header"
+
+# -- Editor: spreadsheet grid (CSV/TSV) --
+"Toggle sprea&dsheet" = "Toggle sprea&dsheet"
+"Insert &row" = "Insert &row"
+"Delete ro&w" = "Delete ro&w"
+"Insert &column" = "Insert &column"
+"Delete co&lumn" = "Delete co&lumn"
+"First row is &header" = "First row is &header"
+"InsRow" = "InsRow"
+"InsCol" = "InsCol"
+"DelRow" = "DelRow"
+"DelCol" = "DelCol"

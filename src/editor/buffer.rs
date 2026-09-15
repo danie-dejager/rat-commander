@@ -6,6 +6,17 @@
 //! it. All indices are *character* indices.
 
 use ropey::Rope;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Revisions are handed out program-wide rather than per buffer, so a buffer
+/// replaced by a new one (a file opened into the same editor) never repeats a
+/// revision the old one had — and nothing cached against that number can be
+/// mistaken for current.
+static REVISIONS: AtomicU64 = AtomicU64::new(1);
+
+fn next_revision() -> u64 {
+    REVISIONS.fetch_add(1, Ordering::Relaxed)
+}
 
 /// A single reversible edit: at char `at`, `removed` text was replaced by
 /// `inserted` text.
@@ -26,6 +37,9 @@ pub struct EditorBuffer {
     /// Fold a run of typing into a single undo entry (the editor's "Group undo"
     /// option). Off by default, so every character undoes on its own.
     group_undo: bool,
+    /// The last undo entry is closed: the next edit starts one of its own even
+    /// where grouping would have folded it in.
+    sealed: bool,
 }
 
 impl EditorBuffer {
@@ -34,8 +48,9 @@ impl EditorBuffer {
             rope: Rope::from_str(text),
             undo: Vec::new(),
             redo: Vec::new(),
-            revision: 0,
+            revision: next_revision(),
             group_undo: false,
+            sealed: false,
         }
     }
 
@@ -44,9 +59,27 @@ impl EditorBuffer {
         self.group_undo = on;
     }
 
-    /// A counter that increases on every buffer mutation.
+    /// A number that changes on every buffer mutation, and is never shared
+    /// with another buffer.
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// Close the last undo entry, so the next edit is undone on its own — an
+    /// edit made as one step (a spreadsheet cell) must not fold into typing.
+    pub fn break_undo_group(&mut self) {
+        self.sealed = true;
+    }
+
+    /// The text in the rope's own pieces, for a pass over the whole buffer that
+    /// needs no copy of it.
+    pub fn chunks(&self) -> ropey::iter::Chunks<'_> {
+        self.rope.chunks()
+    }
+
+    /// The char index of byte offset `byte`.
+    pub fn byte_to_char(&self, byte: usize) -> usize {
+        self.rope.byte_to_char(byte.min(self.rope.len_bytes()))
     }
 
     /// The full buffer contents as a string.
@@ -122,11 +155,13 @@ impl EditorBuffer {
             self.rope.insert(start, text);
         }
         self.redo.clear();
-        self.revision += 1;
+        self.revision = next_revision();
+        let sealed = std::mem::take(&mut self.sealed);
         // With grouping on, typing that continues straight after the previous
         // insertion extends that undo entry instead of adding another — so one
         // Ctrl-Z takes back the whole run rather than one character.
         if self.group_undo
+            && !sealed
             && removed.is_empty()
             && !text.is_empty()
             && !text.contains('\n')
@@ -163,7 +198,7 @@ impl EditorBuffer {
         }
         let cursor = e.at + e.removed.chars().count();
         self.redo.push(e);
-        self.revision += 1;
+        self.revision = next_revision();
         Some(cursor)
     }
 
@@ -177,7 +212,7 @@ impl EditorBuffer {
         }
         let cursor = e.at + e.inserted.chars().count();
         self.undo.push(e);
-        self.revision += 1;
+        self.revision = next_revision();
         Some(cursor)
     }
 
@@ -230,6 +265,27 @@ mod tests {
         assert_eq!(b.line_len(1), 3);
         assert_eq!(b.line_text(1), "cde");
         assert_eq!(b.char_to_line(4), 1);
+    }
+
+    #[test]
+    fn a_sealed_entry_is_not_extended_by_the_typing_after_it() {
+        let mut b = EditorBuffer::from_str("");
+        b.set_group_undo(true);
+        b.insert(0, "ab");
+        b.insert(2, "c");
+        b.break_undo_group();
+        b.insert(3, "d");
+        b.undo();
+        assert_eq!(b.text(), "abc", "the sealed insertion undoes on its own");
+        b.undo();
+        assert_eq!(b.text(), "", "the grouped run before it goes as one");
+    }
+
+    #[test]
+    fn revisions_are_never_shared_between_buffers() {
+        let a = EditorBuffer::from_str("x");
+        let b = EditorBuffer::from_str("x");
+        assert_ne!(a.revision(), b.revision());
     }
 
     #[test]

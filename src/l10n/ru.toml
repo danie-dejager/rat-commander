@@ -630,3 +630,15 @@ code = "ru"
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "Таблица"
 "Header" = "Шапка"
+
+# -- Editor: spreadsheet grid (CSV/TSV) --
+"Toggle sprea&dsheet" = "Табличный вид (&D)"
+"Insert &row" = "Вставить строку (&R)"
+"Delete ro&w" = "Удалить строку (&W)"
+"Insert &column" = "Вставить столбец (&C)"
+"Delete co&lumn" = "Удалить столбец (&L)"
+"First row is &header" = "Первая строка — заголовок (&H)"
+"InsRow" = "ВстСтр"
+"InsCol" = "ВстСтл"
+"DelRow" = "УдлСтр"
+"DelCol" = "УдлСтл"

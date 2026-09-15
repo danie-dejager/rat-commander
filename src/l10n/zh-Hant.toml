@@ -630,3 +630,15 @@ code = "zh-Hant"
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "表格"
 "Header" = "標題列"
+
+# -- Editor: spreadsheet grid (CSV/TSV) --
+"Toggle sprea&dsheet" = "試算表檢視(&D)"
+"Insert &row" = "插入列(&R)"
+"Delete ro&w" = "刪除列(&W)"
+"Insert &column" = "插入欄(&C)"
+"Delete co&lumn" = "刪除欄(&L)"
+"First row is &header" = "首列為標題(&H)"
+"InsRow" = "插入列"
+"InsCol" = "插入欄"
+"DelRow" = "刪除列"
+"DelCol" = "刪除欄"

@@ -630,3 +630,15 @@ code = "ja"
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "表"
 "Header" = "見出し"
+
+# -- Editor: spreadsheet grid (CSV/TSV) --
+"Toggle sprea&dsheet" = "表形式表示(&D)"
+"Insert &row" = "行を挿入(&R)"
+"Delete ro&w" = "行を削除(&W)"
+"Insert &column" = "列を挿入(&C)"
+"Delete co&lumn" = "列を削除(&L)"
+"First row is &header" = "1行目を見出しにする(&H)"
+"InsRow" = "行挿入"
+"InsCol" = "列挿入"
+"DelRow" = "行削除"
+"DelCol" = "列削除"

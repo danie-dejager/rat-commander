@@ -630,3 +630,15 @@ code = "uk"
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "Таблиця"
 "Header" = "Шапка"
+
+# -- Editor: spreadsheet grid (CSV/TSV) --
+"Toggle sprea&dsheet" = "Табличний вигляд (&D)"
+"Insert &row" = "Вставити рядок (&R)"
+"Delete ro&w" = "Видалити рядок (&W)"
+"Insert &column" = "Вставити стовпець (&C)"
+"Delete co&lumn" = "Видалити стовпець (&L)"
+"First row is &header" = "Перший рядок — заголовок (&H)"
+"InsRow" = "ВстРяд"
+"InsCol" = "ВстСтп"
+"DelRow" = "ВидРяд"
+"DelCol" = "ВидСтп"

@@ -630,3 +630,15 @@ code = "nl"
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "Tabel"
 "Header" = "Kop"
+
+# -- Editor: spreadsheet grid (CSV/TSV) --
+"Toggle sprea&dsheet" = "Spreadsheetweergave (&D)"
+"Insert &row" = "Rij invoegen (&R)"
+"Delete ro&w" = "Rij verwijderen (&W)"
+"Insert &column" = "Kolom invoegen (&C)"
+"Delete co&lumn" = "Kolom verwijderen (&L)"
+"First row is &header" = "Eerste rij is kop (&H)"
+"InsRow" = "InsRij"
+"InsCol" = "InsKol"
+"DelRow" = "VerRij"
+"DelCol" = "VerKol"

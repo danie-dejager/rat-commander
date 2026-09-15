@@ -630,3 +630,15 @@ code = "es"
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "Tabla"
 "Header" = "Encab."
+
+# -- Editor: spreadsheet grid (CSV/TSV) --
+"Toggle sprea&dsheet" = "Vista de hoja de cálculo (&D)"
+"Insert &row" = "Insertar fila (&R)"
+"Delete ro&w" = "Eliminar fila (&W)"
+"Insert &column" = "Insertar columna (&C)"
+"Delete co&lumn" = "Eliminar columna (&L)"
+"First row is &header" = "Primera fila como encabezado (&H)"
+"InsRow" = "InsFil"
+"InsCol" = "InsCol"
+"DelRow" = "EliFil"
+"DelCol" = "EliCol"

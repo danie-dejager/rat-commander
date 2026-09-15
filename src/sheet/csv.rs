@@ -119,20 +119,59 @@ enum State {
 pub struct Scanner {
     state: State,
     dialect: Dialect,
+    /// Delimiters seen so far in the record being scanned.
+    delims: usize,
+}
+
+/// What one byte did to the record being scanned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+    Byte,
+    /// A delimiter between two fields.
+    Delimiter,
+    /// The line break ending the record.
+    End,
 }
 
 impl Scanner {
     pub fn new(dialect: Dialect) -> Self {
-        Scanner { state: State::FieldStart, dialect }
+        Scanner { state: State::FieldStart, dialect, delims: 0 }
     }
 
     /// Scan `bytes`, which sit at offset `base` of the file, pushing the offset
     /// just past every line break that ends a record.
     pub fn feed(&mut self, bytes: &[u8], base: usize, starts: &mut Vec<usize>) {
         for (i, &b) in bytes.iter().enumerate() {
-            if self.step(b) {
+            if self.step(b) == Step::End {
                 starts.push(base + i + 1);
             }
+        }
+    }
+
+    /// [`feed`](Scanner::feed), also raising `widest` to the most fields any
+    /// record has had — the column count of the table, found in the same pass.
+    pub fn feed_counting(
+        &mut self,
+        bytes: &[u8],
+        base: usize,
+        starts: &mut Vec<usize>,
+        widest: &mut usize,
+    ) {
+        for (i, &b) in bytes.iter().enumerate() {
+            match self.step(b) {
+                Step::Byte => {}
+                Step::Delimiter => {
+                    self.delims += 1;
+                    *widest = (*widest).max(self.delims + 1);
+                }
+                Step::End => {
+                    self.delims = 0;
+                    starts.push(base + i + 1);
+                }
+            }
+        }
+        if !bytes.is_empty() {
+            *widest = (*widest).max(self.delims + 1);
         }
     }
 
@@ -141,34 +180,34 @@ impl Scanner {
         self.state == State::Quoted
     }
 
-    /// Take one byte; true when it was the line break ending a record.
+    /// Take one byte.
     #[inline]
-    fn step(&mut self, b: u8) -> bool {
+    fn step(&mut self, b: u8) -> Step {
         let Dialect { delim, quoting } = self.dialect;
         match self.state {
             State::Quoted => {
                 if b == b'"' {
                     self.state = State::QuoteInQuoted;
                 }
-                false
+                Step::Byte
             }
             State::FieldStart | State::Unquoted | State::QuoteInQuoted => {
                 if b == b'\n' {
                     self.state = State::FieldStart;
-                    true
+                    Step::End
                 } else if b == delim {
                     self.state = State::FieldStart;
-                    false
+                    Step::Delimiter
                 } else if b == b'"' && self.state == State::QuoteInQuoted {
                     // `""` inside quotes: an escaped quote, still quoted.
                     self.state = State::Quoted;
-                    false
+                    Step::Byte
                 } else if b == b'"' && self.state == State::FieldStart && quoting {
                     self.state = State::Quoted;
-                    false
+                    Step::Byte
                 } else {
                     self.state = State::Unquoted;
-                    false
+                    Step::Byte
                 }
             }
         }
@@ -236,6 +275,17 @@ pub fn value(raw: &[u8], quoted: bool) -> Cow<'_, str> {
         i += 1;
     }
     Cow::Owned(String::from_utf8_lossy(&out).into_owned())
+}
+
+/// A value as a field of `dialect`: in quotes, with each quote doubled, when
+/// it holds the delimiter, a quote or a line break — or when the field it
+/// replaces was quoted, so an edit keeps the file's own style.
+pub fn quote(value: &str, dialect: Dialect, was_quoted: bool) -> Cow<'_, str> {
+    let special = value.bytes().any(|b| b == dialect.delim || matches!(b, b'"' | b'\n' | b'\r'));
+    if !special && !was_quoted {
+        return Cow::Borrowed(value);
+    }
+    Cow::Owned(format!("\"{}\"", value.replace('"', "\"\"")))
 }
 
 /// Whether a cell reads as a number — and so is right-aligned, and is no
@@ -341,6 +391,34 @@ mod tests {
         assert_eq!(values("a,,", d), ["a", "", ""]);
         let data = b"h1,h2\n\"multi\nline\",2\nlast,3";
         assert_eq!(starts(data, d), [0, 6, 21]);
+    }
+
+    #[test]
+    fn a_value_is_quoted_only_when_it_has_to_be_or_was_before() {
+        let d = Dialect::default();
+        assert_eq!(quote("plain", d, false), "plain");
+        assert_eq!(quote("a,b", d, false), "\"a,b\"");
+        assert_eq!(quote("say \"hi\"", d, false), "\"say \"\"hi\"\"\"");
+        assert_eq!(quote("two\nlines", d, false), "\"two\nlines\"");
+        assert_eq!(quote("kept", d, true), "\"kept\"", "a quoted field stays quoted");
+        let semi = Dialect { delim: b';', ..d };
+        assert_eq!(quote("1,5", semi, false), "1,5", "a comma is nothing special here");
+        // Whatever is written reads back as the same value.
+        for v in ["", "x", "a,b", "\"", "line\r\nbreak", " spaced "] {
+            let q = quote(v, d, false);
+            let f = split(q.as_bytes(), d);
+            assert_eq!(f.len(), 1, "{v:?}");
+            assert_eq!(value(q.as_bytes(), f[0].quoted), v);
+        }
+    }
+
+    #[test]
+    fn counting_while_indexing_finds_the_widest_record() {
+        let mut starts = vec![0];
+        let mut widest = 0;
+        let mut s = Scanner::new(Dialect::default());
+        s.feed_counting(b"a,b\n\"x,y\",2,3", 0, &mut starts, &mut widest);
+        assert_eq!((starts, widest), (vec![0, 4], 3));
     }
 
     #[test]

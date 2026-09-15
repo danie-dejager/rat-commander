@@ -8,6 +8,7 @@ pub mod buffer;
 pub mod hex;
 pub mod menu;
 pub mod render;
+mod sheet;
 
 use crate::config::{EditorOptions, WrapMode};
 use crate::vfs::VfsPath;
@@ -151,6 +152,9 @@ pub struct EditorState {
     /// was the dark one — remembered so the Ctrl-S toggle can rebuild the
     /// highlighter without asking the app again.
     hl_dark: bool,
+    /// The spreadsheet grid over a CSV or TSV file (Alt-G switches it with the
+    /// text), when the file is one — or when it was asked for.
+    sheet: Option<sheet::SheetGrid>,
 }
 
 /// Above this size a file is opened straight into hex mode (text mode loads the
@@ -171,6 +175,9 @@ pub const EDITOR_HELP: &[(&str, &str)] = &[
     ("F9", "Menu"),
     ("Shift-F9", "Toggle word wrap"),
     ("Ctrl-F9", "Toggle hex editor"),
+    ("Alt-G", "Spreadsheet grid / text (CSV, TSV)"),
+    ("Grid: Enter / F3", "Edit the cell / header row on or off"),
+    ("Grid: F5 F6 / F8", "Insert row, column / delete row (Shift: column)"),
     ("F10 / Esc", "Quit (prompts if modified)"),
     ("Ins", "Toggle insert / overwrite"),
     ("Ctrl-C / X / V", "Copy / cut block to clipboard, paste"),
@@ -190,7 +197,7 @@ pub const EDITOR_HELP: &[(&str, &str)] = &[
 
 impl EditorState {
     pub fn new(name: String, path: VfsPath, text: &str) -> Self {
-        EditorState {
+        let mut ed = EditorState {
             name,
             path,
             buf: EditorBuffer::from_str(text),
@@ -226,7 +233,10 @@ impl EditorState {
             overwrite: false,
             bookmarks: std::collections::HashSet::new(),
             hl_dark: false,
-        }
+            sheet: None,
+        };
+        ed.detect_kind();
+        ed
     }
 
     /// The cursor's 0-based `(line, column)` — the unit remembered across
@@ -300,12 +310,25 @@ impl EditorState {
     /// Shift or Ctrl in text mode swaps in the alternates those modifiers reach:
     /// "Save as", "Insert file", "Search again", and F9's two view toggles.
     pub fn footer_labels(&self) -> [String; 10] {
+        let shift = self.hint_mods.contains(KeyModifiers::SHIFT);
+        let ctrl = self.hint_mods.contains(KeyModifiers::CONTROL);
         let src = if self.hex.is_some() {
             crate::ui::fkeys::HEX_LABELS
+        } else if self.sheet_active() {
+            let mut labels = crate::ui::fkeys::SHEET_LABELS;
+            if shift || ctrl {
+                labels[1] = "Save as"; // F2
+            }
+            if shift {
+                labels[6] = "Again"; // F7
+                labels[7] = "DelCol"; // F8
+            }
+            if ctrl {
+                labels[8] = "Hex"; // F9
+            }
+            labels
         } else {
             let mut labels = crate::ui::fkeys::EDITOR_LABELS;
-            let shift = self.hint_mods.contains(KeyModifiers::SHIFT);
-            let ctrl = self.hint_mods.contains(KeyModifiers::CONTROL);
             if shift || ctrl {
                 labels[1] = "Save as"; // F2
             }
@@ -596,6 +619,9 @@ impl EditorState {
         // F9 opens the pulldown menu (mcedit's); its Shift/Ctrl variants keep the
         // two view toggles that used to live on the bare key.
         if key.code == KeyCode::F(9) {
+            // A cell being edited is written back before the menu or a mode
+            // switch can act on the table.
+            self.commit_cell_edit();
             if ctrl {
                 self.toggle_hex();
             } else if shift {
@@ -607,6 +633,9 @@ impl EditorState {
         }
         if self.hex.is_some() {
             return self.handle_hex_key(key);
+        }
+        if self.sheet_active() {
+            return self.handle_sheet_key(key);
         }
 
         // Run the edit, then — if the buffer changed — invalidate the syntax
@@ -627,7 +656,14 @@ impl EditorState {
 
     /// Open the menu bar on menu `active` (0 = File).
     fn open_menu(&mut self, active: usize) {
-        self.menu = Some(menu::editor_menu(active, self.is_hex()));
+        let mode = if self.is_hex() {
+            menu::MenuMode::Hex
+        } else if self.sheet_active() {
+            menu::MenuMode::Sheet
+        } else {
+            menu::MenuMode::Text
+        };
+        self.menu = Some(menu::editor_menu(active, mode));
     }
 
     /// Whether the F9 menu is currently open (the renderer draws it over the
@@ -690,6 +726,9 @@ impl EditorState {
             A::CopyBlock => self.copy_block(),
             A::MoveBlock => self.move_block(),
             A::DeleteBlock => self.delete_block(),
+            A::ClipCopy | A::ClipCut | A::ClipPaste if self.sheet_active() => {
+                self.sheet_action(action);
+            }
             A::ClipCopy => self.copy_to_clipboard(),
             A::ClipCut => self.cut_to_clipboard(),
             A::ClipPaste => self.paste(),
@@ -719,6 +758,7 @@ impl EditorState {
             A::ToggleSyntax => self.toggle_syntax(),
             A::ToggleWrap => self.toggle_wrap(),
             A::ToggleHex => self.toggle_hex(),
+            A::ToggleSheet => self.toggle_sheet(),
             A::RefreshScreen => return EditorSignal::RefreshScreen,
 
             // -- Format --
@@ -726,6 +766,11 @@ impl EditorState {
             A::FormatParagraph => self.format_paragraph(),
             A::SortBlock => return EditorSignal::OpenSortBlock,
             A::PasteOutput => return EditorSignal::OpenPasteOutput,
+            A::SheetInsertRow
+            | A::SheetDeleteRow
+            | A::SheetInsertCol
+            | A::SheetDeleteCol
+            | A::SheetHeader => self.sheet_action(action),
 
             // -- Options --
             A::Options => return EditorSignal::OpenOptions,
@@ -1116,6 +1161,8 @@ impl EditorState {
         if self.opts.syntax_highlighting {
             self.enable_syntax(self.hl_dark);
         }
+        self.sheet = None;
+        self.detect_kind();
     }
 
     fn mark_all(&mut self) {
@@ -1177,6 +1224,8 @@ impl EditorState {
         {
             let labels: &[&str] = if self.is_hex() {
                 &crate::ui::fkeys::HEX_LABELS
+            } else if self.sheet_active() {
+                &crate::ui::fkeys::SHEET_LABELS
             } else {
                 &crate::ui::fkeys::EDITOR_LABELS
             };
@@ -1190,6 +1239,9 @@ impl EditorState {
 
         if self.is_hex() {
             return self.handle_hex_mouse(ev);
+        }
+        if self.sheet_active() {
+            return self.handle_sheet_mouse(ev);
         }
 
         match ev.kind {
@@ -1375,6 +1427,7 @@ impl EditorState {
             KeyCode::Char('j') if alt => self.bookmark_jump(true),
             KeyCode::Char('i') if alt => self.bookmark_jump(false),
             KeyCode::Char('o') if alt => self.bookmark_flush(),
+            KeyCode::Char('g') if alt => self.toggle_sheet(),
 
             KeyCode::Up => {
                 self.pre_move(shift);

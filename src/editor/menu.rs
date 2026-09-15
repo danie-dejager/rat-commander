@@ -71,6 +71,8 @@ pub enum EditorAction {
     ToggleSyntax,
     ToggleWrap,
     ToggleHex,
+    /// Switch between the spreadsheet grid and the text.
+    ToggleSheet,
     /// Repaint the whole screen (after a stray write from another program).
     RefreshScreen,
 
@@ -82,6 +84,16 @@ pub enum EditorAction {
     SortBlock,
     /// Run a shell command and insert its output at the cursor.
     PasteOutput,
+    /// Spreadsheet grid: an empty record above the cursor's.
+    SheetInsertRow,
+    /// Spreadsheet grid: remove the cursor's record.
+    SheetDeleteRow,
+    /// Spreadsheet grid: an empty column left of the cursor's.
+    SheetInsertCol,
+    /// Spreadsheet grid: remove the cursor's column.
+    SheetDeleteCol,
+    /// Spreadsheet grid: whether the first record is the header row.
+    SheetHeader,
 
     // -- Options --
     /// The editor options dialog (mcedit's Options → General).
@@ -125,15 +137,31 @@ pub fn titles() -> [String; 6] {
     TITLES.map(crate::l10n::tr)
 }
 
+/// What the editor is showing, which decides the menu items that can act.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuMode {
+    Text,
+    Hex,
+    /// The spreadsheet grid over a CSV or TSV file.
+    Sheet,
+}
+
 /// Build the editor's menu bar, opened on menu `active` (0 = File).
 ///
-/// `hex` is whether the editor is in hex mode: that mode supports only a
-/// fraction of these actions, so the rest are greyed out rather than silently
-/// doing nothing.
-pub fn editor_menu(active: usize, hex: bool) -> EditorMenu {
+/// `mode` is what the editor is showing: hex mode supports only a fraction of
+/// these actions and the spreadsheet grid has no use for the ones that act on
+/// lines and marked blocks, so those are greyed out rather than silently doing
+/// nothing — and the grid's own row and column actions are greyed out
+/// everywhere else.
+pub fn editor_menu(active: usize, mode: MenuMode) -> EditorMenu {
+    let hex = mode == MenuMode::Hex;
     // In hex mode the text buffer isn't the thing being edited, so everything
     // that reads or writes it is unavailable.
     let text_only = |i: Item| i.disabled(hex);
+    // Actions on lines, marks and the typing position, which the grid replaces
+    // with cells.
+    let not_grid = |i: Item| i.disabled(mode != MenuMode::Text);
+    let grid_only = |i: Item| i.disabled(mode != MenuMode::Sheet);
 
     let file = Menu {
         items: vec![
@@ -143,7 +171,7 @@ pub fn editor_menu(active: usize, hex: bool) -> EditorMenu {
             item_key("&Save", "F2", EditorAction::Save),
             text_only(item_key("Save &as...", "Shift-F2", EditorAction::SaveAs)),
             sep(),
-            text_only(item_key("&Insert file...", "Shift-F5", EditorAction::InsertFile)),
+            not_grid(item_key("&Insert file...", "Shift-F5", EditorAction::InsertFile)),
             text_only(item_key("&Copy to file...", "Ctrl-F", EditorAction::CopyToFile)),
             sep(),
             item("A&bout...", EditorAction::About),
@@ -157,15 +185,15 @@ pub fn editor_menu(active: usize, hex: bool) -> EditorMenu {
             text_only(item_key("&Undo", "Ctrl-Z", EditorAction::Undo)),
             text_only(item_key("&Redo", "Ctrl-Y", EditorAction::Redo)),
             sep(),
-            text_only(item_key("Toggle &ins/overwrite", "Ins", EditorAction::ToggleInsert)),
+            not_grid(item_key("Toggle &ins/overwrite", "Ins", EditorAction::ToggleInsert)),
             sep(),
-            text_only(item_key("Toggle mar&k", "F3", EditorAction::ToggleMark)),
-            text_only(item_key("Mark &all", "Ctrl-A", EditorAction::MarkAll)),
-            text_only(item("U&nmark", EditorAction::Unmark)),
+            not_grid(item_key("Toggle mar&k", "F3", EditorAction::ToggleMark)),
+            not_grid(item_key("Mark &all", "Ctrl-A", EditorAction::MarkAll)),
+            not_grid(item("U&nmark", EditorAction::Unmark)),
             sep(),
-            text_only(item_key("&Copy", "F5", EditorAction::CopyBlock)),
-            text_only(item_key("&Move", "F6", EditorAction::MoveBlock)),
-            text_only(item_key("&Delete", "F8", EditorAction::DeleteBlock)),
+            not_grid(item_key("&Copy", "F5", EditorAction::CopyBlock)),
+            not_grid(item_key("&Move", "F6", EditorAction::MoveBlock)),
+            not_grid(item_key("&Delete", "F8", EditorAction::DeleteBlock)),
             sep(),
             text_only(item_key("Copy to clip&board", "Ctrl-C", EditorAction::ClipCopy)),
             text_only(item_key("Cu&t to clipboard", "Ctrl-X", EditorAction::ClipCut)),
@@ -182,25 +210,26 @@ pub fn editor_menu(active: usize, hex: bool) -> EditorMenu {
             item_key("Search a&gain", "Shift-F7", EditorAction::SearchAgain),
             item_key("&Replace...", "F4", EditorAction::Replace),
             sep(),
-            text_only(item_key("&Toggle bookmark", "Alt-K", EditorAction::BookmarkToggle)),
-            text_only(item_key("&Next bookmark", "Alt-J", EditorAction::BookmarkNext)),
-            text_only(item_key("&Prev bookmark", "Alt-I", EditorAction::BookmarkPrev)),
-            text_only(item_key("&Flush bookmarks", "Alt-O", EditorAction::BookmarkFlush)),
+            not_grid(item_key("&Toggle bookmark", "Alt-K", EditorAction::BookmarkToggle)),
+            not_grid(item_key("&Next bookmark", "Alt-J", EditorAction::BookmarkNext)),
+            not_grid(item_key("&Prev bookmark", "Alt-I", EditorAction::BookmarkPrev)),
+            not_grid(item_key("&Flush bookmarks", "Alt-O", EditorAction::BookmarkFlush)),
         ],
     };
 
     let command = Menu {
         items: vec![
             text_only(item_key("&Go to line...", "Alt-L", EditorAction::GotoLine)),
-            text_only(item_key("Go to matching &bracket", "Alt-B", EditorAction::MatchBracket)),
+            not_grid(item_key("Go to matching &bracket", "Alt-B", EditorAction::MatchBracket)),
             sep(),
             text_only(item_key(
                 "Toggle &syntax highlighting",
                 "Ctrl-S",
                 EditorAction::ToggleSyntax,
             )),
-            text_only(item_key("Toggle &word wrap", "Shift-F9", EditorAction::ToggleWrap)),
+            not_grid(item_key("Toggle &word wrap", "Shift-F9", EditorAction::ToggleWrap)),
             item_key("Toggle &hex editor", "Ctrl-F9", EditorAction::ToggleHex),
+            text_only(item_key("Toggle sprea&dsheet", "Alt-G", EditorAction::ToggleSheet)),
             sep(),
             item_key("&Refresh screen", "Ctrl-L", EditorAction::RefreshScreen),
         ],
@@ -208,11 +237,17 @@ pub fn editor_menu(active: usize, hex: bool) -> EditorMenu {
 
     let format = Menu {
         items: vec![
-            text_only(item("Insert &date/time", EditorAction::InsertDateTime)),
+            not_grid(item("Insert &date/time", EditorAction::InsertDateTime)),
             sep(),
-            text_only(item_key("&Format paragraph", "Alt-P", EditorAction::FormatParagraph)),
-            text_only(item_key("&Sort...", "Alt-T", EditorAction::SortBlock)),
-            text_only(item_key("&Paste output of...", "Alt-U", EditorAction::PasteOutput)),
+            not_grid(item_key("&Format paragraph", "Alt-P", EditorAction::FormatParagraph)),
+            not_grid(item_key("&Sort...", "Alt-T", EditorAction::SortBlock)),
+            not_grid(item_key("&Paste output of...", "Alt-U", EditorAction::PasteOutput)),
+            sep(),
+            grid_only(item_key("Insert &row", "F5", EditorAction::SheetInsertRow)),
+            grid_only(item_key("Delete ro&w", "F8", EditorAction::SheetDeleteRow)),
+            grid_only(item_key("Insert &column", "F6", EditorAction::SheetInsertCol)),
+            grid_only(item_key("Delete co&lumn", "Shift-F8", EditorAction::SheetDeleteCol)),
+            grid_only(item_key("First row is &header", "F3", EditorAction::SheetHeader)),
         ],
     };
 
@@ -272,9 +307,20 @@ pub const MENU_KEYS: &[&[&str]] = &[
         "Toggle &syntax highlighting",
         "Toggle &word wrap",
         "Toggle &hex editor",
+        "Toggle sprea&dsheet",
         "&Refresh screen",
     ],
-    &["Insert &date/time", "&Format paragraph", "&Sort...", "&Paste output of..."],
+    &[
+        "Insert &date/time",
+        "&Format paragraph",
+        "&Sort...",
+        "&Paste output of...",
+        "Insert &row",
+        "Delete ro&w",
+        "Insert &column",
+        "Delete co&lumn",
+        "First row is &header",
+    ],
     &["&General...", "&Save setup"],
 ];
 
@@ -284,7 +330,7 @@ mod tests {
 
     #[test]
     fn accelerators_are_unique_within_each_menu() {
-        let m = editor_menu(0, false);
+        let m = editor_menu(0, MenuMode::Text);
         for (mi, menu) in m.menus().iter().enumerate() {
             let mut seen = Vec::new();
             for it in &menu.items {
@@ -303,7 +349,7 @@ mod tests {
     fn menu_keys_mirror_the_built_menus() {
         // The l10n accelerator test reads MENU_KEYS; if a menu gains an item and
         // the list isn't updated, that test would quietly stop covering it.
-        let m = editor_menu(0, false);
+        let m = editor_menu(0, MenuMode::Text);
         assert_eq!(m.menus().len(), MENU_KEYS.len());
         for (mi, menu) in m.menus().iter().enumerate() {
             let built = menu.items.iter().filter(|it| !it.action.is_separator()).count();
@@ -313,19 +359,46 @@ mod tests {
 
     #[test]
     fn hex_mode_greys_out_the_text_only_actions() {
-        let m = editor_menu(0, true);
-        let find = |a: EditorAction| {
-            m.menus()
-                .iter()
-                .flat_map(|menu| menu.items.iter())
-                .find(|it| it.action == a)
-                .unwrap_or_else(|| panic!("{a:?} is in the menu"))
-        };
+        let m = editor_menu(0, MenuMode::Hex);
+        let find = |a: EditorAction| find_item(&m, a);
         assert!(!find(EditorAction::Undo).selectable(), "undo needs the text buffer");
         assert!(!find(EditorAction::FormatParagraph).selectable());
         // Saving, quitting and switching back to text mode still work in hex mode.
         assert!(find(EditorAction::Save).selectable());
         assert!(find(EditorAction::Quit).selectable());
         assert!(find(EditorAction::ToggleHex).selectable());
+        assert!(!find(EditorAction::SheetInsertRow).selectable());
+    }
+
+    fn find_item(m: &EditorMenu, a: EditorAction) -> &MenuItem<EditorAction> {
+        m.menus()
+            .iter()
+            .flat_map(|menu| menu.items.iter())
+            .find(|it| it.action == a)
+            .unwrap_or_else(|| panic!("{a:?} is in the menu"))
+    }
+
+    #[test]
+    fn the_grid_greys_out_line_actions_and_offers_its_own() {
+        let grid = editor_menu(0, MenuMode::Sheet);
+        let text = editor_menu(0, MenuMode::Text);
+        for a in
+            [EditorAction::SheetInsertRow, EditorAction::SheetDeleteCol, EditorAction::SheetHeader]
+        {
+            assert!(find_item(&grid, a).selectable(), "{a:?} works in the grid");
+            assert!(!find_item(&text, a).selectable(), "{a:?} has no rows to act on in the text");
+        }
+        for a in [EditorAction::ToggleMark, EditorAction::FormatParagraph, EditorAction::ToggleWrap]
+        {
+            assert!(!find_item(&grid, a).selectable(), "{a:?} acts on lines");
+        }
+        for a in [
+            EditorAction::Undo,
+            EditorAction::Save,
+            EditorAction::ToggleSheet,
+            EditorAction::Search,
+        ] {
+            assert!(find_item(&grid, a).selectable(), "{a:?} still works in the grid");
+        }
     }
 }

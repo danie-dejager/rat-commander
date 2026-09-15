@@ -630,3 +630,15 @@ code = "zh-Hans"
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "表格"
 "Header" = "标题行"
+
+# -- Editor: spreadsheet grid (CSV/TSV) --
+"Toggle sprea&dsheet" = "电子表格视图(&D)"
+"Insert &row" = "插入行(&R)"
+"Delete ro&w" = "删除行(&W)"
+"Insert &column" = "插入列(&C)"
+"Delete co&lumn" = "删除列(&L)"
+"First row is &header" = "首行为标题(&H)"
+"InsRow" = "插入行"
+"InsCol" = "插入列"
+"DelRow" = "删除行"
+"DelCol" = "删除列"

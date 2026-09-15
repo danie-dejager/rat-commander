@@ -630,3 +630,15 @@ code = "hi"
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "तालिका"
 "Header" = "शीर्षक"
+
+# -- Editor: spreadsheet grid (CSV/TSV) --
+"Toggle sprea&dsheet" = "स्प्रेडशीट दृश्य (&D)"
+"Insert &row" = "पंक्ति डालें (&R)"
+"Delete ro&w" = "पंक्ति हटाएँ (&W)"
+"Insert &column" = "स्तंभ डालें (&C)"
+"Delete co&lumn" = "स्तंभ हटाएँ (&L)"
+"First row is &header" = "पहली पंक्ति शीर्षक है (&H)"
+"InsRow" = "पंडाल"
+"InsCol" = "स्तंडाल"
+"DelRow" = "पंहटा"
+"DelCol" = "स्तंहटा"

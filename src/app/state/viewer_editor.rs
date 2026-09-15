@@ -746,6 +746,7 @@ impl AppState {
                     ed.set_named(); // it now has a filename; future saves write in place
                     ed.mark_saved();
                     ed.enable_syntax(dark); // re-detect syntax for the new name
+                    ed.detect_kind(); // and whether it is now a table
                 }
                 self.reload_config_if_edited(&new_path);
                 self.reload_all().await;

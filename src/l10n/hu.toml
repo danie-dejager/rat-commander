@@ -630,3 +630,15 @@ code = "hu"
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "Táblázat"
 "Header" = "Fejléc"
+
+# -- Editor: spreadsheet grid (CSV/TSV) --
+"Toggle sprea&dsheet" = "Táblázatnézet (&D)"
+"Insert &row" = "Sor beszúrása (&R)"
+"Delete ro&w" = "Sor törlése (&W)"
+"Insert &column" = "Oszlop beszúrása (&C)"
+"Delete co&lumn" = "Oszlop törlése (&L)"
+"First row is &header" = "Első sor a fejléc (&H)"
+"InsRow" = "SorBes"
+"InsCol" = "OszBes"
+"DelRow" = "SorTör"
+"DelCol" = "OszTör"

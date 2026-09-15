@@ -635,3 +635,15 @@ code = "de"
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "Tabelle"
 "Header" = "Kopf"
+
+# -- Editor: spreadsheet grid (CSV/TSV) --
+"Toggle sprea&dsheet" = "&Tabellenansicht"
+"Insert &row" = "&Zeile einfügen"
+"Delete ro&w" = "Zeile &entfernen"
+"Insert &column" = "S&palte einfügen"
+"Delete co&lumn" = "Spalte &löschen"
+"First row is &header" = "Erste Zeile ist &Kopfzeile"
+"InsRow" = "ZeiEin"
+"InsCol" = "SpaEin"
+"DelRow" = "ZeiLös"
+"DelCol" = "SpaLös"

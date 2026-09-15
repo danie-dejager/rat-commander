@@ -29,7 +29,7 @@ impl AppState {
         // pulldown menu keep Esc as an immediate cancel.
         let prefixable = self.dialog.is_none()
             && self.menu.is_none()
-            && !self.editor.as_ref().is_some_and(|e| e.menu_open());
+            && !self.editor.as_ref().is_some_and(|e| e.menu_open() || e.editing_cell());
         if prefixable {
             if self.pending_esc.take().is_some() {
                 // The previous key was a lone Esc; this key completes the

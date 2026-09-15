@@ -634,3 +634,15 @@ rtl = true
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "جدول"
 "Header" = "سرستون"
+
+# -- Editor: spreadsheet grid (CSV/TSV) --
+"Toggle sprea&dsheet" = "نمای صفحه‌گسترده (&D)"
+"Insert &row" = "درج سطر (&R)"
+"Delete ro&w" = "حذف سطر (&W)"
+"Insert &column" = "درج ستون (&C)"
+"Delete co&lumn" = "حذف ستون (&L)"
+"First row is &header" = "سطر اول سرستون است (&H)"
+"InsRow" = "درجسط"
+"InsCol" = "درجستو"
+"DelRow" = "حذفسط"
+"DelCol" = "حذفستو"

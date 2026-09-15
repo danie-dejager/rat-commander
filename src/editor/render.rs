@@ -38,6 +38,23 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
         return;
     }
 
+    if ed.sheet_active() {
+        let cursor_pos = super::sheet::render(f, text_area, ed, theme);
+        super::sheet::render_status(f, status, ed, theme);
+        render_footer(f, footer, ed, theme);
+        if ed.help_open() {
+            render_help(f, area, theme);
+            return;
+        }
+        if render_menu(f, area, ed, theme) {
+            return;
+        }
+        if let Some(p) = cursor_pos {
+            f.set_cursor_position(p);
+        }
+        return;
+    }
+
     // A just-restored cursor (see `EditorState::restore_position`) is scrolled to
     // the vertical center of the view, once, before the usual visibility clamp.
     if ed.pending_center {

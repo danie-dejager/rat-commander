@@ -630,3 +630,15 @@ code = "pt"
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "Tabela"
 "Header" = "Cabeç."
+
+# -- Editor: spreadsheet grid (CSV/TSV) --
+"Toggle sprea&dsheet" = "Vista de planilha (&D)"
+"Insert &row" = "Inserir linha (&R)"
+"Delete ro&w" = "Excluir linha (&W)"
+"Insert &column" = "Inserir coluna (&C)"
+"Delete co&lumn" = "Excluir coluna (&L)"
+"First row is &header" = "Primeira linha é cabeçalho (&H)"
+"InsRow" = "InsLin"
+"InsCol" = "InsCol"
+"DelRow" = "ExcLin"
+"DelCol" = "ExcCol"

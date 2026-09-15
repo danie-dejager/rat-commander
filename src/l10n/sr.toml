@@ -630,3 +630,15 @@ code = "sr"
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "Tabela"
 "Header" = "Zaglav."
+
+# -- Editor: spreadsheet grid (CSV/TSV) --
+"Toggle sprea&dsheet" = "Tabelarni prikaz (&D)"
+"Insert &row" = "Umetni red (&R)"
+"Delete ro&w" = "Obriši red (&W)"
+"Insert &column" = "Umetni kolonu (&C)"
+"Delete co&lumn" = "Obriši kolonu (&L)"
+"First row is &header" = "Prvi red je zaglavlje (&H)"
+"InsRow" = "UmeRed"
+"InsCol" = "UmeKol"
+"DelRow" = "BriRed"
+"DelCol" = "BriKol"

@@ -315,6 +315,7 @@ used to share now lives on `Alt-T`.
 - `F9` — Pulldown menu (see *The editor menu* below)
 - `Shift-F9` — Toggle word wrap
 - `Ctrl-F9` — Toggle the in-place hex editor
+- `Alt-G` — Toggle the spreadsheet grid (see *Spreadsheet grid* below)
 - `Esc` / `F10` — Quit (prompts if modified)
 
 While **Shift** or **Ctrl** is held, the F-key bar relabels the keys those
@@ -352,10 +353,13 @@ Beyond the F-key actions, the menus offer:
   actions. A bookmarked line's text is drawn in the "marked" colour, and
   `Alt-J` / `Alt-I` step through the bookmarks in order, wrapping around.
 - **Command** — Go to line, jump to the matching bracket, and the syntax /
-  word-wrap / hex-mode toggles, plus a screen repaint.
+  word-wrap / hex-mode / spreadsheet toggles, plus a screen repaint.
 - **Format** — Insert the date and time, re-wrap the current paragraph to the
   configured line length, sort the marked block's lines (with reverse,
   ignore-case and remove-duplicates options), and paste a shell command's output.
+  In the **spreadsheet grid**, insert and delete rows and columns, and choose
+  whether the first row is the header; these are greyed out elsewhere, and the
+  items that work on lines and marked blocks are greyed out in the grid.
 - **Options** — **General…** opens the editor options dialog below; **Save
   setup** writes the current options to `config.toml` as the new defaults.
 
@@ -384,6 +388,25 @@ persist across runs and apply to every file opened afterwards.
 - **Group undo** — undo a run of typing in one step instead of per character.
 - **Word wrap line length** — the column *Format paragraph* and typewriter wrap
   break at.
+
+### Spreadsheet grid (CSV / TSV files in the editor)
+
+- `← → ↑ ↓` / `PgUp PgDn` — Move the cell cursor; `Home` / `End` — first / last
+  field of the record; `Ctrl-Home` / `Ctrl-End` — first / last record
+- `Tab` / `Shift-Tab` — Next / previous cell, in reading order
+- `Enter` — Edit the cell (its value is kept); a typed character — edit the cell,
+  replacing its value; `Backspace` — edit it from empty; `Delete` — clear it
+- While editing: `Enter` writes the cell and moves down, `Tab` / `Shift-Tab` /
+  `↑ ↓` write it and move, `Alt-Enter` puts a line break in the value, `Esc`
+  throws the edit away; `← →` / `Home End` and the usual line-editing keys move
+  within the value
+- `F3` — First row is the header (on / off)
+- `F5` / `F6` — Insert a row above / a column left of the cursor
+- `F8` / `Shift-F8` — Delete the cursor's row / column
+- `Ctrl-C` / `Ctrl-X` / `Ctrl-V` — Copy / cut / paste the cell's value
+- `Ctrl-← / →` — Narrow / widen the column
+- `F2`, `F4`, `F7`, `Ctrl-Z` / `Ctrl-Y`, `F9`, `Esc` / `F10` — as in the text
+- `Alt-G` — Back to the text, with the cursor on the cell
 
 ### Hex editor (Ctrl-F9 in the editor)
 
@@ -1290,6 +1313,29 @@ command and pastes its output at the cursor.
 number and **Alt-B** to the bracket matching the one at the cursor. The status
 bar shows the byte under the cursor, the line and column, and the totals.
 Syntax highlighting updates incrementally as you type (**Ctrl-S** toggles it).
+
+**Spreadsheet grid (Alt-G).** A `.csv`, `.tsv` or `.tab` file opens as a
+**grid of cells** — the same table the viewer shows, with the same delimiter
+detection, header row and cell bar — and it is edited there: move to a cell and
+**type** to replace its value, or press **Enter** to change the value it has.
+The value is edited in the **cell bar** along the top, where a long one has
+room, and written back when you press Enter (which moves down, as a spreadsheet
+does), Tab or an arrow key; Esc throws the edit away. **F5** and **F6** insert a
+row above and a column to the left of the cursor, **F8** and **Shift-F8** delete
+the row and the column, and **F3** says whether the first row holds the column
+titles. There is always an **empty row below the table and an empty column
+beside it**: type into one and the table grows, and a cell typed into past the
+end of a short record fills in the delimiters before it.
+
+The grid is a way of *editing the text*, not a copy of it. Every change is an
+ordinary edit of the characters the cell covers — quoting the value when it
+holds the delimiter, a quote or a line break, and keeping a field quoted that
+already was — so a cell, a new row or a whole new column is **one undo step**,
+**F2** saves exactly what the grid shows, the file's own line endings (LF or
+CR LF) are kept, and search and replace (**F7**, **F4**) work as always and put
+the cursor on the cell holding the match. **Alt-G** switches to the text with
+the cursor on the cell that was selected, and back — for any file, so a table
+without a table's name can be edited as one too.
 
 **Hex editor (Ctrl-F9).** Toggles an in-place offset / hex / ASCII editor. Only the
 visible window is read and only changed bytes are written back, so arbitrarily

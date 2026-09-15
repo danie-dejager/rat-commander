@@ -5079,6 +5079,36 @@ async fn editor_goto_line_prompt_moves_the_cursor() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// A CSV file opens in the editor's spreadsheet grid, and a cell edited there
+/// is written to disk by the ordinary save — quoted where the value needs it.
+#[tokio::test]
+async fn a_csv_edited_in_the_grid_saves_as_text() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let dir = temp_dir("edgrid");
+    let file = dir.join("prices.csv");
+    std::fs::write(&file, b"item,price\ntea,3\n").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(file.clone()).await;
+    let ed = st.editor.as_mut().unwrap();
+    assert!(ed.sheet_active(), "a CSV file opens in the grid");
+    // Backspace starts an edit of the cell with its old value cleared.
+    for code in [KeyCode::Down, KeyCode::Backspace] {
+        ed.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+    }
+    for c in "green tea, loose".chars() {
+        ed.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    }
+    ed.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    st.handle_submit(Submit::EditorSave).await;
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "item,price\n\"green tea, loose\",3\n"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// The editor options dialog round-trips: what it submits reaches the open
 /// editor *and* the config, so the next file opens with the same settings.
 #[tokio::test]

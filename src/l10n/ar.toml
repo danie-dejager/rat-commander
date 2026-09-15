@@ -634,3 +634,15 @@ rtl = true
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "جدول"
 "Header" = "الترويسة"
+
+# -- Editor: spreadsheet grid (CSV/TSV) --
+"Toggle sprea&dsheet" = "عرض جدول البيانات (&D)"
+"Insert &row" = "إدراج صف (&R)"
+"Delete ro&w" = "حذف الصف (&W)"
+"Insert &column" = "إدراج عمود (&C)"
+"Delete co&lumn" = "حذف العمود (&L)"
+"First row is &header" = "الصف الأول ترويسة (&H)"
+"InsRow" = "إدرصف"
+"InsCol" = "إدرعمود"
+"DelRow" = "حذفصف"
+"DelCol" = "حذفعمود"
