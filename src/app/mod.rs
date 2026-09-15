@@ -1,15 +1,16 @@
 //! Application entry point: terminal setup, the render/event loop, and the
 //! suspend-and-run-command bridge.
 
+mod backend;
 pub mod event;
 pub mod state;
 
 use crate::ui;
 use crate::util::Result;
 use crate::util::async_bridge::{self, AppReceiver};
+use backend::FrameBackend;
 use futures::StreamExt;
 use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
 use ratatui::crossterm::event::{
     DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyEventKind,
     KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
@@ -23,7 +24,7 @@ use state::{AppState, Flow};
 use std::io::{self, Stdout, Write};
 use std::task::Poll;
 
-type Term = Terminal<CrosstermBackend<Stdout>>;
+type Term = Terminal<FrameBackend<Stdout>>;
 
 /// Set up, run, and tear down the application.
 pub async fn run(startup: crate::Startup, last_dir_file: Option<std::path::PathBuf>) -> Result<()> {
@@ -335,7 +336,20 @@ fn refresh_and_draw(term: &mut Term, state: &mut AppState) -> Result<()> {
 /// The erase is a second pass rather than part of the rendering because Ratatui
 /// paints every cell: only the finished frame knows which of those cells are
 /// blanks the terminal should not hand to a selection (see [`ui::trim`]).
+///
+/// Both passes reach the terminal together, as one frame with the cursor kept
+/// out of sight until it is in place (see [`backend`]).
 fn draw_frame(term: &mut Term, state: &mut AppState) -> Result<()> {
+    term.backend_mut().begin_frame()?;
+    let drawn = draw_and_trim(term, state);
+    // Send the frame even if drawing failed part-way, so the terminal isn't left
+    // inside an unfinished synchronized update with the cursor hidden.
+    let sent = term.backend_mut().end_frame();
+    drawn?;
+    Ok(sent?)
+}
+
+fn draw_and_trim(term: &mut Term, state: &mut AppState) -> Result<()> {
     let tails = {
         let frame = term.draw(|f| ui::draw(f, state))?;
         if state.config.strip_trailing_spaces {
@@ -857,7 +871,7 @@ fn setup_terminal(kbd: Option<bool>) -> Result<(Term, bool)> {
             )
         );
     }
-    let backend = CrosstermBackend::new(stdout);
+    let backend = FrameBackend::new(stdout);
     let mut term = Terminal::new(backend)?;
     term.hide_cursor()?;
     Ok((term, kbd))
