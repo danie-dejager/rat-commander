@@ -1,0 +1,83 @@
+//------------------------------------------------
+//--- 010 Editor v12.0.1 Binary Template
+//
+//      File: CZProfile.bt
+//   Authors: MuLLlaH9!
+//   Version: 1.1
+//   Purpose: Counter-Strike: Condition Zero profile data parser
+//  Category: Game
+// File Mask: *.czp
+//  ID Bytes: 43 5A 50 00
+//   History: 
+//   1.1   2023-11-10 MuLLlaH9!: Structure update
+//   1.0   2023-10-16 MuLLlaH9!: Initial release
+//------------------------------------------------
+
+enum <byte> SKILL
+{
+    Easy,
+    Normal,
+    Hard,
+    Expert
+};
+
+struct TEAMMATE
+{
+    string Name;
+};
+
+struct TEAM
+{
+    byte TeamSize;
+    if (TeamSize)
+        TEAMMATE TeamMate[TeamSize] <optimize=false>;
+};
+
+struct MISSION
+{
+    string  MapName;
+    byte    Completed;
+};
+
+struct TRIPLET
+{
+    MISSION Mission[3] <optimize=false>;
+};
+
+struct CAREER
+{
+    byte Missions;
+    if (Missions)
+        TRIPLET Triplet[Missions/3] <optimize=false>;
+};
+
+struct CAMPAIGN
+{
+    byte CampaignStarted;
+    if (CampaignStarted)
+    {
+        byte    ReputationPoints;
+        TEAM    Team;
+        CAREER  Career;
+        string  CurrentMapName;
+        byte    PrevReputationPoints;
+    }
+};
+
+char    Header[4];
+int     Campaigns;
+string  ProfileName;
+int     Data;
+SKILL   CurrentDifficulty;
+byte    Medals[Campaigns];
+
+CAMPAIGN Easy;
+CAMPAIGN Normal;
+CAMPAIGN Hard;
+CAMPAIGN Expert;
+
+int ReservedSize;
+int Reserved[ReservedSize];
+int CheckSum;
+
+// Update checksum with CZCheckSum.1sc

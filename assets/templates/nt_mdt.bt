@@ -1,0 +1,249 @@
+//------------------------------------------------
+//--- 010 Editor v16.0 Binary Template
+//
+//      File: nt_mdt.bt
+//   Authors: Alexander Salas Bastidas <a.salas@ieee.org>
+//   Version: 1.0
+//   Purpose: NT-MDT scientific data format for scanning probe microscopy
+//  Category: Scientific
+// File Mask: *.mdt
+//  ID Bytes: 01 B0 93 FF
+//   History: 
+//   1.0   2025-08-19 Alexander Salas Bastidas : Initial implementation supporting NT-MDT scanning probe microscopy data with frame-based structure, spectroscopy data, and metadata parsing for Nova, Image Analysis, and Gwyddion software compatibility.
+//------------------------------------------------
+
+LittleEndian();
+
+typedef struct {
+    uchar data[16];
+} UUID;
+
+typedef struct {
+    uchar minor;
+    uchar major;
+} VERSION;
+
+typedef struct {
+    uint16 year;
+    uint16 month; 
+    uint16 day;
+} DATE;
+
+typedef struct {
+    uint16 hour;
+    uint16 min;
+    uint16 sec;
+} TIME;
+
+typedef struct {
+    DATE date;
+    TIME time;
+} DATE_TIME;
+
+enum <uint16> FRAME_TYPE {
+    SCANNED = 0,
+    SPECTROSCOPY = 1,
+    TEXT = 3,
+    OLD_MDA = 105,
+    MDA = 106,
+    PALETTE = 107,
+    CURVES_NEW = 190,
+    CURVES = 201
+};
+
+enum <int16> UNIT {
+    RAMAN_SHIFT = -10,
+    RESERVED0 = -9,
+    RESERVED1 = -8,
+    RESERVED2 = -7,
+    RESERVED3 = -6,
+    METER = -5,
+    CENTIMETER = -4,
+    MILLIMETER = -3,
+    MICROMETER = -2,
+    NANOMETER = -1,
+    ANGSTROM = 0,
+    NANOAMPERE = 1,
+    VOLT = 2,
+    NONE = 3,
+    KILOHERTZ = 4,
+    DEGREES = 5,
+    PERCENT = 6,
+    CELSIUS = 7,
+    KELVIN = 8,
+    JOULE = 9
+};
+
+typedef struct {
+    float offset;
+    float step;
+    UNIT unit;
+} AXIS_SCALE;
+
+typedef struct {
+    uint32 head_size;
+    uint32 tot_len;
+    UUID guids[2];
+    uchar frame_status[4];
+    uint32 name_size;
+    uint32 comm_size;
+    uint32 view_info_size;
+    uint32 spec_size;
+    uint32 source_info_size;
+    uint32 var_size;
+    uint32 data_offset;
+    uint32 data_size;
+    
+    if (name_size > 0) {
+        char title[name_size];
+    }
+    if (comm_size > 0) {
+        char xml[comm_size];
+    }
+    
+    uint32 struct_len;
+    uint64 array_size;
+    uint32 cell_size;
+    uint32 n_dimensions;
+    uint32 n_mesurands;
+    
+    if (n_dimensions > 0) {
+        struct {
+            float offset;
+            float step;
+            UNIT unit;
+        } dimensions[n_dimensions];
+    }
+    
+    if (n_mesurands > 0) {
+        struct {
+            float offset;
+            float step;
+            UNIT unit;
+        } mesurands[n_mesurands];
+    }
+} FD_META_DATA;
+
+typedef struct {
+    AXIS_SCALE x_scale;
+    AXIS_SCALE y_scale;
+    AXIS_SCALE z_scale;
+    uint16 sp_mode;
+    uint16 sp_filter;
+    float u_begin;
+    float u_end;
+    int16 z_up;
+    int16 z_down;
+    uint16 sp_averaging;
+    uchar sp_repeat;
+    uchar sp_back;
+    int16 sp_4nx;
+    uchar sp_osc;
+    uchar sp_n4;
+    float sp_4x0;
+    float sp_4xr;
+    int16 sp_4u;
+    int16 sp_4i;
+    int16 sp_nx;
+} FD_SPECTROSCOPY_VARS;
+
+typedef struct {
+    FD_SPECTROSCOPY_VARS vars;
+    uint16 fm_mode;
+    uint16 fm_xres;
+    uint16 fm_yres;
+    
+    // Dots structure
+    uint16 fm_ndots;
+    if (fm_ndots > 0) {
+        struct {
+            int32 header_size;
+            if (header_size > 0) {
+                struct {
+                    int32 coord_size;
+                    int32 version;
+                    UNIT xyunits;
+                } header;
+            }
+        } coord_header;
+        
+        struct {
+            float coord_x;
+            float coord_y;
+            int32 forward_size;
+            int32 backward_size;
+        } coordinates[fm_ndots];
+    }
+    
+    // Data array
+    int16 data[fm_xres * fm_yres];
+    
+    // Title and XML
+    uint32 title_len;
+    if (title_len > 0) {
+        char title[title_len];
+    }
+    
+    uint32 xml_len;
+    if (xml_len > 0) {
+        wchar_t xml[xml_len/2];
+    }
+} FD_SPECTROSCOPY;
+
+typedef struct {
+    AXIS_SCALE x_scale;
+    AXIS_SCALE y_scale;
+    AXIS_SCALE z_scale;
+    uint16 fm_mode;
+    uint16 fm_xres;
+    uint16 fm_yres;
+    uint16 fm_ndots;
+    
+    local int64 data_size = (_parent.size - 4) - (FTell() - startof(_parent));
+    if (data_size > 0) {
+        int16 image_data[data_size/2];
+    }
+} FD_SCANNED;
+
+typedef struct {
+    uint32 size;
+    
+    local int64 frame_start = FTell();
+    FRAME_TYPE type;
+    VERSION version;
+    DATE_TIME date_time;
+    uint16 var_size;
+    
+    // Frame data based on type
+    switch (type) {
+        case SCANNED:
+            FD_SCANNED fd_scanned;
+            break;
+        case MDA:
+            FD_META_DATA fd_meta_data;
+            break;
+        case SPECTROSCOPY:
+        case CURVES:
+            FD_SPECTROSCOPY fd_spectroscopy;
+            break;
+        default:
+            uchar frame_data[size - 4 - (FTell() - frame_start)];
+            break;
+    }
+} FRAME;
+
+// Main structure
+struct NT_MDT_FILE {
+    uchar signature[4]; // 0x01, 0xb0, 0x93, 0xff
+    Assert(signature[0] == 0x01 && signature[1] == 0xb0 && 
+           signature[2] == 0x93 && signature[3] == 0xff, "Invalid NT-MDT signature");
+    
+    uint32 size;
+    uchar reserved0[4];
+    uint16 last_frame;
+    uchar reserved1[18];
+    uchar wrond_doc; // Documentation error: should be 32 bytes but is 33
+    
+    local int frame_count = last_frame + 1;
+    FRAME frames[frame_count] <optimize=false>;
+} nt_mdt_file;

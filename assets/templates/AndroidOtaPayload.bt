@@ -1,0 +1,481 @@
+//------------------------------------------------
+//--- 010 Editor v15.0.1 Binary Template
+//
+//      File: AndroidOtaPayload.bt
+//   Authors: TrustKernel
+//   Version: 1.0
+//   Purpose: Parse payload.bin in Android OTA package
+//  Category: Operating System
+// File Mask: payload.bin
+//  ID Bytes: 43 72 41 55
+//   History: 
+//   1.0   2024-12-19 TrustKernel: Initial release.
+//------------------------------------------------
+
+enum {
+    PB_VARINT,
+    PB_64BIT,
+    PB_BYTES,
+    PB_SGROUP,
+    PB_EGROUP,
+    PB_I32,
+};
+
+typedef struct {
+    local uint64 value = 0;
+    local int i <hidden=true> = 0;
+    while (true) {
+        ubyte raw;
+        value |= (raw & 0x7F) << (i * 7);
+        i++;
+        if (!(raw & 0x80)) {
+            break;
+        }
+    }
+    local ubyte type = value & 7;
+    local uint64 field = value >> 3;
+} PbTag <read=ReadPbTag>;
+
+string ReadPbTag(PbTag& tag) {
+    string s;
+    switch (tag.type) {
+        case PB_VARINT:
+            SPrintf(s, "type varint, field %Ld", tag.field);
+            break;
+        case PB_64BIT:
+            SPrintf(s, "type uint64, field %Ld", tag.field);
+            break;
+        case PB_BYTES:
+            SPrintf(s, "type bytes, field %Ld", tag.field);
+            break;
+        case PB_I32:
+            SPrintf(s, "type i32, field %Ld", tag.field);
+            break;
+        default:
+            SPrintf(s, "type unknown, field %Ld", tag.field);
+            break;
+    }
+    return s;
+}
+
+typedef struct {
+    local uint64 value = 0;
+    local int i <hidden=true> = 0;
+    while (true) {
+        ubyte raw;
+        value |= (raw & 0x7F) << (i * 7);
+        i++;
+        if (!(raw & 0x80)) {
+            break;
+        }
+    }
+} PbVarInt <read=ReadVarInt>;
+
+string ReadVarInt(PbVarInt& n) {
+    string s;
+    SPrintf(s,"%Ld", n.value);
+    return s;
+}
+
+typedef struct {
+    PbVarInt length <fgcolor=cDkYellow>;
+    if (length.value > 0)
+        char value[length.value];
+} PbString <read=ReadPbString>;
+
+string ReadPbString(PbString &s) {
+    if (!exists(s.value))
+        return "";
+    return s.value;
+}
+
+typedef struct {
+    PbVarInt length <fgcolor=cDkYellow>;
+    byte value[length.value] <fgcolor=cDkGreen>;
+} PbBytes;
+
+typedef struct {
+    local int wasBe <hidden=true> = IsBigEndian();
+    LittleEndian();
+    uint32 value <fgcolor=cDkAqua>;
+    if (wasBe != 0)
+        BigEndian();
+} PbFixed32 <read=(value)>;
+
+typedef struct(ubyte type, uint64 _field) {
+    local uint64 field <hidden=true> = _field;
+    switch (type) {
+        case PB_VARINT:
+            PbVarInt value <fgcolor=cDkAqua>;
+            break;
+        case PB_64BIT:
+            uint64 value <fgcolor=cDkAqua,format=hex>;
+            break;
+        case PB_BYTES:
+            PbVarInt size <fgcolor=cDkYellow>;
+            ubyte value[size.value] <fgcolor=cDkGreen>;
+            break;
+        case PB_I32:
+            uint32 value <fgcolor=cDkAqua,format=hex>;
+            break;
+        default:
+            Printf("not supported type %d!\n", tag.type);
+            Exit(-1);
+            break;
+    }
+} PbUnknownField <read=ReadPbUnknownField>;
+
+string ReadPbUnknownField(PbUnknownField &v) {
+    string s;
+    SPrintf(s,"field %Ld", v.field);
+    return s;
+}
+
+typedef struct(uint64 size) {
+    local int pos <hidden=true> = FTell();
+    local int end <hidden=true> = pos + size;
+    while (pos < end) {
+        PbTag tag <hidden=true>;
+        switch (tag.field) {
+            case 1:
+                Assert(tag.type == PB_VARINT);
+                PbVarInt size;
+                break;
+            case 2:
+                Assert(tag.type == PB_BYTES);
+                PbBytes hash;
+                break;
+            default:
+                PbUnknownField unknown_field(tag.type, tag.field);
+                break;
+        }
+        pos = FTell();
+    }
+} PartitionInfo;
+
+
+typedef struct(uint64 size) {
+    local int pos <hidden=true> = FTell();
+    local int end <hidden=true> = pos + size;
+    while (pos < end) {
+        PbTag tag <hidden=true>;
+        switch (tag.field) {
+            case 1:
+                Assert(tag.type == PB_VARINT);
+                PbVarInt start_block;
+                break;
+            case 2:
+                Assert(tag.type == PB_VARINT);
+                PbVarInt num_blocks;
+                break;
+            default:
+                PbUnknownField unknown_field(tag.type, tag.field);
+                break;
+        }
+        pos = FTell();
+    }
+} Extent;
+
+typedef struct(uint64 size) {
+    local int pos <hidden=true> = FTell();
+    local int end <hidden=true> = pos + size;
+    while (pos < end) {
+        PbTag tag <hidden=true>;
+        switch (tag.field) {
+            case 1:
+                Assert(tag.type == PB_VARINT);
+                PbVarInt type <read=ReadInstallOperationType>;
+                break;
+            case 2:
+                Assert(tag.type == PB_VARINT);
+                PbVarInt data_offset;
+                break;
+            case 3:
+                Assert(tag.type == PB_VARINT);
+                PbVarInt data_length;
+                break;
+            case 4:
+                Assert(tag.type == PB_BYTES);
+                PbVarInt length <fgcolor=cDkYellow, hidden=true>;
+                Extent src_extents(length.value) <size=length.value>;
+                break;
+            case 6:
+                Assert(tag.type == PB_BYTES);
+                PbVarInt length <fgcolor=cDkYellow, hidden=true>;
+                Extent dst_extents(length.value) <size=length.value>;
+                break;
+            case 8:
+                Assert(tag.type == PB_BYTES);
+                PbBytes data_sha256_hash;
+                break;
+            case 9:
+                Assert(tag.type == PB_BYTES);
+                PbBytes src_sha256_hash;
+                break;
+            default:
+                PbUnknownField unknown_field(tag.type, tag.field);
+                break;
+        }
+        pos = FTell();
+    }
+} InstallOperation <read=ReadInstallOperationType(type)>;
+
+string ReadInstallOperationType(PbVarInt &v) {
+    switch (v.value) {
+        case 0: return "REPLACE";
+        case 1: return "REPLACE_BZ";
+        case 2: return "MOVE";
+        case 3: return "BSDIFF";
+        case 4: return "SOURCE_COPY";
+        case 5: return "SOURCE_BSDIFF";
+        case 6: return "ZERO";
+        case 7: return "DISCARD";
+        case 8: return "REPLACE_XZ";
+        case 9: return "PUFFDIFF";
+        case 10: return "BROTLI_BSDIFF";
+        case 11: return "ZUCCHINI";
+        case 12: return "LZ4DIFF_BSDIFF";
+        case 13: return "LZ4DIFF_PUFFDIFF";
+        default: return "UNKNOWN";
+    }
+}
+
+typedef struct(uint64 size) {
+    local int pos <hidden=true> = FTell();
+    local int end <hidden=true> = pos + size;
+    while (pos < end) {
+        PbTag tag <hidden=true>;
+        switch (tag.field) {
+            case 1:
+                Assert(tag.type == PB_BYTES);
+                PbString partition_name;
+                break;
+            case 2:
+                Assert(tag.type == PB_VARINT);
+                PbVarInt run_postinstall <fgcolor=cDkAqua>;
+                break;
+            case 3:
+                Assert(tag.type == PB_BYTES);
+                PbString postinstall_path;
+                break;
+            case 6:
+                Assert(tag.type == PB_BYTES);
+                PbVarInt length <fgcolor=cDkYellow, hidden=true>;
+                PartitionInfo old_partition_info(length.value) <size=length.value>;
+                break;
+            case 7:
+                Assert(tag.type == PB_BYTES);
+                PbVarInt length <fgcolor=cDkYellow, hidden=true>;
+                PartitionInfo new_partition_info(length.value) <size=length.value>;
+                break;
+            case 8:
+                Assert(tag.type == PB_BYTES);
+                PbVarInt length <fgcolor=cDkYellow, hidden=true>;
+                InstallOperation operations(length.value);
+                break;
+            case 9:
+                Assert(tag.type == PB_VARINT);
+                PbVarInt postinstall_optional <fgcolor=cDkAqua>;
+                break;
+            case 10:
+                Assert(tag.type == PB_BYTES);
+                PbVarInt length <fgcolor=cDkYellow, hidden=true>;
+                Extent hash_tree_data_extent(length.value);
+                break;
+            case 11:
+                Assert(tag.type == PB_BYTES);
+                PbVarInt length <fgcolor=cDkYellow, hidden=true>;
+                Extent hash_tree_extent(length.value);
+                break;
+            case 12:
+                Assert(tag.type == PB_BYTES);
+                PbString hash_tree_algorithm;
+                break;
+            case 13:
+                Assert(tag.type == PB_BYTES);
+                PbBytes hash_tree_salt;
+                break;
+            case 14:
+                Assert(tag.type == PB_BYTES);
+                PbVarInt length <fgcolor=cDkYellow, hidden=true>;
+                Extent fec_data_extent(length.value);
+                break;
+            case 15:
+                Assert(tag.type == PB_BYTES);
+                PbVarInt length <fgcolor=cDkYellow, hidden=true>;
+                Extent fec_extent(length.value);
+                break;
+            case 16:
+                Assert(tag.type == PB_VARINT);
+                PbVarInt fec_roots <fgcolor=cDkAqua>;
+                break;
+            case 17:
+                Assert(tag.type == PB_BYTES);
+                PbString version;
+                break;
+            default:
+                PbUnknownField unknown_field(tag.type, tag.field);
+                break;
+        }
+        pos = FTell();
+    }
+} PartitionUpdate;
+
+typedef struct(uint64 size) {
+    local int pos <hidden=true> = FTell();
+    local int end <hidden=true> = pos + size;
+    while (pos < end) {
+        PbTag tag <hidden=true>;
+        switch (tag.field) {
+            case 1:
+                Assert(tag.type == PB_BYTES);
+                PbString name <fgcolor=cDkAqua>;
+                break;
+            case 2:
+                Assert(tag.type == PB_VARINT);
+                PbVarInt size <fgcolor=cDkAqua>;
+                break;
+            case 3:
+                Assert(tag.type == PB_BYTES);
+                PbString partition_names <fgcolor=cDkAqua>;
+                break;
+            default:
+                PbUnknownField unknown_field(tag.type, tag.field);
+                break;
+        }
+        pos = FTell();
+    }
+} DynamicPartitionGroup;
+
+typedef struct(uint64 size) {
+    local int pos <hidden=true> = FTell();
+    local int end <hidden=true> = pos + size;
+    while (pos < end) {
+        PbTag tag <hidden=true>;
+        switch (tag.field) {
+            case 1:
+                Assert(tag.type == PB_BYTES);
+                PbVarInt length <fgcolor=cDkYellow, hidden=true>;
+                DynamicPartitionGroup groups(length.value) <size=length.value>;
+                break;
+            case 2:
+                Assert(tag.type == PB_VARINT);
+                PbVarInt snapshot_enabled <fgcolor=cDkAqua>;
+                break;
+            case 3:
+                Assert(tag.type == PB_VARINT);
+                PbVarInt vabc_enabled <fgcolor=cDkAqua>;
+                break;
+            case 4:
+                Assert(tag.type == PB_BYTES);
+                PbString vabc_compression_param <fgcolor=cDkAqua>;
+                break;
+            default:
+                PbUnknownField unknown_field(tag.type, tag.field);
+                break;
+        }
+        pos = FTell();
+    }
+} DynamicPartitionMetadata;
+
+typedef struct(uint64 size) {
+    local int pos <hidden=true> = FTell();
+    local int end <hidden=true> = pos + size;
+    while (pos < end) {
+        PbTag tag <hidden=true>;
+        switch (tag.field) {
+            case 3:
+                Assert(tag.type == PB_VARINT);
+                PbVarInt block_size <fgcolor=cDkAqua>;
+                break;
+            case 4:
+                Assert(tag.type == PB_VARINT);
+                PbVarInt signature_offset <fgcolor=cDkAqua>;
+                break;
+            case 5:
+                Assert(tag.type == PB_VARINT);
+                PbVarInt signature_size <fgcolor=cDkAqua>;
+                break;
+            case 12:
+                Assert(tag.type == PB_VARINT);
+                PbVarInt minor_version <fgcolor=cDkAqua>;
+                break;
+            case 13:
+                Assert(tag.type == PB_BYTES);
+                PbVarInt length <fgcolor=cDkYellow, hidden=true>;
+                PartitionUpdate partitions(length.value) <size=length.value>;
+                break;
+            case 14:
+                Assert(tag.type == PB_VARINT);
+                PbVarInt max_timestamp <fgcolor=cDkAqua>;
+                break;
+            case 15:
+                Assert(tag.type == PB_BYTES);
+                PbVarInt length <fgcolor=cDkYellow, hidden=true>;
+                DynamicPartitionMetadata dynamic_partition_metadata(length.value) <size=length.value>;
+                break;
+            case 18:
+                Assert(tag.type == PB_BYTES);
+                PbString security_patch_level <fgcolor=cDkAqua>;
+                break;
+            default:
+                PbUnknownField unknown_field(tag.type, tag.field);
+                break;
+        }
+        pos = FTell();
+    }
+} DeltaArchiveManifest;
+
+typedef struct(uint64 size) {
+    typedef struct(uint64 size) {
+        local int pos <hidden=true> = FTell();
+        local int end <hidden=true> = pos + size;
+        while (pos < end) {
+            PbTag tag <hidden=true>;
+            switch (tag.field) {
+                case 1:
+                    Assert(tag.type == PB_VARINT);
+                    PbVarInt version <fgcolor=cDkAqua>;
+                    break;
+                case 2:
+                    Assert(tag.type == PB_BYTES);
+                    PbBytes data <fgcolor=cDkAqua>;
+                    break;
+                case 3:
+                    Assert(tag.type == PB_I32);
+                    PbFixed32 unpadded_signature_size <fgcolor=cDkAqua>;
+                    break;
+                default:
+                    PbUnknownField unknown_field(tag.type, tag.field);
+                    break;
+            }
+            pos = FTell();
+        }
+    } Signature;
+    local int pos <hidden=true> = FTell();
+    local int end <hidden=true> = pos + size;
+    while (pos < end) {
+        PbTag tag <hidden=true>;
+        switch (tag.field) {
+            case 1:
+                Assert(tag.type == PB_BYTES);
+                PbVarInt length <fgcolor=cDkYellow, hidden=true>;
+                Signature signatures(length.value) <size=length.value>;
+                break;
+            default:
+                PbUnknownField unknown_field(tag.type, tag.field);
+                break;
+        }
+        pos = FTell();
+    }
+} Signatures;
+
+struct AndroidOtaPayload {
+    byte magic[4];
+    BigEndian();
+    uint64 major_payload_version;
+    uint64 metadata_size;
+    uint32 metadata_signature_size;
+    DeltaArchiveManifest manifest(metadata_size);
+    Signatures metadata_signature(metadata_signature_size);
+} file;

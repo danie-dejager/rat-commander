@@ -1,0 +1,196 @@
+//------------------------------------------------
+//--- 010 Editor v11.0 Binary Template
+//
+//      File: GBS.bt
+//   Authors: Devyatyi9
+//   Version: 0.3.1
+//   Purpose: Parser for Aonyx Software's OtterUI scene files https://github.com/ppiecuch/OtterUI
+//  Category: Game
+// File Mask: *.gbs
+//  ID Bytes: 43 53 47 47 //CSGG
+//   History: 
+//   0.3.1  2024-06-30 Devyatyi9: Fix for Font_Length (new versions of TFH currently unsupported)
+//   0.2   2020-11-13 Devyatyi9: Added syntax highlighting
+//------------------------------------------------
+
+//check header CSGG || GGSC
+if (ReadString(0, 4) == "GGSC")
+{
+    BigEndian();
+}
+else if (ReadString(0, 4) == "CSGG")
+{
+    LittleEndian();
+}
+else
+{
+    Warning( "File is not a valid GBS file. Template stopped." );
+    return -1;
+}
+
+typedef struct Header {
+char GGSC_Header[4] <name="GGSC Lable",bgcolor=0x0C649C,comment="Заголовок файла сцены",open=suppress>; //0x47475343
+int32 FileLength <name="File Length",bgcolor=cDkRed,fgcolor=0xA0D7FA,comment="Общая длина файла, при добавлении символов сюда нужно прибавлять их длинну">;
+float Data_Version <name="Data Version",comment="Практически все файлы созданы с версией 0.95">;
+int32 Scene_ID <name="Scene ID">;
+int32 Fonts_Count <name="Fonts Count",fgcolor=0xDEFFFD,comment="Количество GFNT-таблиц">;
+int32 Textures_Count <name="Textures Count">;
+int32 Sounds_Count <name="Sounds Count">;
+int32 Views_Count <name="Views Count",comment="Gets a list of all the views within the scene (GUIView)">;
+int32 Messages_Count <name="Messages Count">;
+int32 fontOffsetPos <name="Fonts offset position",fgcolor=cDkRed>;
+int32 textureOffsetPos <name="Textures offset position",bgcolor=cDkRed,comment="При добавлении символов сюда нужно прибавлять их длинну.">;
+int32 soundOffsetPos <name="Sounds offset position",bgcolor=cDkRed,comment="При добавлении символов сюда нужно прибавлять их длинну">;
+int32 viewDataOffsetPos <name="View offset position",bgcolor=cDkRed,comment="При добавлении символов сюда нужно прибавлять их длинну">;
+int32 msgDataOffsetPos <name="Messages offset position",bgcolor=cDkRed,comment="При добавлении символов сюда нужно прибавлять их длинну. Область от конца заголовка файла до начала маркера конца файла">;
+};
+
+Header hds <name="Header File Structure (Game Gui Scene)",open=true,bgcolor=cYellow,comment="/Tool/OtterUI/UI/GUIScene.cs">;
+
+
+typedef enum <int32> ImageGlyph {
+No=0,
+Yes=1
+} ImageGlyphFlg;// <bgcolor=cLtBlue>;
+
+typedef struct CharData {
+wchar_t Char_Code[2] <name="Char Code",bgcolor=cDkPurple,open=suppress>;
+ImageGlyphFlg igf <write=igfWrite,name="Is Image Glyph?">;
+int32 Char_X_Offs <name="Char X Offset",bgcolor=cLtGreen>;
+int32 Char_Y_Offs <name="Char Y Offset",bgcolor=cLtBlue>;
+int32 Char_Width <name="Char Width">;
+int32 Char_Height <name="Char Height">;
+int32 Char_Top <name="Char Top">;
+int32 Char_Advance <name="Char Advance">;
+int32 Char_LeftBearing <name="Char Left Bearing">;
+int32 Char_Atlas_Index <name="Char Atlas Index",bgcolor=cDkGray,comment="Номер png файла на котором нарисован символ">;
+} CharData;
+
+
+string igfWrite (string &s)
+{
+    Printf( "%s\n", s );
+    return s;
+}
+
+typedef struct FontTableHeader {
+char GFNT[4] <name="GFNT Lable",bgcolor=cDkAqua,open=suppress>; //0x47464E54
+int32 Font_Length <name="Font Length",bgcolor=cSilver,fgcolor=0xA0D7FA,comment="Длина всего шрифта в байтах">;
+int32 Font_ID <name="Font ID">;
+char Font_Name[64] <bgcolor=cAqua,name="Font Name",open=suppress>;
+int32 Font_Size <name="Font Size",fgcolor=cLtAqua>;
+int32 Atlas_Width <name="Atlas Width",comment="Ширина каждого png файла">;
+int32 Atlas_Height <name="Atlas Height",comment="Высота каждого png файла">;
+int32 MaxTop <name="MaxTop",fgcolor=cSilver>;
+int32 Atlas_Count <name="Atlas Count",fgcolor=cBlack,comment="Колличество *_n.png файлов">;
+int32 Chars_Count <name="Chars Count",bgcolor=cSilver,fgcolor=0x8DD658,comment="Колличество символов в шрифте">;
+//парс Char блоков
+struct CharBlock chb <name="Chars Block",comment="Символы и картиночные глифы (значки)",open=suppress>;
+struct CharBlock {
+    local int32 i;
+    for (i = 0; i < Chars_Count; i++) {
+            CharData chsd <name=GetCharName,bgcolor=cGray>;
+            //Printf( chsd.ImageGlyphFlg.igf );
+        };
+};
+} FontTableHeader;
+
+
+typedef struct FontsBlock {
+//local int32 n;
+//n = 56 + hds.fontOffsetPos;
+FSkip(hds.fontOffsetPos);
+local int pos;
+local int32 i;
+    for (i = 0; i < hds.Fonts_Count; i++) {
+        pos = FTell();
+        FontTableHeader fnts <name=GetFntName,comment="/Tool/OtterUI/UI/GUIFont.cs">;
+        // возвращаем курсор в начало таблицы шрифта и делаем скип по размеру таблицы
+        FSeek(pos);
+        FSkip(fnts.Font_Length);
+};
+} FontsBlock;
+
+typedef struct TexturesBlock {
+int32 a;
+} TexturesBlock;
+
+//End of file marker
+typedef int32 EndfM; //0x12344321
+
+//check file size
+if( hds.FileLength != FileSize() )
+{
+    Warning( "Incorrect file size in header value." );
+    Printf("Please fix FileLength value.");
+}
+
+//local int32 Validator {
+
+//}
+
+string GetFntName(FontTableHeader &fnts)
+{
+    return fnts.Font_Name;
+}
+wstring GetCharName(CharData &chsd)
+{
+    //if 
+    //Printf( igfWrite);
+    return chsd.Char_Code;
+}
+
+
+// Define the file
+local int32 tag;
+local int32 ftag;
+local int32 ttag;
+while( !FEof() )
+{
+    // Read a tag
+    tag = ReadInt( FTell() );
+    ftag = ReadInt(56 + hds.fontOffsetPos);
+
+
+    //if( tag == 0x47464E54 )
+    if ( hds.Fonts_Count > 0 && ftag == 0x47464E54 )
+    {
+
+        //FSkip(hds.fontOffsetPos);
+        SetBackColor( cLtGray );
+        FontsBlock fbs <name="Fonts block">;
+        //FontTableHeader fnts[hds.Fonts_Count] <name=GetFntName,comment="/Tool/OtterUI/UI/GUIFont.cs">;
+        //<name="Font Table (GUI Font)">;
+        //Printf( fnts.Font_Name + "\n" );
+        break;
+    }
+    else if (hds.Textures_Count > 0)
+    {
+        SetBackColor( cGray );
+        TexturesBlock tbs;
+    }
+
+//   else if( tag == 0x08074b50 )
+//    {
+//        SetBackColor( cLtGreen );
+//        ZIPDATADESCR dataDescr;
+//    }
+
+     //else if( tag != 0x12344321 )
+    //{   
+        //Warning( "Warning! End of file marker not found." );
+        //return 1;
+    //}
+    //else if( tag == 0x12344321 )
+    //{   
+        //SetBackColor( cLtBlack );
+        //EndfM efm <name="End of file marker">;
+    //} 
+
+    else
+    {
+        Printf( "Done." );
+        return 0;
+    }
+
+}

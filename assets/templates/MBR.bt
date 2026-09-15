@@ -1,0 +1,419 @@
+//------------------------------------------------
+//--- 010 Editor v5.0.1 Binary Template
+//
+//      File: MBR.bt
+//   Authors: Christian Schaffalitzky, A.Babecki, Simon N. Thornton (datarecovery@eazimail.com)
+//   Version: 1.6
+//   Purpose: Parse an MBR, including any GPT extensions
+//  Category: Drives
+// File Mask: 
+//  ID Bytes: [+0x1FE] 55 AA
+//   History:
+//   1.6   2024-12-17 Simon Thornton: Added Disassembly function for the MBR boot code block(s)
+//   1.5   2024-12-07 Simon Thornton: corrected bit expansion, added decode for classic and NEWLDR MBR types
+//   1.4   2024-12-06 Simon Thornton: Added Extended MBR / GPT enumeration and disk partition type enumeration
+//   1.3   2024-12-06 Simon Thornton: Changed format to support MBR/GPT
+//   1.2   A.Babecki: 
+//         - Added BitfieldDisablePadding
+//         - Added unsigned for relsect/numsect
+//   1.0   Christian Schaffalitzky: initial version
+//------------------------------------------------
+
+/*
+  References:
+  https://en.wikipedia.org/wiki/Master_boot_record
+  https://en.wikipedia.org/wiki/GUID_Partition_Table
+*/
+
+#define SECTOR_SIZE 512
+
+
+// MBR / GPT related structures
+typedef struct partition_CHS {
+    ushort Head :  8 <comment="Head: 0-255">;
+    ushort Sec  :  6 <comment="Sector: 0-63">;
+    ushort Cyl  : 10 <comment="Cylinder: 0-1023">;
+};
+
+
+// MBR parition table
+typedef struct lba0_mbr_part {
+    uchar         BootID   <comment="0x00 Is it bootable? 0=no, 128=Yes, else invalid">;
+    partition_CHS CHSstart <comment="0x01 CHS location of first sector">;
+    uchar         ParTyp   <comment=ParTypCommentFunc,format=hex>;
+    partition_CHS CHSend   <comment="0x05 CHS location of last sector">;
+    uint32        LBASec   <comment="0x08 LBA of first absolute sector">;
+    uint32        NumSec   <comment="0x0C Number of Sectors in Partition">;
+};
+
+
+/* Disassemble boot code (if supported)
+    iBLKSIZ  Size of block
+
+    Note: only works in 010 Editor v12 or above
+*/
+typedef struct pBootCode {
+    local uint64 iOFF;
+
+    iOFF=FTell();                               // Remember current position
+    uchar BootCode[iBLKSIZ]             <comment="0x000 Boot code",format=hex>;
+
+    // Only call this if the disassembler function is present i.e. v12+
+    if (function_exists(DisasmSetMode)) {
+        FSeek(iOFF);                            // Go to start of Block
+        DisasmSetMode( DISASM_X86_16 );         //| DISASM_OPTION_ATT );
+        Opcode x86 [iBLKSIZ]            <comment="Disassembled code">;     // Disassemble code
+    };
+};
+
+
+// Classic MBRs
+typedef struct lba0_mbr {
+    if ( ReadUInt(FTell()+2) == 0x4C57454E ) {                             // NEWLDR MBR 0x02 = NEWLDR
+        Printf("MBR Type: NEWLDR\n");
+        iBLKSIZ=2;
+        pBootCode       BootCode1         <comment="0x000 Boot code, part 1">;
+        uchar           Signature[6]      <comment="0x002 NEWLDR">;
+        ubyte           PhysDrvLtr        <comment="0x008 Original physical drive letter",format=hex>;
+        partition_CHS   CHSloader         <comment="0x009 CHS location of Loader e.g.IBMBIO.LDR">;
+        ubyte           DLmin             <comment="0x00C Allowed DL min, or take from part table",format=hex>;
+        ubyte           Reserved[3]       <comment="0x00D Reserved",format=hex>;
+        uint32          LBAloader         <comment="0x010 LBA of loader",format=hex>;
+        uint16          PatchOffset       <comment="0x014 Patch offset of VBR boot",format=hex>;
+        uint16          Checksum          <comment="0x016 Checksum",format=hex>;
+        ubyte           OEMsig[6]         <comment="0x018 OEM Loader signature e.g. MSWIN4",format=hex>;
+        iBLKSIZ=398;
+        pBootCode       BootCode2         <comment="0x01E Boot code, part 2">;
+        uint16          AAPSignature      <comment="0x1AC Optional AAP signature, 0x5678",format=hex>;
+        lba0_mbr_part   AAPpartition      <comment="0x1AE Optional AAP Parition entries",format=hex>;
+    } else {
+        if ( ReadUShort(FTell()+0x0DA) ==0 && ReadUShort(FTell()+0x0DC) >=128 ) {   // Modern MBR, 0xDA = 00 00 7F-FF
+            Printf("MBR Type: Modern MBR\n");
+            iBLKSIZ=218;
+            pBootCode       BootCode1         <comment="0x000 Boot code, part 1">;
+            ushort          pad1              <comment="0x0DA 0x0000",format=hex>;
+            ubyte           PhysDrvLtr        <comment="0x0DC Original physical drive letter",format=hex>;
+            ubyte           TimeSec           <comment="0x0DD Seconds">;
+            ubyte           TimeMin           <comment="0x0DE Minutes">;
+            ubyte           TimeHrs           <comment="0x0DF Hours">;
+            iBLKSIZ=216;
+            pBootCode       BootCode2         <comment="0x0E0 Boot code, part 2">;
+            uint32          DiskSig           <comment="0x1B8 Disk Signature",format=hex>;
+            uint16          IsProtected       <comment="0x1BC 0x000 or 0x5A5A if copy-protected",format=hex>;
+        } else {
+            Printf("MBR Type: Classic MBR\n");
+            iBLKSIZ=446;
+            pBootCode        BootCode1        <comment="0x000 Boot code">;
+        };
+    }
+
+    lba0_mbr_part       mbr_partitions[4] <comment="Classic MBR partitions",optimize=false>;
+    ushort              signature         <format=hex,comment="0x1FE 55 AA">;
+};
+
+
+// GPT / EFI sector
+typedef struct lba1_gpt {
+    uchar  Signature[8]   <comment="0x00 EFI PART">;
+    uint32 Revision       <comment="0x08 Revision">;
+    uint32 HeaderSize     <comment="0x0C Header Size)">;
+    uint32 HeaderCRC32    <comment="0x10 Header CRC (Signature+Revision+HeaderSize)",format=hex>;
+    uint32 Reserved       <comment="0x14 Reserved">;
+    uint64 PrimaryLBA     <comment="0x18 Primary LBA">;
+    uint64 BackupLBA      <comment="0x20 Backup LBA">;
+    uint64 FirstUsableLBA <comment="0x28 First Usable LBA">;
+    uint64 LastUsableLBA  <comment="0x30 Last Usable LBA">;
+    uint64 UniqGUID1      <comment="0x38 Unique GUID1",format=hex>;
+    uint64 UniqGUID2      <comment="0x40 Unique GUID2",format=hex>;
+    uint64 FirstEntryLBA  <comment="0x48 First LBA Entry">;
+    uint32 NumEntries     <comment="0x50 Number of Entries">;
+    uint32 SizeofEntry    <comment="0x54 Size of Entries">;
+    uint32 EntriesCRC32   <comment="0x58 Header CRC (Signature+Revision)",format=hex>;
+    ubyte  pad[420]       <comment="0x5C Reserved; must be zero">;
+};
+
+
+// GPT / EFI sector flags
+typedef struct disk_guid_partition_flags {
+    ubyte  Flag_PlatformReqd : 1   <comment="00 Platform required (required by the computer to function properly",format=binary>;
+    ubyte  Flag_EfiIgnore    : 1   <comment="01 EFI Firmware should ignore the content of the partition",format=binary>;
+    ubyte  Flag_IsLegacyBoot : 1   <comment="02 Legacy BIOS bootable, equivalent to 0x80 in byte 0x00 of MBR",format=binary>;
+    uint64 pad1              : 45  <comment="03-47 Reserved",format=binary>;
+    ubyte  Flag_COS_Priority : 4   <comment="48-51 ChromeOS only; 0=not bootable, 1=lowest, 15=Highest",format=binary>;
+    ubyte  Flag_COS_Retries  : 4   <comment="52-55 ChromeOS only; boot retries remaining",format=binary>;
+    ubyte  Flag_COS_IsBoot   : 1   <comment="56    ChromeOS only; successful boot",format=binary>;
+    ubyte  pad2              : 3   <comment="57-59 Reserved",format=binary>;
+    ubyte  Flag_RO           : 1   <comment="60 Read Only (MS)",format=binary>;
+    ubyte  Flag_ShadowCopy   : 1   <comment="61 Shadow Copy (MS)",format=binary>;
+    ubyte  Flag_Hidden       : 1   <comment="62 Hidden (MS)",format=binary>;
+    ubyte  Flag_HasNDL       : 1   <comment="63 Has No Drive Letter, do not automount (MS)",format=binary>;
+};
+
+
+// GPT / EFI partition tables - not LBA0 or LBA1
+typedef struct disk_guid_partition {
+    ubyte                     PartTypGUID[16]           <comment="0x00 Partition Type GUID">;
+    ubyte                     UniqTypGUID[16]           <comment="0x10 Unique Partition Type GUID">;
+    uint64                    FirstLBA                  <comment="0x20 First LBA">;
+    uint64                    LastLBA                   <comment="0x28 Last LBA, inclusive">;
+    disk_guid_partition_flags AttributeFlags            <comment="0x30 Attribute Flags">;
+    string                    PartName                  <comment="0x38 Partition Name, UTF-16">;
+    ubyte                     pad[71-Strlen(PartName)];
+};
+
+
+// Enumerates classic MBR and EFI (GPT) types
+typedef struct master_boot_record {
+    // LBA0 Standard/Classic MBR
+    lba0_mbr LBA0        <comment="Master Boot Record, sector #0">;
+
+    // LBA1 GPT / EFI partition
+    if ( LBA0.mbr_partitions[0].ParTyp == 0xee) {               // With GPT the MBR contains a single partition of type 0xEE
+        if (ReadUInt64() == 0x5452415020494645 ) {              // "EFI PART" 0x5452415020494645
+            Printf("GPT/EFI extensions detected\n");
+            lba1_gpt LBA1 <comment="GPT / EFI Partition, sector #1">;
+            if (LBA1.LastUsableLBA - LBA1.FirstUsableLBA >0) {
+                disk_guid_partition  LBA_GPT[LBA1.LastUsableLBA - LBA1.FirstUsableLBA]  <comment="LBA2-LBA34 Partitions, sector #2-34",optimize=false>;
+            };
+        };
+    };
+};
+
+
+// Map partition type in LBA0 to a description in the comment field
+string ParTypCommentFunc( uchar &iParTyp ) {
+    local string sRES;
+
+	switch (iParTyp) {
+		case 0x00: sRES="Empty/Undefined"; break;
+		case 0x01: sRES="DOS 12-bit FAT"; break;
+		case 0x02: sRES="XENIX root "; break;
+		case 0x03: sRES="XENIX /usr "; break;
+		case 0x04: sRES="DOS 3.0+ 16-bit FAT (up to 32M)"; break;
+		case 0x05: sRES="DOS 3.3+ Extended Partition"; break;
+		case 0x06: sRES="DOS 3.31+ 16-bit FAT (over 32M)"; break;
+		case 0x07: sRES="Windows NT NTFS / OS2 HPFS / QNX2.x"; break;
+	//	case 0x08: sRES="AIX boot partition"; break;
+	//	case 0x08: sRES="Commodore DOS"; break;
+	//	case 0x08: sRES="DELL partition spanning multiple drives"; break;
+	//	case 0x08: sRES="OS/2 (v1.0-1.3 only)"; break;
+	//	case 0x08: sRES="QNX 1.x and 2.x (qny)"; break;
+		case 0x08: sRES="SplitDrive"; break;
+		case 0x09: sRES="AIX data partition"; break;
+	//	case 0x09: sRES="Coherent filesystem"; break;
+		case 0x09: sRES="QNX 1.x and 2.x (qnz)"; break;
+	//	case 0x0a: sRES="Coherent swap partition"; break;
+	//	case 0x0a: sRES="OPUS"; break;
+		case 0x0a: sRES="OS/2 Boot Manager"; break;
+		case 0x0b: sRES="WIN95 OSR2 32-bit FAT"; break;
+		case 0x0c: sRES="WIN95 OSR2 32-bit FAT, LBA-mapped"; break;
+		case 0x0e: sRES="WIN95: DOS 16-bit FAT, LBA-mapped"; break;
+		case 0x10: sRES="OPUS (?)"; break;
+		case 0x11: sRES="Hidden DOS 12-bit FAT"; break;
+		case 0x12: sRES="Configuration/diagnostics partition"; break;
+		case 0x14: sRES="Hidden DOS 16-bit FAT <32M"; break;
+		case 0x16: sRES="Hidden DOS 16-bit FAT >=32M "; break;
+		case 0x17: sRES="Hidden IFS (e.g., HPFS)"; break;
+		case 0x18: sRES="AST SmartSleep Partition"; break;
+		case 0x19: sRES="Unused"; break;
+		case 0x1b: sRES="Hidden WIN95 OSR2 32-bit FAT"; break;
+		case 0x1c: sRES="Hidden WIN95 OSR2 32-bit FAT, LBA-mapped"; break;
+		case 0x1e: sRES="Hidden WIN95 16-bit FAT, LBA-mapped"; break;
+		case 0x20: sRES="Unused"; break;
+		case 0x21: sRES="Reserved"; break;
+		case 0x21: sRES="Unused"; break;
+		case 0x22: sRES="Unused"; break;
+		case 0x23: sRES="Reserved"; break;
+		case 0x24: sRES="NEC DOS 3.x"; break;
+		case 0x26: sRES="Reserved"; break;
+		case 0x31: sRES="Reserved"; break;
+		case 0x32: sRES="NOS"; break;
+		case 0x33: sRES="Reserved"; break;
+		case 0x34: sRES="Reserved"; break;
+		case 0x35: sRES="JFS on OS/2 or eCS "; break;
+		case 0x36: sRES="Reserved"; break;
+		case 0x38: sRES="THEOS ver 3.2 2gb partition "; break;
+		case 0x39: sRES="Plan 9 partition / THEOS ver 4"; break;
+		case 0x3a: sRES="THEOS ver 4 4gb partition"; break;
+		case 0x3b: sRES="THEOS ver 4 extended partition"; break;
+		case 0x3c: sRES="PartitionMagic recovery partition"; break;
+		case 0x3d: sRES="Hidden NetWare"; break;
+		case 0x40: sRES="Venix 80286"; break;
+		case 0x41: sRES="Linux/MINIX (sharing disk with DRDOS)"; break;
+	//	case 0x41: sRES="PPC PReP (Power PC Reference Platform) Boot"; break;
+	//	case 0x41: sRES="Personal RISC Boot "; break;
+		case 0x42: sRES="Linux swap (sharing disk with DRDOS) "; break;
+	//	case 0x42: sRES="SFS (Secure Filesystem)"; break;
+	//	case 0x42: sRES="Windows 2000 marker"; break;
+		case 0x43: sRES="Linux native (sharing disk with DRDOS)"; break;
+		case 0x44: sRES="GoBack partition"; break;
+		case 0x45: sRES="Boot-US boot manager / EUMEL/ELan / Priam"; break;
+		case 0x46: sRES="EUMEL/Elan"; break;
+		case 0x47: sRES="EUMEL/Elan"; break;
+		case 0x48: sRES="EUMEL/Elan"; break;
+		case 0x4a: sRES="ALFS/THIN lightweight filesystem for DOS"; break;
+		case 0x4a: sRES="AdaOS Aquila (Default)"; break;
+		case 0x4c: sRES="Oberon partition"; break;
+		case 0x4d: sRES="QNX4.x"; break;
+		case 0x4e: sRES="QNX4.x 2nd part"; break;
+		case 0x4f: sRES="Oberon partition"; break;
+		case 0x4f: sRES="QNX4.x 3rd part"; break;
+		case 0x50: sRES="Lynx RTOS "; break;
+	//	case 0x50: sRES="Native Oberon (alt)"; break;
+	//	case 0x50: sRES="OnTrack Disk Manager (older versions) RO"; break;
+		case 0x51: sRES="Novell / OnTrack Disk Manager RW (DM6 Aux1)"; break;
+		case 0x52: sRES="CP/M"; break;
+	//	case 0x52: sRES="Microport SysV/AT"; break;
+		case 0x53: sRES="Disk Manager 6.0 Aux3"; break;
+		case 0x54: sRES="Disk Manager 6.0 Dynamic Drive Overlay"; break;
+		case 0x55: sRES="EZ-Drive"; break;
+		case 0x56: sRES="DM converted to EZ-BIOS"; break;
+	//	case 0x56: sRES="Golden Bow VFeature Partitioned Volume."; break;
+		case 0x57: sRES="DrivePro / VNDI Partition"; break;
+		case 0x5c: sRES="Priam EDisk"; break;
+		case 0x61: sRES="SpeedStor "; break;
+		case 0x63: sRES="Unix System V (SCO, ISC Unix, UnixWare, ...), Mach, GNU Hurd"; break;
+		case 0x64: sRES="Novell Netware 286, 2.xx"; break;
+		case 0x64: sRES="PC-ARMOUR protected partition"; break;
+		case 0x65: sRES="Novell Netware 386, 3.xx or 4.xx"; break;
+		case 0x66: sRES="Novell Netware SMS Partition"; break;
+		case 0x67: sRES="Novell"; break;
+		case 0x68: sRES="Novell"; break;
+		case 0x69: sRES="Novell Netware 5+, Novell Netware NSS Partition"; break;
+		case 0x70: sRES="DiskSecure Multi-Boot"; break;
+		case 0x71: sRES="Reserved"; break;
+		case 0x73: sRES="Reserved"; break;
+		case 0x74: sRES="Reserved"; break;
+		case 0x74: sRES="Scramdisk partition"; break;
+		case 0x75: sRES="IBM PC/IX "; break;
+		case 0x76: sRES="Reserved"; break;
+		case 0x77: sRES="M2FS/M2CS partition"; break;
+		case 0x77: sRES="VNDI Partition"; break;
+		case 0x78: sRES="XOSL FS"; break;
+		case 0x80: sRES="MINIX until 1.4a"; break;
+		case 0x81: sRES="MINIX since 1.4b, early Linux"; break;
+	//	case 0x81: sRES="Mitac disk manager "; break;
+		case 0x82: sRES="Linux swap / Priam / Solaris x86"; break;
+		case 0x83: sRES="Linux native (usually ext2fs)"; break;
+		case 0x84: sRES="Hibernation partition / OS2 hidden C: drive"; break;
+		case 0x85: sRES="Linux extended partition"; break;
+		case 0x86: sRES="NTFS volume set / Old Linux RAID partition superblock"; break;
+		case 0x87: sRES="NTFS volume set"; break;
+		case 0x8a: sRES="Linux Kernel Partition (used by AiR-BOOT)"; break;
+		case 0x8b: sRES="Legacy Fault Tolerant FAT32 volume"; break;
+		case 0x8c: sRES="Legacy Fault Tolerant FAT32 volume using BIOS extd INT 13h"; break;
+		case 0x8d: sRES="Free FDISK hidden Primary DOS FAT12 partitition"; break;
+		case 0x8e: sRES="Linux Logical Volume Manager partition"; break;
+		case 0x90: sRES="Free FDISK hidden Primary DOS FAT16 partitition"; break;
+		case 0x91: sRES="Free FDISK hidden DOS extended partitition"; break;
+		case 0x92: sRES="Free FDISK hidden Primary DOS large FAT16 partitition"; break;
+		case 0x93: sRES="Amoeba"; break;
+		case 0x93: sRES="Hidden Linux native partition"; break;
+		case 0x94: sRES="Amoeba bad block table"; break;
+		case 0x95: sRES="MIT EXOPC native partitions "; break;
+		case 0x97: sRES="Free FDISK hidden Primary DOS FAT32 partitition"; break;
+		case 0x98: sRES="Datalight ROM-DOS Super-Boot Partition"; break;
+		case 0x98: sRES="Free FDISK hidden Primary DOS FAT32 partitition (LBA)"; break;
+		case 0x99: sRES="DCE376 logical drive"; break;
+		case 0x9a: sRES="Free FDISK hidden Primary DOS FAT16 partitition (LBA)"; break;
+		case 0x9b: sRES="Free FDISK hidden DOS extended partitition (LBA)"; break;
+		case 0x9f: sRES="BSD/OS"; break;
+		case 0xa0: sRES="Laptop hibernation partition"; break;
+		case 0xa1: sRES="HP Volume Expansion (SpeedStor variant)"; break;
+		case 0xa1: sRES="Laptop hibernation partition"; break;
+		case 0xa3: sRES="Reserved"; break;
+		case 0xa4: sRES="Reserved"; break;
+		case 0xa5: sRES="BSD/386, 386BSD, NetBSD, FreeBSD"; break;
+		case 0xa6: sRES="OpenBSD"; break;
+		case 0xa7: sRES="NEXTSTEP"; break;
+		case 0xa8: sRES="Mac OS-X"; break;
+		case 0xa9: sRES="NetBSD"; break;
+		case 0xaa: sRES="Olivetti Fat 12 1.44Mb Service Partition"; break;
+		case 0xab: sRES="Mac OS-X Boot partition / GO! partition"; break;
+		case 0xae: sRES="ShagOS filesystem"; break;
+		case 0xaf: sRES="ShagOS swap partition"; break;
+		case 0xb0: sRES="BootStar Dummy"; break;
+		case 0xb1: sRES="Reserved"; break;
+		case 0xb3: sRES="Reserved"; break;
+		case 0xb4: sRES="Reserved"; break;
+		case 0xb6: sRES="Reserved"; break;
+		case 0xb6: sRES="Windows NT mirror set (master), FAT16 file system"; break;
+		case 0xb7: sRES="Windows NT mirror set (master), NTFS file system / BSDI BSD/386 filesystem"; break;
+		case 0xb8: sRES="BSDI BSD/386 swap partition "; break;
+		case 0xbb: sRES="Boot Wizard hidden "; break;
+		case 0xbe: sRES="Solaris 8 boot partition"; break;
+		case 0xc0: sRES="CTOS"; break;
+		case 0xc0: sRES="DR-DOS/Novell DOS secured partition"; break;
+	//	case 0xc0: sRES="NTFT Partition"; break;
+	//	case 0xc0: sRES="REAL/32 secure small partition"; break;
+		case 0xc1: sRES="DRDOS/secured (FAT-12)"; break;
+		case 0xc2: sRES="Hidden Linux / DR-DOS 7+"; break;
+		case 0xc3: sRES="Hidden Linux swap"; break;
+		case 0xc4: sRES="DRDOS/secured (FAT-16, < 32M)"; break;
+		case 0xc5: sRES="DRDOS/secured (extended)"; break;
+		case 0xc6: sRES="DRDOS/secured (FAT-16, >= 32M)"; break;
+	//	case 0xc6: sRES="Windows NT corrupted FAT16 volume/stripe set"; break;
+	//	case 0xc7: sRES="Syrinx boot"; break;
+		case 0xc7: sRES="Windows NT corrupted NTFS volume/stripe set"; break;
+		case 0xcb: sRES="reserved for DRDOS/secured (FAT32)"; break;
+		case 0xcc: sRES="reserved for DRDOS/secured (FAT32, LBA)"; break;
+		case 0xcd: sRES="CTOS Memdump?"; break;
+		case 0xce: sRES="reserved for DRDOS/secured (FAT16, LBA)"; break;
+		case 0xd0: sRES="REAL/32 secure big partition"; break;
+		case 0xd1: sRES="Old Multiuser DOS secured FAT12"; break;
+		case 0xd4: sRES="Old Multiuser DOS secured FAT16 <32M "; break;
+		case 0xd5: sRES="Old Multiuser DOS secured extended partition"; break;
+		case 0xd6: sRES="Old Multiuser DOS secured FAT16 >=32M"; break;
+		case 0xd8: sRES="CP/M-86"; break;
+		case 0xda: sRES="Non-FS Data"; break;
+	//	case 0xdb: sRES="CTOS (Convergent Technologies OS -Unisys)"; break;
+		case 0xdb: sRES="Digital Research CP/M, Concurrent CP/M, Concurrent DOS"; break;
+	//	case 0xdb: sRES="KDG Telemetry SCPU boot"; break;
+		case 0xdd: sRES="Hidden CTOS Memdump?"; break;
+		case 0xde: sRES="Dell PowerEdge Server utilities (FAT fs)"; break;
+		case 0xdf: sRES="BootIt EMBRM"; break;
+		case 0xdf: sRES="DG/UX virtual disk manager partition "; break;
+		case 0xe0: sRES="Reserved by STMicroelectronics for a filesystem called ST AVFS. "; break;
+		case 0xe1: sRES="DOS access or SpeedStor 12-bit FAT extended partition"; break;
+		case 0xe3: sRES="DOS R/O or SpeedStor"; break;
+		case 0xe4: sRES="SpeedStor 16-bit FAT extended partition < 1024 cyl."; break;
+		case 0xe5: sRES="Reserved"; break;
+		case 0xe5: sRES="Tandy DOS with logical sectored FAT"; break;
+		case 0xe6: sRES="Reserved"; break;
+		case 0xeb: sRES="BeOS"; break;
+		case 0xed: sRES="Reserved for Matthias Paul's Spryt*x "; break;
+		case 0xee: sRES="Indication that this legacy MBR is followed by an EFI header"; break;
+		case 0xef: sRES="Partition that contains an EFI file system"; break;
+		case 0x0f: sRES="WIN95: Extended partition, LBA-mapped "; break;
+		case 0xf0: sRES="Linux/PA-RISC boot loader"; break;
+		case 0xf1: sRES="SpeedStor "; break;
+		case 0xf2: sRES="DOS 3.3+ secondary partition"; break;
+		case 0xf3: sRES="Reserved"; break;
+	//	case 0xf4: sRES="Prologue single-volume partition"; break;
+		case 0xf4: sRES="SpeedStor large partition"; break;
+		case 0xf5: sRES="Prologue multi-volume partition"; break;
+		case 0xf6: sRES="Reserved"; break;
+		case 0xfa: sRES="Bochs"; break;
+		case 0xfb: sRES="VMware File System partition"; break;
+		case 0xfc: sRES="VMware Swap partition"; break;
+		case 0xfd: sRES="Linux raid partition with autodetect using persistent superblock"; break;
+	//	case 0xfe: sRES="IBM PS/2 IML (Initial Microcode Load) partition, located at the end of the disk."; break;
+	//	case 0xfe: sRES="LANstep"; break;
+		case 0xfe: sRES="Linux Logical Volume Manager partition (old)"; break;
+	//	case 0xfe: sRES="SpeedStor > 1024 cyl."; break;
+	//	case 0xfe: sRES="Windows NT Disk Administrator hidden partition"; break;
+		case 0xff: sRES="Xenix Bad Block Table"; break;
+		default:   sRES="unknown"; break;
+	}
+    return "0x04 Partion type: " + sRES;
+} 
+
+
+// -------------------- Main --------------------
+local uint64 iBLKSIZ;           // Used by the BootCode typedef to disassemble the boot code
+
+LittleEndian();
+BitfieldRightToLeft();
+BitfieldDisablePadding();
+
+master_boot_record MBR  <comment="Master Boot Record">;

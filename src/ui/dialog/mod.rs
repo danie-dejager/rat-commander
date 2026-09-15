@@ -33,6 +33,7 @@ mod select;
 mod send;
 mod syncpreview;
 mod tabpicker;
+mod templatepicker;
 mod usermenu;
 
 // Shared widget helpers used by `src/disk/render.rs` and kept accessible at the
@@ -77,6 +78,7 @@ pub use select::SelectDialog;
 pub use send::SendFileDialog;
 pub use syncpreview::SyncPreviewDialog;
 pub use tabpicker::TabPickerDialog;
+pub use templatepicker::TemplatePickerDialog;
 pub use usermenu::UserMenuDialog;
 
 use crate::ops::progress::{OverwriteDecision, TaskId};
@@ -142,6 +144,8 @@ pub enum Dialog {
     TabPicker(TabPickerDialog),
     /// The editor's GeoJSON drawn over a world map.
     GeoMap(Box<GeoMapDialog>),
+    /// The hex editor's binary template picker.
+    TemplatePicker(Box<TemplatePickerDialog>),
 }
 
 /// What the app should do after a dialog handles a key.
@@ -186,6 +190,12 @@ pub enum Submit {
     EditorGotoOffset(usize),
     /// Jump the editor to a line (the text typed into its "go to line" prompt).
     EditorGotoLine(String),
+    /// Use this binary template in the hex editor, or none.
+    EditorTemplate(Option<Box<crate::bt::header::TemplateInfo>>),
+    /// Open this binary template for editing.
+    EditorEditTemplate(Box<crate::bt::header::TemplateInfo>),
+    /// Start a new binary template with this name.
+    EditorNewTemplate(String),
     /// Run this command and insert its output at the editor's cursor.
     EditorPasteOutput(String),
     /// Sort the editor's marked block with these options.
@@ -497,6 +507,7 @@ impl Dialog {
             Dialog::DirHistory(d) => d.handle_key(key),
             Dialog::TabPicker(d) => d.handle_key(key),
             Dialog::GeoMap(d) => d.handle_key(key),
+            Dialog::TemplatePicker(d) => d.handle_key(key),
         }
     }
 
@@ -539,6 +550,7 @@ impl Dialog {
             Dialog::DirHistory(d) => d.render(f, area, theme),
             Dialog::TabPicker(d) => d.render(f, area, theme),
             Dialog::GeoMap(d) => d.render(f, area, theme, gfx),
+            Dialog::TemplatePicker(d) => d.render(f, area, theme),
         }
     }
 
@@ -584,6 +596,7 @@ impl Dialog {
             Dialog::ShellHistory(d) => return d.handle_click(area, col, row),
             Dialog::DirHistory(d) => return d.handle_click(area, col, row),
             Dialog::TabPicker(d) => return d.handle_click(area, col, row),
+            Dialog::TemplatePicker(d) => return d.handle_click(area, col, row),
             Dialog::CommandPalette(d) => return d.handle_click(area, col, row),
             Dialog::Hotlist(d) => return d.handle_click(area, col, row),
             Dialog::BackgroundOps(d) => return d.handle_click(area, col, row),
@@ -680,6 +693,9 @@ impl Dialog {
                 return d.handle_scroll(delta);
             }
             Dialog::TabPicker(d) => {
+                return d.handle_scroll(delta);
+            }
+            Dialog::TemplatePicker(d) => {
                 return d.handle_scroll(delta);
             }
             _ => {}

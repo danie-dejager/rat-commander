@@ -1,0 +1,130 @@
+//------------------------------------------------
+//--- 010 Editor v11.0.1 Binary Template
+//
+//      File: O3D.bt
+//   Authors: Jakob Klein
+//   Version: 0.1
+//   Purpose: Read OMSI (Omnibus Simulator) Models.
+//  Category: Game
+// File Mask: *.o3d
+//  ID Bytes: 84 19
+//   History: 
+//   0.1   2021-06-19 Jakob Klein: Initial write-up for reading .o3d binary 3d model files for OMSI 2 (Omnibus Simulator). So far only educated guesses without any documentation.
+//------------------------------------------------
+
+typedef struct {
+    ushort magic;
+    byte version;
+    
+    switch (version)
+    {
+        case 1:
+            break;
+        case 5:
+        case 7:
+            byte _;
+            uint _;
+            break;
+    }
+} header_def;
+
+typedef enum <byte> {
+    ct_VERTDEF = 0x17,
+    ct_TRIDEF = 0x49,
+    ct_MATDEF = 0x26,
+    ct_MATRIX = 0x79
+} chunktype;
+
+typedef struct {
+    float numbers[11];      // Unknown Floats
+    byte len;               // Bytelength of Texture Name
+    char name[len];         // Texture Name
+} material_def;
+
+typedef struct {            // The following are guesses:
+    float v0;               // x
+    float v1;               // y
+    float v2;               // z
+    float v3;               // nx
+    float v4;               // ny
+    float v5;               // nz
+    float v6;               // u
+    float v7;               // v
+} valueline_def;
+
+typedef struct {
+    ushort idx0;            // vertex 0
+    ushort idx1;            // vertex 1
+    ushort idx2;            // vertex 2
+    ushort mat_id;          // material index
+} triangle_def;
+
+// Define the file
+LittleEndian(); 
+header_def header;
+
+// Check for header
+if( header.magic != 0x1984 )
+{
+    Warning( "File is not of known OMSI Format. " +
+             "Template stopped." );
+    return -1;
+}
+
+
+local byte tag;
+while( !FEof() )
+{
+    tag = ReadByte(FTell());
+    chunktype btag;
+    if (tag == 0x17)
+    {
+        switch (header.version)
+        {
+            case 1:
+                ushort num;
+                break;
+            case 5:
+            case 7:
+                uint num;
+                break;
+            default:
+                return -1;
+        }
+
+        valueline_def valueline[num];
+    }
+
+    if (tag == 0x49)
+    {
+        switch (header.version)
+        {
+            case 1:
+                ushort num;
+                break;
+            case 5:
+            case 7:
+                uint num;
+                break;
+            default:
+                return -1;
+        }
+
+        triangle_def triangle[num];
+    }
+
+    if (tag == 0x26)
+    {        
+        ushort num;
+        local int i;
+        for (i=0; i<num; i++)
+        {
+            material_def material;
+        }
+    }
+
+    if (tag == 0x79)
+    {
+        float matrix[16];
+    }
+}

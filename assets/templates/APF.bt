@@ -1,0 +1,83 @@
+//----------------------------------------------------------------------------------------------------------------
+//--- 010 Editor v15.0 Binary Template
+//
+//      File: APF.bt
+//   Authors: Hyper (linktr.ee/hyperbx)
+//   Version: 1.0.1
+//   Purpose: Parse Vector Unit archive files from Hydro Thunder Hurricane.
+//  Category: Archive
+// File Mask: *.apf
+//  ID Bytes: 41 4B 50 46, 46 50 55 56 // AKPF, FPUV
+//   History: 
+//   1.0.1   2024-08-12 Hyper: Omitted file type enum, as they seem to differ on PC, may be incorrect assumptions.
+//   1.0.0   2024-08-12 Hyper: Initial release.
+//
+// References:
+// - https://aluigi.altervista.org/bms/hydro_thunder.bms
+//----------------------------------------------------------------------------------------------------------------
+
+local byte _isPCVersion = false;
+
+BigEndian();
+
+uint Signature<hidden=true>;
+
+FSeek(0);
+
+if (Signature == 0x46505556)
+{
+    _isPCVersion = true;
+    LittleEndian();
+}
+else if (Signature != 0x414B5046)
+{
+    StatusMessage("Could not identify Vector Unit archive type.");
+    return;   
+}
+
+struct
+{
+    SetBackColor(cLtRed);
+    uint Signature<format=hex>;
+    uint Version;
+    uint FileTableOffset<format=hex>;
+    uint FileCount;
+    SetBackColor(cRed);
+    uint Reserved[_isPCVersion ? 13 : 2]<open=suppress>;
+}
+Header;
+
+FSeek(Header.FileTableOffset);
+
+struct AkPackageEntry
+{
+    if (_isPCVersion)
+    {
+        SetBackColor(cPurple);
+        string Name<open=suppress>;
+    }
+    else
+    {
+        SetBackColor(cLtPurple);
+        uint NameLength<hidden=true>;
+        SetBackColor(cPurple);
+        char Name[NameLength]<open=suppress>;
+    }
+    
+    SetBackColor(cGreen);
+    uint Offset<format=hex>;
+    SetBackColor(cGreen);
+    uint Size;
+    uint CompressedSize;
+    SetBackColor(cYellow);
+    uint Type;
+    SetBackColor(cLtGreen);
+    uint Hash<format=hex>; // CRC32 hash of the uncompressed data.
+    uint IsCompressed;
+    
+    SetBackColor(cGray);
+    local long p = FTell();
+    FSeek(Offset); byte Data[IsCompressed == 1 ? CompressedSize : Size]<open=suppress>;
+    FSeek(p);
+}
+Entries[Header.FileCount]<optimize=false>;

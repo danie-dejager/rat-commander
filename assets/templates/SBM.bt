@@ -1,0 +1,213 @@
+//------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+//
+//      File: SBM.bt
+//   Authors: pavidloq (Fred-31), xxcoobloyxx
+//   Version: 0.1.1
+//   Purpose: Supercell binary model format for their old games.
+//  Category: Game
+// File Mask: *.sbm
+//  ID Bytes: 
+//   History: 
+//   0.1.1   2024-07-24 xxcoobloyxx: Fixed animation frames reading and uvs.
+//   0.1.0   2024-07-23 pavidloq: Implemented full file reading.
+//------------------------------------------------
+
+
+// Iterators
+local int i = 0;
+local int j = 0;
+
+
+// Endian
+BigEndian();
+
+
+// Base data types
+typedef struct {
+    ushort size;
+    if (size > 0)
+        char data[size];
+} String <read=stringRead>;
+
+string stringRead(String& v) {
+    if (v.size > 0)
+        return v.data;
+    
+    return "";
+}
+
+
+typedef struct {
+    float elements[16];
+} Matrix4x4;
+
+
+// Mesh geometry
+typedef struct {
+    short x;
+    short y;
+    short z;
+    
+    short normalX;
+    short normalY;
+    short normalZ;
+    
+    short u;
+    short v;
+} Vertex;
+
+
+typedef struct {
+    for (i = 0; i < verticesCount; i++) {
+        Vertex vertex;
+    }
+} Vertices;
+
+
+typedef struct {
+    ushort vertexIndexA;
+    ushort vertexIndexB;
+    ushort vertexIndexC;
+} Triangle;
+
+
+typedef struct {
+    ushort indicesCount;
+    for (i = 0; i < indicesCount / 3; i++) {
+        Triangle triangle;
+    }
+} Triangles;
+
+
+// Skin
+typedef struct {
+    String name;
+    Matrix4x4 inverseBindMatrix;
+} Joint;
+
+
+typedef struct {
+    for (i = 0; i < jointsCount; i++) {
+        Joint joint;
+    }
+} Joints;
+
+
+typedef struct {
+    ubyte jointIndexA;
+    ubyte jointIndexB;
+    ubyte jointIndexC;
+    ubyte jointIndexD;
+    
+    ubyte weightA;
+    ubyte weightB;
+    ubyte weightC;
+    ubyte weightD;
+} VertexWeight;
+
+
+typedef struct {
+    for (i = 0; i < verticesCount; i++) {
+        VertexWeight vertexWeight;
+    }
+} VertexWeights;
+
+
+typedef struct {
+    Joints joints;
+    
+    Matrix4x4 bindShapeMatrix;
+    
+    VertexWeights vertexWeights;
+} Skin;
+
+
+// Animation
+typedef struct {
+    short rotationX;
+    short rotationY;
+    short rotationZ;
+    short rotationW;
+    
+    float translationX;
+    float translationY;
+    float translationZ;
+} Frame;
+
+
+typedef struct {
+    ushort framesCount;
+    for (j = 0; j < framesCount; j++) {
+        Frame frame;
+    }
+} Frames;
+
+
+typedef struct {
+    String jointName;
+    String jointParentName;
+    
+    Frames frames;
+} Animation <read=animationRead>;
+
+string animationRead(Animation& v) {
+    string result;
+    if (v.jointName.size > 0) {
+        if (v.jointParentName.size > 0) {
+            SPrintf(result, "%s -> %s", v.jointName.data, v.jointParentName.data);
+        } else {
+            SPrintf(result, "%s", v.jointName.data);
+        }
+        
+        return result;
+    }
+    
+    return "";
+}
+
+
+typedef struct {
+    ushort animationsCount;
+    for (i = 0; i < animationsCount; i++) {
+        Animation animation;
+    }
+} Animations;
+
+
+// Mesh entry
+typedef struct {
+    String name;
+    
+    ushort verticesCount;
+    
+    float vertexScale;
+    ushort unk; // format maybe?
+    
+    ushort jointsCount;
+    
+    Vertices vertices;
+    
+    Triangles triangles;
+    
+    if (jointsCount > 0)
+        Skin skin;
+    
+    Animations animations;
+} Mesh <read=meshRead>;
+
+string meshRead(Mesh& v) {
+    if (v.name.size > 0)
+        return v.name.data;
+    
+    return "";
+}
+
+
+// Main
+struct FILE {
+    while (!FEof()) {
+        Mesh mesh;
+    }
+} file;
+

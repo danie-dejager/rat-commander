@@ -1,0 +1,103 @@
+//------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+//
+//      File: PCESAV.bt
+//    Author: David Shadoff
+//   Version: 1.0
+//   Purpose: Parse PC Engine *.SAV files, for holding game save data.
+//  Category: Game
+// File Mask: *.sav
+//  ID Bytes: 48 55 42 4D //HUBM
+//   History:  
+//   1.0   2023-12-21 David Shadoff: Initial version
+//
+// More information available at
+//  http://blockos.github.io/HuDK/doc/files/include/bram-s.html
+//------------------------------------------------
+RequiresVersion( 14 );
+
+LittleEndian(); 
+
+// Define structures used in HUBM files
+
+typedef struct {   // header
+    CHAR    bfType[4]               <style=sHeading1>;
+    WORD    wEndofMemory            <style=sHeading2, format=hex>;
+    WORD    wEndofSaves             <style=sHeading3, format=hex>;
+    BYTE    bReserved[8]            <style=sData>;
+} SAVEFILEHEADER <style=sHeading1>;
+
+
+typedef struct {   // game save
+
+    local int   hdrChecksum   <hidden=true, format=hex>;
+    local int   calcChecksum  <hidden=true,format=hex>;
+    local int64 checkBgColor  <hidden=true>;
+    local int64 checkFgColor  <hidden=true>;
+    local int   i             <hidden=true>;
+
+    
+    WORD    wLength                      <style=sHeading2>;   // 00 00 denotes end of list
+    if (wLength != 0)
+    {
+        //  this section calculates a checksum by reading ahead for the length of the entry
+        UBYTE       rawData[wLength-2]     <hidden=true, format=hex>;
+        
+        hdrChecksum = (rawData[0] + ((int)rawData[1] * 256) & 0xFFFF);
+
+        calcChecksum = 0x10000;
+        for (i = 2; i < (wLength-2); i++) {
+            calcChecksum -= rawData[i];
+            if (calcChecksum < 0) {
+                calcChecksum += 0x10000;
+            }
+        }
+
+        if (hdrChecksum == calcChecksum) {
+            checkBgColor = cGreen;
+            checkFgColor = cLtGray;
+        }
+        else {
+            checkBgColor = cBlack;
+            checkFgColor = cLtRed;
+        }
+        FSkip(-(wLength-2));
+        // After the checksum was calculated, we backed up to where the file pointer was, prior to the calculation
+        
+        WORD        wChecksum            <bgcolor=checkBgColor, fgcolor=checkFgColor, format=hex>;
+        WORD        wEntryIdentifier     <style=sHeading3Accent, format=hex>;
+        CHAR        cEntryName[10]       <style=sHeading3>;
+        UBYTE       bData[wLength - 16]  <style=sData>;
+    }
+} SAVEGAMEENTRY <read=getGame, comment=(((wLength==0) || (hdrChecksum==calcChecksum)) ? "" : Str("Bad checksum: Calculated Checksum = 0x%4.4X",calcChecksum))>;
+
+string getGame(SAVEGAMEENTRY &var) {
+    
+    if (var.wLength > 0) {
+        return var.cEntryName;
+    }
+    else
+        return "";
+}
+
+
+
+//---------------------------------------------
+
+// Define the headers
+SAVEFILEHEADER header;
+
+// Check for header
+if( header.bfType != "HUBM" )
+{
+    Warning( "File is not a PC Engine gamesave file. Template stopped." );
+    return -1;
+}
+
+
+while (true)
+{
+   SAVEGAMEENTRY entry;
+   if (entry.wLength == 0)    // List ends when this is 0x00
+      break;
+}

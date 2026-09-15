@@ -1,0 +1,100 @@
+//------------------------------------------------
+//--- 010 Editor v15.0.1 Binary Template
+//
+//      File: SCF.bt
+//   Authors: Matthias Mailänder
+//   Version: 0.1
+//   Purpose: read SCF gene sequence trace files
+//  Category: Medical
+// File Mask: *.scf
+//  ID Bytes: 46 115 99 102
+//   History: 
+//   0.1   2024-12-03 Matthias Mailänder: initial template
+//------------------------------------------------
+// SCF Binary Template
+typedef struct
+{
+    char MagicHeader[4];              
+    int NumberSamples;                 
+    int SamplesOffset;                
+    int NumberBases;                   
+    int BasesLeftClip; // Obsolete    
+    int BasesRightClip; // Obsolete      
+    int BasesOffset;                  
+    int CommentsSize;                 
+    int CommentsOffset;               
+    char version[4];                  
+    int SampleSize;                   
+    int CodeSet;                      
+    int PrivateSize;                  
+    int PrivateOffset;                
+    char Spare[72];          
+} HEADER;
+
+SetBackColor(cGray);
+HEADER header;
+
+typedef struct 
+{
+    if (header.SampleSize == 1)
+    {
+        SetBackColor(cBlue);
+        byte A[header.NumberSamples];
+        SetBackColor(cRed);
+        byte C[header.NumberSamples];
+        SetBackColor(cGreen);
+        byte G[header.NumberSamples]; 
+        SetBackColor(cYellow);
+        byte T[header.NumberSamples];
+    }
+    else if (header.SampleSize == 2)
+    {
+        SetBackColor(cBlue);
+        short A[header.NumberSamples];
+        SetBackColor(cRed);
+        short C[header.NumberSamples];
+        SetBackColor(cGreen);
+        short G[header.NumberSamples]; 
+        SetBackColor(cYellow);
+        short T[header.NumberSamples];
+    }
+} SAMPLES;
+
+typedef struct
+{
+    SetBackColor(cBlue);
+    byte A[header.NumberBases];
+    SetBackColor(cRed);
+    byte C[header.NumberBases];
+    SetBackColor(cGreen);
+    byte G[header.NumberBases];
+    SetBackColor(cYellow);
+    byte T[header.NumberBases];
+} PROBABILITIES;
+
+if (header.NumberSamples > 0) {
+    SetBackColor(cPurple);
+    FSeek(header.SamplesOffset);
+    SAMPLES samples;
+}
+
+if (header.NumberBases > 0) {
+    SetBackColor(cAqua);
+    FSeek(header.BasesOffset);
+    int peakIndices[header.NumberBases];
+    PROBABILITIES probabilities;
+    char baseCalls[header.NumberBases];
+    char spares[header.NumberBases * 3];
+}
+
+if (header.CommentsSize > 0) {
+    SetBackColor(cGray);
+    FSeek(header.CommentsOffset);
+    char comment[header.CommentsSize];
+}
+
+if (header.PrivateSize > 0) {
+    SetBackColor(cGray);
+    FSeek(header.PrivateOffset);
+    char privateData[header.PrivateSize];
+}

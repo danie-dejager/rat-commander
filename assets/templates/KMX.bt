@@ -1,0 +1,227 @@
+//------------------------------------------------
+//--- 010 Editor v12.0.1 Binary Template
+//
+//      File: KMX.bt
+//   Authors: Marc Durdin
+//   Version: 1.0
+//   Purpose: Keyman compiled keyboard .kmx file format based on headers and source
+//            from https://github.com/keymanapp/keyman/blob/master/common/core/desktop/src/kmx/kmx_file.h
+//  Category: Misc
+// File Mask: *.kmx
+//  ID Bytes: 4B 58 54 53 //KXTS
+//   History:
+//   1.0 2021-11-25 Marc Durdin: Original submission
+//------------------------------------------------
+struct COMP_KEYBOARD {
+	DWORD dwIdentifier;		// 0000 Keyman compiled keyboard id
+
+    int dwFileVersion;	// 0004 Version of the file - Keyman 4.0 is 0x0400
+
+    int dwCheckSum;		  // 0008 As stored in keyboard
+    int KeyboardID;    	// 000C as stored in HKEY_LOCAL_MACHINE//system//currentcontrolset//control//keyboard layouts
+	int IsRegistered;		// 0010
+	int version;			  // 0014 keyboard version
+
+    int cxStoreArray;		// 0018 in array entries
+	int cxGroupArray;		// 001C in array entries
+
+	int dpStoreArray;		// 0020 [LPSTORE] address of first item in store array
+	int dpGroupArray;		// 0024 [LPGROUP] address of first item in group array
+
+	int StartGroup[2];	// 0028 index of starting groups [2 of them]
+	//DWORD StartGroupIndex;	// StartGroup current index
+
+	int dwFlags;			  // 0030 Flags for the keyboard file
+
+	int dwHotKey;			  // 0034 standard windows hotkey (hiword=shift/ctrl/alt stuff, loword=vkey)
+
+	//DWORD dpName;			// offset of name
+	//DWORD dpLanguageName;	// offset of language name;
+	//DWORD dpCopyright;		// offset of copyright
+	//DWORD dpMessage;		// offset of message in Keyboard About box
+
+	int dpBitmapOffset;	// 0038 offset of the bitmaps in the file
+	int dwBitmapSize;		// 003C size in bytes of the bitmaps
+	};
+
+string Code(ushort id) {
+    local string s;
+    switch(id) {
+      case 0x01: s="CODE_ANY"; break;
+      case 0x02: s="CODE_INDEX"; break;
+      case 0x03: s="CODE_CONTEXT"; break;
+      case 0x04: s="CODE_NUL"; break;
+      case 0x05: s="CODE_USE"; break;
+      case 0x06: s="CODE_RETURN"; break;
+      case 0x07: s="CODE_BEEP"; break;
+      case 0x08: s="CODE_DEADKEY"; break;
+    //	= 0x09 = bkspace.-- we don't need to keep this separate though with UC_SENTINEL
+      case 0x0A: s="CODE_EXTENDED"; break;
+    //#define CODE_EXTENDEDEND	= 0x0B  deprecated
+      case 0x0C: s="CODE_SWITCH"; break;
+      case 0x0D: s="CODE_KEY"; break;
+      case 0x0E: s="CODE_CLEARCONTEXT"; break;
+      case 0x0F: s="CODE_CALL"; break;
+    // UC_SENTINEL_EXTENDEDEND  0x10
+      case 0x11: s="CODE_CONTEXTEX"; break;
+    
+      case 0x12: s="CODE_NOTANY"; break;
+    
+      // Keyman 8
+      case 0x13: s="CODE_SETOPT"; break;  // I3429
+      case 0x14: s="CODE_IFOPT"; break;  // I3429
+      case 0x15: s="CODE_SAVEOPT"; break;  // I3429
+      case 0x16: s="CODE_RESETOPT"; break;  // I3429
+    
+      // Keyman 9
+      case 0x17: s="CODE_IFSYSTEMSTORE"; break;  // I3430
+      case 0x18: s="CODE_SETSYSTEMSTORE"; break;  // I3437
+      default: s=str("0x%04.4X", id);
+    }
+    return s + Str("[%04.4X]", id);
+};
+
+string Tss(ushort id) {
+    string s;
+    switch(id) {
+        case 0: s = "<store>"; break;
+        case 1: s = "TSS_BITMAP"; break;
+        case 2: s = "TSS_COPYRIGHT"; break;
+        case 3: s = "TSS_HOTKEY"; break;
+        case 4: s = "TSS_LANGUAGE"; break;
+        case 5: s = "TSS_LAYOUT"; break;
+        case 6: s = "TSS_MESSAGE"; break;
+        case 7: s = "TSS_NAME"; break;
+        case 8: s = "TSS_VERSION"; break;
+        case 9: s = "TSS_CAPSONONLY"; break;
+        case 10: s = "TSS_CAPSALWAYSOFF"; break;
+        case 11: s = "TSS_SHIFTFREESCAPS"; break;
+        case 12: s = "TSS_LANGUAGENAME"; break;
+        
+        case 13: s = "TSS_CALLDEFINITION"; break;
+        case 14: s = "TSS_CALLDEFINITION_LOADFAILED"; break;
+        
+        case 15: s = "TSS_ETHNOLOGUECODE"; break;
+        
+        case 16: s = "TSS_DEBUG_LINE"; break;
+        
+        case 17: s = "TSS_MNEMONIC"; break;
+        
+        case 18: s = "TSS_INCLUDECODES"; break;
+        
+        case 19: s = "TSS_OLDCHARPOSMATCHING"; break;
+        
+        case 20: s = "TSS_COMPILEDVERSION"; break;
+        case 21: s = "TSS_KEYMANCOPYRIGHT"; break;
+        
+        case 22: s = "TSS_CUSTOMKEYMANEDITION"; break;
+        case 23: s = "TSS_CUSTOMKEYMANEDITIONNAME"; break;
+        
+        /* Keyman 7.0 system stores */
+        
+        case 24: s = "TSS_VISUALKEYBOARD"; break;
+        case 25: s = "TSS_KMW_RTL"; break;
+        case 26: s = "TSS_KMW_HELPFILE"; break;
+        case 27: s = "TSS_KMW_HELPTEXT"; break;
+        case 28: s = "TSS_KMW_EMBEDJS"; break;
+        
+        case 29: s = "TSS_WINDOWSLANGUAGES"; break;
+        
+        /* Keyman 8.0 system stores */
+        
+        case 30: s = "TSS_COMPARISON"; break;
+        
+        /* Keyman 9.0 system stores */
+        
+        case 31: s = "TSS_PLATFORM"; break;
+        case 32: s = "TSS_BASELAYOUT"; break;
+        case 33: s = "TSS_LAYER"; break;
+        
+        case 0x8001: s = "TSS_PLATFORM_NOMATCH"; break;  // Reserved for internal use - after platform statement is run, set to either TSS_PLATFORM_NOMATCH or TSS_PLATFORM_MATCH
+        case 0x8002: s = "TSS_PLATFORM_MATCH"; break;  // Reserved for internal use - as the result will never change for the lifetime of the process.
+        
+        case 34: s = "TSS_VKDICTIONARY"; break;      // Dictionary of virtual key names for v9 dynamic layouts
+        case 35: s = "TSS_LAYOUTFILE"; break;      // Keyman 9 layer-based JSON OSK
+        case 36: s = "TSS_KEYBOARDVERSION"; break;      // &keyboardversion system store   // I4140
+        case 37: s = "TSS_KMW_EMBEDCSS"; break;
+        
+        case 38: s = "TSS_TARGETS"; break;
+        
+        case 39: s = "TSS_CASEDKEYS"; break;
+        
+        case 40: s = "TSS_BEGIN_NEWCONTEXT"; break;
+        case 41: s = "TSS_BEGIN_POSTKEYSTROKE"; break;
+        
+        case 42: s = "TSS_LAYERCHANGED"; break;
+        default: s = Str("%04.4X", id);
+    }
+    return s + Str("[%d]", id);
+}
+
+string PrintExtendedString(DWORD offset) {
+    string s, t; int is_sentinel = 0;
+    SPrintf(s, "%xh", offset);
+    if(offset == 0) return s;
+    s += Str(": \"%s\"", ReadWString(offset));
+    ushort w = ReadShort(offset);
+    while(w != 0) {
+        if(w == 0xFFFF) {
+            s += " UC_SENTINEL";
+            is_sentinel = 1;
+        }
+        else {
+            if(is_sentinel && w <= 0x18) {
+                s += " " + Code(w);
+                is_sentinel = 0;
+            }
+            else s += Str(" U+%04.4X", w);
+        }
+        offset+=2;
+        w = ReadShort(offset);
+    }
+    return s;
+}
+
+struct COMP_KEY {
+	WORD Key;
+    WORD _reserved;
+	DWORD Line;
+	DWORD ShiftFlags;
+	DWORD dpOutput <read = PrintExtendedString(this)>;
+	DWORD dpContext <read = PrintExtendedString(this)>;
+	};
+
+void key() {
+    struct COMP_KEY k;
+}
+
+struct COMP_GROUP {
+	DWORD dpName <read = ReadWString(this)>;
+	DWORD dpKeyArray;		// [LPKEY] address of first item in key array
+	DWORD dpMatch <read = PrintExtendedString(this)>;
+	DWORD dpNoMatch <read = PrintExtendedString(this)>;
+	DWORD cxKeyArray;		// in array entries
+	DWORD  fUsingKeys;		// group(xx) [using keys] <-- specified or not
+
+    if(cxKeyArray > 0) {
+        local int64 o = FTell();
+        FSeek(dpKeyArray);
+        struct COMP_KEY keys[cxKeyArray];
+        FSeek(o);
+    }
+} ;
+
+
+struct COMP_STORE {
+	DWORD dwSystemID <read = Tss(this)>;
+	DWORD dpName <read = PrintExtendedString(this)>;
+	DWORD dpString <read = PrintExtendedString(this)>;
+};
+
+struct FILE {
+    struct COMP_KEYBOARD header <bgcolor=cLtGray>;
+    FSeek(header.dpStoreArray);
+    struct COMP_STORE store[file.header.cxStoreArray] <bgcolor=cLtGreen>;
+    FSeek(header.dpGroupArray);
+    struct COMP_GROUP group[file.header.cxGroupArray] <bgcolor=cLtBlue, optimize=false>;
+} file;

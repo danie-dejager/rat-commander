@@ -1,0 +1,128 @@
+//------------------------------------------------
+//--- 010 Editor v16.0.4 Binary Template
+//
+//      File: VOL_VOL.bt
+//   Authors: Anaty Rahamim Bar Kat
+//   Version: 5.1
+//   Purpose: New Repository inspec blob of VOL_VOL
+//  Category: Drives
+// File Mask: 1
+//  ID Bytes: 1
+//   History: 1
+//   5.1   2026-05-28 Anaty rahamim Bar Kat: New Version
+//------------------------------------------------
+// ===== Vol_Hardened Template =====
+
+LittleEndian();
+
+// ---- Basic Types ----
+typedef uint8  UINT8;
+typedef uint16 UINT16;
+typedef uint32 UINT32;
+typedef uint64 UINT64;
+
+// ---- Placeholder Types (adjust later if needed) ----
+typedef UINT64 GenNum;
+typedef UINT32 InitiatorId;
+typedef UINT64 ScsiRegKey;
+typedef UINT32 SnapGroupId;
+typedef UINT32 SnapshotId;
+typedef UINT32 VolId;
+typedef UINT32 SnapshotPolicyId;
+typedef UINT32 AutoSnapGroupId;
+typedef UINT32 AutoSnapFlags;
+typedef UINT32 AutoSnapLevels;
+typedef UINT32 RplCgId;
+typedef UINT32 RplCgDir;
+typedef UINT64 MosTime;
+typedef UINT64 RplPairId;
+
+// ---- IMPORTANT: Adjust these sizes later ----
+typedef struct {
+    UINT8 raw[32];   // ⚠️ MUST match real ObjHeader_Rep size
+} ObjHeader_Rep;
+
+typedef struct {
+    UINT8 raw[16];   // ⚠️ MUST match HostIdentifier size
+} HostIdentifier;
+
+// ---- NVMe ----
+typedef struct {
+    HostIdentifier holderHostIdentifier;
+    UINT32 regGenNum;
+    UINT16 flags;  // bitfields packed
+} Vol_NvmeResvInfo;
+
+typedef struct {
+    HostIdentifier hostIdentifier;
+    UINT64 newOrPreemptKey;
+    UINT8 opcode;
+    UINT8 flags1;
+    UINT8 flags2;
+} Vol_NvmeResvTransactionInfo;
+
+// ---- MAIN STRUCT ----
+typedef struct {
+
+    ObjHeader_Rep objHeader;
+
+    GenNum genNum;
+    GenNum scsiGenNum;
+
+    InitiatorId reserver_sdcId;
+    ScsiRegKey scsi3RegKey;
+
+    SnapGroupId snapGroupId;
+    SnapshotId snapshotId;
+    SnapshotId oldSnapId;
+
+    VolId visualParentId;
+
+    UINT8 flags1;   // bUseCache + reserveType + accessModeLimit
+    UINT8 visualParentType;
+
+    UINT32 volClass;
+    UINT8 recoveryType;
+
+    UINT64 delGroupGen;
+
+    UINT32 tickerSecureExpiry;
+
+    SnapshotPolicyId sourceVolumePolicyId;
+    SnapshotPolicyId snapshotPolicyId;
+
+    AutoSnapGroupId autoSnapGroupId;
+
+    UINT32 tickerCreated;
+    UINT32 tickerExpiry;
+
+    AutoSnapFlags policyFlags;
+    AutoSnapLevels policyLevels;
+
+    UINT8 replicationFlags;
+
+    RplCgId lastRplCgId;
+    RplCgDir dir;
+    MosTime lastSrcImageTimestamp;
+
+    RplPairId firstSrcRplPairId;
+
+    UINT32 sdrSessionIndex;
+
+    MosTime rplTimeStamp;
+
+    UINT64 estimatedInUseCapacityMB;
+
+    Vol_NvmeResvInfo nvmeResv;
+    Vol_NvmeResvTransactionInfo nvmeResvTransaction;
+
+    MosTime creationTime;
+    MosTime lastRefreshTime;
+
+    VolId sourceId;
+    SnapGroupId overwriteGroupId;
+
+} Vol_Hardened;
+
+// ---- Apply ----
+Vol_Hardened vol;

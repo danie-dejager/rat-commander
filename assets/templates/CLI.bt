@@ -1,0 +1,142 @@
+//--------------------------------------
+//--- 010 Editor Binary Template
+//
+//      File: CLI.bt
+//    Author: Joe Kirwin
+//   Website: https://github.com/joekir
+//   Version: 0.1
+//   Purpose: Highlight Common Language Infrastructure Metadata Header fields.
+//            Used primarily for Microsoft's .NET framework (MSIL)
+//			  For *.exe, *.dll files.
+//  Category: Executable
+// File Mask: 
+//  ID Bytes: 4D 5A //MZ
+//   History: 
+//   0.1   2026-09-04 р: Initial release.
+//--------------------------------------
+
+local uchar buff[4];
+local uchar BSJBmagic[4] = {
+    0x42, 0x53, 0x4A, 0x42 
+};
+local int stringLength;
+struct BSJB {
+	DWORD magic;
+    };
+struct CLRMETAv {
+    WORD major;
+    WORD minor;
+};
+struct CLRreserved(int arraySize)
+{
+    BYTE resd[arraySize];
+};
+struct CLRVersionLength {
+    DWORD length;
+};
+struct CLRVersionString(int arraySize)
+{
+    char version[arraySize];
+};
+struct MetadataStreamCount{
+    WORD count;
+};
+struct MetaStreamHeader{
+    DWORD offsetFromMetaHeader;
+    DWORD size;
+    stringLength = readAheadToGetStringLength(FTell());
+    char streamName[stringLength];
+    if(stringLength % 4 != 0)
+    {
+        BYTE padding[calculatePadding(stringLength)];
+    }
+} ;
+struct MetadataVersion{
+    // Relatively unchanged since .net2's introduction of generics
+    WORD metadataV;
+};
+struct TinyFatOffsets{
+    /*2 bytes is used in this case, and usually in malware tables won't exceed the 65535 items to require 
+    4 byte tokenization (except good obfu maybe)
+    BitField required here, but I don't know the full details here yet and they aren't important  this
+    cursory analysis so just use a byte for now*/
+    BYTE offsetBitfield;
+};
+struct TablesPresent{
+    // Had a bit of trouble with bit anding QWORDs in 010
+    // So as the top DWORD is largely unused we can just examine the Lower DWORD 
+    DWORD validLower;
+    DWORD validHigher;
+};
+enum <QWORD> Tables
+{
+    Module=0x0,
+    TypeRef=0x1,
+    TypeDef=0x2,
+    Field=0x10,
+    MethodDef=0x40,
+    Property=0x800000000,
+    MethodSemantics=0x1000000000
+};
+
+
+///
+///Need to make this more advanced for null terminator problems.
+///
+int readAheadToGetStringLength(int currentPos)
+{
+    return ReadStringLength(currentPos,-1);
+}
+
+///
+/// Get the required padding
+///
+int calculatePadding(int length)
+{
+    if(length < 4)
+    {
+        return 4 - length;
+    }
+    else
+    {
+        return 4 - length % 4;
+    }
+}
+
+//
+// Boilerplate function to find the offset from filestart of a given dword.
+//
+int GetDwordPos(uchar dwordarr[4])
+{
+	return FindFirst( dwordarr );
+}
+
+// Start of processing
+local int result = GetDwordPos(BSJBmagic);
+if (result == -1)
+{
+   Printf("Failed to parse CLR headers"); 
+}
+else
+{
+	FSeek( result );
+    Printf("Found magic dword at offset: 0x%d\n",result);
+    BSJB bsjb <fgcolor=cBlack, bgcolor=0xFFFFCC, comment="BSJB dot net Magic signature for physical metadata : 0x424A5342">;
+    CLRMETAv clrmetaV <fgcolor=cBlue, bgcolor=0xFFFFCC, comment="Clr metadata version">;
+    CLRreserved clrresd1(4) <fgcolor=cWhite, bgcolor=cBlack, comment="Reserved by clr team">;
+    CLRVersionLength clrvlen <fgcolor=cBlue, bgcolor=0xFFFFCC, comment="ClrVersion string length">;
+    local int length = (int)clrvlen.length;
+    CLRVersionString clrvstring(length) <fgcolor=cBlue, bgcolor=0xFFFFCC, comment="ClrVersion string">;
+    CLRreserved clrresd2(2) <fgcolor=cWhite, bgcolor=cBlack, comment="Reserved by clr team">;
+    
+    MetadataStreamCount streamCount <fgcolor=cRed, bgcolor=0xFFFFCC, comment="Dot Net metadata stream count">;
+    Printf("Dot Net metadata stream count is: %d (decimal)\n",streamCount.count);
+    MetaStreamHeader streamHeaders[(int)streamCount.count] <optimize=false, fgcolor=cRed, bgcolor=0xFFFFCC, comment="Metadata stream header">;
+    
+    CLRreserved clrresd3(4) <fgcolor=cWhite, bgcolor=cBlack, comment="Reserved by clr team">;
+    MetadataVersion mVersion <fgcolor=cBlue, bgcolor=0xFFFFCC, comment="Unchanged since .net2's introduction of generics">;
+    TinyFatOffsets tfOffsets <fgcolor=cBlue, bgcolor=0xFFFFCC, comment="Determines whether the offsets in tables are 4bytes (large) or 2bytes (small)">;
+    CLRreserved clrresd4(1) <fgcolor=cWhite, bgcolor=cBlack, comment="Reserved by clr team, always set to 1">;
+    //TablesPresent tp <fgcolor=cRed, bgcolor=0xFFFFCC, comment="Bit vector indicating which tables are present">;
+    Tables tables <fgcolor=cRed, bgcolor=0xFFFFCC, format=binary, comment="Bit vector indicating which tables are present">;
+}

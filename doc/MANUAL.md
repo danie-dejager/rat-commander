@@ -358,7 +358,9 @@ Beyond the F-key actions, the menus offer:
   errors.
 - **Command** — Go to line, jump to the matching bracket, and the syntax /
   word-wrap / hex-mode / spreadsheet toggles, the **GeoJSON map**, plus a screen
-  repaint.
+  repaint. In hex mode, **Binary templates** opens a submenu to choose a
+  template, run it again, jump to the variable under the cursor, edit the
+  template, start a new one, or stop using one.
 - **Format** — Insert the date and time, re-wrap the current paragraph to the
   configured line length, sort the marked block's lines (with reverse,
   ignore-case and remove-duplicates options), and paste a shell command's output.
@@ -423,9 +425,22 @@ persist across runs and apply to every file opened afterwards.
 - `F7` — Search (hex bytes like `48 65` or text)
 - `F4` — Replace all (same length, overwrite-only)
 - `F2` — Save the changed bytes in place
+- `F5` / `Shift-F5` — Choose the binary template / run it again
+- `F6` — The template variable under the cursor, in the template tree
+- `F3` — The template's output / its variables
 - `Ctrl-F9` — Back to text mode
 - `F9` — Pulldown menu (text-only items greyed out)
 - `Esc` / `F10` — Quit (prompts if modified)
+
+In the template tree (see *Binary templates*):
+
+- `↑ ↓` / `PgUp PgDn` / `Home End` — Move; the byte cursor follows to the
+  variable
+- `→` / `+` — Open; `←` / `-` — Close, or go to the parent; `*` — Open
+  everything below
+- `Enter` — Open or close a struct or array, or edit a value (`Enter` writes it,
+  `Esc` drops it)
+- `F6` / `Tab` / `Esc` — Back to the bytes
 
 ### Process explorer
 
@@ -1413,6 +1428,88 @@ into hex mode). Editing is overwrite-only (length-preserving). **Tab** switches
 between the hex and ASCII columns; **F7** searches for hex bytes (`48 65 6c`) or
 text, **F4** replaces all (same length), **F2** saves the changed bytes. **F9**
 still opens the menu, with the text-buffer items greyed out.
+
+### Binary templates
+
+In hex mode the file is read with an **010 Editor Binary Template** — a small
+C-like program that describes a file format — and the result is shown as a
+tree of the file's structures and fields beside the bytes (or below them, when
+the terminal isn't wide enough). Each row has the variable's **name**, its
+**value**, where it **starts**, its **size**, its **type** and a **comment**,
+narrower panels dropping the later columns. The template's colours tint the
+bytes it covers, and the bytes of the variable selected in the tree are
+highlighted.
+
+**Picking the template.** When hex mode opens, the template that fits the file
+runs by itself, in the background — its name and progress show on the status
+line. A template fits when one of its **file masks** matches the file's name
+and, if it has any, one of its **ID bytes** patterns matches the start of the
+file; a template without file masks fits on its ID bytes alone. A plain text
+file is not taken for a binary format that merely shares its extension, and an
+extension several formats use (`.img`, `.dat`) only picks a template by itself
+when one of them also recognises the file's first bytes. **F5**
+opens the template picker: the templates that fit come first, then every other
+one by category; type to filter, **Enter** uses the highlighted template, **F4**
+opens it for editing, and **(No template)** stops using one. **Shift-F5** runs
+the template again.
+
+**Moving around.** **F6** selects the variable under the byte cursor in the
+tree — opening whatever it is inside — and gives the tree the keys; **F6**,
+**Tab** or **Esc** give them back to the bytes. Moving through the tree moves the
+byte cursor to each variable. **→** opens a struct or array, **←** closes it or
+steps to its parent, and **\*** opens everything below the selected row. Large
+arrays list their elements a thousand at a time, with a row to list more.
+**F3** switches the panel to the template's **output** — what it printed, its
+warnings, and why it stopped if it did — and back.
+
+**Editing values.** **Enter** on a value edits it in place. Numbers can be typed
+as decimal, `0x1F`, `1Fh` or `0b101`, an enum by its constant's name, a
+character as `'A'`, a string in quotes (with `\n`, `\t`, `\x41` escapes), and
+dates in the format they are shown in. The value is written with the variable's
+byte order and width — a bitfield keeps the bits around it — into the hex
+editor's unsaved changes, so **F2** saves it like any other edit. A variable
+with its own `read` function is edited through its `write` function, and is
+read-only without one. After an edit the template runs again once typing pauses
+(a template that took more than a second waits for **Shift-F5** instead).
+
+**The templates.** The program comes with **307 templates** from SweetScape's
+[template repository](https://www.sweetscape.com/010editor/repository/templates/)
+— archives, images, audio and video, executables, fonts, disk images, databases
+and many more — which it writes to **`templates/`** in the config directory on
+first start. They are yours to change: an edited template is never overwritten,
+one you delete is not brought back, and a later release only refreshes the ones
+you left as they were. Any other `.bt` file in that directory (or a subdirectory
+of it) is a template too, chosen by its header comments:
+
+```text
+//      File: MyFormat.bt
+//  Category: User
+//   Purpose: What it parses
+// File Mask: *.myf
+//  ID Bytes: 4D 59 46 [+4] 01   // bytes at the start; [+N] skips N
+```
+
+**New template…** (Command → Binary templates) starts one for the file being
+viewed — its file mask and first bytes already in the header — and opens it in
+the editor; **Edit template…** opens the template in use, at the line a run
+stopped at. The hex editor waits underneath and comes back, running the edited
+template, when that editor is closed. `#include` looks next to the including
+file, then in the templates directory, then among the built-in templates.
+
+**What runs.** Structs and unions (with arguments, recursive, on-demand with
+`size=`), typedefs, enums, padded and unpadded bitfields in either direction,
+duplicate arrays, strings, local variables and structs, functions with reference
+parameters, the `read`, `write`, `comment`, `name`, `format`, `fgcolor`,
+`bgcolor`, `style`, `hidden`, `open`, `optimize`, `pos` and `localpos`
+attributes, and the reading, string, math, date, checksum, search and colour
+functions. A template never changes the file while it runs: functions that
+would write to it, open other files or run programs stop the template with an
+error, keeping what it had built; prompts take their default answer, and
+disassembly is shown as plain bytes. An array of structs whose size can vary is
+read element by element when it has up to 1024 of them, and otherwise, as in
+010 Editor, assumed to repeat the size of its first element (`optimize=false` /
+`optimize=true` decide it for good). A run stops after two million variables or
+two minutes.
 
 
 ## Archives — browsed like directories
@@ -2632,6 +2729,10 @@ Configuration files live in your platform config directory
   50 files edited (see *Editor*).
 - **`themes.toml`** — your editable themes (see *Themes*).
 - **`lang/`** — the localization files, one TOML per language (see *Language*).
+- **`templates/`** — the binary templates for the hex editor, the built-in ones
+  and your own, and `.rc-manifest.toml`, which records what was deployed so
+  upgrades refresh only the templates you haven't edited (see *Binary
+  templates*).
 - **`menu`** — the F2 user menu (see below).
 - **`rc.ext`** — file associations for Open/View/Edit actions and extfs mounts
   (see *The rc.ext file format*).

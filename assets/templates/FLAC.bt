@@ -1,0 +1,557 @@
+//------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+//
+//      File: FLAC.bt
+//   Authors: zhoubo
+//   Version: 0.1
+//   Purpose: This template is used to parse Free Lossless Audio Codec file
+//  Category: Audio
+// File Mask: *.flac, *.fla
+//  ID Bytes: 66 4C 61 43 // fLaC
+//   History: 
+//   0.1      2024-02-04 zhoubo : Initial release for FLAC
+//------------------------------------------------
+
+// More information available at:
+//  1. https://xiph.org/flac/documentation_format_overview.html
+//  2. https://xiph.org/flac/format.html
+//  3. https://blog.csdn.net/ffgamelife/article/details/7893747
+
+
+BigEndian();
+
+// Forward declarations:
+
+struct METADATA_BLOCK_HEADER;
+struct METADATA_BLOCK_STREAMINFO;
+struct METADATA_BLOCK_PADDING;
+struct METADATA_BLOCK_APPLICATION;
+struct METADATA_BLOCK_SEEKTABLE;
+struct METADATA_BLOCK_VORBIS_COMMENT;
+struct METADATA_BLOCK_CUESHEET;
+struct METADATA_BLOCK_PICTURE;
+struct FRAME_HEADER;
+struct SUB_FRAME;
+struct METADATA_BLOCKS;
+struct FLAC_HEADER;
+
+// Constants:
+
+local INT64 pos = 0;
+local UBYTE findLastBlcok = 0; // 1 : last, 0 : not last
+//local int64 k_fSize = FileSize();
+
+// Enums:
+
+typedef enum <UBYTE>
+{
+    eMETDATA_BLOCK_FLAG_NOTLAST  = 0,
+    eMETDATA_BLOCK_FLAG_LAST     = 1,
+} METDATA_BLOCK_FLAG;
+
+typedef enum <UBYTE>
+{
+    eMETDATA_BLOCK_TYPE_STREAMINFO     = 0,
+    eMETDATA_BLOCK_TYPE_PADDING        = 1,
+    eMETDATA_BLOCK_TYPE_APPLICATION    = 2,
+    eMETDATA_BLOCK_TYPE_SEEKTABLE      = 3,
+    eMETDATA_BLOCK_TYPE_VORBIS_COMMENT = 4,
+    eMETDATA_BLOCK_TYPE_CUESHEET       = 5,
+    eMETDATA_BLOCK_TYPE_PICTURE        = 6,
+    // eMETDATA_BLOCK_TYPE_reserved    = 7~126,
+    // eMETDATA_BLOCK_TYPE_invalid     = 127,
+} METDATA_BLOCK_TYPE;
+
+// Funtions:
+
+string GetBlockTypeComment(UINT &BLOCK_TYPE)
+{
+    local string comment = "Reserved";
+    switch (BLOCK_TYPE)
+    {
+    case 0:              comment = "METADATA_BLOCK_STREAMINFO"; break;
+    case 1:              comment = "METADATA_BLOCK_PADDING"; break;
+    case 2:              comment = "METADATA_BLOCK_APPLICATION"; break;
+    case 3:              comment = "METADATA_BLOCK_SEEKTABLE"; break;
+    case 4:              comment = "METADATA_BLOCK_VORBIS_COMMENT"; break;
+    case 5:              comment = "METADATA_BLOCK_CUESHEET"; break;
+    case 6:              comment = "METADATA_BLOCK_PICTURE"; break;
+    case 127:            comment = "METADATA_BLOCK_Invalid"; break;
+    }
+
+    return comment;
+}
+
+string GetBlockingStrategyComment(USHORT &BlockingStrategy)
+{
+    local string comment = "";
+    switch (BlockingStrategy)
+    {
+    case 0:              comment = "fixed-blocksize stream; frame header encodes the frame number"; break;
+    case 1:              comment = "variable-blocksize stream; frame header encodes the sample number"; break;
+    }
+
+    return comment;
+}
+
+string GetBlockSizeComment(UBYTE &BlockSize)
+{
+    local string comment = "";
+    switch (BlockSize)
+    {
+    case 0x00:           comment = "reserved"; break;
+    case 0x01:           comment = "192 samples"; break;
+    case 0x02:           comment = "576 samples"; break; // 576 * (2^(n-2)) samples
+    case 0x03:           comment = "1152 samples"; break; // 576 * (2^(n-2)) samples
+    case 0x04:           comment = "2304 samples"; break; // 576 * (2^(n-2)) samples
+    case 0x05:           comment = "4608 samples"; break; // 576 * (2^(n-2)) samples
+    case 0x06:           comment = "get 8 bit (blocksize-1) from end of header"; break;
+    case 0x07:           comment = "get 16 bit (blocksize-1) from end of header"; break;
+    case 0x08:           comment = "256 samples"; break; // 256 * (2^(n-8)) samples
+    case 0x09:           comment = "512 samples"; break; // 256 * (2^(n-8)) samples
+    case 0x0A:           comment = "1024 samples"; break; // 256 * (2^(n-8)) samples
+    case 0x0B:           comment = "2048 samples"; break; // 256 * (2^(n-8)) samples
+    case 0x0C:           comment = "4096 samples"; break; // 256 * (2^(n-8)) samples
+    case 0x0D:           comment = "8192 samples"; break; // 256 * (2^(n-8)) samples
+    case 0x0E:           comment = "16384 samples"; break; // 256 * (2^(n-8)) samples
+    case 0x0F:           comment = "32768 samples"; break; // 256 * (2^(n-8)) samples
+    }
+
+    return comment;
+}
+
+string GetSampleRateComment(UBYTE &SampleRate)
+{
+    local string comment = "";
+    switch (SampleRate)
+    {
+    case 0x00:           comment = "get from STREAMINFO metadata block"; break;
+    case 0x01:           comment = "88.2kHz"; break;
+    case 0x02:           comment = "176.4kHz"; break;
+    case 0x03:           comment = "192kHz"; break;
+    case 0x04:           comment = "8kHz"; break;
+    case 0x05:           comment = "16kHz"; break;
+    case 0x06:           comment = "22.05kHz"; break;
+    case 0x07:           comment = "24kHz"; break;
+    case 0x08:           comment = "32kHz"; break;
+    case 0x09:           comment = "44.1kHz"; break;
+    case 0x0A:           comment = "48kHz"; break;
+    case 0x0B:           comment = "96kHz"; break;
+    case 0x0C:           comment = "get 8 bit sample rate (in kHz) from end of header"; break;
+    case 0x0D:           comment = "get 16 bit sample rate (in Hz) from end of header"; break;
+    case 0x0E:           comment = "get 16 bit sample rate (in tens of Hz) from end of header"; break;
+    case 0x0F:           comment = "invalid, to prevent sync-fooling string of 1s"; break;
+    }
+
+    return comment;
+}
+
+string GetChannelAssignmentComment(UBYTE &ChannelAssignment)
+{
+    // (number of independent channels)-1. Where defined, the channel order follows SMPTE/ITU-R recommendations.
+    local string comment = "reserved";
+    switch (ChannelAssignment)
+    {
+    case 0x00:           comment = "1 channel: mono"; break;
+    case 0x01:           comment = "2 channels: left, right"; break;
+    case 0x02:           comment = "3 channels: left, right, center"; break;
+    case 0x03:           comment = "4 channels: front left, front right, back left, back right"; break;
+    case 0x04:           comment = "5 channels: front left, front right, front center, back/surround left, back/surround right"; break;
+    case 0x05:           comment = "6 channels: front left, front right, front center, LFE, back/surround left, back/surround right"; break;
+    case 0x06:           comment = "7 channels: front left, front right, front center, LFE, back center, side left, side right"; break;
+    case 0x07:           comment = "8 channels: front left, front right, front center, LFE, back left, back right, side left, side right"; break;
+    case 0x08:           comment = "left/side stereo: channel 0 is the left channel, channel 1 is the side(difference) channel"; break;
+    case 0x09:           comment = "right/side stereo: channel 0 is the side(difference) channel, channel 1 is the right channel"; break;
+    case 0x0A:           comment = "mid/side stereo: channel 0 is the mid(average) channel, channel 1 is the side(difference) channel"; break;
+    }
+
+    return comment;
+}
+
+string GetBitsPerSampleComment(UBYTE &BitsPerSample)
+{
+    local string comment = "";
+    switch (BitsPerSample)
+    {
+    case 0x00:           comment = "get from STREAMINFO metadata block"; break;
+    case 0x01:           comment = "8 bits per sample"; break;
+    case 0x02:           comment = "12 bits per sample"; break;
+    case 0x03:           comment = "reserved"; break;
+    case 0x04:           comment = "16 bits per sample"; break;
+    case 0x05:           comment = "20 bits per sample"; break;
+    case 0x06:           comment = "24 bits per sample"; break;
+    case 0x07:           comment = "reserved"; break;
+    }
+
+    return comment;
+}
+
+string GetPictureTypeComment(UINT &PictureType)
+{
+    local string comment = "";
+    switch (PictureType)
+    {
+    case 0:              comment = "Other"; break;
+    case 1:              comment = "32x32 pixels 'file icon' (PNG only)"; break;
+    case 2:              comment = "Other file icon"; break;
+    case 3:              comment = "Cover (front)"; break;
+    case 4:              comment = "Cover (back)"; break;
+    case 5:              comment = "Leaflet page"; break;
+    case 6:              comment = "Media (e.g. label side of CD)"; break;
+    case 7:              comment = "Lead artist/lead performer/soloist"; break;
+    case 8:              comment = "Artist/performer"; break;
+    case 9:              comment = "Conductor"; break;
+    case 10:             comment = "Band/Orchestra"; break;
+    case 11:             comment = "Composer"; break;
+    case 12:             comment = "Lyricist/text writer"; break;
+    case 13:             comment = "Recording Location"; break;
+    case 14:             comment = "During recording"; break;
+    case 15:             comment = "During performance"; break;
+    case 16:             comment = "Movie/video screen capture"; break;
+    case 17:             comment = "A bright coloured fish"; break;
+    case 18:             comment = "Illustration"; break;
+    case 19:             comment = "Band/artist logotype"; break;
+    case 20:             comment = "Publisher/Studio logotype"; break;
+    }
+
+    return comment;
+}
+
+UINT GetBitsPerSampleSize(UBYTE &BitsPerSample)
+{
+    local UINT size = 1;
+    switch (BitsPerSample)
+    {
+    // TBD case 0x00:           size = "get from STREAMINFO metadata block"; break;
+    case 0x01:           size = 8; break;
+    case 0x02:           size = 12; break;
+    case 0x04:           size = 16; break;
+    case 0x05:           size = 20; break;
+    case 0x06:           size = 24; break;
+    }
+
+    return size;
+}
+
+UINT GetBlockSizeSize(UBYTE &BlockSize)
+{
+    local UINT size = 1;
+    switch (BlockSize)
+    {
+    case 0x01:           size = 192; break;
+    case 0x02:           size = 576; break; // 576 * (2^(n-2)) samples
+    case 0x03:           size = 1152; break; // 576 * (2^(n-2)) samples
+    case 0x04:           size = 2304; break; // 576 * (2^(n-2)) samples
+    case 0x05:           size = 4608; break; // 576 * (2^(n-2)) samples
+    // TBD case 0x06:           size = "get 8 bit (blocksize-1) from end of header"; break;
+    // TBD case 0x07:           size = "get 16 bit (blocksize-1) from end of header"; break;
+    case 0x08:           size = 256; break; // 256 * (2^(n-8)) samples
+    case 0x09:           size = 512; break; // 256 * (2^(n-8)) samples
+    case 0x0A:           size = 1024; break; // 256 * (2^(n-8)) samples
+    case 0x0B:           size = 2048; break; // 256 * (2^(n-8)) samples
+    case 0x0C:           size = 4096; break; // 256 * (2^(n-8)) samples
+    case 0x0D:           size = 8192; break; // 256 * (2^(n-8)) samples
+    case 0x0E:           size = 16384; break; // 256 * (2^(n-8)) samples
+    case 0x0F:           size = 32768; break; // 256 * (2^(n-8)) samples
+    }
+
+    return size;
+}            
+
+
+typedef struct 
+{
+    UINT   IS_LAST_BLOCK : 1           <format=hex, comment=(this == 1 ? "Last Meta" : "Not Last Meta" )>;
+    UINT   BLOCK_TYPE    : 7           <format=decimal, comment=GetBlockTypeComment>;
+    UINT   BLOCK_LENGTH  : 24          <format=decimal>;
+} METADATA_BLOCK_HEADER; // 4 bytes
+
+typedef struct 
+{
+    USHORT MIN_BLOCK_SIZE              <format=decimal>;
+    USHORT MAX_BLOCK_SIZE              <format=decimal>;
+    UBYTE  MIN_FRAME_SIZE[3]           <format=hex>;
+    UBYTE  MAX_FRAME_SIZE[3]           <format=hex>;
+    UINT64 SAMPLE_RATE : 20            <format=decimal>;
+    UINT64 CHANNELS : 3                <format=decimal>;
+    UINT64 BITS_PER_SAMPLE : 5         <format=decimal>;
+    UINT64 TOTAL_SAMPLES : 36          <format=decimal>;
+    UINT64 MD5[2]                      <format=hex>;
+} METADATA_BLOCK_STREAMINFO; // 34 bytes
+
+typedef struct 
+{
+    // not parse
+} METADATA_BLOCK_PADDING;
+
+typedef struct 
+{
+    // UINT applicationID;
+    // N bytes
+} METADATA_BLOCK_APPLICATION;
+
+typedef struct 
+{
+    UINT64 SampleIndex                  <format=decimal>;
+    UINT64 Offset                       <format=decimal>;
+    USHORT SampleCount                  <format=decimal>;
+} METADATA_BLOCK_SEEKTABLE; // multi seektable
+
+typedef struct 
+{
+    // not parse
+} METADATA_BLOCK_VORBIS_COMMENT;
+
+typedef struct 
+{
+
+} METADATA_BLOCK_CUESHEET;
+
+typedef struct 
+{
+    // UINT PictureType                       <format=decimal, comment=GetPictureTypeComment>;
+    // UINT MIMEType
+    // N*8 bytes, MIMEType String
+    // UINT StringLength
+    // N*8 bytes UTF-8 PictureDescription
+    // UINT PixelsWidth;
+    // UINT PixelsHeight;
+    // UINT BitsPerPixel
+    // UINT PictureIndexedColor
+    // UINT PictureLength
+    // N*8 bytes, picture binary data
+} METADATA_BLOCK_PICTURE;
+
+typedef struct 
+{
+    USHORT SyncCode3FFE : 14           <format=hex, fgcolor=cLtBlue>; // 11111111111110b
+    USHORT Reserved : 1                <format=hex, fgcolor=cLtBlue, comment=(this == 0 ? "mandatory value" : "reserved for future use")>;
+    USHORT BlockingStrategy : 1        <format=hex, fgcolor=cLtBlue, comment=GetBlockingStrategyComment>;
+    UBYTE  BlockSize : 4               <format=hex, fgcolor=cLtBlue, comment=GetBlockSizeComment>;
+    UBYTE  SampleRate : 4              <format=hex, fgcolor=cLtBlue, comment=GetSampleRateComment>;
+    UBYTE  ChannelAssignment : 4       <format=hex, fgcolor=cLtBlue, comment=GetChannelAssignmentComment>;
+    UBYTE  BitsPerSample : 3           <format=hex, fgcolor=cLtBlue, comment=GetBitsPerSampleComment>;
+    UBYTE  Reserved2 : 1               <format=hex, fgcolor=cLtBlue, comment=(this == 0 ? "mandatory value" : "reserved for future use")>;
+    // TBD
+    //<?> if(variable blocksize)
+    //        <8-56>:"UTF-8" coded sample number (decoded number is 36 bits)
+    //    else
+    //        <8-48>:"UTF-8" coded frame number (decoded number is 31 bits)
+    //<?> if(blocksize bits == 011x)
+    //        8/16 bit (blocksize-1)
+    //<?> if(sample rate bits == 11xx)
+    //        8/16 bit sample rate
+    UBYTE  CRC8                        <format=hex, fgcolor=cLtBlue>;
+} FRAME_HEADER;
+
+typedef struct 
+{
+    // prevent sync-fooling string of 1s, set 0
+    UBYTE  Sync : 1                    <format=hex, fgcolor=cBlue>;
+    /* 000000 : SUBFRAME_CONSTANT
+     * 000001 : SUBFRAME_VERBATIM
+     * 00001x : reserved
+     * 0001xx : reserved
+     * 001xxx : if(xxx <= 4) SUBFRAME_FIXED, xxx=order ; else reserved
+     * 01xxxx : reserved
+     * 1xxxxx : SUBFRAME_LPC, xxxxx=order-1
+     */
+    UBYTE  SubFrameType : 6            <format=binary, fgcolor=cBlue>;
+    /* 1+k 'Wasted bits-per-sample' flag
+     *  0 : no wasted bits-per-sample in source subblock, k=0
+     *  1 : k wasted bits-per-sample in source subblock, k-1 follows, unary coded; e.g. k=3 => 001 follows, k=7 => 0000001 follows.
+     */
+    UBYTE  WastedFlag : 1              <format=hex, fgcolor=cBlue>;
+    if (0 == WastedFlag)
+    {
+        // nothing
+    }
+    else if (1 == WastedFlag)
+    {
+        UBYTE WastedBitsPerSample      <format=binary, fgcolor=cBlue>; // auto fill 0 to align one byte
+    }
+    else
+    {
+        Warning("error wastedFlag !");
+    }
+} SUBFRAME_HEADER;
+
+typedef struct 
+{
+
+
+
+} SUBFRAME_CONSTANT;
+
+typedef struct 
+{
+    SetBackColor(cRed);
+    METADATA_BLOCK_HEADER BLOCK_HEADER;
+    if (0 == findLastBlcok && eMETDATA_BLOCK_TYPE_STREAMINFO == BLOCK_HEADER.BLOCK_TYPE)
+    {
+        if (eMETDATA_BLOCK_FLAG_LAST == BLOCK_HEADER.IS_LAST_BLOCK)
+        {
+            findLastBlcok = 1;
+        }
+        SetBackColor(cYellow);
+        METADATA_BLOCK_STREAMINFO streaminfo <name = "METADATA_BLOCK_STREAMINFO">;
+    }
+    else if (0 == findLastBlcok && eMETDATA_BLOCK_TYPE_PADDING == BLOCK_HEADER.BLOCK_TYPE)
+    {
+        if (eMETDATA_BLOCK_FLAG_LAST == BLOCK_HEADER.IS_LAST_BLOCK)
+        {
+            findLastBlcok = 1;
+        }
+        SetBackColor(cNone);
+        UBYTE  data[BLOCK_HEADER.BLOCK_LENGTH] <name = "METDATA_BLOCK_PADDING">;
+    }
+    else if (0 == findLastBlcok && eMETDATA_BLOCK_TYPE_APPLICATION == BLOCK_HEADER.BLOCK_TYPE)
+    {
+        if (eMETDATA_BLOCK_FLAG_LAST == BLOCK_HEADER.IS_LAST_BLOCK)
+        {
+            findLastBlcok = 1;
+        }
+        SetBackColor(cNone);
+        UBYTE  data[BLOCK_HEADER.BLOCK_LENGTH] <format=hex, name = "METDATA_BLOCK_APPLICATION">;
+    }
+    else if (0 == findLastBlcok && eMETDATA_BLOCK_TYPE_SEEKTABLE == BLOCK_HEADER.BLOCK_TYPE)
+    {
+        if (eMETDATA_BLOCK_FLAG_LAST == BLOCK_HEADER.IS_LAST_BLOCK)
+        {
+            findLastBlcok = 1;
+        }
+        SetBackColor(cGreen);
+        local UINT numOfSeekPoint = BLOCK_HEADER.BLOCK_LENGTH / 18;
+        local UINT i;
+        for (i = 0; i < numOfSeekPoint; i++)
+        {
+            METADATA_BLOCK_SEEKTABLE seektable <name = "METADATA_BLOCK_SEEKTABLE">;
+        }
+    }
+    else if (0 == findLastBlcok && eMETDATA_BLOCK_TYPE_VORBIS_COMMENT == BLOCK_HEADER.BLOCK_TYPE)
+    {
+        if (eMETDATA_BLOCK_FLAG_LAST == BLOCK_HEADER.IS_LAST_BLOCK)
+        {
+            findLastBlcok = 1;
+        }
+        SetBackColor(cNone);
+        UBYTE  data[BLOCK_HEADER.BLOCK_LENGTH] <format=hex, name = "METDATA_BLOCK_VORBIS_COMMENT">;
+    }
+    else if (0 == findLastBlcok && eMETDATA_BLOCK_TYPE_CUESHEET == BLOCK_HEADER.BLOCK_TYPE)
+    {
+        if (eMETDATA_BLOCK_FLAG_LAST == BLOCK_HEADER.IS_LAST_BLOCK)
+        {
+            findLastBlcok = 1;
+        }
+        SetBackColor(cNone);
+        UBYTE  data[BLOCK_HEADER.BLOCK_LENGTH] <format=hex, name = "METDATA_BLOCK_CUESHEET">;
+    }
+    else if (0 == findLastBlcok && eMETDATA_BLOCK_TYPE_PICTURE == BLOCK_HEADER.BLOCK_TYPE)
+    {
+        if (eMETDATA_BLOCK_FLAG_LAST == BLOCK_HEADER.IS_LAST_BLOCK)
+        {
+            findLastBlcok = 1;
+        }
+        SetBackColor(cNone);
+        UBYTE  data[BLOCK_HEADER.BLOCK_LENGTH] <format=hex, name = "METDATA_BLOCK_PICTURE">;
+    }
+    else
+    {
+        Warning( "Unknow BLOCK!!!" );
+        SetBackColor(cNone);
+    }
+
+    SetBackColor(cNone);
+
+} METADATA_BLOCKS  <style=sHeading4Accent>;
+           
+typedef struct 
+{
+    UINT fLaC                          <format=hex, fgcolor=cGreen>;
+} FLAC_HEADER;
+
+
+//--------------------------------------------------------------------//
+FLAC_HEADER header <name = "FLAC Header">;
+if(header.fLaC != 0x664C6143) // "fLaC"
+{
+    Warning( "File is not a valid FLAC file. stop!!!" );
+    return -1;
+}
+
+while (!FEof())
+{
+    // check LastBlcok
+    if (1 == findLastBlcok)
+    {
+        //Printf("FRAME_HEADER start\n");
+        FRAME_HEADER FrameHeader       <name = "Frame Header">;
+        SUBFRAME_HEADER SubFrameHeader <name = "SubFrame Header">;
+        if (0b000000 == SubFrameHeader.SubFrameType)
+        {
+            Printf("SUBFRAME_CONSTANT\n");
+            local UINT size = GetBitsPerSampleSize(FrameHeader.BitsPerSample);
+            UBYTE data[size] <name = "SUBFRAME_CONSTANT">;
+            USHORT FOOTER_CRC16            <format=hex, fgcolor=cLtBlue>;
+        }
+        else if (0b000001 == SubFrameHeader.SubFrameType)
+        {
+            Printf("SUBFRAME_VERBATIM\n");
+           /*
+            local UINT size1 = GetBitsPerSampleSize(FrameHeader.BitsPerSample);
+            local UINT size2 = GetBlockSizeSize(FrameHeader.BlockSize);
+            UBYTE data[size1 * size2] <name = "SUBFRAME_VERBATIM">;
+            USHORT FOOTER_CRC16            <format=hex, fgcolor=cLtBlue>;
+            */
+        }
+        else if (0b001000 == (SubFrameHeader.SubFrameType & 0b001000) && ((SubFrameHeader.SubFrameType & 0b000111) <= 4))
+        {
+            Printf("SUBFRAME_FIXED\n");
+           /*
+            local UINT size1 = GetBitsPerSampleSize(FrameHeader.BitsPerSample);
+            UBYTE data[size1 * PredictorOrder] <name = "SUBFRAME_FIXED">; // PredictorOrder?
+            UBYTE Residual : 2;
+            UBYTE PartitionOrder : 4;
+            if (0b00 == Residual)
+            {
+                local UINT size = 1 << PartitionOrder;
+                Printf("RICE_PARTITION size : %d, PartitionOrder : %d\n", size, PartitionOrder);
+                UBYTE RICE_PARTITION : 2;
+                UBYTE RICE_PARTITION[(size - 2) / 8];
+            }
+            else if (0b01 == Residual)
+            {
+                local UINT size = (1 << PartitionOrder);
+                Printf("RICE_PARTITION2 size : %d, PartitionOrder : %d\n", size, PartitionOrder);
+                UBYTE RICE_PARTITION2 : 2;
+                UBYTE RICE_PARTITION2[(size - 2) / 8];
+            }
+            else
+            {
+                UBYTE reserved : 2;
+            }
+            */
+        }
+        else if (0b100000 == (SubFrameHeader.SubFrameType & 0b100000))
+        {
+            Printf("SUBFRAME_LPC\n");
+            // TBD
+        }
+        else
+        {
+            Printf("SubFrame reserved, do nothing\n");
+            USHORT FOOTER_CRC16            <format=hex, fgcolor=cLtBlue>;
+        }
+
+        // TBD
+        // not parse real audio data, skip all
+        FSkip(FileSize() - FTell());
+    }
+    else
+    {
+        METADATA_BLOCKS blocks         <format=hex, name = "METADATA_BLOCKS">;
+    }
+
+    pos = FTell();
+    FSeek(pos);
+}

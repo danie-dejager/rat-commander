@@ -6326,3 +6326,90 @@ async fn the_details_view_plays_audio_until_the_cursor_moves_on() {
 
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Hex mode runs the file's binary template on the tick; the picker's choice
+/// replaces it; and editing a template opens it over the hex editor, which
+/// comes back — running the edited template — when that editor closes.
+#[tokio::test]
+async fn binary_templates_run_are_chosen_and_edited_over_the_hex_editor() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let dir = temp_dir("bttpl");
+    let file = dir.join("data.zip");
+    {
+        let f = std::fs::File::create(&file).unwrap();
+        let mut z = zip::ZipWriter::new(f);
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        z.start_file("a.txt", opts).unwrap();
+        std::io::Write::write_all(&mut z, b"template test").unwrap();
+        z.finish().unwrap();
+    }
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(file.clone()).await;
+    let ed = st.editor.as_mut().unwrap();
+    ed.handle_key(KeyEvent::new(KeyCode::F(9), KeyModifiers::CONTROL));
+    assert!(ed.is_hex());
+    let settle = |st: &mut AppState| {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while st.editor.as_ref().is_some_and(|e| e.template_pending()) && Instant::now() < deadline
+        {
+            st.on_tick();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    let screen = |st: &mut AppState| {
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 30)).unwrap();
+        let ed = st.editor.as_mut().unwrap();
+        t.draw(|f| crate::editor::render::render(f, f.area(), ed, &theme)).unwrap();
+        let b = t.backend().buffer();
+        (0..b.area.height)
+            .map(|y| (0..b.area.width).map(|x| b[(x, y)].symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert!(st.wants_ticks(), "a template run keeps the tick going");
+    settle(&mut st);
+    let ed = st.editor.as_ref().unwrap();
+    assert_eq!(ed.active_template().map(|i| i.file_name), Some("ZIP.bt".into()));
+    assert!(screen(&mut st).contains("record"));
+
+    // F5's picker lists the templates; "(No template)" hides the panel.
+    st.apply_editor_signal(EditorSignal::OpenTemplatePicker).await;
+    assert!(matches!(st.dialog, Some(Dialog::TemplatePicker(_))));
+    st.dialog = None;
+    st.handle_submit(Submit::EditorTemplate(None)).await;
+    assert!(!st.editor.as_ref().unwrap().template_panel());
+
+    // A template of the user's own, chosen, then edited.
+    let tpl = dir.join("Mine.bt");
+    std::fs::write(&tpl, "// File Mask: *.zip\nuint magic <format=hex>;\n").unwrap();
+    let mut info = crate::bt::header::parse_header("Mine.bt", &std::fs::read(&tpl).unwrap());
+    info.path = Some(tpl.clone());
+    st.handle_submit(Submit::EditorTemplate(Some(Box::new(info.clone())))).await;
+    settle(&mut st);
+    let s = screen(&mut st);
+    assert!(s.contains("magic") && s.contains("0x4034B50"), "{s}");
+
+    st.handle_submit(Submit::EditorEditTemplate(Box::new(info))).await;
+    assert_eq!(st.editor_stack.len(), 1, "the hex editor waits underneath");
+    let ed = st.editor.as_mut().unwrap();
+    assert!(!ed.is_hex() && ed.name == "Mine.bt");
+    ed.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::CONTROL));
+    for c in "ushort version;".chars() {
+        ed.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    }
+    st.apply_editor_signal(EditorSignal::Save { close_after: true }).await;
+    assert!(st.editor_stack.is_empty());
+    let ed = st.editor.as_ref().unwrap();
+    assert!(ed.is_hex(), "back in the hex editor");
+    settle(&mut st);
+    let s = screen(&mut st);
+    assert!(s.contains("version"), "the edited template ran: {s}");
+
+    // Closing the hex editor now leaves for the panels.
+    st.apply_editor_signal(EditorSignal::Close).await;
+    assert!(st.editor.is_none());
+    std::fs::remove_dir_all(&dir).ok();
+}

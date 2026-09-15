@@ -89,6 +89,9 @@ notify = "8.2.0"
 portable-pty = "0.9.0"
 ratatui = "0.30.2"
 regex = "1.13.1"
+# 010 Editor template regexes (FindAll, RegExMatch) use lookbehind, which
+# `regex` lacks. Already compiled as part of the tree (syntect), so no new crate.
+fancy-regex = "0.16.2"
 ropey = "1.6.1"
 russh = "0.63.3"
 russh-sftp = "3.0.0"
@@ -176,6 +179,12 @@ rodio = { version = "0.22.2", default-features = false, features = ["playback", 
 # Tests synthesise small ELF, COFF and Mach-O objects to analyse, rather than
 # carrying binary fixtures in the repository.
 object = { version = "0.40.0", default-features = false, features = ["write"] }
+
+# build.rs packs the vendored binary templates (assets/templates/*.bt) into one
+# zlib bundle the program embeds. The same flate2 as above — pure Rust, so the
+# cross-compiles run the build script on their host unchanged.
+[build-dependencies]
+flate2 = "1.1.10"
 
 # nix (chmod/chown/uid lookups, process signals) is Unix-only.
 [target.'cfg(unix)'.dependencies]

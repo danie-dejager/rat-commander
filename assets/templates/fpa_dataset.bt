@@ -1,0 +1,1399 @@
+//--------------------------------------
+//--- 010 Editor Binary Template
+//
+// File:        fpa_dataset.bt
+// Author:      MQB-coding
+// Revision:    9999
+// Purpose:     VAG MQB FPA (fahrprofilauswahl / driving profile) dataset parsing
+//  Category: Database
+// Comments:    red = unknown, yellow = possible, green = sure, gray = doesn't look very relevant.
+//   History: 
+//   9999  2025-02-28 1: 23
+//              Currently only useful for FPA datasets for 3Q0907530Q and newer.
+//--------------------------------------
+OutputPaneClear();
+local int groupsMatrixControlsArray[64];
+
+local int mk7 = (FileSize() == 0x1100 ? 1 : 0);
+
+BitfieldDisablePadding();
+BigEndian();
+char dataset_version[4]       <format=hex,bgcolor=cGreen,comment="Version">; // something like J1 00
+// Anything older than version IA seems to be a different format.
+// second part of the version is always 00
+
+//ubyte header1[10] <bgcolor=cRed>;
+struct{
+    byte header_04; // always 64
+    byte year <read=Str("%lg", this+2010), bgcolor=cGreen>;
+    byte header_06 <bgcolor=cDkGray>; // always 00
+    byte header_07; // always 0a
+    byte header_08; // 00 or 1e. Always 00, except with LA, LE, LG, LI, LK, LO
+    byte header_09; // 1, 0 or ff. FF is used on Audi Datasets. 0 is used on the datasets that are marked "with eco button".
+    byte header_0A; // 0, 1 or 6. 6 is used on the datasets that are marked "with eco button".
+    byte header_0B; // 0, 3, 14, 32 or 0A . No idea what this is. 3 is used on the datasets that are marked "with eco button".
+    byte header_0C; // 0A or 0F. 0A only seems to be used with Tiguan datasets?
+    byte header_0D; // always 01
+} header1;
+
+
+struct{
+    byte header_0E; //always F4
+    byte header_0F; // 0, 2 or 6. 2 only used in NOFPA_DS JC00. 0 is used in the datasets that are marked by 1e in byte 8 of header1
+    byte header_10 <bgcolor=cDkGray>; // always 00
+    byte header_11 <bgcolor=cDkGray>; // always 00
+    byte header_12; // 4 or 7. 4 is used in LA, LE, LG, LI, LK, LO, TA, TB, TC, TK.
+    byte header_13; // 0, 2 or 4. Audi datasets use 0 or 4. 2 is used by all others.
+    byte header_14; // 0, 1 or 2. 1 is used on the datasets that are marked "with eco button".
+    byte header_15; // 0, 1 or 2
+    byte header_16; // 0, 14 or 1e. Audi datasets use 0 or 1e.
+    byte header_17 <bgcolor=cDkGray>; // always 0
+} header2;
+
+
+// From here it appears to be some kind of table, 32 rows, 15 colums, or something like that.
+// it appears to override the request values before they are sent to a control module
+FSeek(38);
+struct{
+    struct{
+        ubyte value_B:4<bgcolor=cDkGreen>;
+        ubyte value_A:4<bgcolor=cGreen>;
+        }group_children_request_values_x [15]<optimize=true>;
+}group_children_request_values[32]<optimize=true>;
+
+// findings so far:
+// on these datasets, the controls line up with their respective position in list_of_grouped_controls:
+// IB (Golf 2019)
+// J6 (Tiguan 2019)
+// JA (Golf R 310)
+// JD (Golf Standard)
+// N1 (A3 tdi 2018)
+// OC (Magotan 2021 with DCC Slider)
+// OS (GTI 2021)
+// OY
+
+
+// looks like they match:
+// M9 (Octavia 2019)
+// MJ (Superb 2020)
+
+
+// on these datasets, they don't:
+// LI (Leon FR 2020)
+// LK (Leon Cupra 300)
+// LO (Leon Cupra)
+// O2 (Magotan 2021 GTE)
+
+
+
+
+FSeek(518);
+ubyte group_member_request_values_controls[8] <bgcolor=cDkGreen,name=getControlName>;
+ubyte amount_of_members_per_group[8] <bgcolor=cGreen>;
+
+
+// these are the names of the groups.
+// examples:
+
+// IB   21 FF FF FF FF FF FF FF 04          - 1 group, 4 controls
+// J6   21 FF FF FF FF FF FF FF 04          - 1 group, 4 controls
+// JA   21 24 FF FF FF FF FF FF 03 02       - 2 groups, 3+2 controls
+// JD   21 FF FF FF FF FF FF FF 04          - 1 group, 4 controls
+// N1   03 0A FF FF FF FF FF FF 04 03       - 2 groups, 4 controls, 3 controls
+// OC   21 24 FF FF FF FF FF FF 04 02       - 2 groups, 4 controls, 2 controls
+// OS   21 FF FF FF FF FF FF FF 04          - 1 group, 4 controls
+// OY   21 24 FF FF FF FF FF FF 04 02       - 2 groups, 4 + 2 controls
+
+// LI   01 FF FF FF FF FF FF FF 05          - 1 group, 5 controls
+// LK   01 FF FF FF FF FF FF FF 06          - 1 group, 6 controls
+// LO   01 FF FF FF FF FF FF FF 07          - 1 group, 7 controls
+// O2   00 FF FF FF FF FF FF FF FF          - no groups
+// PF   21 24 07 FF FF FF FF FF 03 02 02    - 3 groups, 3+2+2 controls
+// Having 3+2+2 in dataset PF rules out that this is anything other than group size.
+
+ubyte reserved_for_future_use[32] <bgcolor=cDkGray, hidden=true>; // always zeroes
+// these determine specifically which controls are set in the group member matrix.
+long members_in_group_[4]<read=getGroupMemberLongCodingByteName, bgcolor=cGreen>;
+// Known values:
+
+// sets with 1 group
+// IB:      4018 0000 0000 0000             1 group: 4 controls
+// J6:      4018 0000 0000 0000             1 group: 4 controls
+// JC:      1000 0010 0000 0000             1 group: 2 controls
+// LI:      4018 0000 0000 0000             1 group: 7 controls   
+// LK:      4018 0000 0000 0000             1 group: 6 controls
+// OS:      4018 0000 0000 0000             1 group: 4 controls
+
+// sets with 2 groups
+// M9:      401C 0000 2001 0000             2 groups: 4 controls, 2 controls
+// OC:      4018 0080 2000 0000             2 groups: 4 controls, 2 controls
+// OY:      4018 0080 2000 0000             2 groups: 4 controls, 2 controls
+
+// sets with 3 grOups
+// PF:      4018 0080 2000 0000 0080        3 groups: 3 controls, 3 controls, 2 controls 
+
+// sets without groups
+// J4:      0000 0000 0000 0000
+// KN:      0000 0000 0000 0000
+// O2:      0000 0000 0000 0000
+// O3:      0000 0000 0000 0000
+// ON:      0000 0000 0000 0000
+// OO:      0000 0000 0000 0000
+// P4:      0000 0000 0000 0000
+
+// Audi, so different logic:
+// N1:      0010 0080 2001 0000
+
+ubyte reserved_for_future_use_2[80] <bgcolor=cDkGray, hidden=true>; // always zeroes
+
+
+
+
+ushort function_bytes_settings_shifted_by_1_bit[30] <hidden=true>; // name isn't accurate, but this value is only used for print
+FSeek(662);
+struct {
+    ubyte allowed_to_change_in_evoff: 1             <read = getYesNo>;
+    ubyte allowed_to_change_in_hybridarea: 1        <read = getYesNo>;
+    ubyte allowed_to_change_in_hybridcharge: 1      <read = getYesNo>;
+    ubyte allowed_to_change_in_hybridhold: 1        <read = getYesNo>;
+    ubyte allowed_to_change_in_offroadindividual: 1 <read = getYesNo>;
+    ubyte allowed_to_change_in_snow: 1              <read = getYesNo>;
+    ubyte allowed_to_change_in_lift: 1              <read = getYesNo>;
+    ubyte allowed_to_change_in_clubsport: 1         <read = getYesNo>;
+
+    ubyte allowed_to_change_in_notset: 1            <read = getYesNo>;
+    ubyte allowed_to_change_in_ecoplus: 1           <read = getYesNo>;
+    ubyte allowed_to_change_in_race: 1              <read = getYesNo>;
+    ubyte allowed_to_change_in_eco: 1               <read = getYesNo>;       
+    ubyte allowed_to_change_in_offroad: 1           <read = getYesNo>;
+    ubyte allowed_to_change_in_sport: 1             <read = getYesNo>;
+    ubyte allowed_to_change_in_normal: 1            <read = getYesNo>;
+    ubyte allowed_to_change_in_comfort: 1           <read = getYesNo>;
+    } control_is_allowed_to_change[30]               <bgcolor=cGreen,optimize=true>; 
+ushort function_bytes_settings[30] <comment=getFunctionByteSettingName,hidden=true>;// name isn't accurate, but this value is only used for print
+
+FSeek(722);
+struct {
+    ubyte remember_after_reset_in_evoff: 1             <read = getYesNo>;
+    ubyte remember_after_reset_in_hybridarea: 1        <read = getYesNo>;
+    ubyte remember_after_reset_in_hybridcharge: 1      <read = getYesNo>;
+    ubyte remember_after_reset_in_hybridhold: 1        <read = getYesNo>;
+    ubyte remember_after_reset_in_offroadindividual: 1 <read = getYesNo>;
+    ubyte remember_after_reset_in_snow: 1              <read = getYesNo>;
+    ubyte remember_after_reset_in_lift: 1              <read = getYesNo>;
+    ubyte remember_after_reset_in_clubsport: 1         <read = getYesNo>;
+
+    ubyte remember_after_reset_in_ecoplus: 1           <read = getYesNo>;
+    ubyte remember_after_reset_in_race: 1              <read = getYesNo>;
+    ubyte remember_after_reset_in_eco: 1               <read = getYesNo>;       
+    ubyte remember_after_reset_in_offroad: 1           <read = getYesNo>;
+    ubyte remember_after_reset_in_sport: 1             <read = getYesNo>;
+    ubyte remember_after_reset_in_normal: 1            <read = getYesNo>;
+    ubyte remember_after_reset_in_comfort: 1           <read = getYesNo>;
+    ubyte remember_after_reset_in_notset: 1            <read = getYesNo>;
+
+    }control_is_reset[30]               <bgcolor=cDkGreen,optimize=true>; 
+
+byte restart_value[30] <format=hex, bgcolor=cGreen, name=getSettingName>;
+// this is the default value after restart  
+
+byte unknown_value_32C <bgcolor=cDkGray,hidden=true>;
+// tested different values, doesn't seem to do anything
+// seems to be 0 always
+
+
+// enabled profiles start here
+ubyte FPA_profile[12] <format=hex,bgcolor=cGreen,name=getFPAName>;
+// changing this will changes what button is shown in the FPA selection screen.
+// these bytes determine what profile button is used in what position
+// for instance:
+// Put "04" into profile_1, and it will display as Offroad.
+
+ubyte profile_returns_after_restart[12] <format=hex,bgcolor=cGreen, name=getFPAName>;
+// This determines what profile position it returns to after restarting the car.
+
+struct{
+    ubyte allow_return_to_evoff: 1             <read = getYesNo>;
+    ubyte allow_return_to_hybridarea: 1        <read = getYesNo>;
+    ubyte allow_return_to_hybridcharge: 1      <read = getYesNo>;
+    ubyte allow_return_to_hybridhold: 1        <read = getYesNo>;
+    ubyte allow_return_to_offroadindividual: 1 <read = getYesNo>;
+    ubyte allow_return_to_snow: 1              <read = getYesNo>;
+    ubyte allow_return_to_lift: 1              <read = getYesNo>;
+    ubyte allow_return_to_clubsport: 1         <read = getYesNo>;
+
+    ubyte allow_return_to_individual: 1        <read = getYesNo>;
+    ubyte allow_return_to_race: 1              <read = getYesNo>;
+    ubyte allow_return_to_eco: 1               <read = getYesNo>;       
+    ubyte allow_return_to_offroad: 1           <read = getYesNo>;
+    ubyte allow_return_to_sport: 1             <read = getYesNo>;
+    ubyte allow_return_to_normal: 1            <read = getYesNo>;
+    ubyte allow_return_to_comfort: 1           <read = getYesNo>;
+	ubyte allow_return_to_notset: 1            <read = getYesNo>;   
+
+} allow_return_to_profile <optimize=false, bgcolor=cGreen>;
+// this determines whether or not it's allowed to return to a given profile upon reset.
+
+byte profile_0_nodata[30] <bgcolor=cDkGray, hidden=true>;
+// tested with different values here, doesn't seem to do anything
+
+
+struct{
+    // refer to FPA_controls for the meaning of each byte number
+    byte setting_byte[30] <bgcolor=cDkGreen, comment=getSettingName, open=true, format=hex>;
+}profile[12];
+// the driving profiles as they are displayed underneath the (i) icon in the HMI.
+
+
+
+byte list_of_grouped_controls[30]<format=hex,bgcolor=cGreen, name=getControlName>; 
+// The value of this determines what value is used in the profiles for instance, 
+// if there's a value 01 on the first position, that means the first value in the 
+// profile sets this specific setting.
+// This list is what's actually shown in the User Interface, and it can represent a group of controls.
+// See list_of_controls for all the ungrouped controls
+// NEVER PUT FF HERE
+struct{
+    // this block consists of 30 bytes, after that the same pattern can be found, once for each enabled profile.
+    // so there will be data for profile 1, 2, 3, but the 4th set of data here will be filled with zeroes when it's not used.
+    // the 6th profile is used as "individual", so it has additional settings.
+    ushort individual_setting_byte[30] <comment=getIndividualSettingName,open=true, bgcolor=cDkGreen> ;
+} settings_shown_in_HMI[12];
+
+// button section starts here
+byte unknown_7BB[2] <bgcolor=cRed>; 
+// almost always 00 00 , except on KV, N1, N8: Audi firmwares.
+// there it's 00 FF
+
+ubyte button_type[5] <bgcolor=cDkGreen>;
+// 0 = disabled
+// 1 = push button
+// 4 = ?
+// 5 = knob
+// 6 = ? O(occurs on MZ)
+// 254 = steering wheel long push   11111110
+// 253 = steering normal push       11111101
+// FD  on Tiguan R (has enabled steering wheel FPA buttons)
+// FE  on Tiguan R (has enabled steering wheel FPA buttons)
+
+ubyte button_behavior[5] <bgcolor=cYellow>;
+// 0 = disabled
+// 1 = enabled
+// 4 = can rotate in 2 directions?
+// there are 5 bytes, because there's room for 5 buttons.
+// TODO: test other values
+
+ 
+byte button_action[5] <bgcolor=cDkYellow>;
+// 01 = button press cycles through the modes
+// 03 = only open FPA dialog, no selection by button
+// 05 = ? (occurs on MZ00)
+// TODO: test other values like 2, 4, 5, 6.
+
+
+
+byte cycling_through_modes[5] <bgcolor=cGreen>;
+// 00 = nothing 
+// 01 = there's no loop
+// 03 = loop through all the modes over and over again
+// again, for each of the 4 buttons.
+
+
+ubyte button_profile_list_number[5]<bgcolor=cDkGreen >;
+// the number determines the list of profiles to cycle through
+
+
+struct {
+    ubyte list_0_unknown_property: 4;
+    ubyte list_0:4 <bgcolor=cLtGreen, name=(this == 0 ? "None" : getFPAName(FPA_profile[this-1]))>;
+    
+    ubyte list_1_unknown_property: 4;
+    ubyte list_1:4 <bgcolor=cGreen, name=(this == 0 ? "None" : getFPAName(FPA_profile[this-1]))>;
+    
+    ubyte list_2_unknown_property: 4;
+    ubyte list_2:4 <bgcolor=cGreen, name=(this == 0 ? "None" : getFPAName(FPA_profile[this-1]))>;
+    
+    ubyte list_3_unknown_property: 4;
+    ubyte list_3:4 <bgcolor=cDkGreen, name=(this == 0 ? "None" : getFPAName(FPA_profile[this-1]))>;
+} button_profile_lists[8] <optimize=true>;
+
+
+// these 8 sets of 4 hold the 8 profiles you can choose from, depending on what list is selected by button_profile_list_number
+// the numbers in this list refer to the entry in FPA_profile[12], so the possible (decimal) values are as follows:
+// 0 = disabled
+// 1 to 12 = reference to the profile in FPA_profile
+// 221: ?
+// 232: ?
+// 241: seen on steering wheel button setups
+// The logic for these higher numbers isn't clear yet.
+// These values are highly probable to be split bytes.
+// Todo: find out that's the logic behind this.
+
+    struct {
+    // the following need more research.
+    ubyte unknown_button_data_7F6[4] <bgcolor=cYellow>;
+    // known (dec) values:
+    // 0
+    // 1
+    // 2
+    // 5
+    // 3rd and 4th are always 00
+    
+    ubyte unknown_button_data_7FA[4]<bgcolor=cDkYellow>;
+    // known (dec) values:
+    // 0
+    // 2
+    // 3
+    // 6
+    // 9
+    // 12
+    
+    
+    
+    ubyte unknown_button_data_7FE[4]<bgcolor=cRed>;
+    // 0x7FE:
+    // 1st and 3rd byte always 0. Are these SHORT values instead of bytes?
+    // known (dec) values for 2nd byte:
+    // 2    most datasets, on the 2nd byte
+    // 4    on J7 and OT, which both have an eco button
+    // 16   on KN
+    // 18   on MZ
+    // 26   on J4
+    // 34   on KV
+    // 
+    // known (dec) values for 4th byte:
+    // 2
+    // 6
+    // 18
+    // 22
+    // 23
+    // 66
+    
+    
+    
+    ubyte unknown_button_data_802[4]<bgcolor=cLtRed>;
+    // 0x802:
+    // 1st, 3rd and 4th byte always 0. Are these SHORT values instead of bytes?
+    // 2nd byte:
+    // 18   MZ
+    // 66   PF
+    
+    
+    ubyte unknown_button_data_806_screen_behavior[4]<bgcolor=cRed>;    
+    // known (dec) values:
+    // 0
+    // 1
+    // 2
+    // 06 = screen doesn't scroll to show all profiles, only the ones that are in the profile selection list.
+    // 250 (FA) 
+    // FF = no screen visible
+    // FE = no screen visible
+    // F0 = no screen visible
+    // 0A = no screen visible
+    //      0: "Not set"
+    //      1: "Title: <brand> drive profile with DCC"
+    //      2: "Title: <brand> drive profile"
+    //      3: "Profiles are no longer matching, and a different animation" - Never seen in factory datasets.
+    //      4: "No HMI screen, only FPA icon"                               - Never seen in factory datasets.
+    //      5: "Nothing on HMI screen, FPA only visible on virtual cockpit" - Never seen in factory datasets.
+    //      6: "Title = profile name. Screen only shows the profiles that are in the list",
+    //      7: "No HMI screen, only FPA icon"                               - Never seen in factory datasets.
+    //      250: "Unknown"
+    
+    
+    
+    ubyte unknown_button_data_80A[4]<bgcolor=cDkRed>;
+    // 1st byte always 0
+    // known (dec) values:
+    // 2nd byte:
+    // 0
+    // 3
+    // 11
+    //
+    // 3rd byte:
+    // 1
+    // 5
+    // 6
+    // 12
+    //
+    // 4th byte:
+    // 1
+    // 2
+    // 3
+    // 9
+    
+    
+    ubyte unknown_button_data_80E[4]<bgcolor=cRed>;
+    // 1st byte:
+    // 0
+    // 1
+    //
+    // 2nd byte:
+    // 0
+    // 1 (only 1 if 1st byte = 0)
+    //
+    // 3rd byte:
+    // 2
+    // 241
+    //
+    // 4th byte:
+    // 2
+    // 241
+    
+    
+    ubyte unknown_button_data_812[4]<bgcolor=cLtRed>;
+    // 0
+    // 1
+    // 2
+    // 10
+    
+    
+    ubyte unknown_button_data_816[4]<bgcolor=cRed >;
+    // 0
+    // 1
+    // 2
+    // 33
+    // 112
+    // 113
+    // 255
+    
+} unknown_button_data;
+
+ubyte unknown_button_data_81A[3]<bgcolor=cDkRed >;
+// 0 0 0 on most datasets
+// 1 0 0 on N1 and N8
+
+ubyte unknown_button_data_81D[10]<bgcolor=cRed >;
+// 0 0 0 0 0 0 0 0 0 0 on most datasets
+// 0 0 0 0 0 0 0 0 0 1 on MZ
+
+ubyte unknown_button_data_827[18]<bgcolor=cLtRed >; 
+// this needs more research.
+// 00 02 00 02 00 12 00 00 00 00 00 00 00 00 00 00 00 00 on J4 
+// 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 on all other datasets
+
+ubyte unknown_839[2]<bgcolor=cDkRed >;
+// Known dec values:
+// 0 0   almost all datasets
+// 8 0   MZ
+
+ubyte unknown_83B[10]<bgcolor=cRed >;
+// known values:
+// all datasets: FF FF FF FF FF FF FF FF FF FF (reserved for future use?)
+// J4 has:       05 05 04 FF FF FF FF FF FF FF
+// MZ has:       FF FF FF FF FF FF FF FF FF F1
+
+
+struct {
+        ubyte unknown_845_data[15];
+        } unknown_845_table[8]<bgcolor=cDkRed >;
+// some kind of table, 8 by 15. Only J4 and MZ seem to have it. Some old gateway leftover?
+
+ubyte unknown_88D[3] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0x00;
+
+byte unknown_8C0[2]<bgcolor=cDkRed >;
+// Known values:
+// 00
+// 2E (0010 1110) on all datasets with FPA
+// 26 (0010 0110) on KV00
+// could be some kind of feature flag, where bits set various features?
+// todo: test with this, there might be something cool inside like test mode that enables all profiles ;-)
+
+
+byte AID_profile_banner[12]<bgcolor=cGreen, comment=getAIDBanner>; //Determines what banner is shown on the AID when selecting the profile
+// todo: test the following decimal values:
+// 32
+
+byte unknown_setting_8CE[12]<bgcolor=cLtRed>;
+// Only J4 has data here:
+// 00 00 17 00 00 16 00 00 00 00 00 00
+
+
+byte unknown_setting_8DA[9]<bgcolor=cRed>;
+// after setting to 123456789, the default settings on individual profile were reset.
+// Of this list of 9 bytes, only the 2nd and 3rd byte have data
+// is filled with  0, 1, 2, 5 or 6.
+// Possibly some kind of long press default value?
+// todo: test changing the values:
+// 0
+// 1
+// 2
+// 5
+// 6
+
+short mode_light_on[12]<bgcolor=cGreen, name=getModeButtonLightState>; 
+// 00 = off
+// 01 = on
+// 02 = blink 
+// 03 = ?
+// 05 = ?
+// 06 = Tiguan knob lit.
+
+// the following 8 groups of data map perfectly to the controls.
+// it is the value range that is used when communicating to the control module.
+// These bytes actually control what is happening when a certain mode is chosen
+// You can diplay these as a matrix
+BitfieldRightToLeft();
+
+struct{
+    struct{
+        int request_value_A     :4;
+        int request_value_B     :4;
+    }request_value[30]<optimize=true>;
+} request_values[8]<bgcolor=cGreen,optimize=true>;
+
+// This is a matrix of 8 bytes x 30 controls.
+// Each byte holds 2 profiles (4 bit per profile)
+// The value is sent to the control module, which changes it's behavior to a given mode when it's supported.
+// The values correspond with the request value that can be found in
+// measurements values, driving profile selection, requested value.
+// If a Requested Value leads to a change in Actual Value, it means the module accepts this value.
+
+byte list_of_controls[30]<bgcolor=cGreen, comment=getControlName >;
+// This determines what FPA-control is controled by the bytes at "settings_shown_in_HMI"
+// usage: set each byte to whatever FPA-control you would like to be handles by the "settings_shown_in_HMI". This should be in line with FPA_controls
+// NEVER PUT FF HERE
+
+byte grouped_controls[30] <bgcolor=cDkGreen>;
+// this byte range determines to which group a control belongs.
+
+long grouped_controls_controlbyte <bgcolor=cDkGreen, fgcolor=cLtGreen,format=binary>;
+// works as follows:
+// 1 grouped setting:  01 (Bit 0 set)
+// 2 grouped settings: 03 (Bit 0-1 set)
+// 3 grouped settings: 07 (Bit 0-2 set)
+// 4 grouped settings: 0F (Bit 0-3 set)
+// 5 grouped settings: 1F (Bit 0-4 set)
+// 6 grouped settings: 3F (Bit 0-5 set)
+// 7 grouped settings: 7F (Bit 0-6 set)
+
+byte gw_longcoding_controls_with_links[30]<bgcolor=cGreen, name=getLongCodingByteName>;
+// Byte 9, Bit 0 = 0x19 = EDS and so forth
+// Byte 9, Bit 1 = 0x1A = HHC
+// see getLongCodingByteName
+
+byte gw_longcoding_controls_without_links[30]<bgcolor=cDkGreen, name=getLongCodingByteName>;
+// Same list as previous one, but can be used to link one control to another.  Is used with Sailing and 4x4 features.
+
+byte SettingBytes_again[30] <bgcolor=cRed>; // rhymes with earlier setting bytes?
+// known values: 2 and 3. Changes didn't seem to touch the 0x38 table logic
+byte SettingBytes_more[30] <bgcolor=cDkRed>; // rhymes with earlier setting bytes?
+// known values: 0 and 8. Changes didn't seem to touch the 0x38 table logic
+
+// the following data all seems to be related to PHEV.
+struct{
+    // the following data appears to be related to Hybrid only, as it's almost completely empty on non-hybrid/PHEV datasets.
+    ubyte PHEV_unknown_AA3[8] <bgcolor=cLtRed>;
+    // KV, N1, N8:      00 01 02 03 04 00 00 01
+    // others:          00 32 33 34 00 00 00 01
+    
+    ubyte PHEV_unknown_AA9[4] <bgcolor=cRed>;
+    // known decimal values:
+    // 255, 255, 255, 255 on most datasets
+    // 255, 6    255, 255 on PD, PF, PH and PO 
+    // 255, 8    241, 241 on O2, O3, O4, O5, ON, OO, OV, P2, P3, P4, PG, PJ, PK, PL, TE
+    
+    ubyte PHEV_unknown_AAF[4] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0xFF
+    
+    ubyte PHEV_unknown_AB3[4] <bgcolor=cDkRed>;
+    // known decimal values:
+    // 5	241	1	255
+    // 5	241	241	255
+    // 255	255	4	241
+    // 255	255	255	255
+    
+    ubyte PHEV_unknown_AB7[5] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0xFF
+    ubyte PHEV_unknown_ABC <bgcolor=cDkRed>; // always 0xFF, except on MZ: 5
+    ubyte PHEV_unknown_ABD[9] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0xFF
+    ubyte PHEV_unknown_AC6[26] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0x00
+    ubyte PHEV_unknown_AE0[14] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0xFF
+    ubyte PHEV_unknown_AEE[14] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always: 00 FF 00 00 FF FF FF FF FF FF FF 00 00 00
+    
+    // note: there are quite a few 14-sized shapes in this area...
+    
+    ushort PHEV_unknown_AFC <bgcolor=cDkRed>;   // always 0 0, except on MZ: 8 0
+    ushort PHEV_unknown_AFE <bgcolor=cRed>;     // always 0 0, except on MZ: 8 0
+    ushort PHEV_unknown_B00 <bgcolor=cDkRed>;   // always 0 0, except on MZ: 8 0
+    ubyte PHEV_unknown_B02[5] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0
+    ubyte PHEV_unknown_B08[4] <bgcolor=cDkRed>; // always 255 255, 255, 255, except on MZ: 255, 12, 12, 12
+    ubyte PHEV_unknown_B0C[4] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0xFF
+    ubyte PHEV_unknown_B0F[77] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // 77 bytes of FF's and 00's. What's the relevance? No idea!
+    
+    ushort PHEV_unknown_B5C[20] <bgcolor=cDkRed>;    // see excelsheet
+    ubyte PHEV_unknown_B83[44] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0x00
+    ubyte PHEV_unknown_BB0[10] <bgcolor=cDkRed>;     // see excelsheet
+    ushort PHEV_unknown_BBA[10] <bgcolor=cLtRed>;    // see excelsheet
+    ubyte PHEV_unknown_BCE[10] <bgcolor=cDkRed>;     // see excelsheet
+
+    struct {
+        ubyte PHEV_unknown_BD8_table_1[32] <bgcolor=cRed>;     // see excelsheet, could be like a controls list?
+        ubyte PHEV_unknown_BD8_table_2[32] <bgcolor=cDkRed>;   // see excelsheet, could be hybrid mode 1?
+        ubyte PHEV_unknown_BD8_table_3[32] <bgcolor=cRed>;     // see excelsheet, could be hybrid mode 2?
+        ubyte PHEV_unknown_BD8_table_4[32] <bgcolor=cDkRed>;   // see excelsheet, could be hybrid mode 3?
+    } PHEV_unknown_BD8_table;
+    
+    ubyte PHEV_unknown_C58[22] <bgcolor=cLtRed>;     // see excelsheet
+    
+    
+    ubyte PHEV_unknown_C6E[107] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>;     // see excelsheet
+    ubyte PHEV_unknown_CD9[1] <bgcolor=cRed>;
+    // known decimal values:
+    // 0 : almost always
+    // 80: N1, N8, KV (Audi datasets)
+    // 42: O2, O3, O4, O5, ON, OO, OV, P2, P3, P4, PG, PJ, PK, PL, TE
+    ubyte PHEV_unknown_CDA[3] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0
+    ubyte PHEV_unknown_CDD[4] <bgcolor=cRed>;
+    // known decimal values:
+    // 0    0 0   0   : almost always
+    // 134  0 12  0   : KV, N1, N8 (Audi datasets)
+    // 34   0 28  0   : MZ
+    // 34   0 28  27  : O2, O3, O4, O5, ON, OO, OV, P2, P3, P4, PG, PJ, PK, PL, TE   
+
+    ubyte PHEV_unknown_CE1[11] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0
+    ubyte PHEV_unknown_CEC[1] <bgcolor=cRed>;
+    // known decimal values:
+    // 0    
+    // 1:   O4, O5, P2
+    // 5:   O2, O3, ON, OO, OV, P3, P4, PG, PJ, PK, PL, TE
+
+    ubyte PHEV_unknown_CED[9] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0
+    ubyte PHEV_unknown_CF6[1] <bgcolor=cRed>;
+    // known decimal values:
+    // 0    
+    // 1: O2, O3, O4, O5, ON, OO, P2, P3, P4, PG, PJ, PK, PL, TE
+
+    ubyte PHEV_unknown_CF7[11] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0
+    ubyte PHEV_unknown_D02[10] <bgcolor=cRed>;
+    // known decimal values:
+    // 15	0	0	0	30	0	0	1	0	0   KV, N1, N8 (Audi datasets)
+    // 31	0	0	0	62	0	0	1	0	0   MZ, O2, O3, O4, O5, ON, OO, OV, P2, P3, P4, PG, PJ, PK, PL, TE
+
+    ubyte hybrid_modes[12]<format=decimal,bgcolor=cYellow>; //not sure, needs testing
+    ubyte hybrid_modes_active[12]<bgcolor=cRed >; //not sure, needs testing
+    
+    ubyte PHEV_unknown_D24[192] <bgcolor=cDkRed >;
+
+    ubyte PHEV_unknown_DE4[12] <bgcolor=cLtRed>;
+    // on cars with a hybrid profile, this is always:
+    // 6 5 1 4 1 3 2 1 1 14 13 1
+    // otherwise it's zeroes.   
+
+    ubyte PHEV_unknown_DF0[6] <bgcolor=cRed>;
+    // zeroes, but on MZ it's 0 0 3 0 0 0 
+
+    ubyte PHEV_unknown_DF6[28] <bgcolor=cDkRed>;
+
+    ubyte PHEV_unknown_E12[4] <bgcolor=cRed>;
+    // zeroes, but on MZ it's 3 0 0 0 
+
+    ubyte PHEV_unknown_E16[14] <bgcolor=cLtRed>;
+
+    ubyte PHEV_unknown_E24[8] <bgcolor=cRed>;
+
+    struct{
+        ubyte PHEV_unknown_E2C_data[6];
+    }   PHEV_unknown_E2C[5] <bgcolor=cDkRed>;
+
+
+    ubyte PHEV_unknown_E4A[4] <bgcolor=cRed>;
+    ubyte PHEV_unknown_E4F[8] <bgcolor=cLtRed>; // 2 0 0 0 0 0 0 0  on MZ, 0 on all others
+    ubyte PHEV_unknown_E56[64] <bgcolor=cRed>; // looks to be 8x8 bytes or so
+    ubyte PHEV_unknown_E96[7] <bgcolor=cDkRed>; // on Hybrid cars: 138 37 1 34 0 174 0 
+    ubyte AID_mode_banner[12]<bgcolor=cGreen, comment=getAIDBanner>;
+    ubyte PHEV_unknown_EA9[20] <bgcolor=cDkRed>; // on Hybrid cars: 138 37 1 34 0 174 0 
+    ubyte PHEV_unknown_E4D[4] <bgcolor=cRed>;
+    ubyte PHEV_unknown_EC1[10] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0
+    ushort PHEV_unknown_ECB[4] <bgcolor=cRed>;
+    ubyte PHEV_unknown_ED3[4] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0
+    ubyte PHEV_unknown_ED7[4] <bgcolor=cDkRed>;
+    // especially the 4th byte has a lot of variation and is set on most datasets
+    // very interesting what this could be!
+    ubyte PHEV_unknown_EDB[24] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0
+    ubyte PHEV_unknown_EF3[1] <bgcolor=cRed>;
+    // always 0, except on O2, O3, O4, O5, ON, OO, OV, P2, P3, P4, PG, PJ, PK, PL, PM, TE. There it's 21
+    ubyte PHEV_unknown_EF4[4] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0
+    ubyte PHEV_unknown_EF8[1] <bgcolor=cRed>; // 1 on KV, otherwise 0
+    ubyte PHEV_unknown_EF9[7] <bgcolor=cDkGray, fgcolor=cGray, hidden=true>; // always 0
+    ubyte PHEV_unknown_F00[1] <bgcolor=cRed >;
+    // 0 : almost always
+    // KV: 8
+    
+    ubyte PHEV_unknown_F01[24] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0
+    ubyte PHEV_unknown_F19[2] <bgcolor=cRed >;
+    // 0 0: almost always
+    // KV: 127 255
+    
+    FSeek(3867);
+    ubyte PHEV_unknown_F1B[15] <bgcolor=cDkGray, fgcolor=cGray , hidden=true>; // always 0
+    ubyte PHEV_unknown_F1D[2] <bgcolor=cRed >;
+    // 0 0: almost always
+    // 6 0: on PD, PH, PO
+    // 0 6: on PF
+} PHEV_unknown_data <fgcolor=cLtBlue>;
+
+
+if (mk7) {
+    FSeek(0xf2c);
+    ubyte PHEV_zeroes[464]<bgcolor=cDkGray, fgcolor=cGray , hidden=true>;   // all zeroes on all datasets I've seen
+}       
+    FSeek(FileSize()-4);
+    LittleEndian(); // go to littleendian mode because of checksum format
+    
+    local int calculated_checksum;
+    calculated_checksum = Checksum(CHECKSUM_CRC32, 0,FileSize()-4);
+    ulong dataset_checksum       <format=hex,bgcolor=cGreen,comment="CRC32">;
+
+
+FSeek(2006);
+ubyte button_for_test[32];
+
+
+
+
+
+// Don't mess with anything below here, unless you know what you're doing.
+
+printTitle("Dataset specifics");
+
+Printf(" Version: %s", dataset_version);
+Printf(" \n"); 
+ 
+
+
+local int i = 0;
+local int j = 0;
+
+local int profile_number = 0;
+local int setting_number = 0;
+local string settingText;
+
+while( profile_number < 12 )
+
+{
+        if (FPA_profile[profile_number] != 00) {
+        Printf (" Profile position %i: %s(%x) \n", profile_number, getFPAName(FPA_profile[profile_number]),FPA_profile[profile_number] );
+        Printf ("  Returns to %s after restart\n", getFPAName(profile_returns_after_restart[profile_number]) );
+        Printf ("  Banner on AID: %s \n", getAIDBanner(AID_profile_banner[profile_number]) );
+        Printf ("  Mode button LED: %s \n", getModeButtonLightState(mode_light_on[profile_number]));
+        Printf ("  Settings: \n");
+
+          for( setting_number = 0; setting_number < 30; setting_number++)
+        {
+            settingText = getSettingName(profile[profile_number].setting_byte[setting_number]);
+            if (settingText!="not set"){
+                Printf ("\t%i\t%-30s: %s (%x) \n", setting_number, getControlName(list_of_grouped_controls[setting_number]),getSettingName(profile[profile_number].setting_byte[setting_number]),profile[profile_number].setting_byte[setting_number]);
+            }
+        }
+ }
+    profile_number += 1;
+    Printf("\n");
+}
+
+local int indiv_profile_number = 0;
+local int indiv_setting_number = 0;
+
+printTitle("HMI");
+Printf(" The following settings are shown in the HMI.\n Items that have no settings are hidden.\n\n");
+while( indiv_profile_number < 12 )
+    {
+        {
+             Printf (" %s HMI shows the following settings: \n", getSettingName(indiv_profile_number+1) );
+             Printf (" Position  Control                         setting: \n");
+
+              for( indiv_setting_number = 0; indiv_setting_number < 30; indiv_setting_number++)
+            {
+                if (list_of_grouped_controls[indiv_setting_number] > 0){
+                    Printf ("  %i \t %-30s: %s(%04x) \n", indiv_setting_number, getControlName( list_of_grouped_controls[indiv_setting_number]),getIndividualSettingName(settings_shown_in_HMI[indiv_profile_number].individual_setting_byte[indiv_setting_number]),(settings_shown_in_HMI[indiv_profile_number].individual_setting_byte[indiv_setting_number]));
+               }
+            }
+    }
+    indiv_profile_number += 1;
+    Printf("\n");
+}
+
+
+local int indivgroup_setting_number = 0;
+local int group_number = 0;
+
+
+printTitle("Controls");
+Printf(" Pos \tDisplayed Name                  \tControl \t Gateway Long Coding Byte \n");
+
+local int ctrlPosition = 0;
+
+for( ctrlPosition = 0; ctrlPosition < 30; ctrlPosition++)
+{
+
+    if (list_of_controls[ctrlPosition] > 0){
+        if (gw_longcoding_controls_without_links[ctrlPosition] == gw_longcoding_controls_with_links[ctrlPosition]){
+            Printf ("  %i \t%-30s\t%02x \t %s (%02x)\n", ctrlPosition, getControlName(list_of_controls[ctrlPosition]), list_of_controls[ctrlPosition], getLongCodingByteName(gw_longcoding_controls_with_links[ctrlPosition]),gw_longcoding_controls_with_links[ctrlPosition]);
+        } else { 
+            Printf ("  %i \t%-30s\t%02x \t %s (%02x) linked to %s (%02x)\n", ctrlPosition, getControlName(list_of_controls[ctrlPosition]), list_of_controls[ctrlPosition], getLongCodingByteName(gw_longcoding_controls_with_links[ctrlPosition]),gw_longcoding_controls_with_links[ctrlPosition],getLongCodingByteName(gw_longcoding_controls_without_links[ctrlPosition]),gw_longcoding_controls_without_links[ctrlPosition]);
+        }
+ }
+}
+
+printTitle("Setting Groups");
+local int num_of_groups = 0;
+while (indivgroup_setting_number < 30) {
+    group_number = 1;
+
+    while (group_number < 30) {
+        if (grouped_controls[indivgroup_setting_number] == group_number) {
+            //The following statement is to fix a bug where the name of the group 4 needs the control that's in position 3.
+            if (group_number == 4){ 
+            Printf("    Group %i (%s): %s (%02x) - 0x38 Matrix line: %i\n", group_number, getControlName(list_of_grouped_controls[group_number-2]), getControlName(list_of_controls[indivgroup_setting_number]),list_of_controls[indivgroup_setting_number], groupMemberMatrixPosition(indivgroup_setting_number,group_number));
+            }else{            
+            Printf("    Group %i (%s): %s (%02x) - 0x38 Matrix line: %i\n", group_number, getControlName(list_of_grouped_controls[group_number-1]), getControlName(list_of_controls[indivgroup_setting_number]),list_of_controls[indivgroup_setting_number], groupMemberMatrixPosition(indivgroup_setting_number,group_number));
+            }
+            num_of_groups++;
+                  }
+        group_number++;
+    }
+    indivgroup_setting_number++;
+}
+if (num_of_groups == 0) {
+Printf(" No groups configured at 0xA09 range.\n");
+}
+
+
+//----
+printTitle("Allowed to make changes to a specific mode for a specific setting (0x296)");
+Printf("                                            \tComfort────────────────────┐\n") ;
+Printf("                                            \tNormal────────────────────┐│\n") ;
+Printf("                                            \tSport────────────────────┐││\n") ;
+Printf("                                            \tOffroad─────────────────┐│││\n") ;
+Printf("                                            \tRace───────────────────┐││││\n") ;
+Printf("                                            \tEco───────────────────┐│││││\n") ;
+Printf("                                            \tIndividual───────────┐││││││\n") ;
+Printf("                                            \tRange───────────────┐│││││││\n") ;
+Printf("                                            \tLift──────────────┐ ││││││││\n") ;
+Printf("                                            \tOffroad Snow─────┐│ ││││││││\n") ;
+Printf("                                            \tOffroad Indiv.──┐││ ││││││││\n") ;
+Printf("                                            \tOffrd/HHold────┐│││ ││││││││\n") ;
+Printf("                                            \tOffrd/HCharge─┐││││ ││││││││\n") ;
+Printf("                                            \tOffrd/HArea──┐│││││ ││││││││\n") ;
+Printf("                                            \tEV OFF──────┐││││││ ││││││││\n") ;
+Printf("                                            \t?????──────┐│││││││ ││││││││\n") ;
+
+for( i = 0; i < 30; i++)
+{
+
+    if (list_of_controls[i] > 0){
+        Printf ("  %i: \t%-30s \t %02x \t %s \t %02x\n", i, getControlName(list_of_controls[i]), list_of_controls[i], IntToBinaryStr(function_bytes_settings_shifted_by_1_bit[i],2,true),function_bytes_settings_shifted_by_1_bit[i]);
+   }
+}
+
+printTitle("Remember setting in specific mode after restart of the car: (0x2D2) ");
+Printf("\t\t\t\t\t?????──────────────────────┐\n") ;
+Printf("\t\t\t\t\tComfort───────────────────┐│\n") ;
+Printf("\t\t\t\t\tNormal───────────────────┐││\n") ;
+Printf("\t\t\t\t\tSport───────────────────┐│││\n") ;
+Printf("\t\t\t\t\tOffroad────────────────┐││││\n") ;
+Printf("\t\t\t\t\tRace──────────────────┐│││││\n") ;
+Printf("\t\t\t\t\tEco──────────────────┐││││││\n") ;
+Printf("\t\t\t\t\tIndividual──────────┐│││││││\n") ;
+Printf("\t\t\t\t\tRange─────────────┐ ││││││││\n") ;
+Printf("\t\t\t\t\tLift─────────────┐│ ││││││││\n") ;
+Printf("\t\t\t\t\tOffroad Snow────┐││ ││││││││\n") ;
+Printf("\t\t\t\t\tOffroad Indiv.─┐│││ ││││││││\n") ;
+Printf("\t\t\t\t\tOffrd/HHold───┐││││ ││││││││\n") ;
+Printf("\t\t\t\t\tOffrd/HCharge┐│││││ ││││││││\n") ;
+Printf("\t\t\t\t\tOffrd/HArea─┐││││││ ││││││││\n") ;
+Printf("\t\t\t\t\tEV OFF─────┐│││││││ ││││││││\n") ;
+for( i = 0; i < 30; i++)
+{
+
+    if (list_of_controls[i] > 0){
+        Printf ("  %i: \t%-30s \t %02x \t %s \t %02x\n", i, getControlName(list_of_controls[i]), list_of_controls[i], IntToBinaryStr(function_bytes_settings[i],2,true), function_bytes_settings[i]);
+   }
+}
+
+printTitle("Request values (0x8FB)");
+
+// Prints a table of all requests values that are sent to control modules.
+Printf(" \n");
+Printf(" Control-module request values (8FB range)\n");
+Printf ("\t\t\t\t\trequest_values_0\t|request_values_1\t|request_values_2\t|request_values_3\t|request_values_4\t|request_values_5\t|request_values_6\t|request_values_7\n");
+Printf(" Position\tControl\t\t\t\t00\tcmft(1)\tnrml(2)\tsprt(3)\tofrd(4)\teco(5)\trace(6)\teco+(7)\ton(8)\toff(9)\tsnow(10)\tpure(11)\t12\tsand(13)\t14\t15\n");
+for( i = 0; i < 30; i++)
+{
+    if (list_of_grouped_controls[i] > 0){
+        Printf ("  %i:\t %-30s(%02x)", i, getControlName(list_of_grouped_controls[i]),list_of_grouped_controls[i]);
+        j = 0;
+        while (j < 8){ 
+        Printf ("\t%02i\t%02i", request_values[j].request_value[i].request_value_A, request_values[j].request_value[i].request_value_B) ;
+        j++;
+        }
+        Printf("\n");
+   }
+}
+printTitle("Research stuff");
+
+/*
+//--- research stuff, what looks like a table from position 38:
+Printf("\n Unknown 38x research\n");
+i = 0;
+j = 0;
+local int amount_of_unknown38_rows_with_value = 0;
+local int amount_of_unknown38_values = 0;
+local int amount_of_unknown38_values_A = 0;
+local int amount_of_unknown38_values_B = 0;
+
+
+local string even_lines;
+local string uneven_lines;
+local int line_number =0;
+
+        Printf("\n");
+
+Printf(" Position\tControl\t\t\t\t1\t2\t3\t4\t5\t6\t7\t8\t9\t10\t11\t12\t13\t14\t15\n");
+i = 0;
+j = 0;
+local int k = 0;
+line_number =0;
+local string filled_lines = "";
+local string used_controls = "";
+for( i = 0; i < 32; i++)
+{
+        amount_of_unknown38_values_A=0;
+        amount_of_unknown38_values_B=0;
+
+        for( j = 0; j < 15; j++){
+        if (group_children_request_values[i].group_children_request_values_x[j].value_A!=0){
+            amount_of_unknown38_values_A++;
+        }
+        if (group_children_request_values[i].group_children_request_values_x[j].value_B!=0){
+            amount_of_unknown38_values_B++;
+            }
+        }
+
+        if (amount_of_unknown38_values_A > 0){
+                amount_of_unknown38_rows_with_value++;
+                Printf("  %i:\t %-30s (%02x)\t", line_number, getControlName(list_of_controls[groupsMatrixControlsArray[line_number]]),list_of_controls[groupsMatrixControlsArray[line_number]]);
+                filled_lines = filled_lines + Str("%i,",line_number);
+                for( j = 0; j < 15; j++)
+                {
+                    Printf("%01x\t", group_children_request_values[i].group_children_request_values_x[j].value_A);
+                }
+
+                Printf("\n");
+                used_controls = used_controls + (getControlName(list_of_controls[amount_of_unknown38_rows_with_value-1])) + Str("(%i), ", list_of_controls[amount_of_unknown38_rows_with_value-1]);
+           }
+        line_number++;
+        if (amount_of_unknown38_values_B > 0){
+                amount_of_unknown38_rows_with_value++;
+                Printf("  %i:\t %-30s (%02x)\t", line_number, getControlName(list_of_controls[groupsMatrixControlsArray[line_number]]),list_of_controls[groupsMatrixControlsArray[line_number]]);
+                filled_lines = filled_lines + Str("%i,",line_number);
+                for( j = 0; j < 15; j++)
+                {
+                    Printf("%01x\t", group_children_request_values[i].group_children_request_values_x[j].value_B);
+                }
+
+                Printf("\n");
+                used_controls = used_controls + (getControlName(list_of_controls[amount_of_unknown38_rows_with_value-1])) + Str("(%i), ", list_of_controls[amount_of_unknown38_rows_with_value-1]);
+
+           }
+            line_number++;
+}
+*/
+
+Printf("\n unknown_setting_8DA:\t");
+for (i=0;i<9;i++){
+        Printf("%i \t", unknown_setting_8DA[i] );
+        }
+
+
+
+
+// Showing how the byte_active bytes are set for each control. Currently, the meaning of these values is unknown.
+Printf("\n\n Position Control                        \t 0xA67 \t 0xA85 \t Meaning\n");
+for( i = 0; i < 30; i++)
+{
+    if (list_of_controls[i] > 0){
+        Printf ("  %i:\t %-30s \t %i \t %i \n", i, getControlName(list_of_controls[i]), SettingBytes_again[i],SettingBytes_more[i]);
+   }
+}
+
+
+printTitle("Checksum");
+Printf(" Checksum in file    : %06lx \n", ((unsigned long)dataset_checksum & 0xFFFFFFFFUL));
+Printf(" Calculated checksum : %06lx \n\n",((unsigned long)calculated_checksum & 0xFFFFFFFFUL));
+if (dataset_checksum != calculated_checksum){
+    Printf(" ! Checksums are not identical \n    ! Copy calculated value into checksum at Variables screen \n");
+} else {
+    Printf(" Checksums are identical, no updates needed\n");
+  };
+Printf(" #################################################\n");
+
+
+// Lookup functions start here.
+// Messing with these will mess up the display in the variables section and in the output console.
+
+// helper function to get the setting name.
+string getSettingName(int settingNumber) {
+    switch (settingNumber) {
+        case 0x0: return "not set";
+        case 0x1: return "Comfort";
+        case 0x2: return "Normal";
+        case 0x3: return "Sport";
+        case 0x4: return "Offroad";
+        case 0x5: return "Eco";
+        case 0x6: return "Race";
+        case 0x7: return "Individual/Eco+";
+        case 0x8: return "On";
+        case 0x9: return "Off";
+        case 0xA: return "Snow";
+        case 0xB: return "Config 11";
+        case 0xC: return "Config 12";
+        case 0xD: return "Sand";
+        case 0xE: return "Config 14";
+        case 0xF: return "Config 15";
+
+        default:  return "Unknown";
+    }
+}
+
+// helper function to get light mode name
+string getModeButtonLightState(int lightMode) {
+    switch (lightMode) {
+        case 0x0: return "Off";
+        case 0x1: return "On";
+        case 0x2: return "Blinking";
+        case 0x5: return "Unknown Skoda value";
+        case 0x6: return "Blinking";
+        default:  return "Unknown";
+    }
+}
+
+// helper function to get the control name.
+string getControlName(int i) {
+        // theory: the first 3 bits are used for something else.. not sure what.
+    //local int mask = 0x1F;         // mask = 00011111 (keeps lower 5 bits)
+    //i = i & mask;   // Perform bitwise AND to zero out the top 3 bits
+    local string j, k;
+    switch (i) {
+        case 0:  j = "None"; break;                    // not set
+        case 1:  j = "Enginepower"; break;             // Engine
+        case 2:  j = "Start/Stop"; break;
+        case 3:  j = "Gearbox"; break;
+        case 4:  j = "Rear differential"; break;    // Rear Differential Lock
+        case 5:  j = "Steering assist"; break;
+        case 6:  j = "Superpositionsteering"; break;   // Progressive Steering
+        case 7:  j = "Damper"; break;                  // DCC
+        case 8:  j = "Climatecontrol"; break;          // HVAC (Air Conditioning)
+        case 9:  j = "Adaptivecruisecontrol"; break;   // ACC
+        case 10: j = "Soundactuator"; break;           // Interior Engine Sound
+        case 11: j = "Steerablebeam"; break;           // Motorway Light
+        case 12: j = "Interiorlight"; break;           // Background Lighting
+        case 13: j = "Airsuspension"; break;           // Air Suspension
+        case 14: j = "Pretensioner"; break;            // Automatic Belt Pre-Tensioning
+        case 15: j = "Seat bolster"; break; // Seat Bolster Setting
+        case 16: j = "Navigation1"; break;             // Route Option
+        case 17: j = "Navigation2"; break;             // Navigation
+        case 18: j = "Freerolling"; break;             // DSG Coasting
+        case 19: j = "Ecolivetips"; break;             // Eco Tips
+        case 20: j = "Active exhaust"; break; // Exterior Engine Sound
+        case 21: j = "Frontaxledifferential"; break;   // Front Differential Lock
+        case 22: j = "Centredifferential"; break;      // Center Differential Lock
+        case 23: j = "Centreandrearaxlediff"; break; // Four-Wheel Drive (AWD)
+        case 24: j = "Electrictorquevectoring"; break; // Electronic Torque Vectoring (Audi-Text)
+        case 25: j = "Antislipcontrol"; break;         // Anti-Slip regulation
+        case 26: j = "Matrixbeam"; break;              // Headlight Control
+        case 27: j = "Rearspoiler"; break;             // Rear spoiler
+        case 28: j = "Brakecontrolsystem"; break;      // ESC System (also changes Start/Stop behavior)
+        case 29: j = "Rearaxlesteeringsystem"; break;  // Rear Axle Steering
+        case 30: j = "Activeantirollbar"; break;       // Adaptive Body Roll Compensation
+        case 31: j = "Curveassist"; break;             // Road Recognition
+        case 32: j = "Hybridcomponents"; break;        // Hybrid Drive
+        case 33: j = "Drivetrain"; break;              // Drive
+        case 34: j = "Chassis"; break;                 // Chassis
+        case 35: j = "Exhaustflap"; break;             // Exhaust Valves
+        case 36: j = "Soundcomponents"; break;         // Engine Sound
+        case 37: j = "Passengercabin"; break;          // Passenger Compartment
+        case 38: j = "Driveseat"; break;               // Driver's Seat
+        case 39: j = "Tirepressuremonitoring"; break;  // Tyre Pressure Monitoring System (TPMS)
+        case 40: j = "Laneassist"; break;              // Lane Assist
+        case 41: j = "Dynenginemount"; break;          // Aggregatelagerung (Audi-Text)
+        case 42: j = "Magneticride"; break;            // Magnetic Ride (Audi-Text)
+        case 43: j = "Switchabledamper"; break;        // Sport Select Chassis
+        case 44: j = "Hillstepdownassist"; break;      // Hill Descent Assist
+        case 45: j = "Driverassist_1"; break;          // Hill Hold Assist
+        case 46: j = "Driverassist_2"; break;          // Range calculation
+        case 47: j = "Displaysetup_1"; break;          // Unknown
+        case 48: j = "Displaysetup_2"; break;          // Unknown
+        case 49: j = "Energodisplaysetup"; break;      // 
+        case 50: j = "Energo_ACC"; break;              // Unknown
+        case 51: j = "Esound"; break;                  // Esound, used on electric vehicles
+        case 52: j = "Eabc"; break;                    // electromechanical Active Body Control
+        case 53: j = "Drivemode"; break;               // Could be the electronic drive modes as seen on GTE
+        case 54: j = "Ebkv"; break;                    // Electric Brake Power Amplifier?
+        case 55: j = "Drivemode2"; break;              // 
+        case 56: j = "Drivemode3"; break;              // 
+        case 57: j = "Double clutch"; break;           //
+        case 0xFF: j = "--"; break;                    // CharismaListFunctions.NONE
+        
+        default:   j = "-- Unknown"; break;
+    }
+    
+    SPrintf(k, "%s [%02x]", j, i);  // Format the string and store in k
+    return k;  // Return k, the formatted string
+}
+
+// helper function to get the control name.
+string getLongCodingByteName(int controlNumber) {
+    switch (controlNumber) {
+        case 0x00: return "not set";
+        case 0x01: return "Byte 12, bit 0 - AGA (External Exhaust sound)";
+        case 0x02: return "Byte 12, bit 1 - ESP (Stability Program)";
+        case 0x03: return "Byte 12, bit 2 - Freilauf (Sailing/Freerunning)";
+        case 0x04: return "Byte 12, bit 3 - MO (Engine Management)";
+        case 0x05: return "Byte 12, bit 4 - GE (Transmission Management)";
+        case 0x06: return "Byte 12, bit 5 - ALR (All Wheel Drive)";
+        case 0x07: return "Byte 12, bit 6 - MO_BZS(Engine.......)";
+        case 0x08: return "Byte 12, bit 7 - DR (Damper Control / DCC)";
+        case 0x09: return "Byte 11, bit 0 - VAQ (Front differential lock)";
+        case 0x0A: return "Byte 11, bit 1 - AFS (Advanced Front Lighting)";
+        case 0x0B: return "Byte 11, bit 2 - RGS (Seatbelt Tensioner)";
+        case 0x0C: return "Byte 11, bit 3 - EPS (Electrical Power Steering)";
+        case 0x0D: return "Byte 11, bit 4 - ACC (Adaptive Cruise Control)";
+        case 0x0E: return "Byte 11, bit 5 - SAK (Interior Sound Control)";
+        case 0x0F: return "Byte 11, bit 6 - MO_StSt (Start/Stop System)";
+        case 0x10: return "Byte 11, bit 7 - AMB (Ambient Lights)";
+        case 0x11: return "Byte 10, bit 0 - IVB (??)";
+        case 0x12: return "Byte 10, bit 1 - KL (Climate control)";
+        case 0x13: return "Byte 10, bit 2 - HSP (Rear Spoiler)";
+        case 0x14: return "Byte 10, bit 3 - AV (Area View??)";
+        case 0x15: return "Byte 10, bit 4 - RWB (Range calculation)";
+        case 0x16: return "Byte 10, bit 5 - HDC (Downhill Assistant)";
+        case 0x17: return "Byte 10, bit 6 - eBKV (Electric Brake Power Amplifier)";
+        case 0x18: return "Byte 10, bit 7 - AGK (Exhaust valves)";
+        case 0x19: return "Byte 09, bit 0 - EDS (Rear differential lock)";
+        case 0x1A: return "Byte 09, bit 1 - HHC (Hill Hold Control)";
+        case 0x1B: return "Byte 09, bit 2 - PDC (Park Distance Control)";
+        case 0x1C: return "Byte 09, bit 3 - FMA (Freewheeling, engine off)";
+        case 0x1D: return "Byte 09, bit 4 - Freewheeling, Default ON";
+        case 0x1E: return "Byte 09, bit 5 - Modular driving dynamics controller";
+        case 0x1F: return "Byte 09, bit 6 - SchaltDR (Operating Mode Selection?)";
+        case 0x20: return "Byte 09, bit 7 - Stages DCC (??)";
+        default:   return "Unknown";
+    }
+}
+
+
+string getGroupMemberLongCodingByteName(int value) {
+    if (value == 0) {
+        return "not set ";
+    }
+
+    local string controlName = "";
+    if (value & (1 << 0))  { controlName += "AGA (External Exhaust sound), ";}
+    if (value & (1 << 1))  { controlName += "ESP (Stability Program), ";}
+    if (value & (1 << 2))  { controlName += "Freilauf (Sailing/Freerunning), ";}
+    if (value & (1 << 3))  { controlName += "MO (Engine Management), ";}
+    if (value & (1 << 4))  { controlName += "GE (Transmission Management), ";}
+    if (value & (1 << 5))  { controlName += "ALR (All Wheel Drive), ";}
+    if (value & (1 << 6))  { controlName += "MO_BZS(Engine.......), ";}
+    if (value & (1 << 7))  { controlName += "DR (Damper Control / DCC), ";}
+    if (value & (1 << 8))  { controlName += "VAQ (Front differential lock), ";}
+    if (value & (1 << 9))  { controlName += "AFS (Advanced Front Lighting), ";}
+    if (value & (1 << 10))  { controlName += "RGS (Seatbelt Tensioner), ";}
+    if (value & (1 << 11))  { controlName += "EPS (Electrical Power Steering), ";}
+    if (value & (1 << 12))  { controlName += "ACC (Adaptive Cruise Control), ";}
+    if (value & (1 << 13))  { controlName += "SAK (Interior Sound Control), ";}
+    if (value & (1 << 14))  { controlName += "MO_StSt (Start/Stop System), ";}
+    if (value & (1 << 15))  { controlName += "AMB (Ambient Lights), ";}
+    if (value & (1 << 16))  { controlName += "IVB (??), ";}
+    if (value & (1 << 17))  { controlName += "KL (Climate control), ";}
+    if (value & (1 << 18))  { controlName += "HSP (Rear Spoiler), ";}
+    if (value & (1 << 19))  { controlName += "AV (Area View??), ";}
+    if (value & (1 << 20))  { controlName += "RWB (Range calculation), ";}
+    if (value & (1 << 21))  { controlName += "HDC (Downhill Assistant), ";}
+    if (value & (1 << 22))  { controlName += "eBKV (Electric Brake Power Amplifier), ";}
+    if (value & (1 << 23))  { controlName += "AGK (Exhaust valves), ";}
+    if (value & (1 << 24))  { controlName += "EDS (Rear differential lock), ";}
+    if (value & (1 << 25))  { controlName += "HHC (Hill Hold Control), ";}
+    if (value & (1 << 26))  { controlName += "PDC (Park Distance Control), ";}
+    if (value & (1 << 27))  { controlName += "FMA (Freewheeling, engine off), ";}
+    if (value & (1 << 28))  { controlName += "Freewheeling, Default ON, ";}
+    if (value & (1 << 29))  { controlName += "mFDR (??), ";}
+    if (value & (1 << 30))  { controlName += "SchaltDR (Operating Mode Selection?), ";}
+    if (value & (1 << 31))  { controlName += "Stages DCC (??), ";}
+    return controlName;
+}
+
+string getIndividualSettingName(int settingNumber) {
+    if (settingNumber == 0) {
+        return "not set ";
+    }
+
+    if (settingNumber == 65534) {
+        return "Slider (on DCC) ";
+    }
+
+    local string settingName = "";
+    if (settingNumber & (1 << 0))  { settingName += "Unknown 1 "; }
+    if (settingNumber & (1 << 1))  { settingName += "Comfort "; }
+    if (settingNumber & (1 << 2))  { settingName += "Normal "; }
+    if (settingNumber & (1 << 3))  { settingName += "Sport "; }
+    if (settingNumber & (1 << 4))  { settingName += "Offroad "; }
+    if (settingNumber & (1 << 5))  { settingName += "Eco "; }
+    if (settingNumber & (1 << 6))  { settingName += "Race "; }
+    if (settingNumber & (1 << 7))  { settingName += "Eco+ "; }
+    if (settingNumber & (1 << 8))  { settingName += "On "; }
+    if (settingNumber & (1 << 9))  { settingName += "Off "; }
+    if (settingNumber & (1 << 10)) { settingName += "Snow "; }
+    if (settingNumber & (1 << 11)) { settingName += "Unknown 2"; }
+    if (settingNumber & (1 << 12)) { settingName += "Unknown 3"; }
+    if (settingNumber & (1 << 13)) { settingName += "Sand "; }
+    if (settingNumber & (1 << 14)) { settingName += "Unknown 4 "; }
+    if (settingNumber & (1 << 15)) { settingName += "Unknown 5 "; }
+
+    return settingName;
+}
+
+string getFPAName(int settingNumber) {
+    switch (settingNumber) {
+        case 0x00: return "not set";
+        case 0x01: return "Comfort";
+        case 0x02: return "Auto/Normal";
+        case 0x03: return "Dynamic/Sport";
+        case 0x04: return "Offroad";
+        case 0x05: return "Eco/Economy";
+        case 0x06: return "Race";
+        case 0x07: return "Individual";
+        case 0x08: return "Range/PHEV 1/Clubsport/Snow";
+        case 0x09: return "Lift/PHEV 2";
+        case 0x0A: return "Snow";
+        case 0x0B: return "Offroad Individual/PHEV 4/Hybrid Auto";
+        case 0x0C: return "Offroad 4/Hybrid Hold";
+        case 0x0D: return "Offroad 5/Hybrid Charge";
+        case 0x0E: return "Offroad 6/Hybrid Area";
+        case 0x0F: return "EV Off";
+        case 0x10: return "Second Hold/Torque Vectoring";
+        case 0x11: return "Racetrack/Hybrid Charge Off";
+        case 0x12: return "Offroad Level 2/Adaptive";
+        case 0x13: return "Offroad Level 3/Traction";
+        case 0x14: return "Offroad Level 4";
+        case 0x15: return "Hybrid Sport";
+        case 0x16: return "Second Auto";
+        case 0x17: return "Unknown Profile";
+        case 0x28: return "GTE Off";
+        case 0x29: return "GTE Off 2";
+        case 0x2A: return "Unknown Profile 2";
+        case 0xFF: return "none";
+        default:   return "Unknown";
+    }
+}
+
+string getAIDBanner(int settingNumber) {
+    switch (settingNumber) {
+        case 0x00: return "not set";
+        case 0x01: return "Comfort";
+        case 0x02: return "Normal";
+        case 0x03: return "Sport";
+        case 0x04: return "Offroad";
+        case 0x05: return "Eco";
+        case 0x06: return "Individual";
+        case 0x07: return "Race";
+        case 0x08: return "Eco";
+        case 0x09: return "Eco: driving and performance restricted";
+        case 0x0A: return "E-Mode";
+        case 0x0B: return "Hybrid Auto";
+        case 0x0C: return "Battery Hold";
+        case 0x0D: return "Battery Charge";
+        case 0x0E: return "E-Mode currently not available";
+        case 0x0F: return "Eco+";
+        case 0x10: return "Snow";
+        case 0x11: return "Normal";
+        case 0x12: return "Offroad individual, check individual settings";
+        case 0x13: return "Auto";
+        case 0x14: return "Driving Mode unable to switch";
+        case 0x15: return "Hybrid Mode, unable to switch";
+        case 0x16: return "Driving Mode Eco not available";
+        case 0x17: return "Driving Mode Normal is not available";
+        case 0x18: return "Mode Battery Hold not available";
+        case 0x19: return "Driving Mode Normal is not available";
+        case 0x1A: return "Mode Battery Charge not available";
+        case 0x1B: return "GTE Off";
+        case 0x1C: return "GTE Logo";
+        case 0x20: return "?";
+        default:   return "Unknown";
+    }
+}
+
+string getSettingByteActive(int state) {
+    switch (state) {
+        case 0x0: return "Inactive";
+        case 0x2: return "Active";
+        case 0xB: return "Unknown (needs testing)";
+        default:  return "Unknown";
+    }
+}
+
+string getBoolean(int state) {
+    switch (state) {
+        case 0x0: return "Disabled";
+        case 0x1: return "Enabled";
+        default:  return "Unknown";
+    }
+}
+
+string getYesNo(int value) {
+    switch (value) {
+    case 0x00: return "No";
+    case 0x01: return "Yes";
+    }
+}
+
+// helper function to print nice titles without needing to type them manually each time
+void printTitle( string title )
+    {
+    Printf(" \n\n");
+    Printf(" #################################################\n");
+    Printf(" %s\n", title);
+    Printf(" #################################################\n");
+    }
+
+int groupMemberMatrixPosition (int value, int group){
+local int temp_order=0;
+local int temp_group=0;
+local int order = 0;
+local int factor = 0;
+
+   if (group == 4){ 
+        group= 3;
+    }
+
+for(i = 0 ; i < 30 ; i ++){
+	if (temp_group < grouped_controls[i]){
+		temp_order = 0;
+		temp_group = grouped_controls[i];
+		} else {
+		temp_order = temp_order+1;
+		}
+    if (i==value){
+        order= temp_order;
+    }
+    }
+
+    if( order < 2){
+        factor = 0;
+    }   else if (order < 4){
+        factor = 1;
+        order = order -2;
+    }   else if (order < 6){
+        factor = 2;
+        order = order - 4;
+    }   else if (order < 8){
+        factor = 3;
+        order = order -6;
+    }
+    order = (factor * 16) + order + (2*(group-1));
+    groupsMatrixControlsArray[order] = value; 
+    return order;       
+}                               
+
+local string filename = "";
+filename = "c:\\temp\\" + dataset_version +  ".txt";
+OutputPaneSave(filename);

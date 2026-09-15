@@ -1,0 +1,108 @@
+//------------------------------------------------
+//--- 010 Editor v16.0.4 Binary Template
+//
+//      File: Bioware_Aurora_Module.bt
+//   Authors: Narta Xaymar Dirks <info@xaymar.com>
+//   Version: 1.1
+//   Purpose: Extracting and creating .mod files
+//  Category: Game
+// File Mask: *.mod
+//  ID Bytes: 4D 4F 44 20 56 31 2E 30 // MOD V1.0
+//   History: 
+//   1.1   2026-06-16 Narta Xaymar Dirks <info@xaymar.com>: Initial data structure figured out, most data types mapped to their actual file types.
+//------------------------------------------------
+
+#ifndef CINTTYPES_H
+#define CINTTYPES_H
+typedef  int8   int8_t;
+typedef uint8  uint8_t;
+typedef  int16  int16_t;
+typedef uint16 uint16_t;
+typedef  int32  int32_t;
+typedef uint32 uint32_t;
+typedef  int64  int64_t;
+typedef uint64 uint64_t;
+
+typedef hfloat half;
+typedef hfloat fp16_t;
+typedef float single;
+typedef float fp32_t;
+typedef double fp64_t;
+#endif
+
+LittleEndian();
+
+struct aurora_module_header {
+    char magic[8] <open=suppress>;    
+    uint32_t always_01000000 <format=decimalhex>;
+    uint32_t _unk01 <format=decimalhex>;    
+    uint32_t entries <format=decimalhex>;
+    uint32_t _unk03 <format=decimalhex>;    
+    uint32_t names_offset <format=decimalhex>;
+    uint32_t offsets_offset <format=decimalhex>;    
+    uint32_t _unk06 <format=decimalhex>;
+    uint32_t _unk07 <format=decimalhex>;
+    uint32_t always_FFFFFFFF <format=decimalhex>;    
+    uint8_t unk[120];
+    uint32_t description_length <format=decimal>; // The description of the module is a length based string.
+    char description[description_length] <optimize=false,warn=false,open=suppress>;
+};
+
+enum <uint32_t> aurora_module_file_type {
+    AURORA_MODULE_FILE_TYPE_NSS = 2009, // NWScript Source: Source file for compiled script data.
+    AURORA_MODULE_FILE_TYPE_NCS = 2010, // Unknown NWScript File
+    AURORA_MODULE_FILE_TYPE_ARE = 2012, // Area
+    AURORA_MODULE_FILE_TYPE_IFO = 2014, // Information: Overall module information. Must be "module.ifo".
+    AURORA_MODULE_FILE_TYPE_GIT = 2023, // 
+    AURORA_MODULE_FILE_TYPE_UTI = 2025, // ... Template - Item
+    AURORA_MODULE_FILE_TYPE_UTC = 2027, // ... Template - Creature
+    AURORA_MODULE_FILE_TYPE_DLG = 2029, // Dialogue Files: All the dialogue files.
+    AURORA_MODULE_FILE_TYPE_ITP = 2030, // 
+    AURORA_MODULE_FILE_TYPE_UTT = 2032, // ... Template - Trigger
+    AURORA_MODULE_FILE_TYPE_UTS = 2035, // ... Template - Sound
+    AURORA_MODULE_FILE_TYPE_FAC = 2038, // Faction / Reputation: Must be "Repute.fac".
+    AURORA_MODULE_FILE_TYPE_UTE = 2040, // ... Template - Encounter
+    AURORA_MODULE_FILE_TYPE_UTD = 2042, // ... Template - Door
+    AURORA_MODULE_FILE_TYPE_UTP = 2044, // ... Template - Placeable
+    AURORA_MODULE_FILE_TYPE_GIC = 2046, // 
+    AURORA_MODULE_FILE_TYPE_JRL = 2056, // Journal: Journal information and data. Must be "module.jrl".
+    AURORA_MODULE_FILE_TYPE_UTW = 2058, // ... Template - Waypoint
+    AURORA_MODULE_FILE_TYPE_NDB = 2064, // Unknown NWScript File
+};
+
+struct aurora_module_file_descriptor {
+    char name[16] <open=suppress>;
+    uint32_t index;  
+    aurora_module_file_type type;
+};
+
+struct aurora_module_file_offset {
+    uint32_t offset <format=decimalhex>;
+    uint32_t length <format=decimalhex>;
+};
+
+struct aurora_module {
+    aurora_module_header header;
+    
+    struct {
+        FSeek(header.names_offset);
+        aurora_module_file_descriptor descriptors[header.entries];
+        
+        FSeek(header.offsets_offset);
+        aurora_module_file_offset offsets[header.entries];
+        
+        // for each descriptor and offset, seek and extract according to descriptor and offset.
+    } raw <open=suppress>;
+    
+    // The descriptors start at this position, so we forcefully seek to it.
+    FSeek(header.names_offset);
+    struct {      
+        aurora_module_file_descriptor descriptor <open=true>;
+        
+        // Once we have the descriptor, we seek to the offset table.
+        aurora_module_file_offset offset <open=suppress,pos=(header.offsets_offset + descriptor.index * 8 /*sizeof(aurora_module_file_offset)*/)>;
+        
+        // And finally we seek to the data entry to read it in its entirely.
+        uint8_t data[offset.length] <optimize=false,open=suppress,pos=offset.offset>;
+    } files[header.entries] <optimize=false>;
+} module;

@@ -1,0 +1,730 @@
+//------------------------------------------------
+//--- 010 Editor v15.0 Binary Template
+//
+//      File: SC2.bt
+//   Authors: Vorono4ka
+//   Version: 1.2
+//   Purpose: SC2 file format template (Supercell)
+//  Category: Misc
+// File Mask: *.sc, *.sc2
+//  ID Bytes: 
+//   History: 
+//   1.2   2024-11-07 Vorono4ka: MatrixBanks and Movie Clip structure are fixed
+//   1.1   2024-11-03 Vorono4ka: Texture type field fixed, Indirect+VTable replaced with RootTable, Indirect fix
+//   1.0   2024-11-03 Vorono4ka: Text field parsing implemented, not presented texture parsing fixed
+//   0.9   2024-11-02 Vorono4ka: Matrix banks parsing fixed (seeking next pointer after parsing element)
+//   0.8   2024-11-02 Vorono4ka: Parsing shape points as a structure
+//   0.7   2024-11-02 Vorono4ka: Parsing matrix banks
+//   0.6   2024-11-02 Vorono4ka: Parsing movie clips
+//   0.5   2024-11-02 Vorono4ka: Parsing shapes and shape commands
+//   0.4   2024-11-01 Vorono4ka: Parsing rectangles from headers
+//   0.3   2024-11-01 Vorono4ka: String parsing from headers
+//   0.2   2024-11-01 Vorono4ka: Reading movie clip modifiers
+//   0.1   2024-11-01 Vorono4ka: Work on SC2 started... Reading textures section
+//------------------------------------------------
+
+LittleEndian();
+
+typedef struct {
+    local uint startPosition = FTell();
+    
+    local int32 offset = ReadInt(startPosition);
+    local uint nextPosition = FTell() + 4;
+    local uint position = startPosition + offset;
+} Indirect<read=IndirectRead>;
+
+string IndirectRead(Indirect &v) {
+    local string s;
+    SPrintf(s, "Position: %d", v.position);
+    return s;
+};
+
+typedef struct {
+    local uint position = FTell();
+    int vtableOffset;
+    local uint vtable = position - vtableOffset;
+    FSeek(vtable);
+    uint16 vtableSize;  // starting from here
+    uint16 tableDataSize;
+    local uint16 fieldCount = (vtableSize - 4) / 2;
+    uint16 fieldOffsets[fieldCount];
+} VTable <read=VTableValueRead, bgcolor = 0xFFFFFF, size=4>;
+
+string VTableValueRead(VTable &v) {
+    local string s;
+    SPrintf(s, "Field offset count: %d", v.fieldCount);
+    return s;
+};
+
+typedef struct {
+    Indirect descriptor;
+    if (descriptor.offset == 0) return;
+    
+    FSeek(descriptor.position);
+    VTable vtable;
+    FSeek(descriptor.position);
+} RootTable <bgcolor = 0xFFFF7F>;
+
+int GoToField(RootTable& rootTable, uint fieldIndex) {
+    if (fieldIndex < 0 || fieldIndex >= rootTable.vtable.fieldCount) {
+        return false;
+    }
+    
+    local int16 fieldOffset = rootTable.vtable.fieldOffsets[fieldIndex];
+    // Printf("fieldIndex: %d, fieldOffset: %d\n", fieldIndex, fieldOffset);
+    if (fieldOffset == 0) {
+        return false;
+    }
+    
+    FSeek(rootTable.descriptor.position + fieldOffset);
+    return true;
+};
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    local int isPresent = GoToField(rootTable, fieldIndex);
+    if (!isPresent) {
+        local uint nextPosition = FTell();
+        local uint structOffset = 0;
+        return;
+    }
+    
+    local uint position = FTell();
+    uint structOffset;
+    local uint nextPosition = FTell();
+    local uint structPosition = position + structOffset;
+    FSeek(structPosition);
+} StructBase <read=StructBaseRead>;
+
+string StructBaseRead(StructBase &v) {
+    if (!v.isPresent) {
+        return "Value is not present";
+    }
+    
+    local string s = "";
+    SPrintf(s, "Position: %d", v.structPosition);
+    return s;
+};
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    if (!base.isPresent) return;
+    
+    uint32 count;
+    // strT array[count];
+    FSeek(base.nextPosition);
+} Vector <read=VectorRead, bgcolor = 0xFFFFFF>;
+
+string VectorRead(Vector &v) {
+    if (!v.base.isPresent) {
+        return StructBaseRead(v.base);
+    }
+    
+    local string s = "";
+    SPrintf(s, "Element count: %d", v.count);
+    return s;
+};
+
+// Built-in types
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    if (!base.isPresent) return;
+    
+    uint32 count;
+    byte array[count];
+    FSeek(base.nextPosition);
+} Int8Vector;
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    if (!base.isPresent) return;
+    
+    uint32 count;
+    int16 array[count];
+    FSeek(base.nextPosition);
+} Int16Vector;
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    if (!base.isPresent) return;
+    
+    uint32 count;
+    int32 array[count];
+    FSeek(base.nextPosition);
+} Int32Vector;
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    if (!base.isPresent) return;
+    
+    uint32 count;
+    float array[count];
+    FSeek(base.nextPosition);
+} FloatVector;
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    local uint position = FTell();
+    local byte isPresent = GoToField(rootTable, fieldIndex);
+    if (isPresent) {
+        byte value;
+        FSeek(position);
+    } else {
+        local string value = "Value is not present";
+    }
+} Int8 <read=value>;
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    local uint position = FTell();
+    local byte isPresent = GoToField(rootTable, fieldIndex);
+    if (isPresent) {
+        ubyte value;
+        FSeek(position);
+    } else {
+        local string value = "Value is not present";
+    }
+} UInt8 <read=value>;
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    local uint position = FTell();
+    local byte isPresent = GoToField(rootTable, fieldIndex);
+    if (isPresent) {
+        int16 value;
+        FSeek(position);
+    } else {
+        local int16 value = 0; // "Value is not present";
+    }
+} Int16 <read=value>;
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    local uint position = FTell();
+    local byte isPresent = GoToField(rootTable, fieldIndex);
+    if (isPresent) {
+        uint16 value;
+        FSeek(position);
+    } else {
+        local uint16 value = 0; // "Value is not present";
+    }
+} UInt16 <read=value>;
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    local uint position = FTell();
+    local byte isPresent = GoToField(rootTable, fieldIndex);
+    if (isPresent) {
+        int32 value;
+        FSeek(position);
+    } else {
+        local string value = "Value is not present";
+    }
+} Int32 <read=value>;
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    local uint position = FTell();
+    local byte isPresent = GoToField(rootTable, fieldIndex);
+    if (isPresent) {
+        uint32 value;
+        FSeek(position);
+    } else {
+        local string value = "Value is not present";
+    }
+} UInt32 <read=value>;
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    local uint position = FTell();
+    local byte isPresent = GoToField(rootTable, fieldIndex);
+    if (isPresent) {
+        float value;
+        FSeek(position);
+    } else {
+        local string value = "Value is not present";
+    }
+} Float <read=value>;
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    if (!base.isPresent) return;
+    
+    uint32 length;
+    char array[length];
+    FSeek(base.nextPosition);
+} ByteArray<read=ByteArrayRead>;
+
+string ByteArrayRead(ByteArray& v) {
+    string s;
+    SPrintf(s, "Byte Array [%d]", v.length);
+    return s;
+}
+
+// Frame Elements
+
+typedef struct {
+    ushort childIndex;
+    ushort matrixIndex;
+    ushort colorTransformIndex;
+} MovieClipFrameElement <read=frameElementRead, size=(3*sizeof(ushort))>;
+
+string frameElementRead(MovieClipFrameElement &v) {
+    local string s;
+    SPrintf(s, "%d - %d, %d", v.childIndex, v.matrixIndex, v.colorTransformIndex);
+    return s;
+};
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    if (!base.isPresent) return;
+    
+    uint32 count;
+    MovieClipFrameElement array[count / 3];
+    FSeek(base.nextPosition);
+} MovieClipFrameElementVector;
+
+// Strings
+
+typedef struct {
+    Indirect descriptor;
+    
+    FSeek(descriptor.position);
+    
+    uint32 length;
+    char text[length];
+    
+    FSeek(descriptor.nextPosition);
+} String<read=StringRead, size=(sizeof(uint32))>;  // only size of descriptor offset
+
+string StringRead(String& v) {
+    if (v.length == 0) {
+        return "";
+    }
+    
+    return v.text;
+}
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    if (!base.isPresent) return;
+    
+    uint32 count;
+    String array[count] <optimize=false>;
+    FSeek(base.nextPosition);
+} StringVector <read=StringVectorRead>;
+
+string StringVectorRead(StringVector& v) {
+    local string s; 
+    SPrintf(s, "Count: %d", v.count); 
+    return s;
+}
+
+// Scaling Grids
+
+typedef struct {
+    float left, top, right, bottom;
+} Rect<read=RectRead, size=(sizeof(float)*4)>;
+
+string RectRead(Rect& v) {
+    local string s;
+    SPrintf(s, "%.2f, %.2f, %.2f, %.2f", v.left, v.top, v.right, v.bottom);
+    return s;
+};
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    if (!base.isPresent) return;
+    
+    uint32 count;
+    Rect array[count];
+    FSeek(base.nextPosition);
+} RectVector;
+
+// Matrices and color transformations
+
+typedef struct {
+    float a, b, c, d, x, y;
+} Matrix2x3 <read=Matrix2x3Read, size=(6*sizeof(float))>;
+
+string Matrix2x3Read(Matrix2x3& v) {
+    local string s;
+    SPrintf(s, "%.2f %.2f %.2f %.2f %.2f %.2f", ReadFloat(startof(v)), ReadFloat(startof(v)+sizeof(float)), ReadFloat(startof(v)+sizeof(float)*2), ReadFloat(startof(v)+sizeof(float)*3), ReadFloat(startof(v)+sizeof(float)*4), ReadFloat(startof(v)+sizeof(float)*5));
+    return s;
+};
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    
+    uint32 count;
+    Matrix2x3 array[count];
+    FSeek(base.nextPosition);
+} Matrix2x3Vector;
+
+typedef struct {
+    ubyte redAddition;
+    ubyte greenAddition;
+    ubyte blueAddition;
+
+    ubyte alpha;
+
+    ubyte redMultiplier;
+    ubyte greenMultiplier;
+    ubyte blueMultiplier;
+} ColorTransform <read=ColorTransformRead, size=(7*sizeof(ubyte))>;
+
+string ColorTransformRead(ColorTransform& v) {
+    local string s;
+    local ubyte ra = ReadUByte(startof(v)+sizeof(ubyte));
+    local ubyte ga = ReadUByte(startof(v)+sizeof(ubyte)*1);
+    local ubyte ba = ReadUByte(startof(v)+sizeof(ubyte)*2);
+    local ubyte a = ReadUByte(startof(v)+sizeof(ubyte)*3);
+    local ubyte r = ReadUByte(startof(v)+sizeof(ubyte)*4);
+    local ubyte g = ReadUByte(startof(v)+sizeof(ubyte)*5);
+    local ubyte b = ReadUByte(startof(v)+sizeof(ubyte)*6);
+    SPrintf(s, "RGBA: #%02x%02x%02x%02x", (r + ra) * a, (g + ga) * a, (b + ba) * a, a);
+    return s;
+};
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    if (!base.isPresent) return;
+    
+    uint32 count;
+    ColorTransform array[count];
+    FSeek(base.nextPosition);
+} ColorTransformVector;
+
+typedef struct {
+    RootTable rootTable;
+    
+    Matrix2x3Vector matrices(rootTable, 0);
+    ColorTransformVector colorTransforms(rootTable, 1);
+    FSeek(rootTable.descriptor.nextPosition);
+} MatrixBank<read=MatrixBankRead>;
+
+string MatrixBankRead(MatrixBank& v) {
+    local string s;
+    SPrintf(s, "Matrix bank (M: %d, C: %d)", v.matrices.count, v.colorTransforms.count);
+    return s;
+};
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    if (!base.isPresent) return;
+    
+    uint32 count;
+    MatrixBank array[count] <optimize=false>;
+    FSeek(base.nextPosition);
+} MatrixBankVector;
+
+// Shape Points
+
+typedef struct {
+    float x, y;
+    ushort u, v;
+} ShapePoint<read=ShapePointRead, size=(sizeof(float)*2+sizeof(ushort)*2)>;
+
+string ShapePointRead(ShapePoint& v) {
+    string s;
+    SPrintf(s, "%.2f, %.2f (%d, %d)", ReadFloat(startof(v)), ReadFloat(startof(v)+sizeof(float)), ReadUShort(startof(v)+sizeof(float)*2), ReadUShort(startof(v)+sizeof(float)*2+sizeof(ushort)));
+    return s;
+}
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    
+    uint32 count;
+    ShapePoint array[count / sizeof(ShapePoint)];
+    FSeek(base.nextPosition);
+} ShapePointVector;
+
+typedef struct {
+    RootTable rootTable;
+    
+    StringVector strings(rootTable, 0);
+    Vector unk2(rootTable, 1);
+    Vector unk3(rootTable, 2);
+    RectVector scalingGrids(rootTable, 3);
+    MovieClipFrameElementVector movieClipFrameElements(rootTable, 4);
+    ShapePointVector shapePoints(rootTable, 5);
+    MatrixBankVector matrixBanks(rootTable, 6);
+} HeaderRoot;
+
+typedef struct {
+    RootTable rootTable;
+    
+    Int16Vector exportIds(rootTable, 0);
+    Int32Vector exportNameIds(rootTable, 1);
+} ExportNamesRoot <bgcolor=0xFF0000>;
+
+// Text Fields
+
+typedef struct {
+    uint16 id;
+    uint16 unused;  // there is no pointers to this value in lib
+    uint32 fontNameReferenceId;
+    // why not use a reference to the rect table?
+    int16 left, top, right, bottom;
+    uint32 color, outlineColor;
+    uint32 textReferenceId, anotherTextReferenceId;
+    ubyte styles;  // aka flags
+    ubyte align;
+    ubyte fontSize;
+    ubyte unused;  // there is no pointers to this value in lib, empty like in default structure
+    uint32 unk;  // should be short, so why it int?... Maybe combination of unk short and bend short
+} TextField<read=TextFieldRead>;
+
+string TextFieldRead(TextField& v) {
+    string s;
+    SPrintf(s, "TextField #%d", v.id);
+    return s;
+}
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    if (!base.isPresent) return;
+    
+    uint32 count;
+    TextField array[count];
+    FSeek(base.nextPosition);
+} TextFieldVector;
+
+typedef struct {
+    RootTable rootTable;
+    
+    TextFieldVector textFields(rootTable, 0);
+} TextFieldsRoot <bgcolor=0x0000FF>;
+
+// Shapes
+
+typedef struct {
+    uint unk1; // always 0
+    uint textureIndex;
+    uint pointCount;
+    uint startingPointIndex;
+} ShapeDrawBitmapCommand<read=ShapeDrawBitmapCommandRead, size=(4*sizeof(uint))>;
+
+string ShapeDrawBitmapCommandRead(ShapeDrawBitmapCommand& v) {
+    local string s;
+    SPrintf(s, "CMD (TX: %d): %d+%d", v.textureIndex, v.startingPointIndex, v.pointCount);
+    return s;
+}
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    if (!base.isPresent) return;
+    
+    int32 count;
+    ShapeDrawBitmapCommand array[count];
+    FSeek(base.nextPosition);
+} ShapeDrawBitmapCommandVector;
+
+typedef struct {
+    RootTable table;
+    
+    UInt16 id(table, 0);
+    ShapeDrawBitmapCommandVector commands(table, 1);
+    
+    FSeek(table.descriptor.nextPosition);
+} Shape<read=ShapeRead, size=4>;
+
+string ShapeRead(Shape& v) {
+    string s;
+    SPrintf(s, "Shape #%d (%d commands)", v.id.value, v.commands.count);
+    return s;
+}
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    if (!base.isPresent) return;
+    
+    uint32 count;
+    Shape array[count] <optimize=false>;
+    FSeek(base.nextPosition);
+} ShapeVector;
+
+typedef struct {
+    RootTable rootTable;
+    
+    ShapeVector shapes(rootTable, 0);
+} ShapesRoot <bgcolor=0x00FF00>;
+
+// Modifiers
+
+typedef struct {
+    ushort id;
+    ushort type;
+} MovieClipModifier<read=MovieClipModifierRead>;
+
+string MovieClipModifierRead(MovieClipModifier& v) {
+    string s;
+    SPrintf(s, "Modifier (%d) #%d", v.type, v.id);
+    return s;
+}
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    if (!base.isPresent) return;
+    
+    uint32 count;
+    MovieClipModifier array[count];
+    FSeek(base.nextPosition);
+} MovieClipModifierVector;
+
+typedef struct {
+    RootTable rootTable;
+    
+    MovieClipModifierVector modifiers(rootTable, 0);
+} MovieClipModifiersRoot <bgcolor=0x00FF00>;
+
+// Movie Clips
+
+typedef struct {
+    uint32 usedTransformsCount;
+    uint32 labelStringIndex;
+} MovieClipFrame<read=MovieClipFrameRead, size=(2*sizeof(uint32))>;
+
+string MovieClipFrameRead(MovieClipFrame& v) {
+    string s;
+    SPrintf(s, "Frame (SID: %d), %d", v.labelStringIndex, v.usedTransformsCount);
+    return s;
+}
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    if (!base.isPresent) return;
+    
+    uint32 count;
+    MovieClipFrame array[count];
+    FSeek(base.nextPosition);
+} MovieClipFrameVector;
+
+typedef struct {
+    RootTable table;
+    
+    UInt16 id(table, 0);
+    UInt32 exportName(table, 1);  // export name, string reference index
+    UInt8 fps(table, 2);  // second byte of fps short. this.fps = this.fps & 0xFF80 | u2 & 0x7F
+    UInt16 frameCount(table, 3);
+    UInt8 u4(table, 4);  // 7th bit of fps short - some boolean. this.fps = (u4 << 7) | this.fps & 0xFF7F;
+    Int16Vector childIds(table, 5);
+    Int32Vector childNameRefIds(table, 6);
+    Int8Vector childBlends(table, 7);
+    MovieClipFrameVector frames(table, 8);
+    UInt32 frameElementOffset(table, 9);  // or start frame element index, TODO: determine whether it bytes or not
+    UInt16 matrixBankIndex(table, 10);  // first byte of fps short. this.fps = ((u10 & 0x7F) << 8) | this.fps & 0x80FF
+    UInt32 scalingGridIndex(table, 11);
+    
+    FSeek(table.descriptor.nextPosition);
+} MovieClip<read=MovieClipRead, size=4>;
+
+string MovieClipRead(MovieClip& v) {
+    string s;
+    // high load on cpu
+    SPrintf(s, "MovieClip #%d", v.id.value);
+    return s;
+}
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    if (!base.isPresent) return;
+    
+    uint32 count;
+    MovieClip array[count] <optimize=false>;
+    FSeek(base.nextPosition);
+} MovieClipVector;
+
+typedef struct {
+    RootTable rootTable;
+    
+    MovieClipVector movieClips(rootTable, 0);
+} MovieClipsRoot <bgcolor=0x00FF00>;
+
+// Textures
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    local int isPresent = GoToField(rootTable, fieldIndex);
+    if (!isPresent) return;
+    
+    RootTable table;
+    
+    Int32 flags(table, 0);
+    // Type converts to strange metrics: If in bounds, then [42, 43, 40, 70, 265, 70, 70, 42, 264](v - 2), otherwise 70.
+    Int8 type(table, 1);
+    Int16 width(table, 2);
+    Int16 height(table, 3);
+    ByteArray textureData(table, 4);
+    Int32 textureFilename(table, 5);  // offset to null-terminated string or string reference
+    
+    FSeek(table.descriptor.nextPosition);
+} Texture<read=TextureRead>;
+
+string TextureRead(Texture& v) {
+    if (!v.isPresent) {
+        return "Texture is not present";
+    }
+    
+    string s;
+    SPrintf(s, "Texture (%dx%d)", v.width.value, v.height.value);
+    return s;
+}
+
+typedef struct {
+    RootTable table;
+    
+    Texture lowresTexture(table, 0);
+    Texture highresTexture(table, 1);
+    FSeek(table.descriptor.nextPosition);
+} TextureSet;
+
+typedef struct (RootTable& rootTable, uint fieldIndex) {
+    StructBase base(rootTable, fieldIndex);
+    if (!base.isPresent) return;
+    
+    uint32 count;
+    TextureSet array[count] <optimize=false>;
+    FSeek(base.nextPosition);
+} TextureSetVector;
+
+typedef struct {
+    RootTable rootTable;
+    
+    TextureSetVector textures(rootTable, 0);
+} TexturesRoot <bgcolor=0x0000FF>;
+
+// MAIN
+
+struct DataChunk (uint i) {
+    int length;
+    local uint position = FTell();
+
+    switch (i) {
+        case 0:
+            HeaderRoot header;
+            break;
+        case 1:
+            ExportNamesRoot exports;
+            break;
+        case 2:
+            TextFieldsRoot textFields;
+            break;
+        case 3:
+            ShapesRoot shapes;
+            break;
+        case 4:
+            MovieClipsRoot movieClips;
+            break;
+        case 5:
+            MovieClipModifiersRoot modifiers;
+            break;
+        case 6:
+            TexturesRoot textures;
+            break;
+        default:
+            char data[length];
+            break;
+    }
+    
+    FSeek(position + length);
+};
+
+struct FILE {
+    local uint i = 0;
+    while (!FEof()) {
+        DataChunk chunk(i++);
+    }
+} file;

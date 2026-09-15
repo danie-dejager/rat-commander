@@ -1,0 +1,64 @@
+//------------------------------------------------
+//--- 010 Editor v16.0.1 Binary Template
+//
+//      File: AndroidPersistentProperties.bt
+//   Authors: feicong
+//   Version: 1.0
+//    E-mail: fei_cong@hotmail.com
+//       Url: https://github.com/feicong/feicong-course/releases/download/latest/BTF.bt
+//   Purpose: parse android /data/property/persistent_properties (Android 8+)
+//  Category: Operating System
+// File Mask: 
+//  ID Bytes: 0A
+//   History: 
+//      1.0   2025-08-31 feicong: first version.
+//------------------------------------------------
+
+LittleEndian();
+
+// property name
+struct PropertyName {
+    uchar name_tag;     // 0x0A
+    uchar name_len;
+    if (name_len > 0) {
+        char name[name_len];
+    }
+};
+
+// property value  
+struct PropertyValue {
+    uchar value_tag;    // 0x12
+    uchar value_len;
+    if (value_len > 0) {
+        char value[value_len];
+    }
+};
+
+struct PersistentProperty {
+    uchar field_tag;        // 0x0A (field 1, wire type 2)
+    uchar record_length;
+    
+    if (record_length > 0) {
+        PropertyName prop_name;
+        PropertyValue prop_value;
+    }
+};
+
+// name=value
+string ReadPropertySummary(PersistentProperty &prop) {
+    local string result = "";
+    if (prop.record_length > 0) {
+        if (exists(prop.prop_name.name)) {
+            result += prop.prop_name.name;
+        }
+        result += "=";
+        if (exists(prop.prop_value.value)) {
+            result += prop.prop_value.value;
+        }
+    }
+    return result;
+}
+
+while (!FEof()) {
+    PersistentProperty property <read=ReadPropertySummary>;
+}

@@ -1,0 +1,81 @@
+//------------------------------------------------
+//--- 010 Editor v13.0 Binary Template
+//
+//      File: DHTB.bt
+//   Authors: B. Kerler
+//   Version: 1.2
+//   Purpose: Spreadtrum/Unisoc  Container
+//  Category: Operating System
+// File Mask: *
+//  ID Bytes: 44 48 54 42
+//   History: 
+//   1.2   2023-03-01 B. Kerler: Add signature with disabled secure boot
+//   1.1   2023-01-26 B. Kerler: Add new signature format
+//   1.0   2022-09-15 B. Kerler: Initial Release
+//------------------------------------------------
+
+typedef struct{
+    unsigned int  magic<format=hex>;
+    unsigned int  version;
+    unsigned char   payloadhash[32];
+    unsigned __int64  imgaddr<format=hex>;
+    unsigned int  imgsize<format=hex>;
+    unsigned int  is_packed;
+    unsigned int  size<format=hex>;
+    unsigned int  imgend<format=hex>;    
+    unsigned int  unknown<format=hex>;
+    unsigned char   reserved[0x1BC];
+} header;
+
+header hdr;
+FSeek(hdr.imgsize+0x200);
+if (FTell()!=FileSize())
+{
+typedef struct {
+
+	unsigned char magic[8];
+	unsigned int version_major;
+	unsigned int version_minor;
+
+	unsigned __int64 payload_size<format=hex>;
+	unsigned __int64 payload_offset<format=hex>;
+
+	unsigned __int64 cert_size<format=hex>;
+	unsigned __int64 cert_offset<format=hex>;
+
+	unsigned __int64 priv_size<format=hex>;
+	unsigned __int64 priv_offset<format=hex>;
+
+	unsigned __int64 cert_dbg_prim_size<format=hex>;
+	unsigned __int64 cert_dbg_prim_offset<format=hex>;
+
+	unsigned __int64 cert_dbg_developer_size<format=hex>;
+	unsigned __int64 cert_dbg_developer_offset<format=hex>;
+
+} sigheader;
+
+sigheader sighdr;
+FSeek(sighdr.cert_offset);
+
+typedef struct {
+	unsigned int keybit_len;
+	unsigned int e;
+	unsigned char mod[keybit_len/8];
+} pubkey;
+
+typedef struct {
+	unsigned int certtype;
+	pubkey pkey;
+	unsigned char hash_data[32];	
+	unsigned char hash_key[32];
+	unsigned int type;
+	unsigned int version;
+    if (version>1)
+    {
+       unsigned int unknown;
+    }
+	unsigned char signature[pkey.keybit_len/8];
+} certificate;
+
+certificate cert;
+}

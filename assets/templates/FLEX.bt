@@ -1,0 +1,433 @@
+//------------------------------------------------
+//--- 010 Editor v13.0beta1 Binary Template
+//
+//      File: FLEX.bt
+//   Authors: Robert Offner MSc.
+//   Version: 0.1
+//   Purpose: Parses floppy and harddisk images for TSC FLEX.
+//  Category: Drives
+// File Mask: *.img, *.dsk
+//  ID Bytes: 
+//   History: 
+//   0.1  2025-07-07 R. Offner: Some code used from Retrodrive.bt but separated for better 
+//        readability, dir_clust_sz gets calculated automatically,
+//        also different first tracks (with different sectors/track) are no problem anymore,
+//        Imagesize which are not a multiple of 256 (corrupted) get read fine usually,
+//        Possibility to override the automatically found values for the first track,
+//        Partially deleted files in the rootdir get flaged as --FREE-- if
+//        first character of FileName is zero or 0xFF or FirstTrack is zero.
+// 
+// COPYRIGHT NOTE:
+// a lot of the code has been taken from the Drive.bt Template
+//------------------------------------------------
+
+                         // Variablename
+struct IMGFILE;          // imgfile
+struct DRIVE;            // drive
+struct BOOTSECTOR;       // bootsector
+struct FLEX_SIR;         // flex_sir
+struct FLEX_CLUSTER;     // cluster
+struct DIRENTRYSET;      // direntryset
+struct SHORTENTRY;       // shortentry
+struct SECTORPLAIN;      // sector
+
+typedef enum <UBYTE> {
+    NONE=0,
+    FLEX1=1, 
+    FLEX2=2,
+    NEWFORMAT
+ }VARIANT;
+
+INT64 CHS_to_OFF(UBYTE cyl, UBYTE head, UBYTE sect){
+    local INT64 ret <hidden=true> = 0;
+    local INT64 c, s;
+    local UBYTE i;
+        
+    //FLEX counts the other side in additional sectors, so no head in calculation
+    
+    if (imgfile.s != imgfile.s1){ // first Track is FM -> weird Geometry and offset calculation difficult
+        if (cyl > 0){
+            ret = (INT64)(imgfile.s1 * imgfile.bps); // is the bytes for the complete first cylinder
+            cyl = cyl - 1;
+            ret += (((INT64)cyl * imgfile.s) + sect - 1) * (INT64)imgfile.bps;
+        }
+        else{
+            ret = (INT64)(sect - 1) * (INT64)imgfile.bps;
+            //Printf("Track: %i Head: %i Sect: %i Offset: %0X\n", cyl, head, sect, ret);
+        }
+        //Printf("(weird)Track: %i Head: %i Sect: %i Offset: %0X\n", cyl, head, sect, ret);
+    }
+    else{
+        ret = (((INT64)cyl * imgfile.s) + sect - 1) * (INT64)imgfile.bps;
+        //Printf("Track: %i Head: %i Sect: %i Offset: %0X\n", cyl, head, sect, ret);
+    }
+    return ret + imgfile.blind_header;
+}
+
+void OFF_to_CHS(UBYTE &c, UBYTE &h, UBYTE &s, INT64 pos){
+    local INT64 bptrack, firsttrack <hidden=true>;
+    pos = pos - imgfile.blind_header;
+    bptrack =  imgfile.s * imgfile.bps; // Bytes per track
+    
+    if (imgfile.s != imgfile.s1){ // first Track is FM -> weird Geometry and offset calculation difficult
+    	firsttrack = imgfile.s1 * imgfile.bps;
+    	pos -= firsttrack;
+    	c = 1;
+    	c += (UBYTE)(pos / bptrack);         // Tracks
+    	s = (UBYTE)(1 + (pos % bptrack)/imgfile.bps); // Sector
+    }
+    else{
+    	c = (UBYTE)(pos / bptrack);         // Tracks
+    	s = (UBYTE)(1 + (pos % bptrack)/imgfile.bps); // Sector
+    	if (imgfile.h > 1)
+    		h = (s>(imgfile.s/2))?1:0;
+    	else h=0;
+    }
+}
+
+typedef struct {
+    if (imgfile.variant == NONE){
+        CHAR    FileName[8]      <fgcolor=cPurple, bgcolor=cWhite>;
+        CHAR    FileExtension[3] <fgcolor=cPurple, bgcolor=cWhite>;
+        UBYTE   someData[21]     <bgcolor=cGreen>;
+    }
+    else if ((imgfile.variant == FLEX2) || (imgfile.variant == FLEX1)) {
+        CHAR    FileName[8]       <bgcolor=cBlack>;//<fgcolor=cPurple, bgcolor=cWhite>;
+        CHAR    FileExtension[3]  <bgcolor=cBlack>;//<fgcolor=cPurple, bgcolor=cWhite>;
+        uint16  not_used2         ;//<bgcolor=cDkGray>;
+        UBYTE   FirstTrack        ;//<bgcolor=cGreen>;
+        UBYTE   FirstSector       ;//<bgcolor=cLtRed>;
+        UBYTE   LastTrack         ;//<bgcolor=cGreen>;
+        UBYTE   LastSector        ;//<bgcolor=cLtRed>;
+        uint16  TotalSectors      ;//<bgcolor=cLtGreen>;
+        UBYTE   RandomFileFlag    ;//
+        UBYTE   not_used3         ;//<bgcolor=cDkGray>;
+        UBYTE   DateMonth;
+        UBYTE   DateDay;
+        UBYTE   DateYear; // 24 Byte
+    }
+} SHORTENTRY <optimize=false>;
+
+// ########################  Dir Entry Set  ##########################
+string ReadRecordCount( DIRENTRYSET &f){
+    local string str <hidden=true> ="";
+    local UINT64 filesize, records <hidden=true>;
+    if ((imgfile.variant == FLEX1) ||
+             (imgfile.variant == FLEX2)) {
+        if (((UBYTE)f.shortentry.FileName[0] == 0) || 
+            ((UBYTE)f.shortentry.FileName[0] == 0xFF) || 
+            ((UBYTE)f.shortentry.FileName[0] == 0xE5) || 
+            ((UBYTE)f.shortentry.FileName[0] == 0x20))
+            SPrintf(str, "");
+        else
+            SPrintf(str, "FileSize: %i Bytes", f.shortentry.TotalSectors * (imgfile.bps-4));
+    }
+    return str;
+}
+
+wstring ReadDIRENTRYSET( DIRENTRYSET &f ) {
+    if ((imgfile.variant == NONE)){
+        return "--FILE--";
+    }
+    else {
+    	if ( ((UBYTE)f.shortentry.FileName[0] != 0xFF) &&
+    	     ((UBYTE)f.shortentry.FileName[0] != 0) &&
+    	     (f.shortentry.FirstTrack != 0)) { // Not deleted!
+            return f.shortentry.FileName+'.'+f.shortentry.FileExtension;
+    	}
+    	else
+        	return "--FREE--";
+    }
+}
+
+// This struct makes the directory entry plus the data clusters.
+typedef struct {
+    local uint16 i <hidden=true>;
+    local UBYTE fs, ft  <hidden=true>;
+    local INT64 pos, addr, blockstart <hidden=true>;
+
+    // Read Long/Short directory entries
+    SHORTENTRY shortentry;
+    // Get first and last track and sector
+    pos = FTell(); // 428
+    //############################# Here are the Data Blocks following    
+    if ((imgfile.variant == NONE)){
+        //Printf("Pos: %u", rootdir.pos);
+        blockstart = (INT64)imgfile.bootsect + imgfile.blind_header + (imgfile.dir_entries * sizeof(shortentry));
+        FSeek(blockstart);        
+        SECTORPLAIN sector(imgfile.bps);
+    }
+    else {
+    	if ( ((UBYTE)shortentry.FileName[0] != 0xFF) &&
+    	     ((UBYTE)shortentry.FileName[0] != 0) &&
+    	     (shortentry.FirstTrack != 0)) { // Not deleted!
+    	    blockstart = CHS_to_OFF(shortentry.FirstTrack, 0, shortentry.FirstSector);
+    	    FSeek(blockstart);
+    	    //Printf("1st Cluster: 0x%04X\r", blockstart);
+    	    FLEX_CLUSTER cluster(imgfile.variant == FLEX1 ? 128 : 256);
+    	    for (i=0; i<shortentry.TotalSectors-1; i++){
+    	        fs = cluster.NextSector;
+    	        ft = cluster.NextTrack;
+    	        if ((ft == 0) && fs == 0) break; // some files have a higher number of sectors as in the chain
+    	        //Printf("CHS2: \r");
+    	        addr = CHS_to_OFF(ft, 0, fs);
+    	        //Printf("Offset: 0x%04X\r", addr);
+    	        if (addr < imgfile.size){
+    	        	FSeek(addr);
+    	        	FLEX_CLUSTER cluster(imgfile.variant == FLEX1 ? 128 : 256);
+    	    	}
+    	    	else{
+    	    		Printf("File: %s.%s goes beyond End of File! ", shortentry.FileName, shortentry.FileExtension);
+    	    		break;
+    	    	}
+    	    }
+    	}
+    }
+    FSeek(pos);
+
+} DIRENTRYSET <optimize=false, read=ReadDIRENTRYSET, comment=ReadRecordCount>;
+
+// ########################  Data Cluster  ##########################
+string GET_CHS(INT64 pos){ 
+    local string str <hidden=true>;
+    local UBYTE c,h,s <hidden=true>;
+    OFF_to_CHS(c,h,s,pos);
+    SPrintf(str, "C: %u H: %u S: %u", c, h, s);
+    return str;
+}
+
+// ######################  Generic Cluster  ############################
+
+typedef struct (int16 Size){ 
+    UBYTE data[Size] <format=hex>;
+} SECTORPLAIN <optimize=false, read=GET_CHS(startof(this))>;
+
+// ########################  FLEX Cluster  ############################
+// FLEX Cluster has next Cluster at the first two bytes and Sequence Number
+typedef struct (int16 Size){ 
+    UBYTE NextTrack;
+    UBYTE NextSector;
+    uint16 SectorSequenceNumber;
+    UBYTE data[Size-4] <format=hex>;
+} FLEX_CLUSTER <optimize=false, read=GET_CHS(startof(this))>;
+
+// #######################  Root Directory  ###########################
+// The RootDirectory contains 'dir_entries' ammount of Directory Sets
+// A Directory Set is the Header with the Filename and Stuff (Shortentry)
+// and the Data Blocks (=Cluster).
+
+typedef struct { // used for FLEX
+    UBYTE not_used1 <bgcolor=cDkGray>;
+    UBYTE sector;
+    UBYTE not_used[(imgfile.variant == FLEX1 ? 6:14)] <bgcolor=cDkGray>;
+} NOT_USED;
+
+typedef struct {
+    local int i,j;
+    local uint16 fdn;
+// ON FOR DEBUG //local UBYTE dir_clust_sz = (UBYTE)(imgfile.s - (uint16)(pos / imgfile.bps));
+// ON FOR DEBUG //Printf("dir_clust_sz: %i \r", dir_clust_sz);
+    // FLEX Dir Entry is 24 Byte long. Since a multiple of that does not fit in a 256 (or 128 Byte) sector,
+    // there are some unused bytes inbetween.
+    for (j=0; j<imgfile.dir_clust_sz; j++){ // this is usually one sector
+        NOT_USED not_used;     		 // 16 or 8 Bytes       
+        for (i=0; i<imgfile.dir_entries; i++) { // 10 or 5 entries
+            DIRENTRYSET direntryset; // a 24 Bytes
+            //Printf("Data: %0x \n", dir_entries);
+        }                            // Sum: 10*24+16=256 for FLEX2, 5*24+8=128 for FLEX1
+    }
+} ROOTDIR <open=true, optimize=false, read=GET_CHS(startof(this))>;
+
+// ########################### FLEX SIR  ##############################
+typedef struct  {
+    if (imgfile.variant == FLEX2){
+        UBYTE   not_used1[16]   ;//<bgcolor=cDkGray>;
+        CHAR    VolumeLabel[8]  <fgcolor=cRed, bgcolor=cWhite>;
+        uint16  VolumeNumber;   
+        UBYTE   FirstFreeTrack  ;//<bgcolor=cGreen>;
+        UBYTE   FirstFreeSector ;//<bgcolor=cLtRed>;
+        UBYTE   LastFreeTrack   ;//<bgcolor=cGreen>;
+        UBYTE   LastFreeSector  ;//<bgcolor=cLtRed>;
+        uint16  FreeSectors     ;//<bgcolor=cLtGreen>;
+        UBYTE   DateMonth;      
+        UBYTE   DateDay;           
+        UBYTE   DateYear;           
+        UBYTE   EndTrack        ;//<bgcolor=cGreen>;
+        UBYTE   EndSector       ;//<bgcolor=cLtRed>;
+        UBYTE   dn1;            
+        UBYTE   LastTrack;            
+        UBYTE   LastSector;            
+        UBYTE   not_used2[216]  ;//<bgcolor=cDkGray>;
+        UBYTE   not_used3[256]  ;//<bgcolor=cDkGray>;
+    }
+    else if (imgfile.variant == FLEX1){
+        UBYTE   not_used2[128]  ;// <bgcolor=cDkGray>;
+    }
+} FLEX_SIR <optimize=false,read=GET_CHS(startof(this))>;
+
+// ###########################  Bootsector  ##########################
+typedef struct  {
+    local UBYTE i, secs;
+    secs = imgfile.bootsect/imgfile.bps;
+    for (i=0; i<secs; i++){
+        SECTORPLAIN sector(imgfile.bps);
+    }
+
+} BOOTSECTOR <read=ReadBOOTSECTOR, optimize=false>;
+
+string ReadBOOTSECTOR (BOOTSECTOR &boot) {
+    return GET_CHS(startof(boot));
+}
+
+void gFLEX_DiskParams(UBYTE &c, UBYTE &h, UBYTE &s, UBYTE &s1, uint16 &dclust){
+    local uint32 pos, pos_old, max_trk, max_sect, nextsect, thissect, maxsec1 <hidden=true>;
+    local uint32 maxtrksir, maxsecsir; // Values from SIR
+    local INT64 size = FileSize();
+    pos_old = FTell();
+    maxtrksir = ReadByte(0x226)+1;
+    maxsecsir = ReadByte(0x227);
+	c = maxtrksir;
+	s = maxsecsir;
+    if (maxsecsir > 19){
+        h = 2;
+    }
+    else{
+        h = 1;
+    }
+    FSeek(0x400); //Start of Root Directory
+    nextsect = ReadByte(FTell() +1);
+    //Printf("Read: %d, %04X\r", nextsect-2, FTell());
+    while (((nextsect - 2) * imgfile.bps) == FTell() || (nextsect == 0)){ // FLEX starts at Sector 0 and is missing Sector 1
+    	//Printf("Match! %04X\r", FTell());
+    	FSeek(FTell() + 256);
+    	nextsect = ReadByte(FTell() +1);
+    }
+    dclust = (FTell() - 0x400) / imgfile.bps;
+    Printf("Dirend: %04X Cluster Size: %d\r", FTell(), dclust);
+    // FLEX starts data usually at Track 1 Sector 1
+    s1 = (FTell() / imgfile.bps);
+
+    //FSeek(0x400); //Start of Root Directory
+    //thissect = nextsect = 5;
+    //while (thissect == nextsect){ // walk the sectors in the root dir and see if they match
+    //    thissect = nextsect+1;
+    //    nextsect = ReadByte(FTell() +1);
+    //    if (nextsect == thissect)
+    //        s1 = nextsect;
+    //    FSeek(FTell() + 256);
+    //    //Printf("Next Sector: %d Max: %d\r", nextsect, s1);
+    //}
+    
+    if (s1 != maxsecsir){
+        idx = InputRadioButtonBox("It looks like the first Tracks is different.", "Override?", -1,
+               "Yes", 
+               "No");
+        switch (idx){
+        case 0: // Yes
+            s1 = s; 
+        break;
+        case 1: // No
+        break;
+        default:
+        break;
+        }    	
+        Printf("First Track uses %d Sectors! In FLEX this suggests a MFM Disk with FM first Track.\r", s1);
+    }
+
+    if ((size % 256) == 0){
+        Printf("Image is a multiple of 256 Byte.\r");
+        FSeek(size - 512); // get the last sectors in the file
+        pos = FTell(); 
+        max_trk = ReadByte(pos)+1;
+        max_sect = ReadByte(pos+1);
+        //Printf("Byte at 0x%06X, Tracks: 0x%02X, %d, Secs: 0x%02X, %d \r", pos, max_trk, max_trk, max_sect, max_sect);
+        if ((maxtrksir == max_trk) && (maxsecsir == max_sect))
+            Printf("Values from SIR match!\r");
+    }
+    else{
+        Printf("Image is NOT a multiple of 256 Byte.\r Maybe the Image is corrupted?\r");
+    }
+    FSeek(pos_old);
+}
+
+typedef struct {
+    FLEX_SIR flex_sir  <bgcolor=cLtGreen>;         // SIR
+    ROOTDIR rootdir  <bgcolor=cWhite>;             // Rootdir
+} DRIVE <open=true, optimize=false>;
+
+typedef struct {
+    local INT64 size = FileSize();
+    local uint16 bootsect, blind_header; //blind header is NOT part of c,h,s calculations (= not in floppy image)
+    local UBYTE c,h,s,i, s1, idx <hidden=true>;
+    local uint16 dir_entries;
+    local string str;
+    local uint16 bps, dir_clust_sz;
+    local VARIANT variant;
+    // default values, mainly for FLEX
+    h=1; s=10; c=40; bps=256; bootsect=512; dir_clust_sz=6; dir_entries=10; blind_header=0;
+    variant = FLEX2; str = "Flex 2";
+    BigEndian(); // Default for 6800, 6809,...
+
+    //itab = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30};
+    //for (i=0; i<sizeof(itab); i++){ // Standard Values
+    //    itab[i] = 1+i;
+    //}
+
+//####################################################################################
+// Guessing which disk is it?
+//####################################################################################
+// 
+// h:            How many Sides (1 or 2)
+// C:            Tracks per side (usually <= 80)
+// s:            Sectors per Track (starts usually 1)
+// bps:          Bytes per Sector
+// bootsect:     Size of Bootsector in Bytes
+// dir_clust_sz: CP/M: Locgial Blocksize in Bytes, FLEX: Blocks of Directory entries.
+// dir_entries:  Entries per Block for FLEX or total for CP/M
+// header:       Sometimes there is header data in the file    
+// variant:      which OS is this disk for
+//               FLEX1: FLEX Version 1 (for MC6800)
+//               FLEX2: FLEX Version 2 (for MC6800)
+//              
+//              
+// ########################################################################################################
+
+    if (bootsect > 0)
+        BOOTSECTOR bootsector <bgcolor=cLtYellow>; // Maybe a bootsector
+
+    if (size >= 89600){
+		gFLEX_DiskParams(c, h, s, s1, dir_clust_sz);
+    }
+    else { // assume FLEX 1
+    	c=35; s1=s=18; bps=128; bootsect=256; dir_clust_sz=15; dir_entries=5; variant=FLEX1; str = "Flex 1";
+    }
+    Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r");
+    Printf("         %s Disk with C: %i H: %i S: %i BPS: %i.\r", str, c, h, s, bps);
+    Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r");
+    
+    DRIVE drive;
+
+} IMGFILE <optimize=false, open=true, read=ShowParams>;
+
+string ShowParams(IMGFILE &f){
+    string str;
+
+    SPrintf( str, "Sz: %u, C: %i, H: %i, S: %i", f.size, f.c, f.h, f.s);
+    return str;
+}
+
+UBYTE FileSystemRecognizer() {  // Here the disk gets declared
+    local INT64 startPos <hidden=true> = FTell();
+    IMGFILE imgfile;
+    return 1;
+}
+
+////////////////////////////////////////////////////////////////////////
+// THIS IS THE ACTUAL STARTING POINT OF EXECUTION IN THE TEMPLATE
+////////////////////////////////////////////////////////////////////////
+
+if (FileSystemRecognizer()) {
+    //Printf("DRIVE: Success with partition-free detection (sector size == %d).\r\n", 512);
+    return;
+}
+return;

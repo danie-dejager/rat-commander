@@ -1,0 +1,105 @@
+//------------------------------------------------
+//--- 010 Editor v15.0.1 Binary Template
+//
+//   File: SID.bt
+//   Authors: Cesare Pizzi (@red5heep)
+//   Version: 1.0
+//   Purpose: SID (SID file format used for SID tunes in the HVSC (Hhttp://hvsc.de))
+//   Category: Audio
+//   File Mask: *.sid
+//   ID Bytes: 50 53 49 44, 52 53 49 44
+//   History: 
+//            1.0   2025-03-02 Cesare Pizzi: Initial release
+// More info: information about format has been found at
+//            https://gist.github.com/cbmeeks/2b107f0a8d36fc461ebb056e94b2f4d6
+//            https://hackaday.io/project/182833-sidman-player/log/218940-sid-file-structure
+//------------------------------------------------
+
+BigEndian();
+
+typedef struct
+{
+    // 0x00: Signature (either "PSID" or "RSID")
+    char     magic[4] <name="Magic">;         // 'PSID' or 'RSID'
+    
+    // 0x04: PSID/RSID version number
+    uint16   version <name="Version", format=hex>;   // Usually 1..4. If >=2, flags field is present.
+
+    // 0x06: Offset to the start of the actual C64 data
+    //       i.e., the offset from the beginning of this file to the load data.
+    uint16   dataOffset <format=hex>;
+
+    // 0x08: Load address (0 => load address is stored in the C64 data itself)
+    uint16   loadAddress <format=hex>;
+
+    // 0x0A: Init address (start address for init subroutine)
+    uint16   initAddress <format=hex>;
+
+    // 0x0C: Play address (start address for play subroutine)
+    //       If 0, that means the player must figure out the call from the data
+    //       or from the init routine.
+    uint16   playAddress <format=hex>;
+
+    // 0x0E: Number of songs (sub‐tunes)
+    uint16   songs <format=hex, comment="Number of songs">;
+
+    // 0x10: Start song (the default sub‐tune to play, usually 1)
+    uint16   startSong <format=hex>;
+
+    // 0x12: 32‐bit bitmask controlling the speed for each song
+    //       (bit = 0 => 60 Hz/NTSC, bit = 1 => 50 Hz/PAL).
+    //       The least‐significant bit is for sub‐tune #1, next for #2, etc.
+    uint32   speed <format=hex>;
+
+    // 0x16: Name (32 bytes)
+    //       Typically null‐terminated ASCII within these 32 bytes,
+    //       but we'll read them all as a block.
+    char     name[32];
+
+    // 0x36: Author (32 bytes)
+    char     author[32];
+
+    // 0x56: Released (32 bytes)
+    char     released[32];
+
+    // 0x76: If version >= 2, a 16‐bit flags field (plus optional fields).
+    if( version >= 2 )
+    {
+        struct SID_FLAG_DECODE
+        {
+            // LSB is bit 0, up to MSB = bit 15
+            uint16 reserved     :6 <comment="Reserved">; // bits 10..15
+            uint16 sidModel3    :2 <comment="0 = Unknown, 1 = MOS6581, 2 = MOS8580, 3 = MOS6581 and MOS8580.">; // bits 8..9  (v4)
+            uint16 sidModel2    :2 <comment="0 = Unknown, 1 = MOS6581, 2 = MOS8580, 3 = MOS6581 and MOS8580.">; // bits 6..7  (v3)
+            uint16 sidModel1    :2 <comment="0 = Unknown, 1 = MOS6581, 2 = MOS8580, 3 = MOS6581 and MOS8580.">; // bits 4..5  (v2+)
+            uint16 clock        :2 <comment="0 = Unknown, 1 = PAL, 2 = NTSC, 3 = PAL and NTSC">; // bits 2..3
+            uint16 psidSpecific :1 <comment="0 = C64 compatible, 1 = PlaySID specific">; // bit 1
+            uint16 musPlayer    :1 <comment="0 = built-in music player, 1 = Compute!'s Sidplayer MUS data">; // bit 0
+        };
+        SID_FLAG_DECODE rawFlag <name="Flag">;
+
+        ///////////////
+        
+        // 0x78: Page info used in some RSID files (startPage, pageLength)
+        //       In PSID, these may be zero or unused. 
+        uint8  startPage <format=hex>;
+        uint8  pageLength <format=hex>;
+
+        // 0x7A: Second SID address if dualSID is set
+        //       (PSID v4 supports it, but many files won’t use it).
+        uint8 secondSIDAddress <format=hex>;
+
+        // 0x7B: Third SID address if tripleSID is set
+        uint8 thirdSIDAddress <format=hex>;
+    }
+
+    // For versions 3 or 4, you might see more data beyond this point.
+    // The actual C64 data begins at offset "dataOffset" from file start.
+} SID_HEADER;
+
+// Header
+SID_HEADER sid_header <name="SID Header", bgcolor=cRed>;
+// Data
+FSeek(sid_header.dataOffset);
+local int dataSize = FileSize() - FTell();
+uint8 data[dataSize] <name="Data", bgcolor=cDkYellow>;

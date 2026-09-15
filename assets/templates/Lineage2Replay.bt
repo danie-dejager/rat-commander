@@ -1,0 +1,137 @@
+//------------------------------------------------
+//--- 010 Editor v13.0.1 Binary Template
+//
+//      File: Lineage2Replay.bt 
+//   Authors: L2Repository
+//   Version: 1.1
+//   Purpose: Lineage2Replay (only packets list)
+//  Category: Game
+// File Mask: *.l2r
+//  ID Bytes: 18 5B 4C 69 6E 65 61 67 65 49 49 20 52 65 70 6C 61 79 20 46 69 6C 65 5D 00
+//   History: 
+//   1.1   2022-12-07 GL: Added more information
+//   1.0   2022-12-02 GL: add
+//------------------------------------------------
+
+
+typedef struct {
+    CHAR    date[8]                     <bgcolor=cBlue>;
+} TIME;
+
+typedef struct {
+    ULONG time;
+    INT yaw;
+    INT pitch;
+    INT distance;
+    INT distance1;
+} CAMERA;
+
+typedef short location <bgcolor=cRed>;
+
+typedef struct {
+    TIME    packettime;                       
+    UBYTE   packetOpcode[3]             <bgcolor=cGreen>;
+    DWORD   packetSize                  <bgcolor=cRed>;
+    UBYTE   packetData [packetSize]     <bgcolor=cYellow>;
+    UBYTE   unkType[1]                  <bgcolor=cGray, fgcolor=cRed>;
+} PACKET;
+
+string CommentPACKET(PACKET& packet)
+{
+    local string sComment = "";
+    switch(packet.packetOpcode[0])
+    {
+        case 0x32:
+            sComment = "UserInfo ";
+            break;
+        case 0x0C:
+            sComment = "NpcInfo ";
+            break;
+        case 0x92:
+            sComment = "ServerObjectInfo ";
+            break;
+        case 0x9F:
+            sComment = "StaticObject ";
+            break;
+        case 0xFE:
+            sComment = "Ex";
+            switch(packet.packetOpcode[2]){
+                case 0x01:
+                    switch(packet.packetOpcode[1]){
+                        case 0x56:
+                            sComment += "_UserInfo_EquipSlot";
+                            break;
+                        case 0x58:
+                            sComment += "_UserInfo_AbnormalVisualEffect";
+                            break;
+                        default:
+                        break;
+                    }
+                    break;
+                case 0x02:
+                    switch(packet.packetOpcode[1]){
+                        case 0x54:
+                            sComment += "_CharInfo";
+                            break;
+                    }
+                    break;
+                default:
+                    sComment = SPrintf(sComment, "Ex 0x%X%X: Unknown", packet.packetOpcode[2], packet.packetOpcode[1]);
+                break;
+            }
+            break;
+        default:
+            sComment = SPrintf(sComment, "0x%X: Unknown", packet.packetOpcode[0]);
+            break;
+    }
+
+    return sComment;
+}
+//---------------------------------------------
+
+LittleEndian(); 
+string  header <bgcolor=cGreen>;
+int     replayVersion <bgcolor=cPurple>;
+float   loc_x <bgcolor=cGreen>;
+float   loc_y <bgcolor=cGreen>;
+float   loc_z <bgcolor=cGreen>;
+float   heading <bgcolor=cGreen>;
+
+float   unk <bgcolor=cYellow>;
+float   unk <bgcolor=cYellow>;
+float   unk <bgcolor=cYellow>;
+
+UBYTE   gameTime[2] <bgcolor=cBlue>;
+
+int     unk <bgcolor=cYellow>;
+float   unk <bgcolor=cYellow>;
+
+long    endTime <bgcolor=cPurple>;
+
+float   unk <bgcolor=cYellow>;
+float   unk <bgcolor=cYellow>;
+float   unk <bgcolor=cYellow>;
+float   unk <bgcolor=cYellow>;
+float   unk <bgcolor=cYellow>;
+float   unk <bgcolor=cYellow>;
+
+int     packetsCount <bgcolor=cPurple>;
+local int p;
+for (p = 0; p < packetsCount; p++){
+        PACKET packet <comment=CommentPACKET>;
+}
+ 
+int     camCount <bgcolor=cPurple>;
+local int c;
+for (c = 0; c < camCount; c++){
+        CAMERA cam <bgcolor=cYellow>;
+}
+
+int     itemCount <bgcolor=cPurple>;
+local int y;
+for (y = 0; y < itemCount; y++){
+        int item <bgcolor=cGreen>;
+}
+string footer <bgcolor=cGreen>;
+
+

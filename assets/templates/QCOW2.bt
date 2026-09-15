@@ -1,0 +1,140 @@
+//------------------------------------------------
+//--- 010 Editor v5.0 Binary Template
+//
+//      File: QCOW2.bt
+//   Authors: Diego Braga
+//    E-mail: dbraga@axcient.com
+//   Version: 1.0 
+//   Purpose: QEMU Copy-On-Write v2 format parser. 
+//  Category: Drives
+// File Mask: *.qcow2
+//  ID Bytes: 
+//   History: 
+//   1.0    2021-XX-YY  Diego Braga: first version.
+//------------------------------------------------
+
+//----- QCOW2 Structures ------
+
+// According to https://github.com/qemu/qemu/blob/master/docs/interop/qcow2.txt
+
+// Designed for Version 3
+
+typedef struct {
+    uint32 magic; // 4 Bytes: Q, F, I and 0xFB
+    uint32 version; // Newest version 0x3
+    uint64 backing_file_offset; 
+    uint32 backing_file_size;
+    uint32 cluster_bits;
+    uint64 size; // in bytes
+    uint32 crypt_method; // if encrypted with AES
+    uint32 l1_size;
+    uint64 l1_table_offset;
+    uint64 refcount_table_offset;
+    uint32 refcount_table_clusters;
+    uint32 nb_snapshots;
+    uint64 snapshots_offset;
+	uint64 incompatible_features;
+	uint64 compatible_features;
+	uint64 autoclear_features;
+	uint32 refcount_order;
+	uint32 header_length;
+	uchar compression_type;
+	uchar header_padding[7];
+} QCowHeader;
+
+typedef struct {
+    uint32 extension_type;
+	uint32 extension_length;
+} QCowHeaderExtension;
+
+typedef struct {
+	uchar feature_type;
+	uchar feature_bitnumber;
+	uchar feature_name[46];
+} QCowFeatureTable;
+
+typedef struct {
+	uint32 nb_bitmaps;
+	uint32 reserved;
+	uint64 bitmap_directory_size;
+	uint64 bitmap_directory_offset;
+} QCowBitmapExtension;
+
+typedef struct {
+	uint64 offset_encryption_header;
+	uint64 encryption_header_length;
+} QCowEncryptionPointer;
+
+typedef struct {
+	uint64 reference_count_offset;
+} QCowReferenceTableEntry;
+
+typedef struct {
+	uint64 cluster_reference_count;
+} QCowReferenceBlockEntry;
+
+typedef struct {
+	uint64 l1_table_entry;
+} QCowL1Table;
+
+typedef struct {
+	uint64 l2_table_entry;
+} QCowL2Table;
+
+typedef struct {
+	uint64 std_cluster_desc;
+} QCowStandardClusterDescriptor;
+
+typedef struct {
+	uint64 comp_cluster_desc;
+} QCowCompressedClusterDescriptor;
+
+typedef struct {
+	uint64 subcluster_allocation_bitmap;
+	uint64 reserved;
+} QCowExtendedL2Entries;
+
+typedef struct {
+    /* header is 8 byte aligned */
+    uint64 l1_table_offset;
+    uint32 l1_size;
+    uint16 id_str_size;
+    uint16 name_size;
+    uint32 date_sec; // Elapsed
+    uint32 date_nsec;
+    uint64 vm_clock_nsec;
+    uint32 vm_state_size;
+    uint32 extra_data_size; /* for extension */
+    /* extra data follows */
+    /* id_str follows */
+    /* name follows  */
+} QCowSnapshotHeader;
+
+typedef struct {
+	uint64 bitmap_table_offset;
+	uint32 bitmap_table_size;
+	uint32 flags;
+	uchar type;
+	uchar granularity_bits;
+	uint16 name_size;
+	uint32 extra_data_size;
+} QCowBitmapDirectoryEntry;
+
+typedef struct {
+	uint64 bitmap_table_entry;
+} QCowBitmapTableEntry;
+
+// ---- QCOW2 Definition -----
+
+BigEndian();
+
+QCowHeader 			header;
+QCowHeaderExtension	header_extension;
+QCowFeatureTable 	table_dirty;
+QCowFeatureTable 	table_corrupt;
+QCowFeatureTable 	table_external;
+QCowFeatureTable 	table_compression;
+QCowFeatureTable 	table_extended_l2;
+QCowFeatureTable 	table_lazy;
+QCowFeatureTable 	table_bitmaps;
+QCowFeatureTable 	table_raw;

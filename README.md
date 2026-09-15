@@ -91,7 +91,11 @@ The installed executable is named **`rc`** for quick typing.
   in a larger JSON document, over a built-in vector map of the world (land,
   lakes, borders, rivers and cities from Natural Earth) with pan, zoom and
   click-to-pick, in pixels or braille, and an
-  in-place **hex editor** for arbitrarily large files.
+  in-place **hex editor** for arbitrarily large files, with **010 Editor binary
+  templates**: the file's structures and fields as a tree beside the bytes —
+  names, values, offsets, sizes, types, comments — picked automatically from 307
+  bundled templates (or your own), coloured onto the bytes, and editable in
+  place.
 - **Multi rename** — batch-rename selected files with a masked, live two-column
   preview, counter, case transform and search-and-replace.
 - **Search** — one dialog for the editor (F7/F4) *and* the viewer (F7): literal,
@@ -337,6 +341,8 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `F9` | Pulldown menu |
 | `Shift-F9` | Toggle word wrap |
 | `Ctrl-F9` | Toggle in-place hex editor |
+| `F5` / `Shift-F5` (hex) | Choose / rerun the binary template |
+| `F6` (hex) | The template variable under the cursor (tree: `Enter` edits, `←`/`→` close/open) |
 | `Alt-E` / `Alt-Shift-E` | (JSON) next / previous syntax error |
 | `Alt-M` | Show the file's GeoJSON on a world map (drag/wheel to pan and zoom, click a feature, `Enter` to go to it) |
 | `Alt-G` | Toggle the spreadsheet grid (CSV/TSV): `Enter` or typing edits a cell, `F5`/`F6` insert a row/column, `F8`/`Shift-F8` delete one, `F3` toggles the header row |
@@ -483,7 +489,8 @@ draws audio files; it just cannot play them.
 Configuration lives in your platform config directory
 (`~/.config/rat-commander/` on Linux): **`config.toml`** (written from the
 Settings dialog), **`themes.toml`** (editable color themes), **`lang/`**
-(one editable TOML per UI language), and **`menu`** (the F2 user menu, in
+(one editable TOML per UI language), **`templates/`** (the hex editor's binary
+templates, editable, plus your own), and **`menu`** (the F2 user menu, in
 Midnight Commander format). See the
 **[user manual](doc/MANUAL.md#configuration)** for details.
 
@@ -495,3 +502,10 @@ GNU General Public License, version 2 (GPL-2.0-only). See the `LICENSE` file.
 
 The built-in world map is made from [Natural Earth](https://www.naturalearthdata.com/)
 data, which is in the public domain; `assets/world/make_world.py` rebuilds it.
+
+The bundled binary templates come from SweetScape's
+[010 Editor template repository](https://www.sweetscape.com/010editor/repository/templates/),
+whose contributors release them into the public domain; a few carry their own
+notes in their headers, kept intact. `assets/templates/README.md` lists them
+with their authors, and `assets/templates/fetch_templates.py` fetches them
+again.

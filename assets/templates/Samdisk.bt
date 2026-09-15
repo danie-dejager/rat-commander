@@ -1,0 +1,222 @@
+//------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+//
+//      File: Samdisk.bt
+//   Authors: Robert Offner MSc.
+//   Version: 0.1
+//   Purpose: Parses Samdisk DSK Files
+//  Category: Drives
+// File Mask: *.dsk, *.DSK
+//  ID Bytes: 46 69 6C 65 //"File"...  @ Address 0x11
+//   History:
+//   0.1  2023-10-27 R. Offner: Initial Release
+// More Information available at:
+// https://www.cpcwiki.eu/index.php/Format:DSK_disk_image_file_format
+//------------------------------------------------
+// 
+// TODO:
+// Please send Images which use this Feature to my gmail address
+// 100prozentoffner in Austria
+//
+struct IMAGE;           // complete Image
+struct HEADER;          // only the Header (once)
+struct HEAD;            // Track (gets called eventually twice)
+struct TRACK;           // Tracks (checks Heads)
+struct SECTORDATABLOCK; // one Sector
+struct SIL;
+
+LittleEndian(); //Z80 based
+
+typedef enum <UBYTE> {
+    NONE=0,
+    STANDARD=1, 
+    EXTENDED=2
+ }VARIANT;
+
+uint16 GetBPS(UBYTE t){
+	local uint16 tr <hidden= true>;
+	tr = 256 << (t-1);
+	//Printf("BPS out: %i\r", tr);
+	return tr;
+}
+
+//#########################################################################
+//##############################  SECTOR   ################################
+//#########################################################################
+
+typedef struct {
+	//SIL sil;
+	UBYTE SectorData[GetBPS(head.SectorSize)] <bgcolor=cLtGreen>; // Regular Sector Data
+} SECTORDATABLOCK <optimize=false>;
+
+//#########################################################################
+//######################  Sector Information List  ########################
+//#########################################################################
+
+typedef struct {
+	UBYTE Track <fgcolor=cLtBlue, bgcolor=cWhite>;
+	UBYTE Head <fgcolor=cLtBlue, bgcolor=cWhite>;
+	UBYTE SectorID;
+	UBYTE SectorSize;
+	UBYTE FDCStatusReg1;
+	UBYTE FDCStatusReg2;
+	if (image.variant == STANDARD){
+		UBYTE not_used1[2] <bgcolor=cDkGray>;
+    }
+    else if (image.variant == EXTENDED){
+		uint16 DataLength <bgcolor=cRed>;
+    }
+} SIL <optimize=false>;
+
+//#########################################################################
+//###############################  HEAD  ##################################
+//#########################################################################
+
+typedef struct {
+    local uint16 rest;
+	CHAR TrackMark[12];
+	UBYTE not_used1[4] <bgcolor=cDkGray>;
+	UBYTE Track <fgcolor=cLtBlue, bgcolor=cWhite>;
+	UBYTE Head <fgcolor=cLtBlue, bgcolor=cWhite>;
+	UBYTE not_used2[2] <bgcolor=cDkGray>;
+	UBYTE SectorSize <fgcolor=cLtBlue, bgcolor=cWhite, comment=ReadSectorSize>;
+	UBYTE TotalSectors <fgcolor=cLtBlue, bgcolor=cWhite>;
+	UBYTE GAP3Length <fgcolor=cLtBlue, bgcolor=cWhite>;
+	UBYTE FillerByte <fgcolor=cLtBlue, bgcolor=cWhite>;
+	for (i=0; i<TotalSectors; i++){
+		SIL sil;
+	}
+    rest = (0x100 - (8*TotalSectors) - 24);
+	//           8 is the SIL Length
+	UBYTE not_used3[rest] <bgcolor=cDkGray>;
+
+} HEAD <optimize=false>;
+
+string ReadSectorSize(UBYTE &t){ // returns Sector Size in Bytes
+	local string str <hidden=true>;
+	local uint16 tr <hidden= true>;
+	tr = GetBPS(t);
+	SPrintf( str, "Sector Size: %u bps", tr);
+	return str;
+}
+
+//#########################################################################
+//################################  TRACK   ###############################
+//#########################################################################
+// we check if image has one or two heads. 
+// Info comes at the last moment unfortunately.
+// We read ahead if there is a head 1.
+typedef struct {
+	local UBYTE i <hidden=true>;
+	local UBYTE c <hidden=true>;
+	local INT64 headvalpos <hidden=true>;
+	HEAD head;
+	for (i=0; i<head.TotalSectors; i++){
+		SECTORDATABLOCK SectorData <bgcolor=cLtGreen>; // Regular Sector Data
+	}	
+
+} TRACK <optimize=false>;
+
+//#########################################################################
+//##############################  HEADER   ################################
+//#########################################################################
+// Header is at the beginning of the file only.
+typedef struct {
+	local UBYTE c <hidden=true>;
+	local INT64 begincomment, temp, endcomment <hidden=true>;
+	CHAR    ID[34] <fgcolor=cPurple, bgcolor=cWhite>; // reads "EXTENDED or MV - CPCEMU"
+	CHAR    Creator[14] <fgcolor=cLtBlue, bgcolor=cWhite>;
+	UBYTE TracksTotal;
+	UBYTE SidesTotal;
+	uint16 TrackSize; // only for standard, ignored by extended
+    if (image.variant == STANDARD){
+		UBYTE not_used[204] <format=hex>;
+    }
+    else if (image.variant == EXTENDED){
+        UBYTE TrackSizeTable[TracksTotal*SidesTotal];
+        UBYTE not_used[204-TracksTotal*SidesTotal];
+    }
+} HEADER <optimize=false>;
+
+//#########################################################################
+//##############################  IMAGE   #################################
+//#########################################################################
+//
+//   - For each track on the disk:
+//   1 byte Mode value (0-5)
+//   1 byte Cylinder (0-n)
+//   1 byte Head (0-1) (see Note)
+//   1 byte number of sectors in track (1-n)
+//   1 byte sector size (0-6)
+//   sector numbering map * number of sectors
+//   sector cylinder map (optional) * number of sectors
+//   sector head map (optional) * number of sectors
+//   sector data records * number of sectors
+//
+//   <End of file>
+//
+//      Image Structure
+//                                  Track and Head Structure
+// ##########################     ______________    This Block is duplicated
+// #####     HEADER     #####    |             ||   for n Tracks.
+// ##########################    |             \/            
+// #####     TRACKS     ##### ___| ##########################
+// ##########################      #####   TRACKHEADER  #####
+//                                 ##########################
+//                                 #####     SECTORS    #####
+//                                 ##########################
+//                                                           
+//                                                           
+//                                                           
+
+typedef struct {
+	local UBYTE i <hidden=true>;
+	local INT64 pos <hidden=true>;
+	local int64 filesize = FileSize();
+	local VARIANT variant=NONE;
+	local UBYTE map[12];
+	ReadBytes(map, 0, 12);
+	if (Strncmp(map, "EXTENDED CPC", 12) == 0) {
+		Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r");
+		Printf("                            EXTENDED CPC DSK Image.\r");
+		Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r");
+		variant = EXTENDED;
+	}
+	else if (Strncmp(map, "MV - CPCEMU ", 12) == 0) {
+		Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r");
+		Printf("                            Standard CPC DSK Image.\r");
+		Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r");
+		variant = STANDARD;
+	}
+	if (variant == NONE){
+		Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r");
+		Printf("                            NOT A CPC DSK Image!\r");
+		Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r");
+	}
+	HEADER header;
+	for (i=0; i<header.TracksTotal; i++){
+		TRACK track;
+	}
+
+} IMAGE <open=true, optimize=false, read=GuessDisk>;
+
+string GuessDisk(IMAGE &f){
+    string str;
+
+    SPrintf( str, "DSK File Format:");
+    return str;
+}
+
+UBYTE Recognizer() {  // Here the variables get declared
+    IMAGE image;
+    return 1;
+}
+
+////////////////////////////////////////////////////////////////////////
+// THIS IS THE ACTUAL STARTING POINT OF EXECUTION IN THE TEMPLATE
+////////////////////////////////////////////////////////////////////////
+
+if (Recognizer()) {
+    return;
+}
+return;

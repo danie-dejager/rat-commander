@@ -1,0 +1,76 @@
+//------------------------------------------------
+//--- 010 Editor v11.0.1 Binary Template
+//
+//      File: ntv2-gsb.bt
+//   Authors: M. Nicke
+//    E-mail: maik.nicke@apluss.de
+//   Version: 0.1
+//   Purpose: Analysis of NTv2-files (shift-grids for date transformations) in binary format gsb 
+//  Category: GIS
+// File Mask: *.gsb
+//  ID Bytes: 
+//   History:
+//   0.1    2025-03-21  M. Nicke: basis template for header and header of 1st subgrid
+//
+//     Spec.: https://crs.bkg.bund.de/crs/descrtrans/BeTA/BETA2007dokumentationV15.pdf
+//------------------------------------------------
+
+
+typedef struct {
+	char	LblNUM_OREC[8];
+	int64	NUM_OREC;
+	char	LblNUM_SREC[8];
+	int64	NUM_SREC;
+	char	LblNUM_FILE[8];
+	int64	NUM_FILE;
+	char	LblGS_TYPE[8];
+	char	GS_TYPE[8];
+	char	LblVERSION[8];
+	char	VERSION[8];
+	char	LblSYSTEM_F[8];
+	char	SYSTEM_F[8];
+	char	LblSYSTEM_T[8];
+	char	SYSTEM_T[8];
+	char	LblMAJOR_F[8];
+	double	MAJOR_F;
+	char	LblMINOR_F[8];
+	double	MINOR_F;
+	char	LblMAJOR_T[8];
+	double	MAJOR_T;
+	char	LblMINOR_T[8];
+	double	MINOR_T;
+} HEADER;
+
+typedef struct {
+	char	LblSUB_NAME[8];
+	char	SUB_NAME[8];
+	char	LblPARENT[8];
+	char	PARENT[8];
+	char	LblCREATED[8];
+	char	CREATED[8];
+	char	LblUPDATED[8];
+	char	UPDATED[8];
+	char	LblS_LAT[8];
+	double	S_LAT;
+	char	LblN_LAT[8];
+	double	N_LAT;
+	char	LblE_LONG[8];
+	double	E_LONG;
+	char	LblW_LONG[8];
+	double	W_LONG;
+	char	LblLAT_INC[8];
+	double	LAT_INC;
+	char	LblLONG_INC[8];
+	double	LON_INC;
+	char	LblGS_COUNT[8];
+	int64	GS_COUNT;
+} SUBGRID_HEADER;
+
+
+LittleEndian(); 
+SetBackColor( cLtAqua );
+
+HEADER Header;
+
+SetBackColor( cLtRed );
+SUBGRID_HEADER Subgrid_Header;

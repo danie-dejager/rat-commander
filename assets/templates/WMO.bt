@@ -1,0 +1,1866 @@
+//------------------------------------------------
+//--- 010 Editor v15.0.1 Binary Template
+//
+//      File: WMO.bt
+//   Authors: Alastor Strix'Efuartus
+//   Version: 1.2.0
+//   Purpose: Parses a Blizzard ".WMO" (World Model Object)
+//  Category: Game
+// File Mask: *.WMO
+//  ID Bytes: 52 45 56 4D
+//   History: WMO is a chunked structure there are two types of WMO files Root and Group
+//   1.2.0 2026-08-05 Alastor: wowdev WMO chunk coverage, modern light/volume refs, and named raw fallbacks
+//   1.1.0 2026-08-05 Alastor: Sequential, bounds-checked chunk discovery with raw unknown-chunk fallback
+//   1.0.0 2026-01-22 Alastor: Finalized the template to fully working state
+//	 0.0.1 2025-04-24 Alastor: MVER Chunk reading
+//------------------------------------------------
+
+// ============== Helper Functions ==================
+
+string ExtractFilename(string path){
+    local int i;
+    local int lastSlash = -1;
+    
+    // Manually find last backslash position
+    for (i = 0; i < Strlen(path); i++){
+        if (path[i] == '\\') {
+            lastSlash = i;
+        }
+    }
+    
+    // Return substring after last backslash
+    if(lastSlash >= 0){
+        return SubStr(path, lastSlash+1, Strlen(path)-lastSlash-1);
+    }
+    return path;
+}
+
+string Rev4Char(string input){
+    if (Strlen(input) != 4){
+        Printf("Error: Input string must be exactly 4 characters long\n");
+        return "";
+    }
+
+    local char reversed[4]; // Manually reverse the characters
+    reversed[0] = input[3];
+    reversed[1] = input[2];
+    reversed[2] = input[1];
+    reversed[3] = input[0];
+
+    return reversed;
+}
+
+typedef struct{
+    CHAR Magic[4];
+    local string sRN = Str("%s%s%s%s", Magic[3], Magic[2], Magic[1], Magic[0]);        
+    uint Size<format=hex>;
+}sHdr<name=Str("%s_Header", sRN), read=Str("Size: %LXh", Size), fgcolor=cYellow, comment="Chunk Header">;    
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size > 0){
+        ubyte Data[Hdr.Size]<open=false, optimize=true>;
+    }
+}sUnknownChunk<read=Str("%d raw bytes", Hdr.Size), open=false, comment="Unknown WMO chunk">;
+
+typedef struct{
+    // Byte 1 (0x000000FF)
+    uint32 BSPTree_0x1         :1;   // Has BSP tree (MOBN and MOBR chunk)
+    uint32 HasLightMap_0x2     :1;   // Has light map (MOLM, MOLD) (UNUSED: 20740)
+    uint32 HasVertexColor_0x4  :1;   // Has vertex colors (MOCV chunk)
+    uint32 EXTERIOR_0x8        :1;   // Outdoor group - affects doodad culling
+    
+    // Byte 2 (0x000000F0)
+    uint32 Unk_0x10            :1;   // (UNUSED: 20740)
+    uint32 Unk_0x20            :1;   // (UNUSED: 20740)
+    uint32 EXTERIOR_LIT_0x40   :1;   // Use exterior lighting for this group
+    uint32 UNREACHABLE_0x80    :1;   // Group is unreachable
+    
+    // Byte 3 (0x0000FF00)
+    uint32 SkyInInterior_0x100 :1;   // Show exterior sky in interior group
+    uint32 HasLights_0x200     :1;   // Has lights (MOLR chunk)
+    uint32 LOD_0x400           :1;   // Load for LoD != 0 (_lod* groups)
+    uint32 HasDoodads_0x800    :1;   // Has doodads (MODR chunk)
+    
+    // Byte 4 (0x0000F000)
+    uint32 LIQUIDSURFACE_0x1000     :1; // Has water (MLIQ chunk)
+    uint32 INTERIOR_0x2000          :1; // Indoor group
+    uint32 Unk_0x4000               :1; // (UNUSED: 20740)
+    uint32 QueryMountAllowed_0x8000 :1; // Pre-WotLK mount query flag
+    
+    // Byte 5 (0x00FF0000)
+    uint32 ALWAYSDRAW_0x10000  :1;   // Always draw group (clears 0x8 after creation)
+    uint32 Unk_0x20000         :1;   // Has MORI and MORB chunks
+    uint32 ShowSkybox_0x40000  :1;   // Show skybox (if MOSB present)
+    uint32 OceanLiquid_0x80000 :1;   // is_not_water_but_ocean (LiquidType related)
+    
+    // Byte 6 (0x00F00000)
+    uint32 Unk_0x100000            :1;
+    uint32 IsMountAllowed_0x200000 :1; // Mount allowed in this area
+    uint32 Unk_0x400000            :1; // (UNUSED: 20740)
+    uint32 Unk_0x800000            :1;
+    
+    // Byte 7 (0xFF000000)
+    uint32 CVERTS2_0x1000000       :1; // Has second MOCV chunk (alpha blending only)
+    uint32 TVERTS2_0x2000000       :1; // Has two MOTV chunks
+    uint32 ANTIPORTAL_0x4000000    :1; // Create occluders (requires UNREACHABLE)
+    uint32 UnkRenderFlag_0x8000000 :1; // Disables batch rendering but keeps doodads
+    
+    // Byte 8 (0xFF00000000)
+    uint32 Unk_0x10000000           :1; // (UNUSED: 20740)
+    uint32 EXTERIOR_CULL_0x20000000 :1; // Exterior culling flag (20740+)
+    uint32 TVERTS3_0x40000000       :1; // Has three MOTV chunks (for shader 18)
+    uint32 Unk_0x80000000           :1; // Seen in kultiras WMOs
+    
+    // Extended flags (flags2)
+    //uint32 canCutTerrain_0x100000000     :1; // Can cut terrain
+    //uint32 shadowMapGen_0x200000000      :1; // Shadow map generation flag
+    //uint32 shadowMapDepth_0x400000000    :1; // Shadow map depth flag
+    //uint32 shadowMapReserved_0x800000000 :1; // Shadow map reserved flag
+} bGroupFlags;
+
+typedef struct{
+    // ( Byte 0x0000000F )
+    ubyte Has_BSP_0x1               :1; // Has BSP tree (MOBN and MOBR chunk).
+    ubyte Has_LIGHTMAP_0x2          :1; // Has light map (MOLM, MOLD). (UNUSED: 20740) possibly: subtract mohd.color in mocv fixing 
+    ubyte Has_VERTEXCOLOR_0x4       :1; // Has vertex colors (MOCV chunk).
+    ubyte Outdoor_0x8               :1; // EXTERIOR - Outdoor - also influences how doodads are culled. If camera is AABB present in a group with this flag, and not present in any group with SMOGroup::INTERIOR, render all exteriors
+    // ( Byte 0x000000F0 )
+    ubyte Unk_Unused_0x10           :1; // (UNUSED: 20740)
+    ubyte Unk_Unused_0x20           :1; // (UNUSED: 20740)
+    ubyte Exterior_Lit_0x40         :1; // EXTERIOR_LIT -- "Do not use local diffuse lightning". Applicable for both doodads from this wmo group(color from MODD) and water(CWorldView::GatherMapObjDefGroupLiquids). If group has SMOGroup::INTERIOR flag and this flag then exterior lighting is used for the group)
+    ubyte Unk_Unreachable_0x80      :1; // UNREACHABLE
+    // ( Byte 0x00000F00 )
+    ubyte RenderExtSkyIndoor_0x100  :1; // Show exterior sky in interior WMO group (Used for interiors of city in stratholme_past.wmo)
+    ubyte Has_Lights_0x200          :1; // Has lights (MOLR chunk)
+    ubyte Has_MPBV_MPBP_MPBI_MPBG_0x400 :1; // <= Cataclysm: Has MPBV, MPBP, MPBI, MPBG chunks, neither 0.5.5, 3.3.5a nor Cataclysm alpha actually use them though, but just skips them. Legion+(?): SMOGroup::LOD: Also load for LoD != 0 (_lod* groups). Seems to disable shadow casting when on
+    ubyte Has_Doodads_0x800         :1; // Has doodads (MODR chunk)
+    // ( Byte 0x0000F000 )
+    ubyte Has_Water_0x1000          :1; // LIQUIDSURFACE -- Has water (MLIQ chunk)
+    ubyte Is_Indoor_0x2000          :1; // INTERIOR -- Indoor
+    ubyte Unk_0x4000                :1; // (UNUSED: 20740)
+    ubyte QueryMountAllowed_0x8000  :1; // QueryMountAllowed in pre-WotLK
+    // ( Byte 0x000F0000 )
+    ubyte AlwaysDraw_0x10000        :1; // ALWAYSDRAW - clear 0x8 after CMapObjGroup::Create() in MOGP and MOGI
+    ubyte Has_MORI_MORB_0x20000     :1; // (UNUSED: 20740) Has MORI and MORB chunks.
+    ubyte Show_Skybox_0x40000       :1; // Show skybox -- automatically unset if MOSB not present
+    ubyte Is_Not_Ocean_0x80000      :1; // is_not_water_but_ocean, LiquidType related, see below in the MLIQ chunk.
+    // ( Byte 0x00F00000 )
+    ubyte Unk_0x100000              :1; //
+    ubyte IsMountAllowed_0x200000   :1; // IsMountAllowed
+    ubyte Unk_0x400000              :1; // (UNUSED: 20740)
+    ubyte Unk_0x800000              :1; //
+    // ( Byte 0x0F000000 )
+    ubyte Has_TWO_MOCV_0x1000000    :1; // CVERTS2: Has the second MOCV chunks: If the flag 0x4 isn't set this is the only MOCV chunk in the group. Whether the flag 0x4 is set or not: only the alpha values from this chunk are used (to blend the textures). FixColorVertexAlpha must not be used on this chunk !
+    ubyte Has_TWO_MOTV_0x2000000    :1; // TVERTS2: Has two MOTV chunks: Just add two.
+    ubyte AntiPortal_0x4000000      :1; // ANTIPORTAL: Just call CMapObjGroup::CreateOccluders() independent of groupname being "antiportal". requires intBatchCount == 0, extBatchCount == 0, UNREACHABLE.
+    ubyte NoBatchRender_0x8000000   :1; // unk. requires intBatchCount == 0, extBatchCount == 0, UNREACHABLE. When set seems to disable rendering of batches, but still renders doodads
+    // ( Byte 0xF0000000 )
+    ubyte Unk_0x10000000            :1; // (UNUSED: 20740)
+    ubyte ExteriorCull_0x20000000   :1; // >> 20740ᵘ EXTERIOR_CULL
+    ubyte TVerts3_0x40000000        :1; // TVERTS3: Has three MOTV chunks, eg. for MOMT with shader 18.
+    ubyte Flags2_0x80000000         :1; // Seen in world/wmo/kultiras/human/8hu_warfronts_armory_v2_000.wmo vv flags2
+    
+    //ubyte CanCutTerrain_0x100000000  :1; // canCutTerrain
+    //ubyte depSHADOWMAPGEN_0x30000000 :1; // depSHADOWMAPGEN | depSHADOWMAPGEN_DEPTH as per "(m_groupFlags & (SMOGroup::depSHADOWMAPGEN | SMOGroup::depSHADOWMAPGEN_DEPTH)) == 0" and *(_DWORD *)(a1 + 36) & 0x30000000. yes, this clashes with EXTERIOR_CULL, but that's in the same version. weird.
+}sMOGP_FLAGS;
+
+typedef struct{
+    uint32 CanCutTerrain_0x1 :1; // ≥ Mists has portal planes to cut
+    uint32 Unk_0x2  :1;
+    uint32 Unk_0x4  :1;
+    uint32 Unk_0x8  :1;
+    uint32 Unk_0x10 :1;
+    uint32 Unk_0x20 :1;
+    uint32 IsSplitGroupParent_0x40 :1; // ≥ SL since around 9.2.0
+    uint32 IsSplitGroupChild_0x80 :1;  // ≥ SL since around 9.2.0
+    uint32 Flags2_Attachment_Mesh :1;  // ≥ 9.2, ≤ 11.0
+}sMOGPGroupFlags2;
+
+// ============= Data Types =====================
+
+// C2iVector --------------------------------------------------------------------
+
+typedef struct{
+	int x;
+	int y;
+}C2iVector<read=C2iVectorRead, write=C2iVectorWrite, optimize=false>;
+
+string C2iVectorRead(C2iVector& rec){
+	string a;
+	SPrintf(a, "(%d %d)\n", rec.x, rec.y);
+	return a;
+}
+
+void C2iVectorWrite(C2iVector& rec, string s){
+	SScanf(s, "(%d %d)", rec.x, rec.yz);
+}
+
+// C2Vector --------------------------------------------------------------------
+
+typedef struct{
+	float x;
+	float y;
+}C2Vector<read=C2VectorRead, write=C2VectorWrite, optimize=false>;
+
+string C2VectorRead(C2Vector& rec){
+	string a;
+	SPrintf(a, "(%f %f)\n", rec.x, rec.y);
+	return a;
+}
+
+void C2VectorWrite(C2Vector& rec, string s){
+	SScanf(s, "(%f %f)", rec.x, rec.yz);
+}
+
+// C4Byte ----------------------------------------------------------------
+
+typedef struct{
+	unsigned char x;
+	unsigned char y;
+	unsigned char z;
+	unsigned char w;
+}C4Byte<read=C4ByteRead, optimize=false>;
+
+string C4ByteRead(C4Byte& rec){
+	string a;
+	SPrintf(a, "(%u %u %u %u)\n", rec.x, rec.y, rec.z, rec.w);
+	return a;
+}
+
+// C3Vector --------------------------------------------------------------------
+
+typedef struct{
+	float x;
+	float y;
+	float z;
+}C3Vector<read=C3VectorRead, write=C3VectorWrite, optimize=false>;
+
+string C3VectorRead(C3Vector& rec){
+	string a;
+	SPrintf(a, "(%f %f %f)\n", rec.x, rec.y, rec.z);
+	return a;
+}
+
+void C3VectorWrite(C3Vector& rec, string s){
+	SScanf(s, "(%f %f %f)", rec.x, rec.y, rec.z);
+}
+
+// C4Vector --------------------------------------------------------------------
+
+typedef struct{
+  float x;
+  float y;
+  float z;
+  float w;
+}C4Vector<read=C4VectorRead, write=C4VectorWrite, optimize=false>;
+
+string C4VectorRead(C4Vector& rec){
+  string a;
+  SPrintf(a, "(%f %f %f %f)\n", rec.x, rec.y, rec.z, rec.w);
+  return a;
+}
+
+void C4VectorWrite(C4Vector& rec, string s){
+  SScanf(s, "(%f %f %f %f)", rec.x, rec.y, rec.z, rec.w);
+}
+
+// C4ByteColor ----------------------------------------------------------------
+
+typedef struct{
+	uchar B;
+	uchar G;
+	uchar R;
+	uchar A;
+}C4ByteColor<read=C4ByteColorRead, optimize=false, edit=color>;
+
+string C4ByteColorRead(C4ByteColor& rec){
+	string a;
+	SPrintf(a, "#%02LX%02LX%02LX %d%%\n", rec.R, rec.G, rec.B, (rec.A/255)*100);
+	return a;
+}
+
+// =============================== Individual Chunks ================================
+
+// ============= MVER Chunk =====================
+typedef struct{
+    sHdr Hdr;
+    struct{
+        if((Hdr.Size/4)==1){
+            uint Version;
+        }else{
+            uint Version[Hdr.Size/4];
+        }        
+    }sMVER_Container<open=true, read=Str("%d : Ver", ReadUInt(startof(Version)))>;
+}sMVER<read=Str("%d : Ver", ReadUInt(startof(sMVER_Container.Version)))>;
+
+// ============= MOMO Chunk ===================== ≤ PreVanilla (0.5.5.3494).
+
+typedef struct{
+    sHdr Hdr;
+}sMOMO<read=Str("Wrapper")>;
+
+// ============= MOHD Chunk =====================
+
+typedef struct{
+    sHdr Hdr;
+    struct{
+        uint32 nTextures;     // n Textures (BLP Files)
+        uint32 nGroups;       // n WMO groups
+        uint32 nPortals;      // n Portals
+        uint32 nLights;       // n Lights
+        uint32 nDoodadNames;  // n M2 models imported
+        uint32 nDoodadDefs;   // n Doodads (M2 instances)
+        uint32 nDoodadSets;   // n Doodad sets
+        C4ByteColor AmbColor; // Color settings for base (ambient) color. See the flag at /*03Ch*/
+        uint32 WMO_Id;        // (column 2 in WMOAreaTable.dbc)
+	    C3Vector BoundingBoxMin;
+	    C3Vector BoundingBoxMax;
+        uint32  padding;
+    }sMOHD_Container<open=true, read=Str("%d : WMO ID", WMO_Id)>;    
+}sMOHD<read=Str("%d : WMO ID", sMOHD_Container.WMO_Id)>;
+
+// ============= MOTX Chunk =====================
+
+typedef struct{
+    string TextureName;
+    local uint8 nPadding = 0;
+    local uint64 oldpos = FTell();
+    local byte ByteBuffer = ReadByte(oldpos);
+    while(ByteBuffer==0x0){
+        nPadding++;
+        oldpos++;
+        ByteBuffer = ReadByte(oldpos);
+    };
+    if(nPadding>0) byte Padding[nPadding];
+}sWMOFileName<read=TextureName, write=WMOTexWrite>;
+
+void WMOTexWrite( sWMOFileName &f, string s ){
+    SScanf(s, "%s", f.TextureName);
+}  
+
+typedef struct{
+    sHdr Hdr;
+    struct{
+        if(Hdr.Size!=0){
+            local int nTextures = 0;
+            local int ofsTexListEnd = FTell() + Hdr.Size;
+            while(FTell() < ofsTexListEnd ){        
+                sWMOFileName Texture;
+                nTextures++;
+            }
+        }
+    }sMOTX_Container<open=true, read=Str("%d : Texture Files", nTextures), optimize=false>;
+}sMOTX<read=Str("%d : Texture Files", sMOTX_Container.nTextures), optimize=false>;
+
+// ============= MOMT Chunk =====================
+
+string OfsTextureRead(uint32 rec){
+    if( exists(WMO_File.MOTX) && (rec<FileSize())){
+	    string a;        
+        local int64 OfsMOTX = startof(WMO_File.MOTX);        
+        local string sRefferedTex = ReadString(OfsMOTX+0x8+rec);
+	    SPrintf(a, "%d->%s\n", rec, sRefferedTex);
+	    return a;
+    }else{
+        return Str("%d->N/A", rec);
+    }
+}
+
+typedef struct{
+    uint32 UNLIT_0x0    : 1;  // disable lighting logic in shader (but can still use vertex colors)
+    uint32 UNFOGGED_0x1 : 1;  // disable fog shading (rarely used)
+    uint32 UNCULLED_0x2 : 1;  // two-sided
+    uint32 EXTLIGHT_0x4 : 1;  // darkened, the intern face of windows are flagged 0x08
+    uint32 SIDN_0x8     : 1;  // (bright at night, unshaded) (used on windows and lamps in Stormwind, for example) (see emissive color)
+    uint32 WINDOW_0x10  : 1;  // lighting related (flag checked in CMapObj::UpdateSceneMaterials)
+    uint32 CLAMP_S_0x20 : 1;  // tex clamp S (force this material's textures to use clamp s addressing)
+    uint32 CLAMP_T_0x40 : 1;  // tex clamp T (force this material's textures to use clamp t addressing)
+    uint32 UNK_0_0x80   : 1;
+    uint32 Padding      : 23; // unused as of 7.0.1.20994
+}sFlagsMOMT;
+
+typedef struct{
+    sHdr Hdr;
+    struct{
+        for(int32 i=0; i < (Hdr.Size/64); i++){
+            struct{
+                //uint32 Version;
+                sFlagsMOMT Flags;
+                uint32 Shader;
+                uint32 BlendMode;             // Blending: see EGxBlend
+                uint32 OfsTexture1<read=OfsTextureRead(this)>;   // offset into MOTX; ≥(8.1.0.27826) Filedata ID
+                C4ByteColor SidnColor;        // Emissive color; see below (emissive color)
+                C4ByteColor FrameSidnColor;   // Sidn emissive color; set at runtime; gets sidn-manipulated emissive color; see below (emissive color)
+                uint32 OfsTexture2<read=OfsTextureRead(this)>;
+                C4ByteColor DiffColor;
+                uint32 GroundType;
+                float  Unk_f1;
+                float  Unk_f2;
+                uint32 Unk_n[5];
+                //OfsTextureMOMT OfsTexture3;
+                //uint32 Color2;
+                //sFlagsMOMT Flag2;
+            }Material<read=Str("%s", ExtractFilename(OfsTextureRead(OfsTexture1)))>;
+        }
+    }sMOMT_Container<open=true, optimize=true, read=Str("%d : Materials", ReadUInt( startof(this)-0x4)/64 )>;
+}sMOMT<read=Str("%d : Materials", Hdr.Size/64)>;
+
+// ============= MOM3 Chunk ====================== ≥ WarWithin (11.0.0.54210)
+// Payload is an M3 m3SI material block. It remains raw until the embedded M3
+// material graph can be parsed without guessing at version-dependent fields.
+
+// ============= MOUV Chunk ====================== ≥ Legion (7.3.0.24473)
+
+typedef struct{
+    sHdr Hdr;
+    //for(int16 i=0; i < (MOMT.MOMT_Header.Size/64); i++){
+    for(int16 i=0; i < (Hdr.Size/16); i++){
+         C2Vector Translation_speed[2];
+    }
+}sMOUV<read=Str("%d : nMapObjectUV", (Hdr.Size/16))>;
+
+// ============= MOGN Chunk ======================
+
+typedef struct{
+    string GroupName;
+}sGroupName<read=GroupName, write=MOGNGroupNameWrite>;
+
+void MOGNGroupNameWrite( sGroupName &f, string s){
+    SScanf(s, "%s", f.GroupName);
+};
+
+typedef struct{
+    sHdr Hdr;
+    struct{
+        local uint8 nGroupNames = 0;
+        local uint64 OfsMOGNEnd = FTell() + Hdr.Size;
+        while(FTell() < OfsMOGNEnd){
+            sGroupName GroupNames;    
+            nGroupNames++;
+        }
+    }sMOGN_Container<open=true, read=Str("%d : GroupNames", nGroupNames)>;
+}sMOGN<read=Str("%d : GroupNames", sMOGN_Container.nGroupNames)>;
+
+// ============= MOGI Chunk ======================
+
+typedef struct{
+    bGroupFlags Flags;
+	C3Vector BoundingBoxMin;
+	C3Vector BoundingBoxMax;
+    int32 NameOffset<read=sMOGIRead(this)>;
+}sMOGI_Entry;
+
+typedef struct{
+    sHdr Hdr;
+    struct{
+        if(Hdr.Size>0){
+            for(int32 i=0; i < (Hdr.Size/32); i++){
+                sMOGI_Entry MOGI_data<read=sMOGIRead(NameOffset)>;
+            }
+        }
+    }sMOGI_Container<open=true, read=Str("%d : Group Informations", ReadUInt((startof(this)-0x4))/32 )>;
+}sMOGI<read=Str("%d : Group Informations", (Hdr.Size/32)) >;
+
+string sMOGIRead(int ofsIntoMOGN){
+    string a;
+    if(ofsIntoMOGN > -1){
+        SPrintf(a, "%d->%s\n", ofsIntoMOGN, ReadString(startof(WMO_File.MOGN)+ofsIntoMOGN+0x8));
+    }else{
+        SPrintf(a, "%s\n", "Empty");
+    };
+	return a;
+}
+
+// ============= MOSB Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    char SkyboxName[Hdr.Size];
+}sMOSB<read=sMOSBRead>;
+
+string sMOSBRead(sMOSB& rec){
+	string a;
+    local string sSkyBoxName = rec.SkyboxName;
+    if(Strlen(sSkyBoxName)>4){
+        SPrintf(a, "%s\n", rec.SkyboxName);
+    }else{
+        SPrintf(a, "Empty\n");
+    };
+	return a;
+}
+
+// ============= MOSI Chunk ====================== ≥ Battle (8.1.0.27826). Could have been added earlierᵘ.
+
+typedef struct{
+    sHdr Hdr;
+    uint32 SkyboxFileID;
+}sMOSI<read=Str("%d : Skybox FID", SkyboxFileID)>;
+
+// ============= MOPV Chunk ======================
+
+typedef struct{
+    C3Vector Portal[4];
+}sPortal;
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size>0) C3Vector PortalVertices[Hdr.Size/12];
+}sMOPV<read=Str("%d : Portals", ((Hdr.Size/12)+1)/4)>;
+
+// ============= MOPT Chunk ======================
+
+typedef struct{
+    uint16 StartVertex;
+    uint16 Count;
+    C4Vector Plane;
+}sPortalInfo;
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size>0) sPortalInfo PortalInfo[Hdr.Size/20]<read=Str("s: %d c: %d", StartVertex, Count)>;
+}sMOPT<read=Str("%d : PortalData", Hdr.Size/20)>;
+
+// ============= MOPR Chunk ======================
+
+typedef struct{
+    uint16 portalIndex; // Into MOPT
+    uint16 groupIndex;  // The other one
+    int16  side;        // Positive or negative.
+    uint16 filler;
+}sMOPR_Entry;
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size>0) sMOPR_Entry PortalRefs[Hdr.Size/8]<read=Str("pIdx: %d gIdx: %d", portalIndex, groupIndex)>;
+}sMOPR<read=Str("%d : PortalRefs", Hdr.Size/20)>;
+
+// ============= MOPE Chunk ====================== ≥ WarWithin (11.1.0.58221).
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/16); i++){
+                uint32 PortalIndex;  // into MOPT
+                uint32 unk1;
+                uint32 unk1;
+                uint32 unk3;
+            }
+        }sMOPE_Container<open=true>;
+    }
+}sMOPE<read=Str("%d : PortalIndex", Hdr.Size/16)>;
+
+// ============= MOVV Chunk ====================== ≥ Battle (8.1.0.28294) optional
+
+typedef struct{
+    C3Vector VisBlockVerts;
+}sMOVV_Entry;
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size>0) sMOVV_Entry VisibleBlockVerts[Hdr.Size/12];
+}sMOVV<read=Str("%d : VisibleBlockVerts", Hdr.Size/20)>;
+
+// ============= MOVB Chunk ======================
+
+typedef struct{
+    uint16 FirstVertex;
+    uint16 Count;
+}sMOVB_Entry<read=Str("%d#->%d#", FirstVertex, Count)>;
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size>0) sMOVB_Entry VisibleBlock[Hdr.Size/4];
+}sMOVB<read=Str("%d : VisibleBlock", Hdr.Size)>;
+
+// ============= MOLT Chunk ======================
+
+typedef enum <uint8>{
+    OMNI_LGT = 0,
+    SPOT_LGT = 1,
+    DIRECT_LGT = 2,
+    AMBIENT_LGT = 3,
+}eLightType;
+
+typedef struct{
+    eLightType Type;
+    uint8 UseAtten;
+    uint8 pad[2];
+    C4ByteColor Color;
+    C3Vector Position;
+    float Intensity;
+    C4Vector Rotation;
+    float AttenStart;
+    float AttenEnd;
+}sMOLT_Entry<optimize=false>;
+
+typedef struct{         // Todo needs testing
+    sHdr Hdr;
+    if(Hdr.Size>0) sMOLT_Entry LightEntry[Hdr.Size/48];
+}sMOLT<read=Str("%d : Lights", Hdr.Size/48)>;
+
+// ============= MOLV Chunk ====================== ≥ SL (9.1.0.39015).
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/8); i++){
+                C2Vector LightMapVertexList;
+            }
+        }sMOLV_Container; //<open=true>;
+    }
+}sMOLV<read=Str("%d : LightmapVertex", Hdr.Size/8)>;
+
+// ============= MOLM Chunk ====================== ≤ PreVanilla (0.5.5.3494). Only used in v14.
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/4); i++){
+                struct{
+                    char X;
+                    char Y;
+                    char Width;
+                    char Height;
+                }MOLM_Entry<read=Str("X: %d Y: %d ", X, Y)>;
+            }
+        }sMOLM_Container; //<open=true>;
+    }
+}sMOLM<read=Str("%d : LightMapList", Hdr.Size/4)>;
+
+// ============= MODS Chunk ======================
+
+typedef struct{
+    char Name[0x14];
+    uint32 StartIndex;
+    uint32 Count;
+    char pad[0x4];
+}sMODS_Entry<read=Str("%s", Name)>;
+
+typedef struct{
+    sHdr Hdr;
+    local int32 ChunkNum = (Hdr.Size/32);
+    if(ChunkNum>0){
+        for(int16 i=0; i < ChunkNum; i++){
+             sMODS_Entry DoodadSetList;
+        }
+    }
+}sMODS<read=Str("%d : DoodadSets", Hdr.Size/32)>;
+
+// ============= MODN Chunk ======================
+ 
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        local int nDoodadNameList = 0;
+        local int ofsDoodadNameList = FTell() + Hdr.Size;
+        while(FTell() < ofsDoodadNameList ){        
+            sWMOFileName DoodadName;
+            nDoodadNameList++;
+        }
+    }
+}sMODN<read=Str("%d : Models", Hdr.Size)>;
+
+// ============= MODI Chunk ======================  ≥ Battle (8.1.0.27826)
+
+typedef struct{
+    sHdr Hdr;
+    for(int16 i=0; i < (Hdr.Size/4); i++){
+         uint32 Doodad_ID_Entry;
+    }
+}sMODI<read=Str("%d : Doodad_ID", Hdr.Size/4)>;
+
+// ============= MODD Chunk ======================
+
+string OfsDoodadFileNameMODNFinder(int rec){
+    if( exists(WMO_File.MODN) && (rec<FileSize())){
+	    string a;        
+        local int64 OfsMODN = startof(WMO_File.MODN);        
+        local string sRefDoodadName = ReadString(OfsMODN+0x8+rec);
+	    SPrintf(a, "%d->%s\n", rec, sRefDoodadName);
+	    return a;
+    }else{
+        return Str("%d->N/A", rec);
+    } 
+}
+
+typedef struct{
+    uint32 NameIndex: 24<read=Str("%s",OfsDoodadFileNameMODNFinder(this))>;         // reference offset into MODN, or MODI, depending on version and presence. Note that if MODN is used it is a byte offset to the beginning of filepath 0-terminated string, for MODI it is an index.
+    uint32 Flag_AcceptProjTex: 1; // If set, the doodad can have textures projected onto it, e.g. the npc selection circle
+    uint32 Flag_0x2: 1;           // MapStaticEntity::field_34 |= 1 (if set, MapStaticEntity::AdjustLighting is _not_ called). When enabled uses wmo interior lighting function, when disabled uses exterior lighting
+    uint32 Flag_0x4: 1;
+    uint32 Flag_0x8: 1;
+    uint32 Unk1: 4;                // unused as of 7.0.1.20994
+    C3Vector Position;             // (X, Z, -Y)
+    C4Vector Orientation;          // (X, Y, Z, W)
+    float Scale;                   // scale factor
+    C4ByteColor Color;             // (B,G,R,A) overrides pc_sunColor
+                                   // when A is != 0xff && A < 255, A is a MOLT index and that's used instead the RGB given here, taking distance and intensity into account
+                                   // If A > MOLT count, then MOLT[0] is used
+                                   // If A == 255, the shading direction vector is based on the center of the group and not the sun direction vector, the look-at vector from group bounds center to doodad position
+}sMODD_Entry<read=Str("%s ", ExtractFilename(OfsDoodadFileNameMODNFinder(NameIndex)))>;
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size>0) sMODD_Entry DoodadDefList[Hdr.Size/40]<optimize=false>;
+}sMODD<read=Str("%d : DoodadDefList", Hdr.Size/40)>;
+
+// ============= MFOG Chunk ======================
+
+typedef enum <uint8>{
+    FOG = 0,
+    UWFOG = 1,    // Under Water
+    NUM_FOGS = 2,
+}eFogs;
+
+typedef struct{
+    uint32 Flag_Infinite_Radius: 1; // F_IEBLEND: Ignore radius in CWorldView::QueryCameraFog
+    uint32 Unk1: 3;                 // unused as of 7.0.1.20994
+    uint32 Flag_0x10 : 1;
+    uint32 Unk2: 27;                // unused as of 7.0.1.20994
+    C3Vector Pos;
+    float Smaller_Radius;           // start
+    float Larger_Radius;            // end
+    struct Fog{
+        float End;
+        float Start_Scalar;         // (0..1) -- minimum distance is end * start_scalar
+        C4ByteColor Color;          // The back buffer is also cleared to this colour
+    }Fogs[NUM_FOGS]<optimize=false>;
+}sMFOG_Entry<read=Str("%f<->%f", Smaller_Radius, Larger_Radius)>;
+
+typedef struct{
+    sHdr Hdr;
+    local int32 ChunkNum = (Hdr.Size/48);
+    if(ChunkNum>0){
+        for(int16 i=0; i < ChunkNum; i++){
+            sMFOG_Entry FogList;
+        }
+    }
+}sMFOG<read=Str("%d : FogList", (Hdr.Size/48))>;
+
+// ============= MCVP Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        local int nConvexVolumes = (Hdr.Size/16);
+        for(int16 i=0; i < nConvexVolumes; i++){
+            C4Vector ConvexVolumePlanes;
+        }
+    }
+}sMCVP<read=Str("%d : Convex", Hdr.Size/16)>;
+
+// ============= GFID Chunk ====================== Applies to versions ≥ Legion.
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){        
+        //uint32 ID[WMO_File.MOHD.sMOHD_Container.nGroups];
+        uint32 ID[Hdr.Size/4];
+    }
+}sGFID<read=Str("%d : nFileID", Hdr.Size/4)>;
+           
+// ============= MDDI Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){        
+        float ColorMult[Hdr.Size/4]; // WIP todo check
+    }
+}sMDDI<read=Str("%d : DoodadAddInfo", Hdr.Size/4)>;
+
+// ============= MPVD Chunk ======================
+// Particulate-volume definition layout is not documented yet; dispatched raw.
+// ============= MOLD Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            //char InMemPad[4];
+            //CGxTex *gxTexture;
+            //HTEXTURE__ *hTexture;
+            for(int i=0; i<(Hdr.Size/32772); i++){
+                struct{
+                    char Texels[32768];
+                    char InMemPad[4];
+                    //uint32 Data;
+                }MOLD_Entry;
+            }   
+            /*
+            */
+        }sMOLD_Container;
+    }
+}sMOLD<read=Str("%d : LightMapTexList", Hdr.Size/32772)>;
+
+// ============= MNLR Chunk ====================== >= Shadowlands (9.0.1.33978)
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size > 0) uint16 NewLightRefs[Hdr.Size/2]<optimize=true>;
+}sMNLR<read=Str("%d : NewLightRefs", Hdr.Size/2)>;
+
+// ============= MFVR Chunk ====================== >= Shadowlands (9.0.1)
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size > 0) uint16 FogVolumeRefs[Hdr.Size/2]<optimize=true>;
+}sMFVR<read=Str("%d : FogVolumeRefs", Hdr.Size/2)>;
+
+// ============= MBVR Chunk ====================== >= Shadowlands (9.0.1.33978)
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size > 0) uint16 BoxVolumeRefs[Hdr.Size/2]<optimize=true>;
+}sMBVR<read=Str("%d : BoxVolumeRefs", Hdr.Size/2)>;
+
+// ============= MAVR Chunk ====================== >= Shadowlands (9.0.1.33978)
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size > 0) uint16 AmbientVolumeRefs[Hdr.Size/2]<optimize=true>;
+}sMAVR<read=Str("%d : AmbientVolumeRefs", Hdr.Size/2)>;
+
+// ============= MPVR Chunk ====================== >= Battle for Azeroth (8.3.0.33775)
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size > 0) uint16 ParticulateVolumeRefs[Hdr.Size/2]<optimize=true>;
+}sMPVR<read=Str("%d : ParticulateVolumeRefs", Hdr.Size/2)>;
+
+// ============= MOP2 Chunk ====================== >= Battle for Azeroth (8.1.0.27826)
+
+typedef struct{
+    uint32 LightIndex;
+    C4Byte Color;
+    C3Vector Position;
+    float AttenuationStart;
+    float AttenuationEnd;
+    float Intensity;
+    C3Vector Rotation;
+    float FlickerIntensity;
+    float FlickerSpeed;
+    int32 FlickerMode;
+    int32 Unknown[4];
+    uint32 LightTextureFileDataID;
+    int32 UnknownAfterTexture[5];
+}sMOP2_Entry<read=Str("Light %d, Texture FDID %d", LightIndex, LightTextureFileDataID)>;
+
+typedef struct{
+    sHdr Hdr;
+    local uint32 RecordCount = Hdr.Size/96;
+    if(RecordCount > 0) sMOP2_Entry PointLightAnimations[RecordCount]<optimize=false>;
+    if((Hdr.Size % 96) != 0) ubyte TrailingBytes[Hdr.Size % 96]<open=false, optimize=true>;
+}sMOP2<read=Str("%d : PointLightAnimations", RecordCount)>;
+
+// ============= MOS2 Chunk ====================== >= Battle for Azeroth (8.1.0.27826)
+
+typedef struct{
+    ubyte Data[108]<open=false, optimize=true>;
+}sMOS2_Entry<read="108 raw bytes", comment="Undocumented spotlight animation record">;
+
+typedef struct{
+    sHdr Hdr;
+    local uint32 RecordCount = Hdr.Size/108;
+    if(RecordCount > 0) sMOS2_Entry SpotlightAnimations[RecordCount]<optimize=false>;
+    if((Hdr.Size % 108) != 0) ubyte TrailingBytes[Hdr.Size % 108]<open=false, optimize=true>;
+}sMOS2<read=Str("%d : SpotlightAnimations", RecordCount)>;
+// ============= MLSK Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/4); i++){
+                struct{
+                    uint32 Offset;
+                    uint32 MLSK_count;
+                }MLSK_Entry<read=Str("MLSK_count: %d", MLSK_count)>;
+            }
+        }sMLSK_Container; //<open=true>;
+    }
+}sMLSK<read=Str("%d : MapObjectPointLightAnimSets", Hdr.Size/4)>;
+
+// ============= MLSO Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/4); i++){
+                struct{
+                    uint32 Offset;
+                    uint32 MOS2_count;
+                }MLSO_Entry<read=Str("MOS2_count: %d", MOS2_count)>;
+            }
+        }sMLSO_Container; //<open=true>;
+    }
+}sMLSO<read=Str("%d : MapObjectSpotLightAnimSets", Hdr.Size/4)>;
+
+// ============= MOPB Chunk ======================
+
+typedef struct{
+    ubyte Data[0x18]<open=false, optimize=true>;
+}sMOPB_Entry<read="24 raw bytes", comment="Map object prepass batch">;
+
+typedef struct{
+    sHdr Hdr;
+    local uint32 RecordCount = Hdr.Size/24;
+    if(RecordCount > 0) sMOPB_Entry PrepassBatches[RecordCount]<optimize=false>;
+    if((Hdr.Size % 24) != 0) ubyte TrailingBytes[Hdr.Size % 24]<open=false, optimize=true>;
+}sMOPB<read=Str("%d : PrepassBatches", RecordCount)>;
+
+// ============= MOPL Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/16); i++){
+                //struct{
+                    C4Vector TerrainCuttingPlanes;
+                //}MOPL_Entry;
+            }   
+        }sMOPL_Container;
+    }
+}sMOPL<read=Str("%d : TerrainCuttingPlanes", Hdr.Size/16)>;
+
+// ============= MOTA Chunk ======================  ≥ Cata. Could have been added earlierᵘ.
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            ushort FirstIndex[MOBA.Hdr.Size/24]; // either -1 or first index of batch.count indices into tangents[]. 
+                                                 // if auto-generated, only has entries for batches with 
+                                                 // material[batch.material].shader == 10 or 14.
+            for(int i=0; i<( (Hdr.Size-((MOBA.Hdr.Size/24)*2))/16); i++){
+                C4Vector Tangents; // sum (batches[i].count | material[batches[i].material].shader == 10 or 14)
+            }   
+        }sMOTA_Container;
+    }
+}sMOTA<read=Str("%d : MapObjectTangentArray", Hdr.Size/18)>;
+
+// ============= MORB Chunk ======================
+// ============= MOQG Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/4); i++){
+                //struct{
+                    uint32 QueryFace;
+                //}MOQG_Entry;
+            }   
+        }sMOQG_Container;
+    }
+}sMOQG<read=Str("%d : QueryFace", Hdr.Size/4)>;
+
+// ============= MOIN Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/2); i++){
+                //struct{
+                    uint16 IndexList;
+                //}_MOIN;
+            }   
+        }sMOIN_Container;
+    }
+}sMOIN<read=Str("%d : IndexList", Hdr.Size/2)>;
+
+// ============= MDDL Chunk ======================
+// ============= MPVD Chunk ======================
+// ============= MOLV Chunk ======================
+// ============= MOM3 Chunk ======================
+// ============= MAVG Chunk ======================  ≥ Battle (8.3.0.32044). Could have been added earlierᵘ.
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/48); i++){
+                struct{
+                    C3Vector Pos;
+                    float Start;
+                    float End;
+                    C4Byte Color1;
+                    C4Byte Color2;
+                    C4Byte Color3;
+                    uint32 Flags;  // &1: use color1 and color3
+                    uint16 DoodadSetID;
+                    char Padding[10];
+                }MAVG_Entry<read=(Str("DoodadSetID: %d", DoodadSetID))>;
+            }
+        }sMAVG_Container; //<open=true>;
+    }
+}sMAVG<read=Str("%d : GlobalAmbientVolumes", Hdr.Size/48)>;
+
+// ============= MAVD Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/48); i++){
+                struct{
+                    C3Vector Pos;
+                    float Start;
+                    float End;
+                    C4Byte Color1; // overrides MOHD.ambColor
+                    C4Byte Color2;
+                    C4Byte Color3;
+                    uint32 Flags;  // &1: use color2 and color3
+                    uint16 DoodadSetID;
+                    char Padding[10];
+                }MAVD_Entry<read=(Str("DoodadSetID: %d", DoodadSetID))>;
+            }
+        }sMAVD_Container; //<open=true>;
+    }
+}sMAVD<read=Str("%d : AmbientVolumes", Hdr.Size/48)>;
+
+// ============= MOMX Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/16); i++){
+                struct{
+                    int16 data1;
+                    int16 data2;
+                    int16 data3;
+                    int16 data4;
+                    int16 data5;
+                    int16 data6;
+                    int16 data7;
+                    int16 data8;
+                }MOMX_Entry<read=(Str("data: %d", data1))>;
+            }
+        }sMOMX_Container; //<open=true>;
+    }
+}sMOMX<read=Str("%d : data", Hdr.Size/16)>;
+
+// ============= MLIQ Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{            
+            C2iVector LiquidVerts; // number of vertices (x, y)
+            C2iVector LiquidTiles; // number of tiles (ntiles = nverts-1)
+            C3Vector Position;     // base coordinates for X and Y
+            uint16 MaterialID;     // material ID (index into MOMT)
+
+            union{
+                struct{
+                    uint8 Flow1;
+                    uint8 Flow2;
+                    uint8 Flow1Pct;
+                    uint8 Filler;
+                    float Height;
+                }WaterVert;
+                struct{
+                    int16 s;
+                    int16 t;
+                    float Height;
+                }MagmaVert;
+            }LiquidVertexList[LiquidVerts.x * LiquidVerts.y];
+
+            struct{
+                uint8 LegacyLiquidType: 4; // For older WMOs, used to set liquid type.
+                uint8 Unk1: 1;
+                uint8 Unk2: 1;
+                uint8 Fishable: 1;
+                uint8 Shared: 1;
+            }LiquidTileList[LiquidTiles.x * LiquidTiles.y];
+
+        }sMLIQ_Container; //<open=true>;
+    }
+}sMLIQ;
+
+// ============= MDAL Chunk ======================  ≥ WoD. Could have been added earlier.
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/4); i++){
+                struct{
+                    int32 ReplacementForHeaderColor;
+                }MDAL_Entry<read=(Str("Col: %d", ReplacementForHeaderColor))>;
+            }
+        }sMDAL_Container; //<open=true>;
+    }
+}sMDAL<read=Str("%d : ReplacementHdrCol", Hdr.Size/4)>;
+
+// ============= MOLS Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/56); i++){
+                struct{
+                    char Mols_Entry[0x38];
+                }MOLS_Entry<read=(Str("Mols: %s", Mols_Entry))>;
+            }
+        }sMOLS_Container; //<open=true>;
+    }
+}sMOLS<read=Str("%d : MapObjectSpotLights", Hdr.Size/56)>;
+
+// ============= MLSS Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/8); i++){
+                struct{
+                    uint32 Offset;
+                    uint32 Mlss_count; // spotlights per set
+                }MLSS_Entry<read=(Str("Mlss: %d", Mlss_count))>;
+            }
+        }sMLSS_Container; //<open=true>;
+    }
+}sMLSS<read=Str("%d : MapObjectLightSetPointLights", Hdr.Size/8)>;
+
+// ============= MOLP Chunk ====================== ≥ Legion. Could have been added earlierᵘ.
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/44); i++){
+                struct{
+                    uint32 Unk;
+                    C4Byte Color;
+                    C3Vector Pos; //Position of Light
+                    float  Intensity;
+                    float  AttenStart;
+                    float  AttenEnd;
+                    float  Unk4; //Only Seen Zeros Here
+                    uint32 Unk5;
+                    uint32 Unk6; //CArgb
+                }MOLP_Entry<read=(Str("Unk: %d", Unk))>;
+            }
+        }sMOLP_Container; //<open=true>;
+    }
+}sMOLP<read=Str("%d : MapObjectPointLights", Hdr.Size/44)>;
+
+// ============= MLSP Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/8); i++){
+                struct{
+                    uint32 Offset;
+                    uint32 Mlsp_count; // pointlights per set
+                }MLSP_Entry<read=(Str("Molp: %d", Mlsp_count))>;
+            }
+        }sMLSP_Container; //<open=true>;
+    }
+}sMLSP<read=Str("%d : MapObjectLightSetSpotlights", Hdr.Size/8)>;
+
+// ============= MBVD Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/30); i++){
+                struct{
+                    C4Vector Plane[6]; // Position + Start
+                    float End;
+                    C4Byte Color1;
+                    C4Byte Color2;
+                    C4Byte Color3;
+                    uint32 Flags;      // &1: Use Color2 + Color3
+                    uint16 DoodadSetID;
+                    char Padding[10];
+                }MBVD_Entry<read=(Str("DoodadSetID: %d", DoodadSetID))>;
+            }
+        }sMBVD_Container; //<open=true>;
+    }
+}sMBVD<read=Str("%d : AmbientBoxVolumes", Hdr.Size/30)>;
+
+// ============= MFED Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/16); i++){
+                struct{
+                    uint16 DoodadSetId;
+                    char Unk1[0xE];
+                }sMFED_Entry<read=Str("DoodadSetId: %d", DoodadSetId)>;
+            };
+        }sMFED_Container; //<open=true>;
+    }
+}sMFED<read=Str("%d : FogExtraData", Hdr.Size/16)>;
+
+// ============= MOC2 Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/4); i++){
+                C4Byte colorVertex2;
+            }
+        }sMOC2_Container; //<open=true>;
+    }
+}sMOC2<read=Str("%d : Vertex Col2", Hdr.Size/4)>;
+
+// ============= MGI2 Chunk ====================== ≥ SL (9.0.1.33978)
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/8); i++){
+                struct{
+                    sMOGPGroupFlags2 Flags2; // a copy of the flags2 that is present in the group file as well
+                    uint32 LodIndex; // groupInfoList[i].flags & SMOGroup::LOD
+                }MGI2_Entry<read=(Str("LodIndx: %d", LodIndex))>;
+            }
+        }sMGI2_Container; //<open=true>;
+    }
+}sMGI2<read=Str("%d : nMapObjectGrpInfos", Hdr.Size/8)>;
+
+// ============= MDDL Chunk ====================== ≥ SL (9.0.1.33978)
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){   // I am so fucking confused by this structure
+        struct{
+            for(int i=0; i<(Hdr.Size/2); i++){
+                struct{
+                    uint16 Data;
+                }MDDL_Entry;
+            }   
+        }sMDDL_Container;
+    }
+}sMDDL<read=Str("%d : GroupData", Hdr.Size/2)>;
+
+// ============= MNLD Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/184); i++){
+                struct{
+                   int Type;                  // 0 = Point light (sphere), 1 = Spot light (cone) 
+                   int LightIndex;            // Appears to be same as index in mapobject_new_light_defs[]
+                   int Flags;                 // 0x1 - use blend between outerColor and innerColor, otherwise innerColor is used for whole light
+                                              // 0x2 - The light casts shadows
+                   int DoodadSet;             // Doodad Set this light belongs to
+                   C4Byte InnerColor;         // Inner color
+                   C3Vector Position;         // Light position in WMO
+                   C3Vector Rotation;         // Euler rotation in radians, for spot light rotates the light, for point light rotates the light cookie
+                   float AttenStart;          // Start attenuation
+                   float AttenEnd;            // End attenuation
+                   float Intensity;           // Light intensity
+                   C4Byte OuterColor;         // Outer color. Only used when 0x1 flag is set
+                   float BlendStart;          // Gradient start distance from emitter position, for mixing start and end color when 0x1 flag is set
+                   float BlendEnd;            // Gradient end distance from emitter position,  for mixing start and end color when 0x1 flag is set
+                   char Gap0[4];              // empty
+                   float FlickerIntensity;    // Flickering light intensity
+                   float FlickerSpeed;        // Flickering light speed
+                   int FlickerMode;           // 0 = off, 1 = sine curve, 2 = noise curve, 3 = noise step curve
+                   C3Vector Field_54;         // Only found 0's so far
+                   char Gap1[4];              // empty
+                   uint LightCookieFileID;    // file ID for light cookie texture. For point light it's a cube map
+                   char Gap2[20];             // empty
+                   float Falloff;             // Exponent for falloff parameter of spot lights. Defines how fast the light diminishes starting from center
+                   float InnerAngle;          // Start of drop-off gradient, in radians. Starts at center, ends at edge. Controls the rate at which light intensity decreases from the center to the edge of the spot light beam
+                   float OuterAngle;          // End of drop-off gradient, in radians. Both start and end drop-off angles have to be smaller than radius else sharp edge
+                   hfloat Scale;              // scale in half-float format. Used only when 0x2 flag is set
+                   hfloat IntesityMultiplier; // Multiplier for intensity in half-float format. If set to 0.0f - it's correct to 1.0f by client automatically
+                   int Unused_0;              // This field and fields below currently are not used by client
+                   int Unused_1;
+                   int Unused_2;
+                   int Unused_3;
+                   int Unused_4;
+                   int Unused_5;
+                   int Unused_6;
+                   int Unused_7;
+                   int Unused_8;
+                   int Unused_9;
+                   int Unused_10;
+                }MNLD_Entry<read=(Str("DoodadSet: %d", DoodadSet))>;
+            }
+        }sMNLD_Container; //<open=true>;
+    }
+}sMNLD<read=Str("%d : MapObjectNewLightDefs", Hdr.Size/184)>;
+
+// ========================= WMO GROUP CHUNKS BELOW ==============================
+
+// ============= MOGP Chunk ======================
+
+typedef struct{ //Group Header
+    sHdr Hdr;
+    struct{
+        uint32 GroupNameOffset;	 // Offset into MOGN
+	    uint32 DescNameOffset;   // Offset into MOGN
+	    sMOGP_FLAGS Flags;	     // Flags
+	    C3Vector BoundingBoxMin; // As with flags, same as in corresponding MOGI entry
+	    C3Vector BoundingBoxMax; // Bounding box corner 2
+	    uint16 PortalStart;	     // Index into MOPR
+	    uint16 PortalCount;	     // number of MOPR items used after portalStart
+	    uint16 TransBatchCount;	 // Number of batches A
+	    uint16 IntBatchCount;	 // Number of batches B
+	    uint32 ExtBatchCount;	 // Number of batches C
+	    ubyte FogIndices[4];     // Up to four indices into the WMO fog list
+	    uint32 LiquidType;	     // LiquidType related, see below in the MLIQ chunk.
+	    uint32 WmoGroupID;	     // WMO group ID (column 4 in WMOAreaTable.dbc)
+	    sMOGPGroupFlags2 Flags2; // Always 0 ?
+	    uint32 Unk2;		     // UNUSED: 20740
+        
+        
+        //WRONG and WIP
+        if(MVER.sMVER_Container.Version==14){
+            uint16 vertStart;
+            uint16 vertCount;
+            uint16 batchStart;
+            uint16 batchCount;
+        }
+        
+        
+    }sMOGP_Container<open=true>;
+}sMOGP<read=Str("WMO Group HDR")>;
+
+// ================ MOGX Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            uint32 QueryFaceStart[Hdr.Size/4];
+        }sMOGX_Container<open=true>;
+    }
+}sMOGX<read=Str("%d : Polygon_GroundType", Hdr.Size/4)>;
+
+// ================ MOPY Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0;i<(Hdr.Size/2); i++){
+                struct{               
+                    uint8 F_Unk_0x1: 1;
+                    uint8 F_NoCamCollide_0x2: 1;
+                    uint8 F_Details_0x4: 1;
+                    uint8 F_Collision_0x8: 1;     // Turns off rendering of water ripple effects. May also do more. Should be used for ghost material triangles.
+                    uint8 F_Hint_x010: 1;
+                    uint8 F_Render_0x20: 1;
+                    uint8 F_Cull_Objects_0x40: 1; // tested on 1.12, flag enables/disables game object culling. might be wrong, previously UNK_0x40
+                    uint8 F_Collide_Hit_0x80: 1;
+                    uint8 Material_Id;            // index into MOMT, 0xff for collision faces
+                }_MOPY<read=Str("Material Id: %d", Material_Id)>;
+            }
+        }sMOPY_Container<open=true>;
+    }
+}sMOPY<read=Str("%d : Materials_Trs 2b/trs", Hdr.Size/2)>;
+
+// ============= MPY2 Chunk ====================== ≥ DF (10.0.0.46181)
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0;i<(Hdr.Size/4); i++){
+                struct{
+                    uint16 Flags;
+                    uint16 Material_ID;                                
+                }_MPY2<read=Str("F: %d M: %d", Flags, Material_ID)>;                
+            }
+        }sMPY2_Container; //<open=true>;
+    }
+}sMPY2<read=Str("%d : Materials_Trs", Hdr.Size/4)>;
+
+// ============= MOVI Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0;i<(Hdr.Size/2); i++){
+                    uint16 Indices;
+            }
+        }sMOVI_Container; //<open=true>;
+    }
+}sMOVI<read=Str("%d : MapObject Vertex Indices", Hdr.Size/2)>;
+
+// ============= MOVX Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0;i<(Hdr.Size/12); i++){
+                    C3Vector Indices;
+            }
+        }sMOVX_Container; //<open=true>;
+    }
+}sMOVX;
+
+// ============= MOVT Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0;i<(Hdr.Size/12); i++){
+                C3Vector VertexList<read=Str("(%f %f %f)", x, y, z)>;
+            }
+        }sMOVT_Container; //<open=true>;
+    }
+}sMOVT<read=Str("%d : Vertices Chunk", Hdr.Size/12)>;
+
+// ============= MONR Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0;i<(Hdr.Size/12); i++){
+                C3Vector NormalList;
+            }
+        }sMONR_Container; //<open=true>;
+    }
+}sMONR<read=Str("%d : Normals Chunk", Hdr.Size/12)>;
+
+// ============= MOTV Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/8); i++){
+                C2Vector TextureCoordinates;
+            }
+        }sMOTV_Container; //<open=true>;
+    }
+}sMOTV<read=Str("%d : Texture Coords", Hdr.Size/8)>;
+
+// ============= MOBA Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/24); i++){
+                struct{
+                    struct{  // a bounding box for culling, see "unknown_box" below
+                        int16 Min_x;
+                        int16 Min_y;
+                        int16 Min_z;
+                        int16 Max_x;
+                        int16 Max_y;
+                        int16 Max_z;
+                    }BoundingBox;
+                    uint32 StartIndex; // index of the first face index used in MOVI
+                    uint16 Count;                          // number of MOVI indices used
+                    uint16 MinIndex;                       // index of the first vertex used in MOVT
+                    uint16 MaxIndex;                       // index of the last vertex used (batch includes this one)
+                    uint8  Flag_Unk_1;                    
+                    uint8 Material_Id; // index in MOMT
+                }_MOBA; 
+            }
+        }sMOBA_Container; //<open=true>;
+    }
+}sMOBA<read=Str("%d : RenderBatches", Hdr.Size/24)>;
+
+// ============= MOLR Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/2); i++){
+                uint16 LightRefList;
+            }
+        }sMOLR_Container; //<open=true>;
+    }
+}sMOLR<read=Str("%d : LightRefs", Hdr.Size/2)>;
+
+// ============= MODR Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/2); i++){
+                uint16 doodadRefList;
+            }
+        }sMODR_Container; //<open=true>;
+    }
+}sMODR<read=Str("%d : DoodadsRefs", Hdr.Size/2)>;
+
+// ============= MOBN Chunk ======================
+
+typedef enum<uint16>{
+    Flag_XAxis = 0x0,
+    Flag_YAxis = 0x1,
+    Flag_ZAxis = 0x2,
+    Flag_AxisMask = 0x3,
+    Flag_Leaf = 0x4,
+    Flag_NoChild = 0xFFFF
+}E_MOBN_FLAGS;
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/16); i++){
+                struct{
+                    E_MOBN_FLAGS Flags; // See above enum. 4: leaf, 0 for YZ-plane, 1 for XZ-plane, 2 for XY-plane
+                    int16 NegChild;   // index of bsp child node (right in this array)
+                    int16 PosChild;
+                    uint16 nFaces;    // num of triangle faces in MOBR
+                    uint32 FaceStart; // index of the first triangle index(in MOBR)
+                    float PlaneDist;
+                }MOBN_Entry;
+            }
+        }sMOBN_Container; //<open=true>;
+    }
+}sMOBN<read=Str("%d : BSP Nodes", Hdr.Size/16)>;
+
+// ============= MOBR Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/2); i++){
+                //struct{
+                    uint16 NodeFaceIndices;
+                //}_MOBR;
+            }   
+        }sMOBR_Container; //<open=true>;
+    }
+}sMOBR<read=Str("%d : FaceIndices", Hdr.Size/2)>;
+
+// ============= MPBV Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/2); i++){
+                //struct{
+                    uint16 _MPBV;
+                //}_MPBV;
+            }
+        }sMPBV_Container; //<open=true>;
+    }
+}sMPBV;
+
+// ============= MPBP Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0;i<(Hdr.Size/2); i++){
+                uint16 _MPBP;
+            }
+        }sMPBP_Container; //<open=true>;
+    }
+}sMPBP;
+
+// ============= MPBI Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0;i<(Hdr.Size/2); i++){
+                uint16 MPB_Indices;
+            }
+        }sMPBI_Container; //<open=true>;
+    }
+}sMPBI;
+
+// ============= MPBG Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0;i<(Hdr.Size/12); i++){
+                C3Vector MPB_Vertices;
+            }
+        }sMPBG_Container; //<open=true>;
+    }
+}sMPBG;
+
+// ============= MOCV Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    local int HdrSize = Hdr.Size;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/4); i++){
+                C4Byte ColorVertexList;
+            }   
+        }sMOCV_Container; //<read=Str("%d Entries", (HdrSize/4) )>; //<open=true>;
+    }
+}sMOCV<read=Str("%d : Vertex Col1", Hdr.Size/4)>;
+
+// ============= MORI Chunk ======================
+
+typedef struct{
+    sHdr Hdr;
+    local int HdrSize = Hdr.Size;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/2); i++){
+                uint16 Triangle_Strip_Indices;
+            }
+        }sMORI_Container; //<read=Str("%d Entries", (HdrSize/4) )>; //<open=true>;
+    }
+}sMORI;
+
+// ============= MORB Chunk ====================== ≥ Cata Could have been added earlier
+
+typedef struct{
+    sHdr Hdr;
+    local int HdrSize = Hdr.Size;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/8); i++){
+                struct{
+                    uint32 Start_Index;
+                    uint16 Index_Count;
+                    uint16 Padding;
+                }sMORB_Entry;
+            }
+        }sMORB_Container;
+    }
+}sMORB; //<read=Str("%d Entries", (HdrSize/4) )>; //<open=true>;
+
+// ============= MFOB Chunk ====================== >= 12.1.0.68209
+// Reference-confirmed, but its payload layout is not documented yet. It is
+// dispatched through sUnknownChunk so the FourCC remains visible by name.
+
+// ============= MOBS Chunk ====================== ≥ Cata Could have been added earlier
+
+typedef struct{
+    sHdr Hdr;
+    if(Hdr.Size!=0){
+        struct{
+            for(int i=0; i<(Hdr.Size/24); i++){
+                struct{
+                    char Unk0[10];
+                    int16 MaterialIDBig; // Index into MOMT
+                    int32 Field_2; // Divided by 3 upon usage
+                    int16 Field_6; // Divided by 3 upon usage
+                    char Unk1[4];
+                    char FlagThing; // If & 2 use materialIDBig otherwise use materialIDSmall
+                    char MaterialIdSmall; // Index into MOMT
+                }_MOBS;
+            }   
+        }sMOBS_Container; //<open=true>;
+    }
+}sMOBS<read=Str("%d : MO Shadow Batches", Hdr.Size/24)>;
+
+// ============= MOTV 2 Chunk ====================
+// ============= MOCV 2 Chunk ====================
+
+//======================================================//
+//                  WMO File Reading                    //
+//======================================================//
+
+int ChunkSelector(string sChunkName){
+	switch(sChunkName){
+		case Rev4Char("MVER"): sMVER MVER<fgcolor=0x80FF00, comment="Version">; return 1;
+		case Rev4Char("MOHD"): sMOHD MOHD<fgcolor=0x80FF00, comment="Header">; return 1;
+		case Rev4Char("MOTX"): sMOTX MOTX<fgcolor=0x80FF00, comment="TextureFiles">; return 1;
+		case Rev4Char("MOMT"): sMOMT MOMT<fgcolor=0x80FF00, comment="Materials">; return 1;
+		case Rev4Char("MOM3"): sUnknownChunk MOM3<fgcolor=0x80FF00, comment="M3 material data (raw)">; return 1;
+		case Rev4Char("MOGN"): sMOGN MOGN<fgcolor=0x80FF00, comment="GroupNames">; return 1;
+		case Rev4Char("MOGI"): sMOGI MOGI<fgcolor=0x80FF00, comment="GroupInformations">; return 1;
+		case Rev4Char("MOSB"): sMOSB MOSB<fgcolor=0x80FF00, comment="SkyboxName">; return 1;
+		case Rev4Char("MOPV"): sMOPV MOPV<fgcolor=0x80FF00, comment="Portal">; return 1;
+		case Rev4Char("MOPT"): sMOPT MOPT<fgcolor=0x80FF00, comment="PortalData">; return 1;
+		case Rev4Char("MOPR"): sMOPR MOPR<fgcolor=0x80FF00, comment="PortalRefs">; return 1;
+		case Rev4Char("MOLT"): sMOLT MOLT<fgcolor=0x80FF00, comment="Lights">; return 1;
+		case Rev4Char("MODN"): sMODN MODN<fgcolor=0x80FF00, comment="DoodadsNameList">; return 1;
+		case Rev4Char("MOVB"): sMOVB MOVB<fgcolor=0x80FF00, comment="VisibleBlock">; return 1;
+		case Rev4Char("MOVV"): sMOVV MOVV<fgcolor=0x80FF00, comment="VisibleBlockVerts">; return 1;
+		case Rev4Char("MODS"): sMODS MODS<fgcolor=0x80FF00, comment="DoodadSetList">; return 1;
+		case Rev4Char("MODD"): sMODD MODD<fgcolor=0x80FF00, comment="DoodadDefList">; return 1;
+		case Rev4Char("MFOG"): sMFOG MFOG<fgcolor=0x80FF00, comment="FogList">; return 1;
+		case Rev4Char("MFOB"): sUnknownChunk MFOB<fgcolor=0x80FF00, comment="Fog data (raw, layout undocumented)">; return 1;
+		case Rev4Char("MCVP"): sMCVP MCVP<fgcolor=0x80FF00, comment="ConvexVolumePlanes">; return 1;
+		case Rev4Char("MOUV"): sMOUV MOUV<fgcolor=0x80FF00, comment="MapObjectUV">; return 1;
+		case Rev4Char("MOSI"): sMOSI MOSI<fgcolor=0x80FF00, comment="SkyboxFileID">; return 1;
+		case Rev4Char("GFID"): sGFID GFID<fgcolor=0x80FF00, comment="GroupFileDataID">; return 1;
+		case Rev4Char("MODI"): sMODI MODI<fgcolor=0x80FF00, comment="Doodad_ID">; return 1;
+		case Rev4Char("MOMO"): sMOMO MOMO<fgcolor=0x80FF00, comment="Wrapped">; return 1;
+		case Rev4Char("MOIN"): sMOIN MOIN<fgcolor=0x80FF00, comment="IndexList">; return 1;
+		case Rev4Char("MOGP"): sMOGP MOGP<fgcolor=0x80FF00, comment="WMO_GroupHDR">; return 1;
+		case Rev4Char("MOGX"): sMOGX MOGX<fgcolor=0x80FF00, comment="Polygon_GrndType">; return 1;
+		case Rev4Char("MOPY"): sMOPY MOPY<fgcolor=0x80FF00, comment="Materials_Trs 2b/trs">; return 1;
+		case Rev4Char("MPY2"): sMPY2 MPY2<fgcolor=0x80FF00, comment="Materials_Trs 4b/trs">; return 1;
+		case Rev4Char("MOVI"): sMOVI MOVI<fgcolor=0x80FF00, comment="MapObject Vertex Indices">; return 1;
+		case Rev4Char("MOVT"): sMOVT MOVT<fgcolor=0x80FF00, comment="Vertices Chunk">; return 1;
+		case Rev4Char("MONR"): sMONR MONR<fgcolor=0x80FF00, comment="Normals Chunk">; return 1;
+		case Rev4Char("MOTV"): sMOTV MOTV<fgcolor=0x80FF00, comment="Texture Coordinates">; return 1;
+		case Rev4Char("MOBA"): sMOBA MOBA<fgcolor=0x80FF00, comment="Render batches">; return 1;
+		case Rev4Char("MODR"): sMODR MODR<fgcolor=0x80FF00, comment="Doodad references">; return 1;
+		case Rev4Char("MOBN"): sMOBN MOBN<fgcolor=0x80FF00, comment="BSP Nodes">; return 1;
+		case Rev4Char("MOBR"): sMOBR MOBR<fgcolor=0x80FF00, comment="Face Indices">; return 1;
+		case Rev4Char("MOBS"): sMOBS MOBS<fgcolor=0x80FF00, comment="Map Object Shadow Batches">; return 1;
+		case Rev4Char("MPBV"): sMPBV MPBV<fgcolor=0x80FF00, comment="Unk uint16">; return 1;
+		case Rev4Char("MOCV"): sMOCV MOCV<fgcolor=0x80FF00, comment="Vertex colors 1">; return 1;
+		case Rev4Char("MOC2"): sMOC2 MOC2<fgcolor=0x80FF00, comment="Vertex colors 2">; return 1;
+		case Rev4Char("MLIQ"): sMLIQ MLIQ<fgcolor=0x80FF00, comment="Liquids">; return 1;
+		case Rev4Char("MORI"): sMORI MORI<fgcolor=0x80FF00, comment="Trs_Strip_Indices">; return 1;
+		case Rev4Char("MORB"): sMORB MORB<fgcolor=0x80FF00, comment="TriangleStripBatches">; return 1;
+		case Rev4Char("MOLR"): sMOLR MOLR<fgcolor=0x80FF00, comment="Light References">; return 1;
+		case Rev4Char("MGI2"): sMGI2 MGI2<fgcolor=0x80FF00, comment="MapObject_Grp_Info_V2">; return 1;
+		case Rev4Char("MOLV"): sMOLV MOLV<fgcolor=0x80FF00, comment="LightMapVertexList">; return 1;
+		case Rev4Char("MFED"): sMFED MFED<fgcolor=0x80FF00, comment="FogExtraData">; return 1;
+		case Rev4Char("MAVG"): sMAVG MAVG<fgcolor=0x80FF00, comment="GlobalAmbientVolumes">; return 1;
+		case Rev4Char("MAVD"): sMAVD MAVD<fgcolor=0x80FF00, comment="AmbientVolumes">; return 1;
+		case Rev4Char("MBVD"): sMBVD MBVD<fgcolor=0x80FF00, comment="AmbientBoxVolumes">; return 1;
+		case Rev4Char("MDDI"): sMDDI MDDI<fgcolor=0x80FF00, comment="DoodadAdditionalInfo">; return 1;
+		case Rev4Char("MPVD"): sUnknownChunk MPVD<fgcolor=0x80FF00, comment="ParticulateVolumes (raw)">; return 1;
+		case Rev4Char("MNLD"): sMNLD MNLD<fgcolor=0x80FF00, comment="MapObject_New_Light_Defs">; return 1;
+		case Rev4Char("MNLR"): sMNLR MNLR<fgcolor=0x80FF00, comment="NewLightReferences">; return 1;
+		case Rev4Char("MFVR"): sMFVR MFVR<fgcolor=0x80FF00, comment="FogVolumeReferences">; return 1;
+		case Rev4Char("MBVR"): sMBVR MBVR<fgcolor=0x80FF00, comment="BoxVolumeReferences">; return 1;
+		case Rev4Char("MAVR"): sMAVR MAVR<fgcolor=0x80FF00, comment="AmbientVolumeReferences">; return 1;
+		case Rev4Char("MPVR"): sMPVR MPVR<fgcolor=0x80FF00, comment="ParticulateVolumeReferences">; return 1;
+		case Rev4Char("MOMX"): sMOMX MOMX<fgcolor=0x80FF00, comment="Unk">; return 1;
+		case Rev4Char("MOVX"): sMOVX MOVX<fgcolor=0x80FF00, comment="VertexList">; return 1;
+		case Rev4Char("MPBG"): sMPBG MPBG<fgcolor=0x80FF00, comment="MPB_Vertices">; return 1;
+		case Rev4Char("MPBI"): sMPBI MPBI<fgcolor=0x80FF00, comment="MPB_Indices">; return 1;
+		case Rev4Char("MPBP"): sMPBP MPBP<fgcolor=0x80FF00, comment="Unk">; return 1;
+		case Rev4Char("MOPB"): sMOPB MOPB<fgcolor=0x80FF00, comment="PrepassBatches">; return 1;
+		case Rev4Char("MOP2"): sMOP2 MOP2<fgcolor=0x80FF00, comment="PointLightAnimations">; return 1;
+		case Rev4Char("MOS2"): sMOS2 MOS2<fgcolor=0x80FF00, comment="SpotlightAnimations">; return 1;
+		case Rev4Char("MLSS"): sMLSS MLSS<fgcolor=0x80FF00, comment="MapObjectLightSetSpotlights">; return 1;
+		case Rev4Char("MLSP"): sMLSP MLSP<fgcolor=0x80FF00, comment="MapObjectLightSetPointLights">; return 1;
+		case Rev4Char("MOLP"): sMOLP MOLP<fgcolor=0x80FF00, comment="MapObjectPointLights">; return 1;
+		case Rev4Char("MDAL"): sMDAL MDAL<fgcolor=0x80FF00, comment="ReplacementHdrCol">; return 1;
+		case Rev4Char("MOLS"): sMOLS MOLS<fgcolor=0x80FF00, comment="MapObjectSpotLights">; return 1;
+		case Rev4Char("MOLM"): sMOLM MOLM<fgcolor=0x80FF00, comment="LightMapList">; return 1;
+		case Rev4Char("MOPE"): sMOPE MOPE<fgcolor=0x80FF00, comment="PortalIndex">; return 1;
+		case Rev4Char("MLSO"): sMLSO MLSO<fgcolor=0x80FF00, comment="MapObjectSpotLightAnimSets">; return 1;
+		case Rev4Char("MLSK"): sMLSK MLSK<fgcolor=0x80FF00, comment="MapObjectPointLightAnimSets">; return 1;
+		case Rev4Char("MOLD"): sMOLD MOLD<fgcolor=0x80FF00, comment="LightMapTexList">; return 1;
+		case Rev4Char("MOPL"): sMOPL MOPL<fgcolor=0x80FF00, comment="TerrainCuttingPlanes">; return 1;
+		case Rev4Char("MOTA"): sMOTA MOTA<fgcolor=0x80FF00, comment="MapObjectTangentArray">; return 1;
+		case Rev4Char("MOQG"): sMOQG MOQG<fgcolor=0x80FF00, comment="QueryFace">; return 1;
+		case Rev4Char("MDDL"): sMDDL MDDL<fgcolor=0x80FF00, comment="GroupData">; return 1;
+        return -1;
+	}
+    return -1;
+}
+
+struct{
+    local int64 FileEnd = FileSize();
+    local int64 ScanEnd = FileEnd;
+    local int64 ChunkOffset = 0;
+    local int64 ChunkEnd = 0;
+    local int64 ParsedEnd = 0;
+    local int64 Remaining = 0;
+    local uint32 ChunkSize = 0;
+    local string ChunkName = "";
+    local string DisplayName = "";
+    local int SelectorResult = 0;
+    local int ParsedChunkCount = 0;
+    local int ContainerDepth = 0;
+    local int64 ContainerEnds[16];
+
+    while(ChunkOffset < FileEnd){
+        while(ContainerDepth > 0 && ChunkOffset == ScanEnd){
+            ContainerDepth--;
+            if(ContainerDepth > 0){
+                ScanEnd = ContainerEnds[ContainerDepth - 1];
+            }else{
+                ScanEnd = FileEnd;
+            }
+        }
+
+        Remaining = ScanEnd - ChunkOffset;
+        FSeek(ChunkOffset);
+
+        if(Remaining < 8){
+            Printf("Trailing data at 0x%LX: only 0x%LX byte(s), not enough for a WMO chunk header.\n", ChunkOffset, Remaining);
+            ubyte TrailingBytes[Remaining]<open=false, optimize=true>;
+            ChunkOffset = ScanEnd;
+            continue;
+        }
+
+        ChunkName = ReadString(ChunkOffset, 4);
+        ChunkSize = ReadUInt(ChunkOffset + 4);
+        DisplayName = Rev4Char(ChunkName);
+
+        if((int64)ChunkSize > Remaining - 8){
+            Printf("Truncated %s chunk at 0x%LX: declared 0x%X payload bytes, only 0x%LX remain.\n",
+                   DisplayName, ChunkOffset, ChunkSize, Remaining - 8);
+            FSeek(ChunkOffset);
+            ubyte TruncatedChunk[Remaining]<open=false, optimize=true>;
+            break;
+        }
+
+        ChunkEnd = ChunkOffset + 8 + ChunkSize;
+        Printf("%s at 0x%LX: size 0x%X\n", DisplayName, ChunkOffset, ChunkSize);
+        FSeek(ChunkOffset);
+
+        SelectorResult = ChunkSelector(ChunkName);
+        if(SelectorResult != 1){
+            sUnknownChunk UnknownChunk;
+            Printf("No detailed parser for %s; payload kept as raw bytes.\n", DisplayName);
+        }
+
+        ParsedEnd = FTell();
+        if(ChunkName == Rev4Char("MOMO") && ChunkSize > 0 && ContainerDepth < 16){
+            ContainerEnds[ContainerDepth] = ChunkEnd;
+            ContainerDepth++;
+            ScanEnd = ChunkEnd;
+            ChunkOffset += 8;
+            ParsedChunkCount++;
+            Printf("Entering bounded MOMO wrapper payload at 0x%LX.\n", ChunkOffset);
+            continue;
+        }
+
+        if(ChunkName == Rev4Char("MOGP") && ParsedEnd > ChunkOffset + 8 && ParsedEnd < ChunkEnd && ContainerDepth < 16){
+            ContainerEnds[ContainerDepth] = ChunkEnd;
+            ContainerDepth++;
+            ScanEnd = ChunkEnd;
+            ChunkOffset = ParsedEnd;
+            ParsedChunkCount++;
+            Printf("Entering bounded MOGP child chunks at 0x%LX.\n", ChunkOffset);
+            continue;
+        }
+
+        if(ParsedEnd != ChunkEnd){
+            Printf("Parser boundary correction for %s: ended at 0x%LX, declared end is 0x%LX.\n",
+                   DisplayName, ParsedEnd, ChunkEnd);
+        }
+
+        FSeek(ChunkEnd);
+        ChunkOffset = ChunkEnd;
+        ParsedChunkCount++;
+    }
+
+    Printf("Parsed %d WMO chunk(s).\n", ParsedChunkCount);
+}WMO_File<open=true>;

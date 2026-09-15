@@ -1,0 +1,101 @@
+//------------------------------------------------------------------------------------------------------------------
+//--- 010 Editor v14.0 Template File
+//
+// File:	  BLP.bt
+// Author:	  Alastor Strix'Efuartus
+// Purpose:   Parses a Blizzard BLP(.blp)
+// Version:   1.1.1
+// Category:  Game
+// File Mask: *.blp
+// ID Bytes:  42 4C 50 32, 42 4C 50 31 //BLP2, BLP1
+//	 History: BLP files store textures with precalculated mipmaps. BLP files are capable of storing data with a few different formats
+//	 1.1.1 2024-11-14 Alastor: Mipmap Size/Offset reading inline
+//	 1.1.0 2024-11-10 Alastor: Added lots of Enums/Coloring/Failchecks etc...
+//	 1.0.0 2024-09-18 Alastor: Initial commit
+//------------------------------------------------------------------------------------------------------------------
+
+typedef enum <byte>{
+    MIPS_NONE = 0x0,
+    MIPS_GENERATED = 0x1,
+    MIPS_HANDMADE = 0x2,     // not supported
+    flags_mipmap_mask = 0xF, // level
+    flags_unk_0x10 = 0x10,
+}MipmapLvl_FlagType;
+
+typedef enum<byte>{
+    PIXEL_DXT1 = 0,
+    PIXEL_DXT3 = 1,
+    PIXEL_ARGB8888 = 2,
+    PIXEL_ARGB1555 = 3,
+    PIXEL_ARGB4444 = 4,
+    PIXEL_RGB565 = 5,
+    PIXEL_A8 = 6,
+    PIXEL_DXT5 = 7,
+    PIXEL_UNSPECIFIED = 8,
+    PIXEL_ARGB2565 = 9,
+    PIXEL_BC5 = 11, // DXGI_FORMAT_BC5_UNORM 
+    NUM_PIXEL_FORMATS = 12, // (no idea if format=10 exists)
+}E_BLPPixelFormat;
+
+typedef enum<byte>{
+    COLOR_JPEG = 0, // not supported
+    COLOR_PALETTE = 1,
+    COLOR_DXT = 2,
+    COLOR_ARGB8888 = 3,
+    COLOR_ARGB8888_dup = 4,    // same decompression, likely other PIXEL_FORMAT
+}E_Compression; 
+
+struct{
+SetForeColor(0x5050DD);
+char BLPMagic[4]; // always 'BLP2' but BLP1 exists
+uint32 FormatVersion; // Version, always 1
+E_Compression ColorEncoding; //1-Uncomp 2-DXTC, 3(cata)-plain A8R8G8B8
+byte AlphaChannelBitDepth; // Alpha channel bit depth: 0, 1 or 8
+E_BLPPixelFormat PreferredFormat;
+MipmapLvl_FlagType Mipmaplvl_Flags;
+uint32 Width;
+uint32 Height;
+uint32 MipOffsets[16]<read=Str("%d : %LX", this, this)>;
+uint32 MipSizes[16]<read=Str("%d : %LX", this, this)>; 
+SetForeColor(cNone);
+union{
+    struct{
+		ubyte B; //0
+		ubyte G; //256
+		ubyte R; //65536
+		ubyte A; 
+    }RGB[256]<read=Str("#%02X%02X%02X", this.R, this.G, this.B), fgcolor=(this.R+(this.G*256)+(this.B*65536)), bgcolor=cBlack, optimize=false>;
+    struct{
+        uint32 headerSize;
+        char headerData[1020];
+    }JPEG;
+}ExtendedData;
+
+local int MipMapCount = 0;
+local int n;
+local uint Oldpos;
+
+for( n = 0; n <= 15; ++n ){
+    if( (MipOffsets[n]>0) && (MipSizes[n]>0) ){
+        Oldpos = FTell();
+        if( (MipOffsets[n]<FileSize()) && (MipOffsets[n]>0) ){
+            FSeek(MipOffsets[n]);    
+             struct{
+                if( ((MipSizes[n]<FileSize()) && (MipSizes[n]>0)) ){
+                    ubyte data[MipSizes[n]]<read=Str("%d ", this)>; //Todo refference to pallete    
+                }else{
+                    ubyte data<name="InvalidSize">;
+                    Printf("Error in Size ");
+                };            
+            }MipMapLevels<fgcolor=cYellow>;           
+        }else{
+            Printf("Error in Offset: ");
+        };
+        ++MipMapCount;
+        Printf("ID: %d | MipMaps Offset: %8d | Size: %8d \n", n , MipOffsets[n], MipSizes[n] );
+    };
+};
+
+Printf("MipMaps Count: %d \n", MipMapCount );
+
+}BLP_file<open=true>;

@@ -1,0 +1,98 @@
+//------------------------------------------------
+//--- 010 Editor v11.0.1 Binary Template
+//
+//      File: Wwise_SoundBank.bt
+//   Authors: Alexander Lombardi
+//   Version: 0.1
+//   Purpose: Parses the Wwise SoundBank container format, which contains .wem sound files. Wwise (Wave Works Interactive Sound Engine) is Audiokinetic's software for interactive media and video games.
+//  Category: Game
+// File Mask: *.bnk
+//  ID Bytes: 42 4B 48 44
+//   History: 
+//   0.1    2020-01-14  Alexander Lombardi: Initial release. Lots of missing stuff.
+//
+// This implementation was based on the following structure description. (Quite a few things are missing as of v0.1)
+//  https://wiki.xentax.com/index.php/Wwise_SoundBank_(*.bnk)
+//------------------------------------------------
+
+
+/*********************************************************************** 
+Typedef's Section:
+***********************************************************************/ 
+typedef struct(uint32 dataLen)
+{
+    local uint32 i, numFiles = dataLen / 12; // 12 = 3 * uint32 entries.
+    for(i = 0; i < numFiles; i++)
+    {
+        struct d_entry
+        {
+            uint32 fileId   <comment=".wem file id">;
+            uint32 dOffset  <comment="offset from start of DATA section">;
+            uint32 dSize    <comment="length in bytes of .wem file">;
+        } a_wem_file;
+    }
+} data_DIDX;
+
+typedef struct(data_DIDX &DIDX_dataObj)
+{
+    local uint32 i;
+    local const uint64 pos = FTell();
+
+    for(i = 0; i < DIDX_dataObj.numFiles; i++)
+    {
+        FSeek(pos + DIDX_dataObj.a_wem_file[i].dOffset);
+        struct d_entry_data(data_DIDX &DIDX_dataObj)
+        {
+            byte rawdata[DIDX_dataObj.a_wem_file[i].dSize] <comment="The .wem file with the length as given in the DIDX section, and starting with 52 49 46 46 -- RIFF.">;
+        } aFileData (DIDX_dataObj);
+    }
+    FSeek(pos + parentof(this).secLen);
+} data_DATA;
+
+typedef struct
+{
+    char secName[4];
+    uint32 secLen <comment="length of section">;
+    if(secLen > 0)
+    {
+        // TODO: missing section implementations should be added as an else-if somewhere along the following if's below:
+
+        if(Strcmp(secName, "DIDX") == 0)
+        {
+            data_DIDX data(secLen);
+            parentof(this).flag_DIDX_defined = TRUE;
+            parentof(this).idxOf_DIDX_sec = parentof(this).i;
+        }
+        else if(Strcmp(secName, "DATA") == 0 && parentof(this).flag_DIDX_defined)
+            data_DATA data(parentof(this).aSection[parentof(this).idxOf_DIDX_sec].data);
+        else
+            byte data[secLen];
+    };
+} section <read=getSecName>;
+
+/*********************************************************************** 
+Template Execution Section:
+***********************************************************************/ 
+SetReadOnly(0);
+LittleEndian();
+
+struct file
+{
+/*********************************************************************** 
+File's first byte:
+***********************************************************************/
+    local byte flag_DIDX_defined = FALSE;   // Used later to ensure DATA section is defined and declared after DIDX.
+    local int32 i;                          // i is used later to find the index of the DIDX section.
+    local int32 idxOf_DIDX_sec = -1;        // Will get set to i's value when DIDX gets parsed.
+
+    for(i = 0; !FEof(); i++)
+        section aSection;
+} aFile <open=true>;
+
+/*********************************************************************** 
+Function definitions:
+***********************************************************************/
+string getSecName(section &aSec)
+{
+    return aSec.secName;
+}

@@ -40,6 +40,8 @@ pub enum InputPurpose {
     EditorGotoLine,
     /// A shell command whose output the editor pastes at the cursor.
     EditorPasteOutput,
+    /// The name of a new binary template for the file in the hex editor.
+    EditorNewTemplate,
 }
 
 pub struct InputDialog {
@@ -139,6 +141,7 @@ impl InputDialog {
                 let submit = match &self.purpose {
                     InputPurpose::EditorGotoLine => Submit::EditorGotoLine(text),
                     InputPurpose::EditorPasteOutput => Submit::EditorPasteOutput(text),
+                    InputPurpose::EditorNewTemplate => Submit::EditorNewTemplate(text),
                     InputPurpose::MkDir => Submit::MkDir(text),
                     InputPurpose::EditNewFile => Submit::EditNewFile(text),
                     InputPurpose::CopyDest(s) => Submit::Copy(s.clone(), text),

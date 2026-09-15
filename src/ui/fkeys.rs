@@ -22,7 +22,11 @@ pub const SHEET_LABELS: [&str; 10] =
 
 /// Labels for the editor's hex mode (only the supported functions are shown).
 pub const HEX_LABELS: [&str; 10] =
-    ["", "Save", "", "Replac", "", "", "Search", "", "PullDn", "Quit"];
+    ["", "Save", "", "Replac", "Templt", "", "Search", "", "PullDn", "Quit"];
+
+/// Labels for hex mode while a binary template's variables are shown.
+pub const HEX_TEMPLATE_LABELS: [&str; 10] =
+    ["", "Save", "Output", "Replac", "Templt", "Tree", "Search", "", "PullDn", "Quit"];
 
 /// The function-key index (0-based — `i` means F`i+1`) at screen column `col`
 /// on the bar row `row`, or `None` if the click misses the row or lands on an

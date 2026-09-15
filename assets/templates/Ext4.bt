@@ -1,0 +1,971 @@
+//------------------------------------------------
+//--- 010 Editor v6.0.1 Binary Template
+//
+//      File: Ext4.bt
+//   Authors: Martijn Bogaard & Niels van Dijkhuizen
+//   Version: 1.0
+//   Purpose: Partial parser for ext4 filesystems with some backwards compatibility for ext2 and 3.
+//  Category: Drives
+// File Mask: 
+//  ID Bytes: 
+//   History: 
+//   1.0   2023-10-24 JK: Submitted to repository.
+//------------------------------------------------
+
+// Load superblock at 0x400
+FSeek(0x400);
+
+typedef ubyte  __u8;
+typedef uint16 __u16;
+typedef uint32 __u32;
+typedef uint64 __u64;
+
+typedef ubyte  __le8;
+typedef uint16 __le16;
+typedef uint32 __le32;
+typedef uint64 __le64;
+
+typedef __u8 GUID[16] <read=GUID_Read>;
+
+string GUID_Read(GUID v) {
+    string s;   
+    SPrintf(s, "{%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X}", 
+            v[0], v[1], v[2], v[3], 
+            v[4], v[5],
+            v[6], v[7],
+            v[8], v[9],
+            v[10], v[11],
+            v[12], v[13], v[14], v[15]);
+    return s;
+}
+
+typedef struct {
+    ubyte   cleanly_umounted:1<name="Cleanly umounted">;
+    ubyte   errors_detected:1<name="Errors detected">;
+    ubyte   orphans_being_recovered:1<name="Orphans being recovered">;
+
+    ubyte   INCOMPAT_NOT_USED:3<hidden=true>;
+    ubyte   reserved<hidden=true>;
+} t_sb_state;
+
+enum<__le16> t_sb_errors { 
+    CONTINUE = 1, 
+    REMOUNT_RO, 
+    PANIC
+};
+
+enum<__le32> t_sb_creator_OS { 
+    Linux = 0, 
+    Hurd, 
+    Masix,
+    FreeBSD,
+    Lites
+};
+
+enum<__le32> t_sb_rev_level { 
+    Original = 0, 
+    V2_Format_with_dynamic_inode_sizes
+};
+
+typedef struct {
+    ubyte   COMPAT_DIR_PREALLOC:1<name="Directory preallocation">;
+    ubyte   COMPAT_IMAGIC_INODES:1<name="Imagic Inodes">;
+    ubyte   COMPAT_HAS_JOURNAL:1<name="Has a journal">;
+    ubyte   COMPAT_EXT_ATTR:1<name="Supports extended attributes ">;
+    ubyte   COMPAT_RESIZE_INODE:1<name="Has reserved GDT blocks">;
+    ubyte   COMPAT_DIR_INDEX:1<name="Has directory indices">;
+    ubyte   COMPAT_LAZY_BG:1<name="Lazy BG">;
+    ubyte   COMPAT_EXCLUDE_INODE:1<name="Exclude inode">;
+    ubyte   COMPAT_EXCLUDE_BITMAP:1<name="Exclude bitmap">;
+    ubyte   COMPAT_SPARSE_SUPER2:1<name="Sparse Super Block, v2">;
+
+    ubyte   INCOMPAT_NOT_USED:6<hidden=true>;
+    ushort  reserved<hidden=true>;
+} t_sb_feature_compat;
+
+typedef struct {    
+    ubyte   INCOMPAT_COMPRESSION:1<name="Compression">;
+    ubyte   INCOMPAT_FILETYPE:1<name="Directory entries record the file type">;
+    ubyte   INCOMPAT_RECOVER:1<name="Filesystem needs recovery">;
+    ubyte   INCOMPAT_JOURNAL_DEV:1<name="Filesystem has a separate journal device">;
+    ubyte   INCOMPAT_META_BG:1<name="Meta block groups">;
+    ubyte   INCOMPAT_NOT_USED_1:1<hidden=true>;
+    ubyte   INCOMPAT_EXTENTS:1<name="Files in this filesystem use extents">;
+    ubyte   INCOMPAT_64BIT:1<name="Enable a filesystem size of 2^64 blocks">;
+    ubyte   INCOMPAT_MMP:1<name="Multiple mount protection. Not implemented">;
+    ubyte   INCOMPAT_FLEX_BG:1<name="Flexible block groups">;
+    ubyte   INCOMPAT_EA_INODE:1<name="Inodes can be used for large extended attributes">;
+    ubyte   INCOMPAT_NOT_USED_2:1<hidden=true>;
+    ubyte   INCOMPAT_DIRDATA:1<name="Data in directory entry">;
+    ubyte   INCOMPAT_BG_USE_META_CSUM:1<name="Never used">;
+    ubyte   INCOMPAT_LARGEDIR:1<name="Large directory >2GB or 3-level htree">;
+    ubyte   INCOMPAT_INLINE_DATA:1<name="Data in inode">;
+    ubyte   INCOMPAT_ENCRYPT:1<name="Encrypted inodes are present on the filesystem">;
+
+    ubyte   INCOMPAT_NOT_USED:3<hidden=true>;
+    ubyte  reserved<hidden=true>;
+} t_sb_feature_incompat;
+
+typedef struct {
+    ubyte   RO_COMPAT_SPARSE_SUPER:1<name="Sparse superblocks. See the earlier discussion of this feature">;
+    ubyte   RO_COMPAT_LARGE_FILE:1<name="This filesystem has been used to store a file greater than 2GiB">;
+    ubyte   RO_COMPAT_BTREE_DIR:1<name="Not used in kernel or e2fsprogs">;
+    ubyte   RO_COMPAT_HUGE_FILE:1<name="This filesystem has files whose sizes are represented in units of logical blocks, not 512-byte sectors. This implies a very large file indeed!">;
+    ubyte   RO_COMPAT_GDT_CSUM:1<name="Group descriptors have checksums. In addition to detecting corruption, this is useful for lazy formatting with uninitialized groups">;
+    ubyte   RO_COMPAT_DIR_NLINK:1<name="Indicates that the old ext3 32,000 subdirectory limit no longer applies">;
+    ubyte   RO_COMPAT_EXTRA_ISIZE:1<name="Indicates that large inodes exist on this filesystem">;
+    ubyte   RO_COMPAT_HAS_SNAPSHOT:1<name="This filesystem has a snapshot">;
+    ubyte   RO_COMPAT_QUOTA:1<name="Quota">;
+    ubyte   RO_COMPAT_BIGALLOC:1<name="This filesystem supports \"bigalloc\", which means that file extents are tracked in units of clusters (of blocks) instead of blocks">;
+    ubyte   RO_COMPAT_METADATA_CSUM:1<name="This filesystem supports metadata checksumming. (RO_COMPAT_METADATA_CSUM; implies RO_COMPAT_GDT_CSUM, though GDT_CSUM must not be set)">;
+    ubyte   RO_COMPAT_REPLICA:1<name="Filesystem supports replicas. This feature is neither in the kernel nor e2fsprogs.">;
+    ubyte   RO_COMPAT_READONLY:1<name="Read-only filesystem image; the kernel will not mount this image read-write and most tools will refuse to write to the image.">;
+
+    ubyte   INCOMPAT_NOT_USED:3<hidden=true>;
+    ushort   reserved<hidden=true>;
+} t_sb_feature_ro_compat;
+
+typedef struct {
+    ubyte   EXT4_DEFM_DEBUG:1<name="Print debugging info upon (re)mount.">;
+    ubyte   EXT4_DEFM_BSDGROUPS:1<name="New files take the gid of the containing directory (instead of the fsgid of the current process).">;
+    ubyte   EXT4_DEFM_XATTR_USER:1<name="Support userspace-provided extended attributes.">;
+    ubyte   EXT4_DEFM_ACL:1<name="Support POSIX access control lists (ACLs).">;
+    ubyte   EXT4_DEFM_UID16:1<name="Do not support 32-bit UIDs.">;
+    ubyte   EXT4_DEFM_JMODE_DATA:1<name="All data and metadata are commited to the journal.">;
+    ubyte   EXT4_DEFM_JMODE_ORDERED:1<name="All data are flushed to the disk before metadata are committed to the journal.">;
+    ubyte   EXT4_DEFM_JMODE_WBACK:1<name="Data ordering is not preserved; data may be written after the metadata has been written.">;
+    ubyte   EXT4_DEFM_NOBARRIER:1<name="Disable write flushes.">;
+    ubyte   EXT4_DEFM_BLOCK_VALIDITY:1<name="Track which blocks in a filesystem are metadata and therefore should not be used as data blocks. This option will be enabled by default on 3.18, hopefully.">;
+    ubyte   EXT4_DEFM_DISCARD:1<name="Enable DISCARD support, where the storage device is told about blocks becoming unused.">;
+    ubyte   EXT4_DEFM_NODELALLOC:1<name="Disable delayed allocation.">;
+
+    ubyte   INCOMPAT_NOT_USED:4<hidden=true>;
+    ushort  reserved<hidden=true>;
+} t_sb_default_mount_opts;
+
+typedef struct {
+    ubyte   SIGNED_DIR_HASH:1<name="Signed directory hash in use">;
+    ubyte   UNSIGNED_DIR_HASH:1<name="Unsigned directory hash in use">;
+    ubyte   TEST_DEV_CODE:1<name="To test development code">;
+
+    ubyte   INCOMPAT_NOT_USED:5<hidden=true>;
+    ubyte   reserved<hidden=true>;
+    ushort  reserved2<hidden=true>;
+} t_sb_flags;
+
+typedef struct {
+    __le32              s_inodes_count;
+    __le32              s_blocks_count_lo;
+    __le32              s_r_blocks_count_lo;
+    __le32              s_free_blocks_count_lo;
+    __le32              s_free_inodes_count;
+    __le32              s_first_data_block;
+    __le32              s_log_block_size;
+    __le32              s_log_cluster_size;
+    __le32              s_blocks_per_group;
+    __le32              s_clusters_per_group;
+    __le32              s_inodes_per_group;
+    __le32              s_mtime;
+    __le32              s_wtime;
+    __le16              s_mnt_count;
+    __le16              s_max_mnt_count;
+    __le16              s_magic;
+
+    if (s_magic != 0xEF53) {
+        Warning("Invalid superblock!");
+        Exit(1);
+    }
+
+    t_sb_state          s_state;
+    t_sb_errors         s_errors;
+    __le16              s_minor_rev_level;
+    __le32              s_lastcheck;
+    __le32              s_checkinterval;
+    t_sb_creator_OS     s_creator_os;
+    t_sb_rev_level      s_rev_level;
+    __le16              s_def_resuid;
+    __le16              s_def_resgid;
+    __le32              s_first_ino;
+    __le16              s_inode_size;
+    __le16              s_block_group_nr;
+    t_sb_feature_compat    s_feature_compat;
+    t_sb_feature_incompat  s_feature_incompat;
+    t_sb_feature_ro_compat s_feature_ro_compat;
+    GUID                s_uuid;
+    char                s_volume_name[16];
+    char                s_last_mounted[64];
+    __le32              s_algorithm_usage_bitmap;
+    __u8                s_prealloc_blocks;
+    __u8                s_prealloc_dir_blocks;
+    __le16              s_reserved_gdt_blocks;
+    __u8                s_journal_uuid[16];
+    __le32              s_journal_inum;
+    __le32              s_journal_dev;
+    __le32              s_last_orphan;
+    __le32              s_hash_seed[4];
+    __u8                s_def_hash_version;
+    __u8                s_jnl_backup_type;
+    __le16              s_desc_size;
+    t_sb_default_mount_opts s_default_mount_opts;
+    __le32              s_first_meta_bg;
+    __le32              s_mkfs_time;
+    __le32              s_jnl_blocks[17];
+    __le32              s_blocks_count_hi;
+    __le32              s_r_blocks_count_hi;
+    __le32              s_free_blocks_count_hi;
+    __le16              s_min_extra_isize;
+    __le16              s_want_extra_isize;
+    t_sb_flags          s_flags;
+    __le16              s_raid_stride;
+    __le16              s_mmp_interval;
+    __le64              s_mmp_block;
+    __le32              s_raid_stripe_width;
+    __u8                s_log_groups_per_flex;
+    __u8                s_checksum_type;
+    __le16              s_reserved_pad;
+    __le64              s_kbytes_written;
+    __le32              s_snapshot_inum;
+    __le32              s_snapshot_id;
+    __le64              s_snapshot_r_blocks_count;
+    __le32              s_snapshot_list;
+    __le32              s_error_count;
+    __le32              s_first_error_time;
+    __le32              s_first_error_ino;
+    __le64              s_first_error_block;
+    __u8                s_first_error_func[32];
+    __le32              s_first_error_line;
+    __le32              s_last_error_time;
+    __le32              s_last_error_ino;
+    __le32              s_last_error_line;
+    __le64              s_last_error_block;
+    __u8                s_last_error_func[32];
+    __u8                s_mount_opts[64];
+    __le32              s_usr_quota_inum;
+    __le32              s_grp_quota_inum;
+    __le32              s_overhead_blocks;
+    __u8                s_backup_bgs[2];
+    __u8                s_encrypt_algos[4];
+    __le32              s_reserved[106];
+    __le16              __padding;
+    __le32              s_checksum;
+} Ext4_SB<size=1024, optimize=false>;
+
+typedef struct {
+    ubyte   EXT4_BG_INODE_UNINIT:1<name="Inode table and bitmap are not initialized">;
+    ubyte   EXT4_BG_BLOCK_UNINIT:1<name="Block bitmap is not initialized">;
+    ubyte   EXT4_BG_INODE_ZEROED:1<name="Inode table is zeroed">;
+
+    ubyte   INCOMPAT_NOT_USED:5<hidden=true>;
+    ubyte   reserved<hidden=true>;
+} t_bg_flags;
+
+typedef struct {
+    __le32      bg_block_bitmap_lo;
+    __le32      bg_inode_bitmap_lo;
+    __le32      bg_inode_table_lo;
+    __le16      bg_free_blocks_count_lo;
+    __le16      bg_free_inodes_count_lo;
+    __le16      bg_used_dirs_count_lo;
+    t_bg_flags  bg_flags;
+    __le32      bg_exclude_bitmap_lo;
+    __le16      bg_block_bitmap_csum_lo;
+    __le16      bg_inode_bitmap_csum_lo;
+    __le16      bg_itable_unused_lo;
+    __le16      bg_checksum;
+
+    if (is_64bit_filesystem) {
+        __le32      bg_block_bitmap_hi;
+        __le32      bg_inode_bitmap_hi;
+        __le32      bg_inode_table_hi;
+        __le16      bg_free_blocks_count_hi;
+        __le16      bg_free_inodes_count_hi;
+        __le16      bg_used_dirs_count_hi;
+        __le16      bg_itable_unused_hi;
+        __le32      bg_exclude_bitmap_hi;
+        __le16      bg_block_bitmap_csum_hi;
+        __le16      bg_inode_bitmap_csum_hi;
+        __u32       bg_reserved;
+    }
+} Ext4_BG_Desc;
+
+typedef struct {
+    ubyte   EXT4_SECRM_FL:1<name="This file requires secure deletion">;
+    ubyte   EXT4_UNRM_FL:1<name="This file should be preserved, should undeletion be desired">;
+    ubyte   EXT4_COMPR_FL:1<name="File is compressed">;
+    ubyte   EXT4_SYNC_FL:1<name="All writes to the file must be synchronous">;
+    ubyte   EXT4_IMMUTABLE_FL:1<name="File is immutable">;
+    ubyte   EXT4_APPEND_FL:1<name="File can only be appended">;
+    ubyte   EXT4_NODUMP_FL:1<name="The dump(1) utility should not dump this file">;
+    ubyte   EXT4_NOATIME_FL:1<name="Do not update access time">;
+    ubyte   EXT4_DIRTY_FL:1<name="Dirty compressed file">;
+    ubyte   EXT4_COMPRBLK_FL:1<name="File has one or more compressed clusters">;
+    ubyte   EXT4_NOCOMPR_FL:1<name="Do not compress file">;
+    ubyte   EXT4_ENCRYPT_FL:1<name="Encrypted inode">;
+    ubyte   EXT4_INDEX_FL:1<name="Directory has hashed indexes">;
+    ubyte   EXT4_IMAGIC_FL:1<name="AFS magic directory">;
+    ubyte   EXT4_JOURNAL_DATA_FL:1<name="File data must always be written through the journal">;
+    ubyte   EXT4_NOTAIL_FL:1<name="File tail should not be merged">;
+    ubyte   EXT4_DIRSYNC_FL:1<name="All directory entry data should be written synchronously (see dirsync)">;
+    ubyte   EXT4_TOPDIR_FL:1<name="Top of directory hierarchy">;
+    ubyte   EXT4_HUGE_FILE_FL:1<name="This is a huge file">;
+    ubyte   EXT4_EXTENTS_FL:1<name="Inode uses extents">;
+    ubyte   UNUSED_1:1<hidden=true>;
+    ubyte   EXT4_EA_INODE_FL:1<name="Inode used for a large extended attribute">;
+    ubyte   EXT4_EOFBLOCKS_FL:1<name="This file has blocks allocated past EOF">;
+    ubyte   UNUSED_2:1<hidden=true>;
+    ubyte   EXT4_SNAPFILE_FL:1<name="Inode is a snapshot">;
+    ubyte   UNUSED_3:1<hidden=true>;
+    ubyte   EXT4_SNAPFILE_DELETED_FL:1<name="Snapshot is being deleted">;
+    ubyte   EXT4_SNAPFILE_SHRUNK_FL:1<name="Snapshot shrink has completed">;
+    ubyte   UNUSED_4:2<hidden=true>;
+    ubyte   EXT4_INLINE_DATA_FL:1<name="Inode has inline data">;
+    ubyte   EXT4_RESERVED_FL:1<name="Reserved for ext4 library">;    
+} t_inode_flags;
+
+Ext4_SB   sb<hidden=true,name="Ext4 Superblock">;
+
+local int   block_count         = sb.s_blocks_count_lo;
+local int   blocks_per_group    = sb.s_blocks_per_group;
+local int   block_group_count   = block_count / blocks_per_group + ((block_count % blocks_per_group) ? 1 : 0);
+local int   block_size          = Pow(2, (10 + sb.s_log_block_size)); //2 ^ (10 + s_log_block_size)
+local int   block_group_size    = blocks_per_group * block_size;
+
+local int   inode_count         = sb.s_inodes_per_group;
+
+local int   is_64bit_filesystem = sb.s_feature_incompat.INCOMPAT_64BIT;
+
+local int   has_flex_bg = sb.s_feature_incompat.INCOMPAT_FLEX_BG;
+local int   has_journal = sb.s_feature_compat.COMPAT_HAS_JOURNAL;
+local int   has_extended_attr = sb.s_feature_compat.COMPAT_EXT_ATTR;
+local int   has_extents = sb.s_feature_incompat.INCOMPAT_EXTENTS;
+
+local int   bg_desc_size        = is_64bit_filesystem ? sb.s_desc_size : 32;
+
+Printf("block_count         = %i\n", block_count);
+Printf("block_size          = %i\n", block_size);
+Printf("block_group_count   = %i\n", block_group_count);
+Printf("block_group_size    = %i\n", block_group_size);
+Printf("blocks_per_group    = %i\n", blocks_per_group);
+Printf("bg_desc_size        = %i\n", bg_desc_size);
+
+Printf("Is 64bit FS:        %s\n", ((is_64bit_filesystem) ? "yes" : "no"));
+
+Printf("Has flex BG:        %s\n", ((has_flex_bg) ? "yes" : "no"));
+Printf("Has journal:        %s\n", ((has_journal) ? "yes" : "no"));
+Printf("Has extended attr:  %s\n", ((has_extended_attr) ? "yes" : "no"));
+Printf("Has extents:        %s\n", ((has_extents) ? "yes" : "no"));
+
+FSeek(0x0);
+
+string func_read_inode_mode(__le16 mode) {
+    local string s;
+
+    //Type
+    if ((mode & 0x1000) == 0x1000) {
+        s += "FIFO ";
+    }
+    else if ((mode & 0x2000) == 0x2000) {
+        s += "Char dev ";
+    }
+    else if ((mode & 0x4000) == 0x4000) {
+        s += "Dir ";
+    }
+    else if ((mode & 0x6000) == 0x6000) {
+        s += "Block dev ";
+    }
+    else if ((mode & 0x8000) == 0x8000) {
+        s += "File ";
+    }
+    else if ((mode & 0xA000) == 0xA000) {
+        s += "Symlink ";
+    }
+    else if ((mode & 0xC000) == 0xC000) {
+        s += "Socket ";
+    }
+
+    //Owner
+    s += ((mode & 0x100) ? "r" : "-");
+    s += ((mode & 0x80) ? "w" : "-");
+    s += ((mode & 0x40) ? "x" : "-");
+
+    //Group
+    s += ((mode & 0x20) ? "r" : "-");
+    s += ((mode & 0x10) ? "w" : "-");
+    s += ((mode & 0x8) ? "x" : "-");
+
+    //Others
+    s += ((mode & 0x4) ? "r" : "-");
+    s += ((mode & 0x2) ? "w" : "-");
+    s += ((mode & 0x1) ? "x" : "-");
+    
+    //Special
+    s += ((mode & 0x200) ? " Sticky" : "");
+    s += ((mode & 0x400) ? " SGID" : "");
+    s += ((mode & 0x800) ? " SUID" : "");
+
+    return s;
+}
+
+typedef struct {
+    __le16  eh_magic;
+
+    if (eh_magic != 0xF30A) {
+        Warning("Invalid extent header!");
+        Exit(1);
+    }
+    __le16  eh_entries;
+    __le16  eh_max;
+    __le16  eh_depth;
+    __le32  eh_generation;
+} Ext4_Extent_Header;
+
+typedef struct {
+    __le32  ei_block;
+    __le32  ei_leaf_lo;
+    __le16  ei_leaf_hi;
+    __le16  ei_unused;
+} Ext4_Extent_Index_Node;
+
+typedef struct {
+    __le32  ee_block;
+    __le16  ee_len;
+    __le16  ee_start_hi;
+    __le32  ee_start_lo;
+} Ext4_Extent_Node;
+
+typedef struct {
+    __le32 inode;
+    __le16 rec_len;
+    ubyte  name_len;
+    ubyte  file_type;
+    
+    if (name_len > 0)
+        char name[name_len];
+
+    local int padding_size = rec_len - name_len - 8;
+
+    if (padding_size > 0)
+        ubyte padding[padding_size]<hidden=true>;
+} file_info_a<name=func_file_name_a, optimize=false>;
+
+string func_file_name_a(file_info_a &r) {
+    string s;
+
+    if (r.name_len > 0) {
+        SPrintf(s, "%s (Inode %i)", r.name, r.inode);
+    }
+    else {
+        SPrintf(s, "<UNKNOWN> (Inode %i)", r.inode);
+    }
+
+    return s;
+}
+
+typedef struct {
+    __le32 inode;
+    __le16 rec_len;
+    __le16 name_len;
+
+    if (name_len > 0)
+        char name[name_len];
+
+    local int padding_size = rec_len - name_len - 8;
+
+    if (padding_size > 0)
+        ubyte padding[padding_size]<hidden=true>;
+} file_info_b<name=func_file_name_b, optimize=false>;
+
+string func_file_name_b(file_info_b &r) {
+    string s;
+
+    SPrintf(s, "%s (Inode %i)", r.name, r.inode);
+
+    return s;
+}
+
+typedef struct {
+    ubyte                   legacy[24]<hidden=true>;
+
+    __le32                  reserved_zero;
+    __u8                    hash_version;
+    __u8                    info_length;
+    __u8                    indirect_levels;
+    __u8                    unused_flags;
+    __le16                  limit;
+    __le16                  count;
+    __le32                  block;
+    struct Ext4_DT_Entry    entries[count];
+} Ext4_DT_Root;
+
+typedef struct {
+    __le32  hash;
+    __le32  block;
+} Ext4_DT_Entry<read=func_ext4_dt_entry>;
+
+string func_ext4_dt_entry(Ext4_DT_Entry& r) {
+    string s;
+
+    SPrintf(s, "%u -> Inode %i", r.hash, r.block);
+
+    return s;
+}
+
+typedef struct {
+    struct {
+        __le16  i_mode<read=func_read_inode_mode>;
+        __le16  i_uid;
+        __le32  i_size_lo;
+        time_t  i_atime;
+        time_t  i_ctime;
+        time_t  i_mtime;
+        time_t  i_dtime;
+        __le16  i_gid;
+        __le16  i_links_count;
+        __le32  i_blocks_lo;
+        t_inode_flags   i_flags;
+        
+        //OSD1 (Linux)
+        __le32  l_i_version; 
+    
+        if (i_flags.EXT4_INLINE_DATA_FL) {
+            ubyte    data[60]<comment="Small file (<= 60 byte)">;
+        }
+        else if (i_flags.EXT4_EXTENTS_FL) {
+            struct {
+                Ext4_Extent_Header header;
+    
+                if (header.eh_entries) {
+                    if (header.eh_depth > 0) {
+                        Ext4_Extent_Index_Node index_node[header.eh_entries];
+    
+                        local int i_in = 0;
+                        local int in_current_pos = FTell();
+                        while (exists(index_node[i_in])) {
+                            FSeek(index_node[i_in].ei_leaf_lo * block_size);
+            
+                            Ext4_Extent_Header sub_header;
+    
+                            if (sub_header.eh_depth > 0) {
+                                Ext4_Extent_Index_Node index_node[sub_header.eh_entries];
+                            }
+                            else {
+                                Ext4_Extent_Node extent[sub_header.eh_entries];
+                            }
+    
+                            i_in++;
+                        }
+        
+                        FSeek(in_current_pos);
+                    }
+                    else {
+                        Ext4_Extent_Node extent[header.eh_entries];
+                    }
+                }
+    
+                ubyte padding[(header.eh_max - header.eh_entries) * 12]<hidden=false>;
+    
+                __le32 eb_checksum;
+            } extents<size=60>;
+        } 
+        else {
+            __le32  i_block_direct[12];
+            __le32  i_block_single_indir;
+            __le32  i_block_double_indir;
+            __le32  i_block_tripple_indir;
+    
+            struct {
+                local int done = 0;
+            
+                local int bs4 = block_size / 4;
+                SetBackColor(cYellow);
+    
+                local int end_block_addr = FTell();
+                FSeek(FTell() - (15 * 4));
+        
+                local int bd_i = 0;
+                while (bd_i < 12 && i_block_direct[bd_i] > 0 ) {
+                    __le32 block_nr;
+                    bd_i++;
+                }
+    
+                if (i_block_single_indir > 0) {
+                    FSeek(i_block_single_indir * block_size);
+                    local int bsi_i = 0;
+                    while (bsi_i < bs4) {
+                        __le32 block_nr;
+                        if (block_nr == 0) {
+                            bsi_i = bs4;
+                        }
+                        bsi_i++;
+                    }
+                }
+                else {
+                    done = 1;
+                }
+    
+                if (!done && i_block_double_indir > 0) {
+                    FSeek(i_block_double_indir * block_size);
+                    __le32 double_indir[bs4]<hidden=true>;
+                    local int bdi_x;
+                    local int bdi_i = 0;
+                    while ( bdi_i < bs4 && double_indir[bdi_i] > 0) {
+                        FSeek(double_indir[bdi_i] * block_size);
+                        bdi_x = 0;
+                        while (bdi_x < bs4) {
+                            __le32 block_nr;
+                            if (block_nr == 0) {
+                                bdi_x = bs4;
+                            }
+                            bdi_x++;
+                        }
+                        bdi_i++;
+                    }
+                }
+                else {
+                    done = 1;
+                }
+    
+                // Tripple Indir is too resource intensive for 010Editor
+    
+                //if (i_block_tripple_indir > 0) {
+                //    FSeek(i_block_tripple_indir * block_size);
+                //    __le32 tripple_indir[bs4]<hidden=true>;
+                //    local int bti_x;
+                //    local int bti_y;
+                //    local int bti_i = 0;
+                //    while ( bti_i < bs4 && tripple_indir[bti_i] > 0) {
+                //        FSeek(tripple_indir[bti_i] * block_size);
+                //        __le32 second_double[bs4]<hidden=true>;
+                //        bti_x = 0;
+                //        while ( bti_x < bs4 && second_double[bti_x] > 0) {
+                //            FSeek(second_double[bti_x] * block_size);
+                //            bti_y = 0;
+                //            while ( bti_y < bs4 ) {
+                //                __le32 blocks;
+                //                if (blocks == 0) {
+                //                    bti_y = bs4;
+                //                }
+                //                bti_y++;
+                //            }
+                //            bdi_x++;
+                //        }                                
+                //        bti_i++;
+                //    }    
+                //}
+                    
+                FSeek(end_block_addr);
+            } blocks<name="Blocks">;
+        }
+    
+        __le32  i_generation;
+        __le32  i_file_acl_lo;
+        __le32  i_size_high; // Ext2/3: i_dir_acl;
+        __le32  i_obso_faddr;
+    
+        //OSD2 (linux fields; 12 byte)
+        __le16  l_i_blocks_high;
+        __le16  l_i_file_acl_high;
+        __le16  l_i_uid_high;
+        __le16  l_i_gid_high;
+        __le16  l_i_checksum_lo;
+        __le16  l_i_reserved;
+    
+        if (sb.s_inode_size > 128) {
+            __le16  i_extra_isize;
+            __le16  i_checksum_hi;
+            time_t  i_ctime_extra;
+            time_t  i_mtime_extra;
+            time_t  i_atime_extra;
+            time_t  i_crtime;
+            time_t  i_crtime_extra;
+            __le32  i_version_hi;
+        }
+    } metadata<name="Metadata">;
+
+    local ubyte is_directory = ((metadata.i_mode & 0x4000) == 0x4000);
+
+    if (metadata.i_size_lo > 0 && (is_directory || metadata.i_size_lo < (1 * 1024 * 1024))) {
+        typedef struct (int size) {
+            ubyte data[size];
+        } data_block<name="Block">;
+
+        //extent data
+        if (metadata.i_flags.EXT4_EXTENTS_FL && metadata.extents.header.eh_entries) {
+            struct {
+                local int i_current_pos = FTell();
+    
+                local int ex_i = 0;
+                local int ex_d_i = 0;
+                local int db_i;
+    
+                local uint64 start_block_hi;
+                local uint64 start_block_lo;
+                local uint64 start_block;
+    
+                local int length;
+
+                for (ex_i = 0; exists(metadata.extents.extent[ex_i]); ex_i++) {
+                    start_block_hi = metadata.extents.extent[ex_i].ee_start_hi;
+                    start_block_lo = metadata.extents.extent[ex_i].ee_start_lo;
+            
+                    start_block = start_block_lo;
+            
+                    length = metadata.extents.extent[ex_i].ee_len;
+                    if (length > 32768) // Extent is not initialized
+                        length = length - 32768;
+                        
+                    FSeek(start_block * block_size);
+                    
+                    for (db_i = 0; db_i < length; db_i++) {
+                        data_block data(block_size);
+                    }
+                }
+        
+                FSeek(i_current_pos);
+            } data<name="Data">;
+        }
+        else {
+            struct {
+                local int i_current_pos = FTell();
+    
+                local int block_count = metadata.i_blocks_lo - 1;
+                local int block_p = 0;
+                local int block_first = -1;
+                local int block_last = -1;
+
+                local int db_i;
+    
+                if (block_count > 1) {
+                    while (block_p < block_count && exists(metadata.blocks.block_nr[block_p]))  {
+                        if (block_first != -1 && block_last != (metadata.blocks.block_nr[block_p] -1)) {
+                            FSeek(block_first * block_size);
+    
+                            if ((block_last - block_first) >= 0) {
+                                for (db_i = 0; db_i < ((block_last - block_first) + 1); db_i++) {
+                                    data_block data(block_size);
+                                }
+                            }
+        
+                            block_first = metadata.blocks.block_nr[block_p];
+                            block_last = metadata.blocks.block_nr[block_p];
+                        }
+                        else {
+                            if (block_first == -1) {
+                                block_first = metadata.blocks.block_nr[block_p];
+                            }
+        
+                            block_last = metadata.blocks.block_nr[block_p];
+                        }
+        
+                        block_p += 1;
+                    }
+                }
+                else if (block_count == 1) {
+                    FSeek(metadata.blocks.block_nr * block_size);
+    
+                    data_block data(block_size);
+                }
+    
+                FSeek(i_current_pos);
+            } data<name="Data">;
+        }
+    }
+
+    if (is_directory) {
+        local int current_pos_dir_ent = FTell();
+
+        if (exists(data.data[0])) {
+            FSeek(startof(data.data[0]));
+
+            if (metadata.i_flags.EXT4_INDEX_FL) {
+                Ext4_DT_Root dt_root;
+    
+                if (dt_root.indirect_levels > 0) {
+                    
+                }
+                
+                struct {
+                    local int db_i = 1;
+                    local int fi_p = 0;
+                    local int read_dir_ent_size;
+
+                    while(exists(data.data[db_i])) {
+                        read_dir_ent_size = 0;
+
+                        FSeek(startof(data.data[db_i]));
+                        
+                        while (read_dir_ent_size < metadata.i_size_lo) {
+                            if (ReadUShort(FTell() + 4) == 0)
+                                break;
+
+                            if (sb.s_feature_incompat.INCOMPAT_FILETYPE) {
+                                file_info_a file_info;
+                            }
+                            else {
+                                file_info_b file_info;
+                            }
+
+                            read_dir_ent_size += file_info[fi_p++].rec_len;
+                        }
+    
+                        db_i++;
+                    }
+                } files<name="Files">;
+            }
+            else  {
+                struct {
+                    local int read_dir_ent_size = 0;
+                    local int fi_p = 0;
+                    local int rec_size = 0;
+
+                    while (read_dir_ent_size < metadata.i_size_lo) {
+                        if (ReadUShort(FTell() + 4) == 0)
+                            break;
+
+                        if (sb.s_feature_incompat.INCOMPAT_FILETYPE) {
+                            file_info_a file_info;
+                        }
+                        else {
+                            file_info_b file_info;
+                        }
+
+                        read_dir_ent_size += file_info[fi_p++].rec_len;
+
+                        // Skip empty entries
+                        while (false && read_dir_ent_size < metadata.i_size_lo && ReadUInt(FTell()) == 0 && ReadUByte(FTell() + 6) == 0 && ReadUShort(FTell() + 4) > 0) {
+                            rec_size = ReadUShort(FTell() + 4);
+
+                            if (!rec_size)
+                                break;
+
+                            FSkip(rec_size);
+
+                            read_dir_ent_size += rec_size;
+                        }
+                        
+                    }
+                } files<name="Files">;
+            }
+        }
+
+        FSeek(current_pos_dir_ent);
+    }
+} Ext4_INode<name=func_inode_name, size=func_inode_size, optimize=false>;
+
+string func_inode_name(Ext4_INode &r) {
+    local string s;
+    local int mode = r.metadata.i_mode;
+
+    if (mode == 0)
+        return "Unused";
+
+    s += func_read_inode_mode(mode);
+
+    if (r.metadata.i_flags.EXT4_INLINE_DATA_FL) {
+        s += " INLINE";
+    }
+    else if (r.metadata.i_flags.EXT4_EXTENTS_FL) {
+        s += " Extents";
+    }
+    else {
+        s += " Direct/Indirect block map";
+    }
+
+    // Directory
+    if ((mode & 0x4000) == 0x4000) {
+        if (r.metadata.i_flags.EXT4_INDEX_FL) {
+            s += " HTree";
+        }
+        else {
+            s += " Linear";
+        }
+    }
+
+    SPrintf(s, "%s %ib", s, r.metadata.i_size_lo);
+    
+    return s;
+}
+
+int func_inode_size(Ext4_INode &r) {
+    return sb.s_inode_size;
+}
+
+int isPowerOfP(int n, int p) {
+    if (n == 0)
+        return 0;
+
+    while (n % p == 0) {
+        n /= p;
+    }
+    return n == 1;
+}
+
+typedef struct {
+    local int bg;
+    for (bg = 0; bg < block_group_count; bg++) {
+        struct {
+            local int bg_nr = bg;
+
+            if (bg_nr == 0)
+                FSkip(1024);
+        
+            if (!sb.s_feature_ro_compat.RO_COMPAT_SPARSE_SUPER || bg_nr == 0 || bg_nr == 1 || isPowerOfP(bg_nr, 3) || isPowerOfP(bg_nr, 5) || isPowerOfP(bg_nr, 7)) {
+                SetBackColor(cLtRed);
+                Ext4_SB sb<name="Superblock">;
+            }
+                
+            //local int bg_nr = sb.s_block_group_nr;
+            local int bg_block_count = (bg_nr == (block_group_count - 1)) ? block_count - (blocks_per_group * bg_nr) : blocks_per_group;
+        
+            if (block_size <= 1024)
+                FSeek((2 * block_size) + (bg_nr * bg_desc_size)); 
+            else
+                FSeek(block_size + (bg_nr * bg_desc_size));
+           
+            SetBackColor(cLtBlue);
+            Ext4_BG_Desc bg_desc<name="Block Group Descriptor">;
+        
+            local int block_bitmap_block_nr = bg_desc.bg_block_bitmap_lo;
+            local int inode_bitmap_block_nr = bg_desc.bg_inode_bitmap_lo;
+            local int inode_list_block_nr   = bg_desc.bg_inode_table_lo;
+        
+            //block bitmap
+            FSeek(block_bitmap_block_nr * block_size);
+
+            SetBackColor(cLtGreen);
+            struct {
+                ubyte map[bg_block_count / 8]<format=binary>;
+
+                if (((bg_block_count / 8) % block_size) > 0) {
+                    ubyte reserved[block_size - ((bg_block_count / 8) % block_size)]<bgcolor=0x444444>;
+                }
+            } block_bitmap<name="Block Bitmap">;
+        
+            //inode bitmap
+            FSeek(inode_bitmap_block_nr * block_size);
+        
+            SetBackColor(cDkGreen);
+            struct {
+                ubyte map[inode_count / 8]<format=binary>;
+
+                if (((inode_count / 8) % block_size) > 0) {
+                    ubyte reserved[block_size - ((inode_count / 8) % block_size)]<bgcolor=0x444444>;
+                }
+            } inode_bitmap<name="Inode Bitmap">;
+        
+            //inode list
+            FSeek(inode_list_block_nr * block_size);
+        
+            SetBackColor(cLtAqua);
+        
+            struct {
+                Ext4_INode inode[sb.s_inodes_per_group];
+            } Inodes<name="Inodes">;
+        
+            FSeek((bg + 1) * block_group_size + (block_size <= 1024 ? 1024 : 0));
+        
+        } block_group<name="Block Group">;
+    }
+} Ext4_FS;
+
+Ext4_FS filesystem<name="Ext4 Filesystem">;

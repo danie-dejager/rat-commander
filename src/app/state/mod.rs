@@ -22,7 +22,7 @@ use crate::ui::dialog::{
     OverwriteDialog, PaletteAction, PaletteCategory, PaletteEntry, ProgressDialog, ReceiveDialog,
     SaveAsDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, SendFileDialog,
     SettingsTab, ShellHistoryDialog, SpeedChart, Submit, SyncPreviewDialog, TabPickerDialog,
-    UserMenuDialog,
+    TemplatePickerDialog, UserMenuDialog,
 };
 use crate::ui::layout::SplitDir;
 use crate::ui::menu::{MenuAction, MenuBarState, MenuSignal};
@@ -192,6 +192,9 @@ pub struct AppState {
     pub dialog: Option<Dialog>,
     pub viewer: Option<ViewerState>,
     pub editor: Option<EditorState>,
+    /// Editors waiting under the one shown, which returns to them when it
+    /// closes: a hex editor under the binary template being edited.
+    pub editor_stack: Vec<EditorState>,
     pub menu: Option<MenuBarState>,
     /// Set when something needs the terminal cleared before the next frame (the
     /// editor's Ctrl-L). The main loop clears and resets it.

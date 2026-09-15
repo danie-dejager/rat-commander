@@ -1,0 +1,632 @@
+//------------------------------------------------
+//--- 010 Editor v3.0.4 Binary Template
+//
+//      File: PYC.bt
+//   Authors: Lao Lao
+//   Version: 1.2
+//   Purpose: Parse python bytecode .pyc and .pyo files,support python 1.5 to 3.13. 
+//  Category: Programming
+// File Mask: *.pyc,*.pyo
+//  ID Bytes: 
+//   History: 
+//   1.2   2024-10-13 Lao Lao: 扩展魔术头
+//   1.1   2016-02-02 SweetScape: Updated header for repository submission.
+//   1.0   2009-04-02 K Wu: Initial release.
+//------------------------------------------------
+
+enum <uint16> MagicValue {
+PY_1_5 = 20121,
+PY_1_5_1 = 20121,
+PY_1_5_2 = 20121,
+PY_1_6 = 50428,
+PY_2_0 = 50823,
+PY_2_0_1 = 50823,
+PY_2_1 = 60202,
+PY_2_1_1 = 60202,
+PY_2_1_2 = 60202,
+PY_2_2 = 60717,
+PY_2_3a0_1 = 62011,
+PY_2_3a0_2 = 62021,
+PY_2_4a0 = 62041,
+PY_2_4a3 = 62051,
+PY_2_4b1 = 62061,
+PY_2_5a0_1 = 62071,
+PY_2_5a0_2 = 62081,// (ast-branch)
+PY_2_5a0_3 = 62091,// (with)
+PY_2_5a0_4 = 62092,// (changed WITH_CLEANUP opcode)
+PY_2_5b3_1 = 62101,// (fix wrong code = for x, in …)
+PY_2_5b3_2 = 62111,// (fix wrong code = x += yield)
+PY_2_5c1 = 62121,// (fix wrong lnotab with for loops and storing constants that should have been removed)
+PY_2_5c2 = 62131,// (fix wrong code = for x, in … in listcomp/genexp)
+PY_2_6a0 = 62151,// (peephole optimizations and STORE_MAP opcode)
+PY_2_6a1 = 62161,// (WITH_CLEANUP optimization)
+PY_2_7a0_1 = 62171,// (optimize list comprehensions/change LIST_APPEND)
+PY_2_7a0_2 = 62181,// (optimize conditional branches = introduce POP_JUMP_IF_FALSE and POP_JUMP_IF_TRUE)
+PY_2_7a0_3 = 62191,// (introduce SETUP_WITH)
+PY_2_7a0_4 = 62201,// (introduce BUILD_SET)
+PY_2_7a0_5 = 62211,// (introduce MAP_ADD and SET_ADD)
+PY_3_0a4 = 3111,// (WITH_CLEANUP optimization)_
+PY_3_0b1 = 3131,// (lexical exception stacking, including POP_EXCEPT 3021)
+PY_3_1a1_1 = 3141,// (optimize list, set and dict comprehensions = change LIST_APPEND and SET_ADD, add MAP_ADD //2183)
+PY_3_1a1_2 = 3151,// (optimize conditional branches = introduce POP_JUMP_IF_FALSE and POP_JUMP_IF_TRUE 4715)
+PY_3_2a1 = 3160,// (add SETUP_WITH //6101)
+PY_3_2a2 = 3170,// (add DUP_TOP_TWO, remove DUP_TOPX and ROT_FOUR //9225)
+PY_3_2a3 = 3180,// (add DELETE_DEREF //4617)
+PY_3_3a1_1 = 3190,// (class super closure changed)
+PY_3_3a1_2 = 3200,// (PEP 3155 qualname added //13448)
+PY_3_3a1_3 = 3210,// (added size modulo 2**32 to the pyc header //13645)
+PY_3_3a2 = 3220,// (changed PEP 380 implementation //14230)
+PY_3_3a4 = 3230,// (revert changes to implicit class closure //14857)
+PY_3_4a1_1 = 3250,// (evaluate positional default arguments before keyword-only defaults //16967)
+PY_3_4a1_2 = 3260,// (add LOAD_CLASSDEREF; allow locals of class to override free vars //17853)
+PY_3_4a1_3 = 3270,// (various tweaks to the class closure //12370)
+PY_3_4a1_4 = 3280,// (remove implicit class argument)
+PY_3_4a4_1 = 3290,// (changes to qualname computation //19301)
+PY_3_4a4_2 = 3300,// (more changes to qualname computation //19301)
+PY_3_4rc2 = 3310,// (alter qualname computation //20625)
+PY_3_5a1 = 3320,// (PEP 465 = Matrix multiplication operator //21176)
+PY_3_5b1 = 3330,// (PEP 448 = Additional Unpacking Generalizations //2292)
+PY_3_5b2 = 3340,// (fix dictionary display evaluation order //11205)
+PY_3_5b3 = 3350,// (add GET_YIELD_FROM_ITER opcode //24400)
+PY_3_5_2 = 3351,// (fix BUILD_MAP_UNPACK_WITH_CALL opcode //27286)
+PY_3_6a0 = 3360,// (add FORMAT_VALUE opcode //25483)
+PY_3_6a1 = 3361,// (lineno delta of code_co_lnotab becomes signed //26107)
+PY_3_6a2_1 = 3370,// (16 bit wordcode //26647)
+PY_3_6a2_2 = 3371,// (add BUILD_CONST_KEY_MAP opcode //27140)
+PY_3_6a2_3 = 3372,// (MAKE_FUNCTION simplification, remove MAKE_CLOSURE //27095)
+PY_3_6b1_1 = 3373,// (add BUILD_STRING opcode //27078)
+PY_3_6b1_2 = 3375,// (add SETUP_ANNOTATIONS and STORE_ANNOTATION opcodes //27985)
+PY_3_6b1_3 = 3376,// (simplify CALL_FUNCTIONs & BUILD_MAP_UNPACK_WITH_CALL 27213)
+PY_3_6b1_4 = 3377,// (set class cell from type_new //23722)
+PY_3_6b2 = 3378,// (add BUILD_TUPLE_UNPACK_WITH_CALL //28257)
+PY_3_6rc1 = 3379,// (more thorough class validation //23722)
+PY_3_7a1 = 3390,// (add LOAD_METHOD and CALL_METHOD opcodes //26110)
+PY_3_7a2 = 3391,// (update GET_AITER //31709)
+PY_3_7a4 = 3392,// (PEP 552 = Deterministic pycs //31650)
+PY_3_7b1 = 3393,// (remove STORE_ANNOTATION opcode //32550)
+PY_3_7b5 = 3394,// (restored docstring as the first stmt in the body; this might affected the first line number //32911)
+PY_3_8a1_1 = 3400,// (move frame block handling to compiler //17611)
+PY_3_8a1_2 = 3401,// (add END_ASYNC_FOR //33041)
+PY_3_8a1_3 = 3410,// (PEP570 Python Positional-Only Parameters //36540)
+PY_3_8b2_1 = 3411,// (Reverse evaluation order of key = value in dict comprehensions //35224)
+PY_3_8b2_2 = 3412,// (Swap the position of positional args and positional only args in ast_arguments //37593)
+PY_3_8b4 = 3413,// (Fix “break” and “continue” in “finally” //37830)
+PY_3_9a0_1 = 3420,// (add LOAD_ASSERTION_ERROR //34880)
+PY_3_9a0_2 = 3421,// (simplified bytecode for with blocks //32949)
+PY_3_9a0_3 = 3422,// (remove BEGIN_FINALLY, END_FINALLY, CALL_FINALLY, POP_FINALLY bytecodes //33387)
+PY_3_9a2_1 = 3423,// (add IS_OP, CONTAINS_OP and JUMP_IF_NOT_EXC_MATCH bytecodes //39156)
+PY_3_9a2_2 = 3424,// (simplify bytecodes for value unpacking)
+PY_3_9a2_3 = 3425,// (simplify bytecodes for **value unpacking)
+PY_3_10a1_1 = 3430,// (Make ‘annotations’ future by default)
+PY_3_10a1_2 = 3431,// (New line number table format – PEP 626)
+PY_3_10a2_1 = 3432,// (Function annotation for MAKE_FUNCTION is changed from dict to tuple bpo-42202)
+PY_3_10a2_2 = 3433,// (RERAISE restores f_lasti if oparg != 0)
+PY_3_10a6 = 3434,// (PEP 634 = Structural Pattern Matching)
+PY_3_10a7 = 3435,// Use instruction offsets,// (as opposed to byte offsets)_
+PY_3_10b1_1 = 3436,// (Add GEN_START bytecode //43683)
+PY_3_10b1_2 = 3437,// (Undo making ‘annotations’ future by default - We like to dance among core devs!)
+PY_3_10b1_3 = 3438,//Safer line number table handling_
+PY_3_10b1_4 = 3439,// (Add ROT_N)
+PY_3_11a1_1 = 3450,// Use exception table for unwinding,// (“zero cost” exception handling)
+PY_3_11a1_2 = 3451,// (Add CALL_METHOD_KW)
+PY_3_11a1_3 = 3452,// (drop nlocals from marshaled code objects)
+PY_3_11a1_4 = 3453,// (add co_fastlocalnames and co_fastlocalkinds)
+PY_3_11a1_5 = 3454,// (compute cell offsets relative to locals bpo-43693)
+PY_3_11a1_6 = 3455,// (add MAKE_CELL bpo-43693)
+PY_3_11a1_7 = 3456,// (interleave cell args bpo-43693)
+PY_3_11a1_8 = 3457,// (Change localsplus to a bytes object bpo-43693)
+PY_3_11a1_9 = 3458,// (imported objects now don’t use LOAD_METHOD/CALL_METHOD)
+PY_3_11a1_10 = 3459,// (PEP 657 = add end line numbers and column offsets for instructions)
+PY_3_11a1_11 = 3460,// (Add co_qualname field to PyCodeObject bpo-44530)
+PY_3_11a1_12 = 3461,// (JUMP_ABSOLUTE must jump backwards)
+PY_3_11a2 = 3462, // (bpo-44511 = remove CODICT_WITHOUT_KEYS, change MATCH_CLASS and MATCH_KEYS, and add COPY)
+PY_3_11a3_1 = 3463, // (bpo-45711 = JUMP_IF_NOT_EXC_MATCH no longer pops the active exception)
+PY_3_11a3_2 = 3464, // (bpo-45636 = Merge numeric BINARY_/INPLACE_* into BINARY_OP)
+PY_3_11a3_3 = 3465, // (Add COFREE_VARS opcode)
+PY_3_11a4_1 = 3466, // (bpo-45292 = PEP-654 except*)
+PY_3_11a4_2 = 3467, // (Change CALL_xxx opcodes)
+PY_3_11a4_3 = 3468, // (Add SEND opcode)
+PY_3_11a4_4 = 3469, // (bpo-45711 = remove type, traceback from exc_info)
+PY_3_11a4_5 = 3470, // (bpo-46221 = PREP_RERAISE_STAR no longer pushes lasti)
+PY_3_11a4_6 = 3471, // (bpo-46202 = remove pop POP_EXCEPT_AND_RERAISE)
+PY_3_11a4_7 = 3472, // (bpo-46009 = replace GEN_START with POP_TOP)
+PY_3_11a4_8 = 3473, // (Add POP_JUMP_IF_NOT_NONE/POP_JUMP_IF_NONE opcodes)
+PY_3_11a4_9 = 3474, // (Add RESUME opcode)
+PY_3_11a5_1 = 3475, // (Add RETURN_GENERATOR opcode)
+PY_3_11a5_2 = 3476, // (Add ASYNC_GEN_WRAP opcode)
+PY_3_11a5_3 = 3477, // (Replace DUP_TOP/DUP_TOP_TWO with COPY and ROT_TWO/ROT_THREE/ROT_FOUR/ROT_N with SWAP)
+PY_3_11a5_4 = 3478, // (New CALL opcodes)
+PY_3_11a5_5 = 3479, // (Add PUSH_NULL opcode)
+PY_3_11a5_6 = 3480, // (New CALL opcodes, second iteration)
+PY_3_11a5_7 = 3481, // (Use inline cache for BINARY_OP)
+PY_3_11a5_8 = 3482, // (Use inline caching for UNPACK_SEQUENCE and LOAD_GLOBAL)
+PY_3_11a5_9 = 3483, // (Use inline caching for COMPARE_OP and BINARY_SUBSCR)
+PY_3_11a5_10 = 3484, // (Use inline caching for LOAD_ATTR, LOAD_METHOD, and STORE_ATTR)
+PY_3_11a5_11 = 3485, // (Add an oparg to GET_AWAITABLE)
+PY_3_11a6_1 = 3486, // (Use inline caching for PRECALL and CALL)
+PY_3_11a6_2 = 3487, // (Remove the adaptive “oparg counter” mechanism)
+PY_3_11a6_3 = 3488, // (LOAD_GLOBAL can push additional NULL)
+PY_3_11a6_4 = 3489, // (Add JUMP_BACKWARD, remove JUMP_ABSOLUTE)
+PY_3_11a6_5 = 3490, // (remove JUMP_IF_NOT_EXC_MATCH, add CHECK_EXC_MATCH)
+PY_3_11a6_6 = 3491, // (remove JUMP_IF_NOT_EG_MATCH, add CHECK_EG_MATCH,add JUMP_BACKWARD_NO_INTERRUPT, make JUMP_NO_INTERRUPT virtual)
+PY_3_11a7_1 = 3492, // (make POP_JUMP_IF_NONE/NOT_NONE/TRUE/FALSE relative)
+PY_3_11a7_2 = 3493, // (Make JUMP_IF_TRUE_OR_POP/JUMP_IF_FALSE_OR_POP relative)
+PY_3_11a7_3 = 3494, // (New location info table)
+PY_3_11b4 = 3495, // (Set line number of module’s RESUME instr to 0 per PEP 626)
+PY_3_12a1_1 = 3500, // (Remove PRECALL opcode)
+PY_3_12a1_2 = 3501, // (YIELD_VALUE oparg == stack_depth)
+PY_3_12a1_3 = 3502, // (LOAD_FAST_CHECK, no NULL-check in LOAD_FAST)
+PY_3_12a1_4 = 3503, // (Shrink LOAD_METHOD cache)
+PY_3_12a1_5 = 3504, // (Merge LOAD_METHOD back into LOAD_ATTR)
+PY_3_12a1_6 = 3505, // (Specialization/Cache for FOR_ITER)
+PY_3_12a1_7 = 3506, // (Add BINARY_SLICE and STORE_SLICE instructions)
+PY_3_12a1_8 = 3507, // (Set lineno of module’s RESUME to 0)
+PY_3_12a1_9 = 3508, // (Add CLEANUP_THROW)
+PY_3_12a1_10 = 3509, // (Conditional jumps only jump forward)
+PY_3_12a2_1 = 3510, // (FOR_ITER leaves iterator on the stack)
+PY_3_12a2_2 = 3511, // (Add STOPITERATION_ERROR instruction)
+PY_3_12a2_3 = 3512, // (Remove all unused consts from code objects)
+PY_3_12a4_1 = 3513, // (Add CALL_INTRINSIC_1 instruction, removed STOPITERATION_ERROR, PRINT_EXPR, IMPORT_STAR)
+PY_3_12a4_2 = 3514, // (Remove ASYNC_GEN_WRAP, LIST_TO_TUPLE, and UNARY_POSITIVE)
+PY_3_12a5_1 = 3515, // (Embed jump mask in COMPARE_OP oparg)
+PY_3_12a5_2 = 3516, // (Add COMPARE_AND_BRANCH instruction)
+PY_3_12a5_3 = 3517, // (Change YIELD_VALUE oparg to exception block depth)
+PY_3_12a6_1 = 3518, // (Add RETURN_CONST instruction)
+PY_3_12a6_2 = 3519, // (Modify SEND instruction)
+PY_3_12a6_3 = 3520, // (Remove PREP_RERAISE_STAR, add CALL_INTRINSIC_2)
+PY_3_12a7_1 = 3521, // (Shrink the LOAD_GLOBAL caches)
+PY_3_12a7_2 = 3522, // (Removed JUMP_IF_FALSE_OR_POP/JUMP_IF_TRUE_OR_POP)
+PY_3_12a7_3 = 3523, // (Convert COMPARE_AND_BRANCH back to COMPARE_OP)
+PY_3_12a7_4 = 3524, // (Shrink the BINARY_SUBSCR caches)
+PY_3_12b1_1 = 3525, // (Shrink the CALL caches)
+PY_3_12b1_2 = 3526, // (Add instrumentation support)
+PY_3_12b1_3 = 3527, // (Add LOAD_SUPER_ATTR)
+PY_3_12b1_4 = 3528, // (Add LOAD_SUPER_ATTR_METHOD specialization)
+PY_3_12b1_5 = 3529, // (Inline list/dict/set comprehensions)
+PY_3_12b1_6 = 3530, // (Shrink the LOAD_SUPER_ATTR caches)
+PY_3_12b1_7 = 3531, // (Add PEP 695 changes)
+};
+
+// marshal obj type of version 2
+// version 2 is backward compatible to version 1 (for read)
+enum <char> ObjType {
+	TYPE_NULL		= '0',
+	TYPE_NONE		= 'N',
+	TYPE_FALSE		= 'F',
+	TYPE_TRUE		= 'T',
+	TYPE_STOPITER		= 'S',
+	TYPE_ELLIPSIS		= '.',
+	TYPE_INT		= 'i',
+	TYPE_INT64		= 'I',
+	TYPE_FLOAT		= 'f',
+	TYPE_BINARY_FLOAT	= 'g',
+	TYPE_COMPLEX		= 'x',
+	TYPE_BINARY_COMPLEX	= 'y',
+	TYPE_LONG		= 'l',
+	TYPE_STRING		= 's',
+	TYPE_INTERNED		= 't',
+	TYPE_STRINGREF		= 'R',
+	TYPE_TUPLE		= '(',
+	TYPE_LIST		= '[',
+	TYPE_DICT		= '{',
+	TYPE_CODE		= 'c',
+	TYPE_UNICODE		= 'u',
+	TYPE_UNKNOWN		= '?',
+	TYPE_SET		= '<',
+	TYPE_FROZENSET		= '>',
+};
+
+// Python/import.c
+struct Magic {
+	MagicValue magic1;
+	char magic2[2];
+	if (magic2 != "\x0d\x0a") {
+		Warning("bad magic");
+		return 0;
+	}
+	if (EnumToString(magic1) == "") {
+		Warning("Unknown magic version");
+		return 0;
+	}
+};
+
+// opcode.h
+// this is opname of python 2.4
+// please add new opcode in ReadInstruction()
+enum <ubyte> OpCode {
+	STOP_CODE	= 0,
+	POP_TOP		= 1,
+	ROT_TWO		= 2,
+	ROT_THREE	= 3,
+	DUP_TOP		= 4,
+	ROT_FOUR	= 5,
+	
+	UNARY_POSITIVE	= 10,
+	UNARY_NEGATIVE	= 11,
+	UNARY_NOT	= 12,
+	UNARY_CONVERT	= 13,
+	
+	UNARY_INVERT	= 15,
+	
+	LIST_APPEND	= 18,
+	BINARY_POWER	= 19,
+	
+	BINARY_MULTIPLY	= 20,
+	BINARY_DIVIDE	= 21,
+	BINARY_MODULO	= 22,
+	BINARY_ADD	= 23,
+	BINARY_SUBTRACT	= 24,
+	BINARY_SUBSCR	= 25,
+	BINARY_FLOOR_DIVIDE = 26,
+	BINARY_TRUE_DIVIDE = 27,
+	INPLACE_FLOOR_DIVIDE = 28,
+	INPLACE_TRUE_DIVIDE = 29,
+	
+	SLICE		= 30,
+/* Also uses 31-33 */
+	SLICE_a		= 31,
+	SLICE_b		= 32,
+	SLICE_c		= 33,
+
+	STORE_SLICE	= 40,
+/* Also uses 41-43 */
+	STORE_SLICE_a	= 41,
+	STORE_SLICE_b	= 42,
+	STORE_SLICE_c	= 43,
+
+	DELETE_SLICE	= 50,
+/* Also uses 51-53 */
+	DELETE_SLICE_a	= 51,
+	DELETE_SLICE_b	= 52,
+	DELETE_SLICE_c	= 53,
+
+	INPLACE_ADD	= 55,
+	INPLACE_SUBTRACT	= 56,
+	INPLACE_MULTIPLY	= 57,
+	INPLACE_DIVIDE	= 58,
+	INPLACE_MODULO	= 59,
+	STORE_SUBSCR	= 60,
+	DELETE_SUBSCR	= 61,
+	
+	BINARY_LSHIFT	= 62,
+	BINARY_RSHIFT	= 63,
+	BINARY_AND	= 64,
+	BINARY_XOR	= 65,
+	BINARY_OR	= 66,
+	INPLACE_POWER	= 67,
+	GET_ITER	= 68,
+	
+	PRINT_EXPR	= 70,
+	PRINT_ITEM	= 71,
+	PRINT_NEWLINE	= 72,
+	PRINT_ITEM_TO   = 73,
+	PRINT_NEWLINE_TO = 74,
+	INPLACE_LSHIFT	= 75,
+	INPLACE_RSHIFT	= 76,
+	INPLACE_AND	= 77,
+	INPLACE_XOR	= 78,
+	INPLACE_OR	= 79,
+	BREAK_LOOP	= 80,
+	WITH_CLEANUP    = 81,
+	LOAD_LOCALS	= 82,
+	RETURN_VALUE	= 83,
+	IMPORT_STAR	= 84,
+	EXEC_STMT	= 85,
+	YIELD_VALUE	= 86,
+	POP_BLOCK	= 87,
+	END_FINALLY	= 88,
+	BUILD_CLASS	= 89,
+	
+
+	STORE_NAME	= 90,	/* Index in name list */
+	DELETE_NAME	= 91,	/* "" */
+	UNPACK_SEQUENCE	= 92,	/* Number of sequence items */
+	FOR_ITER	= 93,
+
+	STORE_ATTR	= 95,	/* Index in name list */
+	DELETE_ATTR	= 96,	/* "" */
+	STORE_GLOBAL	= 97,	/* "" */
+	DELETE_GLOBAL	= 98,	/* "" */
+	DUP_TOPX	= 99,	/* number of items to duplicate */
+	LOAD_CONST	= 100,	/* Index in const list */
+	LOAD_NAME	= 101,	/* Index in name list */
+	BUILD_TUPLE	= 102,	/* Number of tuple items */
+	BUILD_LIST	= 103,	/* Number of list items */
+	BUILD_MAP	= 104,	/* Always zero for now */
+	LOAD_ATTR	= 105,	/* Index in name list */
+	COMPARE_OP	= 106,	/* Comparison operator */
+	IMPORT_NAME	= 107,	/* Index in name list */
+	IMPORT_FROM	= 108,	/* Index in name list */
+
+	JUMP_FORWARD	= 110,	/* Number of bytes to skip */
+	JUMP_IF_FALSE	= 111,	/* "" */
+	JUMP_IF_TRUE	= 112,	/* "" */
+	JUMP_ABSOLUTE	= 113,	/* Target byte offset from beginning of code */
+
+	LOAD_GLOBAL	= 116,	/* Index in name list */
+
+	CONTINUE_LOOP	= 119,	/* Start of loop (absolute) */
+	SETUP_LOOP	= 120,	/* Target address (relative) */
+	SETUP_EXCEPT	= 121,	/* "" */
+	SETUP_FINALLY	= 122,	/* "" */
+
+	LOAD_FAST	= 124,	/* Local variable number */
+	STORE_FAST	= 125,	/* Local variable number */
+	DELETE_FAST	= 126,	/* Local variable number */
+
+	RAISE_VARARGS	= 130,	/* Number of raise arguments (1, 2 or 3) */
+/* CALL_FUNCTION_XXX opcodes defined below depend on this definition */
+	CALL_FUNCTION	= 131,	/* #args + (#kwargs<<8) */
+	MAKE_FUNCTION	= 132,	/* #defaults */
+	BUILD_SLICE 	= 133,	/* Number of items */
+	
+	MAKE_CLOSURE    = 134,     /* #free vars */
+	LOAD_CLOSURE    = 135,     /* Load free variable from closure */
+	LOAD_DEREF      = 136,     /* Load and dereference from closure cell */ 
+	STORE_DEREF     = 137,     /* Store into cell */ 
+
+/* The next 3 opcodes must be contiguous and satisfy
+   (CALL_FUNCTION_VAR - CALL_FUNCTION) & 3 == 1  */
+	CALL_FUNCTION_VAR        = 140,	/* #args + (#kwargs<<8) */
+	CALL_FUNCTION_KW         = 141,	/* #args + (#kwargs<<8) */
+	CALL_FUNCTION_VAR_KW     = 142,	/* #args + (#kwargs<<8) */
+
+/* Support for opargs more than 16 bits long */
+	EXTENDED_ARG = 143,
+};
+
+// ceval.c
+const int HAVE_ARGUMENT = 90;
+const int EXTENDED_ARG = 143;
+struct Instruction {
+	if (ReadUByte(FTell()) == EXTENDED_ARG) {
+		ubyte opcode_extended_arg;
+		uint16 oparg_hi;
+		ubyte opcode;
+		if (opcode >= HAVE_ARGUMENT)
+			uint16 oparg;
+	} else {
+		ubyte opcode;
+		if (opcode >= HAVE_ARGUMENT)
+			uint16 oparg;
+	}
+};
+
+typedef int32 r_long;
+typedef int64 r_long64;
+typedef int16 r_short;
+typedef ubyte r_byte;
+
+struct Code {
+	ObjType type;
+	if (type != TYPE_STRING) {
+		Warning("code not in string type");
+		Exit(1);
+	}
+	r_long n;
+	local int remain = n;
+	local int end = FTell() + n;
+
+	/* trick to optimize parse speed */
+	while (remain >= 6) {
+		Instruction inst[remain/6] <read=ReadInstruction,optimize=false>;
+		remain = end - FTell();
+	}
+	remain = end - FTell();
+
+	while (remain > 0) {
+		Instruction inst <read=ReadInstruction>;
+		remain -= sizeof(inst);
+	}
+};
+
+string Opcode2Opname(OpCode opcode)
+{
+	uint16 magic = file.magic.magic1;
+	local string opname = EnumToString(opcode);
+	if (magic >= 0) { // history between python 2.0 and 2.4
+		// r27197
+		if (opcode == 114) opname = "";
+		// r28249
+		if (opcode == 81) opname = "RETURN_NONE";
+		// r28494
+		if (opcode == 81) opname = "";
+		// r32346
+		if (opcode == 9) opname = "NOP";
+		// r32389
+		if (opcode == 9) opcode = "";
+		// r35378
+		if (opcode == 18) opname = "LIST_APPEND";
+		// r36216
+		if (opcode == 9) opname = "NOP";
+	}
+	// magic 62041 r36242 marshal version 1
+	// magic 62051 r37112
+	// magic 62061 r37403
+	// magic 62071 r38931 marshal version 2
+	// magic 62081 r39773
+	if (magic >= 62091) {  // r42624
+		// r42624
+		if (opcode == 81) opname = "WITH_CLEANUP";
+	}
+	// magic 62092 r42952
+	// magic 62101 r50600
+	// magic 62111 r50968
+	// magic 62121 r51082
+	// magic 62131 r51729
+	if (magic >= 62151) { // r59548
+		// r59548
+		if (opcode == 54) opname = "STORE_MAP";
+	}
+	// magic 62161 r61290
+	if (magic >= 62171) { // r67818
+		// r67818
+		if (opcode == 18) opname = "";
+		if (opcode == 94) opname = "LIST_APPEND";
+	}
+	if (magic >= 62181) { // r70071
+		// r70071
+		if (opcode == 111) opname = "JUMP_IF_FALSE_OR_POP";
+		if (opcode == 112) opname = "JUMP_IF_TRUE_OR_POP";
+		if (opcode == 114) opname = "POP_JUMP_IF_FALSE";
+		if (opcode == 115) opname = "POP_JUMP_IF_TRUE";
+	}
+
+	return opname;
+}
+
+string ReadInstruction(Instruction &ins)
+{
+	string s;
+	uint16 magic = file.magic.magic1;
+	OpCode opcode = (OpCode)ins.opcode;
+	string opname = Opcode2Opname(opcode);
+	if (exists(ins.oparg)) {
+		uint32 oparg = ins.oparg;
+		if (exists(ins.oparg_hi))
+			oparg += (uint32)ins.oparg_hi << 16;
+		// Note, COMPARE_OP oparg change name in r24970
+		if (opname == "COMPARE_OP") {
+			string cmp_op;
+			switch (oparg) {
+				case 0: cmp_op = "<"; break;
+				case 1: cmp_op = "<="; break;
+				case 2: cmp_op = "=="; break;
+				case 3: cmp_op = "!="; break;
+				case 4: cmp_op = ">"; break;
+				case 5: cmp_op = ">="; break;
+				case 6: cmp_op = "in"; break;
+				case 7: cmp_op = "not in"; break;
+				case 8: cmp_op = "is"; break;
+				case 9: cmp_op = "is not"; break;
+				case 10: cmp_op = "exception match"; break;
+				case 11: cmp_op = "BAD"; break;
+			}
+			SPrintf(s, "%s (%s)", opname, cmp_op);
+
+		} else {
+			SPrintf(s, "%s %d", opname, oparg);
+		}
+	} else {
+		s = opname;
+	}
+	return s;
+}
+
+struct LnoTab {
+	ObjType type;
+	if (type != TYPE_STRING) {
+		Warning("lnotab not in string type");
+		Exit(1);
+	}
+	r_long n;
+	struct {
+		uchar bytecode_offset_diff;
+		uchar line_diff;
+	} pair[n/2];
+};
+
+// Python/marshal.c
+typedef struct r_object {
+	ObjType type;
+	switch (type) {
+		case TYPE_NULL:
+		case TYPE_NONE:
+		case TYPE_STOPITER:
+		case TYPE_ELLIPSIS:
+		case TYPE_FALSE:
+		case TYPE_TRUE:
+			break;
+		case TYPE_INT:
+			r_long value;
+			break;
+		case TYPE_INT64:
+			r_long64 value;
+			break;
+		case TYPE_LONG:
+			r_long n;
+			local int size = n<0?-n:n;
+			r_short digit[size];
+			break;
+		case TYPE_FLOAT:
+			r_byte n;
+			char value[n];
+			break;
+		case TYPE_BINARY_FLOAT:
+			double value;
+			break;
+
+		case TYPE_COMPLEX:
+			r_byte nr;
+			char real[nr];
+			r_byte ni;
+			char imag[ni];
+			break;
+
+		case TYPE_BINARY_COMPLEX:
+			double real;
+			double imag;
+			break;
+			
+		case TYPE_INTERNED:
+		case TYPE_STRING:
+			r_long n;
+			if (n)
+				char str[n];
+			break;
+		case TYPE_STRINGREF:
+			r_long n;
+			break;
+		case TYPE_TUPLE:
+			r_long n;
+			if (n)
+				struct r_object elements[n] <optimize=false>;
+			break;
+		case TYPE_LIST:
+			r_long n;
+			if (n)
+				struct r_object elements[n] <optimize=false>;
+			break;
+		case TYPE_DICT:
+			while (1) {
+				struct r_object key;
+				if (key.type == TYPE_NULL)
+					break;
+				struct r_object val;
+			}
+			break;
+		case TYPE_SET:
+		case TYPE_FROZENSET:
+			r_long n;
+			if (n)
+				struct r_object elements[n] <optimize=false>;
+			break;
+		case TYPE_CODE:
+			r_long argcount;
+			r_long nlocals;
+			r_long stacksize;
+			r_long flags;
+			//struct r_object code;
+			Code code;
+			struct r_object consts;
+			struct r_object names;
+			struct r_object varnames;
+			struct r_object freevars;
+			struct r_object cellvars;
+			struct r_object filename;
+			struct r_object name;
+			r_long firstlineno;
+			//struct r_object lnotab;
+			LnoTab lnotab;
+			break;
+		default:
+			Warning("unknown type code");
+			Exit(1);
+	} 
+} r_object;
+
+struct {
+	Magic magic;
+	char mtime[4];
+	r_object data;
+} file;

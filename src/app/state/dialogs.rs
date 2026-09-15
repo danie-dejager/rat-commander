@@ -309,11 +309,19 @@ impl AppState {
                 self.diffview = None;
             }
             Submit::DiffDiscardQuit => self.diffview = None,
-            Submit::EditorDiscardQuit => {
-                self.record_editor_position();
-                self.editor = None;
-                self.reload_all().await;
+            Submit::EditorDiscardQuit => self.close_editor().await,
+            Submit::EditorTemplate(info) => {
+                if let Some(ed) = self.editor.as_mut() {
+                    ed.set_template(info.map(|i| *i));
+                }
             }
+            Submit::EditorEditTemplate(info) => match info.path.clone() {
+                Some(path) => self.open_template_editor(path, None),
+                None => self.show_error(
+                    "This template is built in: there is no template directory to edit it in",
+                ),
+            },
+            Submit::EditorNewTemplate(name) => self.create_template(name),
             Submit::Select { select, pattern, files_only, case_sensitive, shell } => {
                 self.apply_select(select, &pattern, files_only, case_sensitive, shell)
             }

@@ -1,0 +1,165 @@
+//------------------------------------------------
+//--- 010 Editor v2.0 Binary Template
+//
+//      File: TradeActivityLog.bt
+//    Author: George Tarantilis
+//   Version: 1.0
+//   Purpose: Parse Sierra Chart Trade Activity Log files.
+//  Category: Misc
+// File Mask: *.data
+//  ID Bytes: 01 00 00 00 08 00 00 00 02 00 00 00 00 00 00 00 00
+//   History: 
+//   1.0   2025-03-28 George Tarantilis: Initial Release
+//
+//------------------------------------------------
+#define BASE_TIMESTAMP 2209161600
+
+// Define the TYPE enum
+enum <uint32> TYPE {
+    START_RECORD = 0x64, 
+    ACTIVITY_TYPE = 0x65, 
+    DATE_TIME = 0x66, 
+    SYMBOL = 0x67, 
+    ORDER_ACTION_SOURCE = 0x68, 
+    INTERNAL_ORDER_ID = 0x69, 
+    SERVICE_ORDER_ID = 0x6A, 
+    ORDER_TYPE = 0x6B, 
+    QUANTITY = 0x6C, 
+    BUY_SELL = 0x6D, 
+    PRICE = 0x6E,
+    PRICE2 = 0x6F, 
+    ORDER_STATUS = 0x70, 
+    FILL_PRICE_OPEN = 0x71, 
+    FILLED_QUANTITY = 0x72, 
+    HIGH_DURING_POSITION = 0x73, 
+    LOW_DURING_POSITION = 0x74, 
+    FILL_PRICE = 0x75, 
+    TRADE_ACCOUNT = 0x76, 
+    PARENT_INTERNAL_ORDER_ID = 0x77, 
+    OPEN_CLOSE = 0x78,
+    UNKNOWN_DATA_3 = 0x7A,
+    FILL_EXECUTION_SERVICE_ID = 0x7C, 
+    POSITION_QUANTITY = 0x7D, 
+    CHART_NAME = 0x7F, 
+    NOTE = 0x82,
+    USERNAME = 0x83,
+    ACCT_BALANCE = 0x84,
+    UNKNOWN_DATA_1 = 0x85,
+    EXCHANGE_ORDER_ID = 0x89, 
+    CLIENT_ORDER_ID = 0x8B,
+    UNKNOWN_DATA_2 = 0x9C, 
+    TRANS_DATE_TIME = 0xA0, 
+    END_RECORD = 0xC7
+};
+
+enum <ubyte> BUY_OR_SELL { BUY=1, SELL };
+
+enum <ubyte> STATUS {
+    UNSPECIFIED,
+    ORDER_SENT,
+    PENDING_OPEN,
+    PENDING_CHILD_CLIENT,
+    PENDING_CHILD_SERVER,
+    OPEN,
+    PENDING_MODIFY,
+    PENDING_CANCEL,
+    FILLED,
+    CANCELED,
+    ERROR,
+    PENDING_CANCEL_FOR_REPLACE,
+    HELD
+};
+
+enum <uint32> ACTIVITY { ORDER = 1, FILL, POSITION, ACCOUNT_BALANCE, INFO = 6};
+
+enum <ubyte> POS_OPEN_CLOSE {OPEN_POS=1, CLOSE_POS};
+
+// Define the file header
+struct HEADER {
+    int part1;
+    int part2;
+    uint64 part3;
+} header <style=sHeading1>;
+
+
+struct FIELD {
+    TYPE fieldType <bgcolor=(this == START_RECORD ? cRed : cNone )>;
+    uint32 fieldLength;
+    
+    if (fieldType == START_RECORD)
+    {
+        int64 dataLimit;
+    }
+    else if (fieldType == END_RECORD)
+    {
+        
+    }
+    else if (fieldType == ORDER_ACTION_SOURCE || fieldType == SYMBOL || 
+        fieldType == TRADE_ACCOUNT || fieldType == CHART_NAME || 
+        fieldType == NOTE || fieldType == USERNAME || fieldType == CLIENT_ORDER_ID || fieldType == EXCHANGE_ORDER_ID) 
+    {
+       char dataString[fieldLength];
+    } 
+    else if (fieldType == DATE_TIME || fieldType == TRANS_DATE_TIME)
+    {
+       uint64 microseconds <comment=ConvertTimeStamp>;
+    }
+    else if (fieldType == INTERNAL_ORDER_ID || fieldType == PARENT_INTERNAL_ORDER_ID) 
+    {
+        uint64 dataU64;
+    } 
+    else if (fieldType == QUANTITY || fieldType == POSITION_QUANTITY || fieldType == FILLED_QUANTITY || fieldType == PRICE
+          || fieldType == FILL_PRICE || fieldType == FILL_PRICE_OPEN || fieldType == HIGH_DURING_POSITION ||
+          fieldType == LOW_DURING_POSITION  || fieldType == ACCT_BALANCE || fieldType == PRICE2)            
+    {
+        double dataDouble;
+    } 
+    else if (fieldType == ACTIVITY_TYPE) 
+    {
+        ACTIVITY dataActivity;
+    } 
+    else if(fieldType == OPEN_CLOSE) 
+    {
+        POS_OPEN_CLOSE dataOpenClose;
+    }
+    else if(fieldType == BUY_SELL)
+    {
+        BUY_OR_SELL dataBuySell;
+    }
+        else if(fieldType == ORDER_STATUS )
+    {
+        STATUS dataStatus;
+    }
+    else 
+    {
+        // Read unknown data as raw bytes to maintain alignment
+        byte unknownData[fieldLength]; 
+    }
+};
+
+typedef struct {
+     do {
+       FIELD field;
+     }   while (field.fieldType != END_RECORD); 
+} RECORD;
+
+do {
+   RECORD record <name="Record">; 
+} while (!FEof());
+ 
+ string ConvertTimeStamp( uint64 microseconds)
+ {
+       
+        // Convert to seconds
+        local int seconds = (microseconds / 1000000);
+        
+        // Base timestamp (Unix epoch equivalent of 1899-12-30)
+         local int baseTime = -2209161600;
+        
+        // Compute UNIX timestamp
+         local int unixTimestamp = baseTime + seconds;
+    
+        // Attach a comment showing the UNIX timestamp
+        //return OleTimeToString(seconds);
+        return TimeTToString(unixTimestamp, "yyyy-MM-dd hh:mm:ss");
+ }

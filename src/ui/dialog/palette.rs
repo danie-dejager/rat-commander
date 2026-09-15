@@ -362,7 +362,12 @@ impl CommandPaletteDialog {
 
 /// Split `label` into styled spans, painting the chars at `hl` positions with
 /// `hot` and the rest with `base`.
-fn highlight_spans(label: &str, hl: &[usize], base: Style, hot: Style) -> Vec<Span<'static>> {
+pub(crate) fn highlight_spans(
+    label: &str,
+    hl: &[usize],
+    base: Style,
+    hot: Style,
+) -> Vec<Span<'static>> {
     let mut spans: Vec<Span> = Vec::new();
     let mut cur = String::new();
     let mut cur_hot = false;
@@ -384,7 +389,7 @@ fn highlight_spans(label: &str, hl: &[usize], base: Style, hot: Style) -> Vec<Sp
 /// positions)` when every char of `query` appears in `text` in order, or `None`
 /// otherwise. Consecutive matches and word-start matches score higher, so the
 /// tightest match ranks first.
-fn fuzzy(query: &str, text: &str) -> Option<(i32, Vec<usize>)> {
+pub(crate) fn fuzzy(query: &str, text: &str) -> Option<(i32, Vec<usize>)> {
     let qchars: Vec<char> = query.chars().flat_map(|c| c.to_lowercase()).collect();
     if qchars.is_empty() {
         return Some((0, Vec::new()));

@@ -1,0 +1,355 @@
+//------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+//
+//      File: Imagedisk.bt
+//   Authors: Robert Offner MSc.
+//   Version: 0.2
+//   Purpose: Parses Dave Dunfields Imagedisk
+//  Category: Drives
+// File Mask: *.imd, *.IMD
+//  ID Bytes: 49 4D 44 20 //IMD  @ Address 0
+//   History:
+//   0.2  2023-10-23 R. Offner: GetSDR is new, better Integration with script "Imagedisk_Export.1sc"
+//                              Better Handling of corrupted Reads (TotalSectors == 0)
+//   0.1  2023-10-08 R. Offner: Initial release, Sector Cylinder Map and
+//        Sector Head Map not implemented (optional Features)!
+//
+// More Information available at:
+// http://dunfield.classiccmp.org/img/
+//------------------------------------------------
+// 
+// TODO:
+// [ ] Implement optional Feature Sector Cylinder Map
+// [ ] Implement optional Feature Sector Head Map
+// Please send Images which use this Feature to my gmail address
+// 100prozentoffner in Austria
+//
+struct IMAGE;           // complete Image
+struct HEADER;          // only the Header (once)
+struct HEAD;            // Track (gets called eventually twice)
+struct TRACK;           // Tracks (checks Heads)
+struct SECTORDATABLOCK; // one Sector
+
+uint16 GetBPS(UBYTE t){
+	local uint16 tr <hidden= true>;
+	switch (t){
+	case 0:
+		tr = 128;
+	break;
+	case 1:
+		tr = 256;
+	break;
+	case 2:
+		tr = 512;
+	break;
+	case 3:
+		tr = 1024;
+	break;
+	case 4:
+		tr = 2048;
+	break;
+	case 5:
+		tr = 4096;
+	break;
+	case 6:
+		tr = 8192;
+	break;
+	case 0xFF: // future Expansion (different bps sectors per track)
+		tr = 0xFFFF;
+	break;
+	default:
+		tr = 0;
+	break;
+	}	
+	//Printf("BPS out: %i\r", tr);
+	return tr;
+}
+
+string GetSDR(UBYTE t, uint16 bps, UBYTE fv){
+	local string str, tr <hidden=true>;
+	switch (t){
+	case 0:
+		tr = "Sector could not be read";
+		SPrintf( str, "%s", tr);
+		return str;
+	break;
+	case 1:
+		tr = "Normal data";
+		SPrintf( str, "%s", tr);
+		return str;
+	break;
+	case 2:
+		tr = "Compressed";
+		SPrintf( str, "%s %i x 0x%02X", tr, bps, fv);
+		return str;
+	break;
+	case 3:
+		tr = "Normal data with Deleted-Data address mark";
+		SPrintf( str, "%s", tr);
+		return str;
+	break;
+	case 4:
+		tr = "Compressed with Deleted-Data address mark";
+		SPrintf( str, "%s", tr);
+		return str;
+	break;
+	case 5:
+		tr = "Normal data read with data error";
+		SPrintf( str, "%s", tr);
+		return str;
+	break;
+	case 6:
+		tr = "Compressed read with data error";
+		SPrintf( str, "%s", tr);
+		return str;
+	break;
+	case 7:
+		tr = "Deleted data read with data error";
+		SPrintf( str, "%s", tr);
+		return str;
+	break;
+	case 8:
+		tr = "Compressed, Deleted read with data error";
+		SPrintf( str, "%s", tr);
+		return str;
+	break;
+	default:
+		tr = "Wrong Sector Data Record Value!";
+		SPrintf( str, "%s", tr);
+		return str;
+	break;	
+	}
+}
+
+//#########################################################################
+//##############################  SECTOR   ################################
+//#########################################################################
+
+typedef struct {
+	local uint16 bps<hidden=true>;
+	bps = GetBPS(head.SectorSize);
+	//Printf("SectorData: %i\r", bps);
+	UBYTE SectorDataRecord <fgcolor=cLtGreen, bgcolor=cRed>;
+	if ((SectorDataRecord == 2) ||
+		(SectorDataRecord == 4) ||
+		(SectorDataRecord == 6) ||
+		(SectorDataRecord == 8)) // Compressed Sector Data (only one Byte)
+		UBYTE FillValue <fgcolor=cYellow, bgcolor=cBlue>;
+	else
+		UBYTE SectorData[GetBPS(head.SectorSize)] <bgcolor=cLtGreen>; // Regular Sector Data
+} SECTORDATABLOCK <optimize=false, comment=ReadSDR>;
+
+string ReadFV(SECTORDATABLOCK &f){
+	local string str <hidden=true>;
+	//Printf("SectorData: %i\r", bps);
+	SPrintf( str, "Duplicate %i times.", bps);
+	return str;
+}
+
+string ReadSDR(SECTORDATABLOCK &f){  // Returns Sector Record Type.
+	local UBYTE fv = 0;
+	if (exists(f.FillValue)) fv = f.FillValue;
+	return (GetSDR(f.SectorDataRecord, f.bps, fv));
+}
+
+//#########################################################################
+//###############################  HEAD  ##################################
+//#########################################################################
+
+typedef struct {
+	UBYTE Mode <fgcolor=cLtGreen, bgcolor=cYellow, comment=ReadMode>;
+	UBYTE Track <fgcolor=cLtBlue, bgcolor=cWhite>;
+	UBYTE Head <fgcolor=cLtBlue, bgcolor=cWhite, comment=ReadHead>;
+	UBYTE TotalSectors <fgcolor=cLtBlue, bgcolor=cWhite>;
+	UBYTE SectorSize <fgcolor=cLtBlue, bgcolor=cWhite, comment=ReadSectorSize>;
+
+	if ((Mode <= 5) && (TotalSectors > 0))
+		UBYTE SectorNumberingMap[this.TotalSectors] <fgcolor=cLtBlue, bgcolor=cWhite>;
+	if (this.Head & 0x80)
+		UBYTE SectorCylinderMap[this.TotalSectors] <fgcolor=cLtBlue, bgcolor=cWhite>;
+	if (this.Head & 0x40)
+		UBYTE SectorHeadMap[this.TotalSectors] <fgcolor=cLtBlue, bgcolor=cWhite>;
+	if ((Mode <= 5) && (TotalSectors > 0))
+		SECTORDATABLOCK SectorDataBlock[this.TotalSectors];
+
+} HEAD <optimize=false>;
+
+string ReadMode(UBYTE &t){ // returns Datarate 
+	local string str, tr <hidden=true>;
+	switch (t){
+	case 0:
+		tr = "500kbps FM";
+	break;
+	case 1:
+		tr = "300kbps FM";
+	break;
+	case 2:
+		tr = "250kbps FM";
+	break;
+	case 3:
+		tr = "500kbps MFM";
+	break;
+	case 4:
+		tr = "300kbps MFM";
+	break;
+	case 5:
+		tr = "250kbps MFM";
+	break;
+	default:
+		tr = "Mode Value Wrong!";
+	break;
+	}
+	SPrintf( str, "Transfer Rate: %s", tr);
+	return str;
+}
+
+string ReadSectorSize(UBYTE &t){ // returns Sector Size in Bytes
+	local string str <hidden=true>;
+	local uint16 tr <hidden= true>;
+	tr = GetBPS(t);
+	SPrintf( str, "Sector Size: %u bps", tr);
+	return str;
+}
+
+string ReadHead(UBYTE &t){ // checks Bit 6 and 7 in head
+	local string str <hidden=true>;
+	switch (t & 0xC0){
+	case 0x40:
+		str = "Sector Head Map used"; //NOT IMPLEMENTED!!!
+	break;
+	case 0x80:
+		str = "Sector Cylinder Map used"; //NOT IMPLEMENTED!!!
+	break;
+	case 0xC0:
+		str = "Sector Head & Cylinder Map used"; //NOT IMPLEMENTED!!!
+	break;
+	}
+	SPrintf( str, "%s", str);
+	return str;
+}
+
+//#########################################################################
+//################################  TRACK   ###############################
+//#########################################################################
+// we check if image has one or two heads. 
+// Info comes at the last moment unfortunately.
+// We read ahead if there is a head 1.
+typedef struct {
+	local UBYTE c <hidden=true>;
+	local INT64 headvalpos <hidden=true>;
+	HEAD head;
+	headvalpos = FTell() + 2;
+	if (headvalpos < FileSize())
+		c = ReadByte(headvalpos);
+	//Printf("Headval: 0x%04X Data: 0x%02X\r", headvalpos, c);
+	if (c == 1) // if there is a head 1 we add another HEAD struct
+		HEAD head;
+
+} TRACK <optimize=false>;
+
+//#########################################################################
+//##############################  HEADER   ################################
+//#########################################################################
+// Header is at the beginning of the file only.
+typedef struct {
+	local UBYTE c <hidden=true>;
+	local INT64 begincomment, temp, endcomment <hidden=true>;
+	CHAR    ID[4] <fgcolor=cPurple, bgcolor=cWhite>; // reads "IMD "
+	CHAR    Version[6] <fgcolor=cLtBlue, bgcolor=cWhite>; // Imagedisk Version
+	CHAR    Date[11] <fgcolor=cLtBlue, bgcolor=cWhite>;
+	CHAR    Time[10] <fgcolor=cLtGreen, bgcolor=cWhite>;
+	begincomment = temp = FTell(); // optional comment of variable length
+	while (1) {
+		c = ReadByte(temp++);
+		//Printf("Data: %02x\r", c);
+		if (c == 0x1A) break;
+	};
+	endcomment = temp;
+	//Printf("Begin: %u\r", begincomment);
+	//Printf("End: %u\r", endcomment);
+	if ((endcomment - begincomment) > 1){ // íf there is a comment add it.
+		FSeek(begincomment);
+		CHAR comment[endcomment - begincomment - 1];
+	}
+	CHAR EOF <format=hex>;
+} HEADER <optimize=false>;
+
+//#########################################################################
+//##############################  IMAGE   #################################
+//#########################################################################
+// ImageDisk Page: 26
+// 6. IMAGE FILE FORMAT
+//   The overall layout of an ImageDisk .IMD image file is:
+//   IMD v.vv: dd/mm/yyyy hh:mm:ss (ASCII Header)
+//   Comment (ASCII only - unlimited size) (NOTE: You can TYPE a .IMD)
+//   1A byte - ASCII EOF character (file to see header/comment)
+//
+//   - For each track on the disk:
+//   1 byte Mode value (0-5)
+//   1 byte Cylinder (0-n)
+//   1 byte Head (0-1) (see Note)
+//   1 byte number of sectors in track (1-n)
+//   1 byte sector size (0-6)
+//   sector numbering map * number of sectors
+//   sector cylinder map (optional) * number of sectors
+//   sector head map (optional) * number of sectors
+//   sector data records * number of sectors
+//
+//   <End of file>
+//
+//      Image Structure
+//                                  Track and Head Structure
+// ##########################     ______________    This Block is duplicated
+// #####     HEADER     #####    |             ||   for n Tracks.
+// ##########################    |             \/                  Sectordatablock Structure
+// #####     TRACKS     ##### ___| ##########################     ______________      This Block is duplicated
+// ##########################      #####   TRACKHEADER  #####    |             ||     for m Sectors.
+//                                 ##########################    |             \/
+//                                 #####     SECTORS    ##### ___| ##########################
+//                                 ##########################      #####  SECTORHEADER  ##### 
+//                                                                 ##########################
+//                                                                 ######  SECTORDATA  ######
+//                                                                 ##########################
+
+typedef struct {
+	local UBYTE i <hidden=true>;
+	local INT64 pos <hidden=true>;
+	local int64 filesize = FileSize();
+	HEADER header;
+	if (Strcmp(header.ID, "IMD ") != 0) {
+		Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r");
+		Printf("                            Not an Imagedisk File!\r");
+		Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r");
+		return ;
+	}
+	for (i=0; i<85; i++){ // go to 85 just in case, we exit before usually
+		TRACK track;
+		pos = FTell();
+		//Printf("Sectos: %u", track.head.TotalSectors);
+		if ((pos + 5 + (track.head.TotalSectors * 2)) > filesize){ // Header is at least 5 bytes + sectorcount
+			break;
+		}
+	}
+
+} IMAGE <open=true, optimize=false, read=GuessDisk>;
+
+string GuessDisk(IMAGE &f){
+    string str;
+
+    SPrintf( str, "Imagedisk:");
+    return str;
+}
+
+UBYTE Recognizer() {  // Here the variables get declared
+    IMAGE image;
+    return 1;
+}
+
+////////////////////////////////////////////////////////////////////////
+// THIS IS THE ACTUAL STARTING POINT OF EXECUTION IN THE TEMPLATE
+////////////////////////////////////////////////////////////////////////
+
+if (Recognizer()) {
+    return;
+}
+return;

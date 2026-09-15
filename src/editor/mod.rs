@@ -10,6 +10,7 @@ mod jsoncheck;
 pub mod menu;
 pub mod render;
 mod sheet;
+mod template;
 
 use crate::config::{EditorOptions, WrapMode};
 use crate::vfs::VfsPath;
@@ -58,6 +59,16 @@ pub enum EditorSignal {
     RefreshScreen,
     /// Draw the buffer's GeoJSON on a map (Alt-M).
     OpenGeoMap,
+    /// Pick the binary template for the hex view (F5).
+    OpenTemplatePicker,
+    /// Open this binary template in a text editor, at a line if given, coming
+    /// back to this hex editor when that one closes.
+    EditTemplate {
+        path: std::path::PathBuf,
+        line: Option<usize>,
+    },
+    /// Ask for a name and start a new binary template for this file.
+    NewTemplate,
 }
 
 /// Which of the editor's file actions a browser was opened for.
@@ -160,6 +171,10 @@ pub struct EditorState {
     sheet: Option<sheet::SheetGrid>,
     /// The live syntax check of a JSON file.
     json: Option<jsoncheck::JsonCheck>,
+    /// The binary template run over the file in hex mode, and its panel.
+    tpl: Option<template::TemplateState>,
+    /// The template panel's rect, recorded by the renderer for the mouse.
+    tpl_area: Rect,
 }
 
 /// Above this size a file is opened straight into hex mode (text mode loads the
@@ -183,6 +198,11 @@ pub const EDITOR_HELP: &[(&str, &str)] = &[
     ("Alt-G", "Spreadsheet grid / text (CSV, TSV)"),
     ("Alt-E / Alt-Shift-E", "Next / previous JSON syntax error"),
     ("Alt-M", "Show the GeoJSON in the file on a map"),
+    ("Hex: F5 / Shift-F5", "Choose / rerun the binary template"),
+    ("Hex: F6", "Template variable at the cursor / back to the bytes"),
+    ("Hex: F3", "Template output / variables"),
+    ("Tree: Enter / ← →", "Edit the value or open / close, parent"),
+    ("Tree: + - *", "Open, close, open everything below"),
     ("Grid: Enter / F3", "Edit the cell / header row on or off"),
     ("Grid: F5 F6 / F8", "Insert row, column / delete row (Shift: column)"),
     ("F10 / Esc", "Quit (prompts if modified)"),
@@ -242,6 +262,8 @@ impl EditorState {
             hl_dark: false,
             sheet: None,
             json: None,
+            tpl: None,
+            tpl_area: Rect::default(),
         };
         ed.detect_kind();
         ed
@@ -321,7 +343,7 @@ impl EditorState {
         let shift = self.hint_mods.contains(KeyModifiers::SHIFT);
         let ctrl = self.hint_mods.contains(KeyModifiers::CONTROL);
         let src = if self.hex.is_some() {
-            crate::ui::fkeys::HEX_LABELS
+            self.hex_fkey_labels()
         } else if self.sheet_active() {
             let mut labels = crate::ui::fkeys::SHEET_LABELS;
             if shift || ctrl {
@@ -403,6 +425,7 @@ impl EditorState {
         let hex = hex::HexEditor::open(&path.path)?;
         let mut s = Self::new(name, path, "");
         s.hex = Some(hex);
+        s.start_templates();
         Ok(s)
     }
 
@@ -689,7 +712,8 @@ impl EditorState {
         } else {
             menu::MenuMode::Text
         };
-        self.menu = Some(menu::editor_menu(active, mode, self.json_checked()));
+        self.menu =
+            Some(menu::editor_menu(active, mode, self.json_checked(), self.template_panel()));
     }
 
     /// Whether the F9 menu is currently open (the renderer draws it over the
@@ -789,6 +813,25 @@ impl EditorState {
             A::ToggleSheet => self.toggle_sheet(),
             A::RefreshScreen => return EditorSignal::RefreshScreen,
             A::GeoMap => return EditorSignal::OpenGeoMap,
+            A::TemplateMenu => {}
+            A::ChooseTemplate => return EditorSignal::OpenTemplatePicker,
+            A::RerunTemplate => {
+                if let Some(t) = self.tpl.as_mut()
+                    && matches!(t.choice, template::TemplateChoice::Off)
+                {
+                    t.choice = template::TemplateChoice::Auto;
+                }
+                self.run_template();
+            }
+            A::JumpToVariable => self.jump_to_template_variable(),
+            A::EditTemplate => match self.active_template().and_then(|i| i.path) {
+                Some(path) => {
+                    return EditorSignal::EditTemplate { path, line: self.template_error_line() };
+                }
+                None => self.status = "No template file to edit".to_string(),
+            },
+            A::NewTemplate => return EditorSignal::NewTemplate,
+            A::CloseTemplate => self.set_template(None),
 
             // -- Format --
             A::InsertDateTime => self.insert_date_time(),
@@ -1192,7 +1235,18 @@ impl EditorState {
         }
         self.sheet = None;
         self.json = None;
+        // File → Open from hex mode opens the new file as text.
+        self.hex = None;
+        self.stop_templates();
         self.detect_kind();
+    }
+
+    /// The first bytes of the file in hex mode, for matching templates.
+    pub fn file_head(&mut self) -> Vec<u8> {
+        match self.hex.as_mut() {
+            Some(h) => h.window(0, crate::bt::header::ID_WINDOW),
+            None => Vec::new(),
+        }
     }
 
     fn mark_all(&mut self) {
@@ -1252,8 +1306,9 @@ impl EditorState {
             && row == self.footer_area.y
             && self.status.is_empty()
         {
+            let hex_labels = self.hex_fkey_labels();
             let labels: &[&str] = if self.is_hex() {
-                &crate::ui::fkeys::HEX_LABELS
+                &hex_labels
             } else if self.sheet_active() {
                 &crate::ui::fkeys::SHEET_LABELS
             } else {
@@ -1320,6 +1375,9 @@ impl EditorState {
     /// Mouse handling in hex mode: the wheel scrolls and a click places the byte
     /// cursor on the clicked hex/ASCII cell.
     fn handle_hex_mouse(&mut self, ev: MouseEvent) -> EditorSignal {
+        if self.template_mouse(ev) {
+            return EditorSignal::Stay;
+        }
         match ev.kind {
             MouseEventKind::ScrollUp => {
                 if let Some(h) = self.hex.as_mut() {
@@ -1378,36 +1436,17 @@ impl EditorState {
         Some(self.line_start_char(line) + col_in)
     }
 
-    /// Map a screen point in hex mode to `(byte offset, ascii_pane)`, mirroring
-    /// the column layout in `render_hex` (offset col + hex cells at x=10, ASCII
-    /// at x=60). `None` when the click misses a real byte.
+    /// Map a screen point in hex mode to `(byte offset, ascii_pane)`, by the
+    /// layout `render_hex` draws ([`hex::HexGeom`]). `None` when the click
+    /// misses a real byte.
     fn hex_cell_at(&self, col: u16, row: u16) -> Option<(u64, bool)> {
         let a = self.text_area;
         let h = self.hex.as_ref()?;
-        if row < a.y || row >= a.y + a.height || col < a.x {
+        if row < a.y || row >= a.y + a.height || col < a.x || col >= a.x + a.width {
             return None;
         }
-        let bpr = hex::BYTES_PER_ROW as usize;
-        let base = h.top + (row - a.y) as u64 * hex::BYTES_PER_ROW;
-        let x = (col - a.x) as usize;
-        let (j, ascii) = if x >= 60 && x < 60 + bpr {
-            (x - 60, true)
-        } else if x >= 10 {
-            // Hex cells: cell j starts at 10 + 3*j (+1 once past the 8-byte gap).
-            let rel = x - 10;
-            let mut hit = None;
-            for j in 0..bpr {
-                let start = 3 * j + usize::from(j >= 8);
-                if rel >= start && rel < start + 2 {
-                    hit = Some(j);
-                    break;
-                }
-            }
-            (hit?, false)
-        } else {
-            return None;
-        };
-        let off = base + j as u64;
+        let (j, ascii) = hex::HexGeom::for_len(h.len).cell_at(col - a.x)?;
+        let off = h.top + (row - a.y) as u64 * hex::BYTES_PER_ROW + j as u64;
         (off < h.len).then_some((off, ascii))
     }
 
@@ -1622,6 +1661,7 @@ impl EditorState {
             let reload = h.saved_any;
             let path = self.path.path.clone();
             self.hex = None;
+            self.stop_templates();
             // Re-read the file so the text view reflects any saved hex edits.
             if reload && let Ok(data) = std::fs::read(&path) {
                 self.buf = EditorBuffer::from_str(&String::from_utf8_lossy(&data));
@@ -1650,6 +1690,7 @@ impl EditorState {
                 Ok(h) => {
                     let ro = h.readonly;
                     self.hex = Some(h);
+                    self.start_templates();
                     // No persistent banner; only note the read-only case.
                     if ro {
                         self.status = "read-only file".to_string();
@@ -1664,6 +1705,12 @@ impl EditorState {
     fn handle_hex_key(&mut self, key: KeyEvent) -> EditorSignal {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let alt = key.modifiers.contains(KeyModifiers::ALT);
+        if let Some(signal) = self.template_tree_key(key) {
+            return signal;
+        }
+        if let Some(signal) = self.template_hex_key(key) {
+            return signal;
+        }
         match key.code {
             KeyCode::F(10) | KeyCode::Esc => {
                 return if self.dirty { EditorSignal::ConfirmQuit } else { EditorSignal::Close };

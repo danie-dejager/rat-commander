@@ -1,0 +1,671 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: PF.bt
+//   Authors: Changhwan Ji, Hyunjin Kim, Heo Songyi, Simon N. Thornton
+//   Version: 0.3
+//   Purpose: Quick template for parsing Windows Prefetch files (*.pf)
+//  Category: Operating System
+// File Mask: *.pf
+//    E-mail: ckd2555@gmail.com, datarecovery@eazimail.com
+//  ID Bytes: 
+//   History: 
+//   0.3   2026-08-19 Simon Thornton (datarecovery[@]eazimail.com): Added support for compressed Prefetch files
+//   0.2   2024-11-14 Yogesh Khatri (@swiftforensics): Added Windows 11 enum
+//   0.1   2021-01-01 Changhwan Ji,Hyunjin Kim, Heo Songyi: Initial release
+//------------------------------------------------
+
+/* File type determine by signature 
+   [+4] 53 43 43 41 // SCCA    (uncompressed PF format
+   [0]  4D 41 4D 04 // MAM\0x4 (Compressed PF format)
+
+   https://github.com/libyal/libscca/blob/main/documentation/Windows%20Prefetch%20File%20(PF)%20format.asciidoc
+
+   NOTICE:  When it processes the external decompression functions it will prompt twice to allow the exection
+            This can be avoided by granting this script permission in the settings
+
+   HowTo
+   =====
+   - if the file has the SCCA signature it will be decoded directly when you run the template
+   - If the file has MAM\04 signature the temaplate decompress the PF into a new file, then run the template again
+*/
+
+// Change these as needed
+#define DEBUG           0               // Set this to 1 if you want DEBUG messages and NOT to save the results
+
+// Bug: 2026/08/19 enabling this caused the editor to crash, tested on 15.x and 16.x versions
+// What it is supposed to do is close and reopen the extracted PF, re-executing the template to autodecode the contents
+#define AUTOPROCESS     0               // Set to 1 to close decompressed PF and reload it so that PF script runs
+
+
+// Define the type of decompression algo
+const ushort COMPRESSION_FORMAT_XPRESSHUFF = 4;
+
+// Define the types to call an external functions
+#link "c:\windows\system32\ntdll.dll"
+    long RtlGetCompressionWorkSpaceSize(ushort CompressionFormat, ulong CompressBufferWorkSpaceSize[0], ulong CompressFragmentWorkSpaceSize[0]);
+    long RtlDecompressBufferEx(ushort CompressionFormat, byte UncompressedBuffer[0], ulong UncompressedBufferSize, byte CompressedBuffer[0], ulong CompressedBufferSize, ulong FinalUncompressedSize[0], byte WorkSpace[0]);
+#endlink
+
+// Contains the raw compressed PF file
+typedef struct CompressedPF {
+    byte    Signature[4] <format=hex>;
+    ulong   UnCompressedSz;
+    byte    CompressedBuffer[FileSize()-FTell()] <format=hex>;
+};
+
+
+typedef enum <int> {
+    Windows11 = 0x1F,
+    Windows10 = 0x1E,
+    Windows8x = 0x1A,
+    Windows7orVista = 0x17,
+    WindowsXPor2003 = 0x11
+} Version;
+
+typedef enum <int> {
+    Boot = 0x01,
+    Application =0x00
+} Flag;
+
+typedef struct {
+    Version version;
+    char Signature[4]; //SCCA
+    byte Unknown[4];
+    int FileSize;
+    wchar_t FileName[30];
+    int Hash <format=hex>;
+    Flag flag;
+} FileHeader <optimize=true>;
+
+typedef struct {
+    wstring read;
+} Entry_3 <read=ReadWstring>;
+
+typedef struct{
+    byte FileReferenceMFTEntryIndex[6];
+    byte SequenceNumber[2];
+} FileReference;
+
+wstring ReadWstring(Entry_3 &read)
+{
+    return read.read;
+}
+
+typedef struct {
+    uint16 StringNumberOfCharacters <format=hex>;
+    wstring DirectoryString;
+} DirectoryStrings;
+
+typedef struct {
+    uint16 StringNumberOfCharacters <format=hex>;
+    wstring DirectoryString;
+} TrailingData;
+
+typedef struct {
+    local int num;
+    for (num = 0; num < VolumeInfo.VolumeEntry.NumberDirectoryStrings; num++)
+        TrailingData Data;
+} Trailing;
+
+typedef struct {
+
+} Error;
+
+//■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+//■■■■■■■■■■■■■■■■■■■      Windows 10     ■■■■■■■■■■■■■■■■■■■■■■■
+//■■■■■■■■■■■■■■■■■■■  header version 30  ■■■■■■■■■■■■■■■■■■■■■■■
+//■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+
+typedef struct {
+    uint MetricsOffset <format=hex>;
+    uint MetricsvolumeentryNum;
+    uint ChainsOffset <format=hex>;
+    uint TraceChainsvolumeentryNum;
+    uint NameStringOffset <format=hex>;
+    uint NameStringSize;
+    uint VolumesInformationOffset <format=hex>;
+    uint VolumesNum;
+    uint VolumesInformarionSize;
+    uint64 Unknown1;
+    FILETIME LastRunTime[8];
+    uint64 Unknown2;
+    uint RunCount;
+    uint Unknown3;
+    uint Unknown4;
+    uint64 Unknown5[11];
+} Win10_FileInfomation;
+
+typedef struct {
+    uint PrefetchStartTime;
+    uint PrefetchDuration;
+    uint AveragePrefetchDuration;
+    uint FileNameStringOffset;
+    uint FileNameStringNumber;
+    uint Flags;
+    FileReference Data;
+} Win10_Entry_1;
+
+typedef struct {
+    local int num1;
+    for (num1 =0; num1 < FileInfo.MetricsvolumeentryNum; num1++)
+        Win10_Entry_1 array;
+} Win10_FileMetricsArray;
+
+typedef struct {
+    uint TotalBlockLoadCount;
+    uint UnKnown;
+} Win10_Entry_2;
+
+typedef struct {
+    local int num2;
+    for (num2 =0; num2 < FileInfo.TraceChainsvolumeentryNum; num2++)
+        Win10_Entry_2 array;
+} Win10_TraceChainArray;
+
+typedef struct {
+    while (FTell() - FileInfo.NameStringOffset < FileInfo.NameStringSize)
+        Entry_3 Array;
+} Win10_FileNameStrings;
+
+typedef struct {
+    uint UnKnown;
+    uint NumberOfFileReference;
+    uint64 Unknown;
+    local int num = VolumeInfo.VolumeEntry.FileReferencesDataSize - 16;
+    byte ArrayOfFileReference[num];
+} Win10_FileReferences;
+
+typedef struct {
+    local int64 now = FTell();
+    uint VolumeDevicePathOffset <format=hex>;
+    uint NumberVolumeDevicePath;
+    FILETIME VolumeCreateTime;
+    uint VolumeSerialNumber <format=hex>;
+    uint FileReferencesOffset <format=hex>;
+    uint FileReferencesDataSize;
+    uint DirectoryStringsOffset <format=hex>;
+    uint NumberDirectoryStrings;
+    uint Unknown1;
+    uint64 UnKnown2[3];
+    uint CopyNumberDirectoryStrings;
+    uint64 UnKnown3[3];
+    uint Unknown;
+} Win10_VolumeInformationEntry;
+
+typedef struct {
+    FSeek(VolumeInfo.VolumeEntry.now + VolumeInfo.VolumeEntry.VolumeDevicePathOffset);
+    wstring VolumeDevicePath;
+    FSeek(VolumeInfo.VolumeEntry.now+ VolumeInfo.VolumeEntry.FileReferencesOffset);
+    Win10_FileReferences FileReferences;
+    FSeek(VolumeInfo.VolumeEntry.now + VolumeInfo.VolumeEntry.DirectoryStringsOffset);
+    DirectoryStrings DirStrings;
+} Win10_VolumeInformationData;
+
+typedef struct {
+    Win10_VolumeInformationEntry VolumeEntry;
+    Win10_VolumeInformationData VolumeData;
+} Win10_VolumeInformation;
+
+//■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+//■■■■■■■■■■■■■■■■■■■■      Windows 8.1    ■■■■■■■■■■■■■■■■■■■■■■■
+//■■■■■■■■■■■■■■■■■■■■  header version 26  ■■■■■■■■■■■■■■■■■■■■■■■
+//■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+
+typedef struct {
+    uint MetricsOffset <format=hex>;
+    uint MetricsvolumeentryNum;
+    uint ChainsOffset <format=hex>;
+    uint TraceChainsvolumeentryNum;
+    uint NameStringOffset <format=hex>;
+    uint NameStringSize;
+    uint VolumesInformationOffset <format=hex>;
+    uint VolumesNum;
+    uint VolumesInformarionSize;
+    uint64 Unknown1;
+    FILETIME LastRunTime[8];
+    uint64 Unknown2[2];
+    uint RunCount;
+    uint Unknown3;
+    uint Unknown4;
+    uint64 Unknown5[11];
+} Win8_FileInfomation;
+
+typedef struct {
+    uint PrefetchStartTime;
+    uint PrefetchDuration;
+    uint AveragePrefetchDuration;
+    uint FileNameStringOffset <format=hex>;
+    uint FileNameStringNumber;
+    uint Flags;
+    FileReference Data;
+} Win8_Entry_1;
+
+typedef struct {
+    local int num1;
+    for (num1 =0; num1 < FileInfo.MetricsvolumeentryNum; num1++)
+        Win8_Entry_1 array;
+} Win8_FileMetricsArray;
+
+typedef struct {
+    uint NextArrayEntryIndex;
+    uint TotalBlockLoadCount;
+    uint UnKnown;
+} Win8_Entry_2;
+
+typedef struct {
+    local int num2;
+    for (num2 =0; num2 < FileInfo.TraceChainsvolumeentryNum; num2++)
+        Win8_Entry_2 array;
+} Win8_TraceChainArray;
+
+typedef struct {
+    while (FTell() - FileInfo.NameStringOffset < FileInfo.NameStringSize)
+        Entry_3 array;
+} Win8_FileNameStrings;
+
+typedef struct {
+    uint UnKnown;
+    uint NumberOfFileReference;
+    uint64 Unknown;
+    local int num = VolumeInfo.VolumeEntry.FileReferencesDataSize - 16;
+    byte ArrayOfFileReference[num];
+} Win8_FileReferences;
+
+typedef struct {
+    local int64 now = FTell();
+    uint VolumeDevicePathOffset <format=hex>;
+    uint NumberVolumeDevicePath;
+    FILETIME VolumeCreateTime;
+    uint VolumeSerialNumber <format=hex>;
+    uint FileReferencesOffset <format=hex>;
+    uint FileReferencesDataSize;
+    uint DirectoryStringsOffset <format=hex>;
+    uint NumberDirectoryStrings;
+    uint UnKnown1;
+    uint UnKnown2[7];
+    uint CopyNumberDirectoryStrings;
+    uint UnKnown3[7];
+    uint UnKnown4;
+} Win8_VolumeInformationEntry;
+
+typedef struct {
+    FSeek(VolumeInfo.VolumeEntry.now + VolumeInfo.VolumeEntry.VolumeDevicePathOffset);
+    wstring VolumeDevicePath;
+    FSeek(VolumeInfo.VolumeEntry.now + VolumeInfo.VolumeEntry.FileReferencesOffset);
+    Win8_FileReferences FileReferences;
+    FSeek(VolumeInfo.VolumeEntry.now + VolumeInfo.VolumeEntry.DirectoryStringsOffset);
+    DirectoryStrings DirStrings;
+} Win8_VolumeInformationData;
+
+typedef struct {
+    Win8_VolumeInformationEntry VolumeEntry;
+    Win8_VolumeInformationData VolumeData;
+} Win8_VolumeInformation;
+
+//■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+//■■■■■■■■■■■■■■■■■■■■      Windows 7      ■■■■■■■■■■■■■■■■■■■■■■■
+//■■■■■■■■■■■■■■■■■■■■  header version 23  ■■■■■■■■■■■■■■■■■■■■■■■
+//■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+
+typedef struct {
+    uint MetricsOffset <format=hex>;
+    uint MetricsvolumeentryNum;
+    uint ChainsOffset <format=hex>;
+    uint TraceChainsvolumeentryNum;
+    uint NameStringOffset <format=hex>;
+    uint NameStringSize;
+    uint VolumesInformationOffset <format=hex>;
+    uint VolumesNum;
+    uint VolumesInformarionSize;
+    uint64 Unknown1;
+    FILETIME LastRunTime;
+    uint64 Unknown2[2];
+    uint RunCount;
+    uint Unknown3;
+    uint Unknown4;
+    uint64 Unknown5[10];
+} Win7_FileInfomation;
+
+typedef struct {
+    uint PrefetchStartTime;
+    uint PrefetchDuration;
+    uint AveragePrefetchDuration;
+    uint FileNameStringOffset;
+    uint FileNameStringNumber;
+    uint Flags;
+    FileReference Data;
+} Win7_Entry_1;
+
+typedef struct {
+    local int num1;
+    for (num1 =0; num1 < FileInfo.MetricsvolumeentryNum; num1++)
+        Win7_Entry_1 array;
+} Win7_FileMetricsArray;
+
+typedef struct {
+    uint NextArrayEntryIndex;
+    uint TotalBlockLoadCount;
+    uint UnKnown;
+} Win7_Entry_2;
+
+typedef struct {
+    local int num2;
+    for (num2 =0; num2 < FileInfo.TraceChainsvolumeentryNum; num2++)
+        Win7_Entry_2 array;
+} Win7_TraceChainArray;
+
+typedef struct {
+    while (FTell() - FileInfo.NameStringOffset < FileInfo.NameStringSize)
+        Entry_3 array;
+} Win7_FileNameStrings;
+
+typedef struct {
+    uint UnKnown;
+    uint NumberOfFileReferences;
+    uint64 Unknown;
+    local int num = VolumeInfo.VolumeEntry.FileReferencesDataSize - 16;
+    byte ArrayOfFileReference[num];
+} Win7_FileReferences;
+
+typedef struct {
+    local int64 now = FTell();
+    uint VolumeDevicePathOffset <format=hex>;
+    uint NumberVolumeDevicePath;
+    FILETIME VolumeCreateTime;
+    uint VolumeSerialNumber <format=hex>;
+    uint FileReferencesOffset <format=hex>;
+    uint FileReferencesDataSize;
+    uint DirectoryStringsOffset <format=hex>;
+    uint NumberDirectoryStrings;
+    uint UnKnown1;
+    uint UnKnown2[7];
+    uint CopyNumberDirectoryStrings;
+    uint UnKnown3[7];
+    uint UnKnown4;
+} Win7_VolumeInformationEntry;
+
+typedef struct {
+    FSeek(VolumeInfo.VolumeEntry.now + VolumeInfo.VolumeEntry.VolumeDevicePathOffset);
+    wstring Volumestring;
+    FSeek(VolumeInfo.VolumeEntry.now + VolumeInfo.VolumeEntry.FileReferencesOffset);
+    Win7_FileReferences FileReferences;
+    FSeek(VolumeInfo.VolumeEntry.now + VolumeInfo.VolumeEntry.DirectoryStringsOffset);
+    DirectoryStrings DirStrings;
+} Win7_VolumeInformationData;
+
+typedef struct {
+    Win7_VolumeInformationEntry VolumeEntry;
+    Win7_VolumeInformationData VolumeData;
+} Win7_VolumeInformation;
+
+//■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+//■■■■■■■■■■■■■■■■■■■■      Windows XP     ■■■■■■■■■■■■■■■■■■■■■■■
+//■■■■■■■■■■■■■■■■■■■■  header version 17  ■■■■■■■■■■■■■■■■■■■■■■■
+//■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+
+typedef struct {
+    uint MetricsOffset <format=hex>;
+    uint MetricsvolumeentryNum;
+    uint ChainsOffset <format=hex>;
+    uint TraceChainsvolumeentryNum;
+    uint NameStringOffset <format=hex>;
+    uint NameStringSize;
+    uint VolumesInformationOffset <format=hex>;
+    uint VolumesNum;
+    uint VolumesInformationSize; 
+    FILETIME LastRunTime;
+    uint64 unknown[2];
+    uint RunCount;
+    uint Unknown;
+} Winxp_FileInformation;
+
+typedef struct {
+    uint PrefetchStartTime;
+    uint PrefetchDuration;
+    uint FileNameStringOffset;
+    uint FileNameStringNumber;
+    uint Flags;
+} Winxp_Entry_1;
+
+typedef struct {
+    local int num1;
+    for (num1 =0; num1 < FileInfo.MetricsvolumeentryNum; num1++)
+        Winxp_Entry_1 array;
+} Winxp_FileMetricsArray;
+
+typedef struct {
+    uint NextArrayEntryIndex;
+    uint TotalBlockLoadCount;
+    uint UnKnown;
+} Winxp_Entry_2;
+
+typedef struct {
+    local int num2;
+    for (num2 =0; num2 < FileInfo.TraceChainsvolumeentryNum; num2++)
+        Winxp_Entry_2 array;
+} Winxp_TraceChainArray;
+
+typedef struct {
+    while (FTell() - FileInfo.NameStringOffset < FileInfo.NameStringSize)
+        Entry_3 array;
+} Winxp_FileNameStrings;
+
+typedef struct {
+    uint UnKnown;
+    uint NumberOfFileReferences;
+    local int num = VolumeInfo.VolumeEntry.FileReferencesDataSize - 8;
+    byte ArrayOfFileReference[num];
+} Winxp_FileReferences;
+
+typedef struct {
+    local int64 now = FTell();
+    uint VolumeDevicePathOffset ㅣ<format=hex>;
+    uint NumberVolumeDevicePath;
+    FILETIME VolumeCreateTime;
+    uint VolumeSerialNumber <format=hex>;
+    uint FileReferencesOffset <format=hex>;
+    uint FileReferencesDataSize;
+    uint DirectoryStringsOffset <format=hex>;
+    uint NumberDirectoryStrings;
+    uint UnKnown1;
+} VolumeInformationEntry;
+
+typedef struct {
+    FSeek(VolumeInfo.VolumeEntry.now + VolumeInfo.VolumeEntry.VolumeDevicePathOffset);
+    wstring VolumeDevicePath;
+    FSeek(VolumeInfo.VolumeEntry.now + VolumeInfo.VolumeEntry.FileReferencesOffset);
+    Winxp_FileReferences FileReferences;
+    FSeek(VolumeInfo.VolumeEntry.now + VolumeInfo.VolumeEntry.DirectoryStringsOffset);
+    DirectoryStrings DirStrings;
+} VolumeInformationData;
+
+typedef struct {
+    VolumeInformationEntry VolumeEntry;
+    VolumeInformationData VolumeData;
+} Winxp_VolumesInformation;
+
+
+//■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+//■■■■■■■■■■■■■■■■■■■■■■    FUNCTIONS     ■■■■■■■■■■■■■■■■■■■■■■■■■
+
+/* ***************************************************
+   Process uncompressed PF structure
+
+   Params: iPos     Initial Position in file
+   Return: Offset   Last position read in file
+*/
+uint64 fDecodePF ( uint64 iPos ) {
+    FSeek(iPos);
+    FileHeader header;
+    switch (header.version) {
+        case 30:
+        case 31:
+            Win10_FileInfomation FileInfo;
+            FSeek(FileInfo.MetricsOffset);
+            Win10_FileMetricsArray FileMetrics;
+            FSeek(FileInfo.ChainsOffset);
+            Win10_TraceChainArray TraceChain;
+            FSeek(FileInfo.NameStringOffset);
+            Win10_FileNameStrings FileName;
+            FSeek(FileInfo.VolumesInformationOffset);
+            Win10_VolumeInformation VolumeInfo;
+            Trailing Data;
+            break;
+        case 26: 
+            Win8_FileInfomation FileInfo;
+            FSeek(FileInfo.MetricsOffset);
+            Win8_FileMetricsArray FileMetrics;
+            FSeek(FileInfo.ChainsOffset);
+            Win8_TraceChainArray TraceChain;
+            FSeek(FileInfo.NameStringOffset);
+            Win8_FileNameStrings FileName;
+            FSeek(FileInfo.VolumesInformationOffset);
+            Win8_VolumeInformation VolumeInfo;
+            Trailing Data;
+            break;
+        case 23: 
+            Win7_FileInfomation FileInfo;
+            FSeek(FileInfo.MetricsOffset);
+            Win7_FileMetricsArray FileMetrics;
+            FSeek(FileInfo.ChainsOffset);
+            Win7_TraceChainArray TraceChain;
+            FSeek(FileInfo.NameStringOffset);
+            Win7_FileNameStrings FileName;
+            FSeek(FileInfo.VolumesInformationOffset);
+            Win7_VolumeInformation VolumeInfo;
+            Trailing Data;
+            break;
+        case 17:
+            Winxp_FileInformation FileInfo;
+            FSeek(FileInfo.MetricsOffset);
+            Winxp_FileMetricsArray FileMetrics;
+            FSeek(FileInfo.ChainsOffset);
+            Winxp_TraceChainArray TraceChain;
+            FSeek(FileInfo.NameStringOffset);
+            Winxp_FileNameStrings FileName;
+            FSeek(FileInfo.VolumesInformationOffset);
+            Winxp_VolumesInformation VolumeInfo;
+            Trailing Data;
+            break;
+            
+        default:
+            Printf("Error: unrecognised PF version %d, aborted\n",header.version);
+            break;
+    };
+    return FTell();
+};
+
+
+/* ***************************************************
+   Process compressed PF structure
+
+   Params: iPos     Initial Position in file
+   Return: Offset   Last position read in file
+*/
+uint64 fDecodeCompressedPF ( uint64 iPos ) {
+    FSeek(iPos);
+
+    // Read in raw file
+    CompressedPF   Header;
+    local long     ret;
+
+    // Decode
+    local ulong  CompressBufferWorkSpaceSize[1];
+    local ulong  CompressFragmentWorkSpaceSize[1];
+    local ulong  FinalUncompressedSize;
+    local byte   UnCompressedBuffer[Header.UnCompressedSz] <format=hex>;
+
+    //get the size of what our workspace needs to be
+    ret = RtlGetCompressionWorkSpaceSize(COMPRESSION_FORMAT_XPRESSHUFF, CompressBufferWorkSpaceSize, CompressFragmentWorkSpaceSize);
+
+    if (ret != 0) {
+        Printf("Error: RtlGetCompressionWorkSpaceSize() failed, return code %08d\n",ret);
+    } else {
+        if (CompressFragmentWorkSpaceSize[0]>0) {
+
+            local byte WorkSpace[CompressFragmentWorkSpaceSize[0]];
+
+            local ulong dstSize[1] = 256;
+
+            ret = RtlDecompressBufferEx(COMPRESSION_FORMAT_XPRESSHUFF, UnCompressedBuffer, Header.UnCompressedSz, Header.CompressedBuffer, Header.UnCompressedSz, dstSize, WorkSpace);
+            if (ret == 0) {
+                Printf("Error: RtlGetCompressionWorkSpaceSize() failed, return code %08d\n",ret);
+            };
+        
+            // Get curent file working directory and create an output folder
+            local char sSRCDIR[] = FileNameGetPath(GetFileName());
+            local char sFileName[]=FileNameGetBase(GetFileName(), false ); 
+
+            local int hNewFile,hCurFile;
+            local char sfileout[],sfiledir[];
+            SPrintf(sfileout,"%s_unpacked.pf",sFileName);
+
+            Printf("\nCreating file:\t%s\n",sfileout);
+
+            // Save File
+            hCurFile=GetFileNum();
+            hNewFile=FileNew("Hex",true);
+            FileSelect(hNewFile);
+            WriteBytes(UnCompressedBuffer,0,Header.UnCompressedSz);
+            
+            if (DEBUG) {
+                Printf("\n\nDEBUG: file write disabled, execute template on %s manually\n",sfileout);
+            } else {
+                Printf("\n\nUncompressed PF written to %s\n",sfileout);
+                FileSave(sfileout);
+               
+// Bug: 2026/08/19 Closing and reopening the unpacked file caused 010Editor to crash
+                if ( AUTOPROCESS ) {
+                    Printf("Reloading file to execute PF template\n");
+                    FileClose();
+
+                    // Reopen file and run PF template
+                    hNewFile=FileOpen(sfileout,true,"Hex",false);
+                    FileSelect(hNewFile);
+                } else {
+                    FileSelect(hCurFile);
+                }
+            }
+        } else {
+            // Should never get here unless its not a compressed PF or another compression algo was used
+            Printf("\n\nError: compressed structure did not decompress (zero length or wrong compression type), process aborted\n");
+
+        }
+    }
+    return FTell();
+};
+
+
+
+//■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+//■■■■■■■■■■■■■■■■■■■■■■      MAIN       ■■■■■■■■■■■■■■■■■■■■■■■■■
+
+LittleEndian();
+
+local uint32 iSig     <format=hex>;
+local uint64 iLastPos <format=hex>;
+
+iSig=ReadUInt(0);
+
+
+if ( DEBUG ) {
+    Printf("\nDEBUG: Signature at 0x0 offset is %08x\n",iSig);
+}
+
+if (iSig == 0x044D414d) {       // MAM\0x04 == Compressed PF
+    Printf("\n\nNOTICE:\tThis script uses two external functions from c:\\windows\\system32\\ntdll.dll to decompress the contents.\n\tYou maybe prompted twice to allow these calls to be executed.\n\tThis can be permanently enabled under Tools > Options > Permissions and change form Ask to allow for this script\n\n");
+    Printf("Type: Compressed PF, decompressing and processing result\n");
+    iLastPos=fDecodeCompressedPF(0);
+} else {
+    iSig=ReadUInt(4);
+    if ( DEBUG ) {
+        Printf("DEBUG: Signature at 0x4 offset is %08x\n",iSig);
+    }
+    if (iSig == 0x41434353) {       // SCCA == Standard PF
+        Printf("Type: Compressed PF, decompressing and processing result\n");
+        iLastPos=fDecodePF(0);
+    } else {
+        Printf("Error: unrecognised PF file signature %08x\n",iSig);
+    }
+};

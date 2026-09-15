@@ -1,0 +1,729 @@
+//------------------------------------------------
+//--- 010 Editor v13.0beta1 Binary Template
+//
+//      File: Uniflex.bt
+//   Authors: Robert Offner MSc.
+//   Version: 0.2
+//   Purpose: Parses floppy and harddisk images for Uniflex.
+//  Category: Drives
+// File Mask: *.img, *.dsk
+//  ID Bytes: 
+//   History:
+//   0.2   2025-07-07 R. Offner: Swapspace added, Directory parsing fixed (Block 10 was reading the 
+//         bytes wrong), Block 11 and 12 still not implemented!, Partitions added, Major and Minor
+//         Number for special files added. Some disksizes added, but more needed.
+//         
+//   0.1   2025-07-01 R. Offner: Initial release.
+// COPYRIGHT NOTE:
+// a lot of the code has been taken from the Drive.bt Template
+//------------------------------------------------
+
+                         // Variablename
+struct IMGFILE;          // imgfile
+struct DRIVE;            // drive
+struct BOOTSECTOR;       // bootsector
+struct UNIFLX_SIR;       // sir
+struct SHORTENTRY;       // shortentry
+struct SECTORPLAIN;      // sector
+struct SECTOR_GENERIC;   // sector
+struct DSKADS;           // Uniflex Entry
+struct UNIFLX_FDN_BLK;   // pnode_blk
+struct UNIFLX_FDN;       // pnode
+struct ENTRYSET;        // subdirentryset
+
+typedef enum <UBYTE> {
+    NONE=0,
+    UNIFLEX=1, 
+    NEWFORMAT
+ }VARIANT;
+
+typedef enum <UBYTE> {
+    NODISK=0,
+    FLOPPY=1, 
+    HARDDISK
+ }MEDIA;
+
+// for Uniflex
+#define DIRSIZ      14          // directory name size
+
+uint32 conv24(INT64 pos){
+    local uint32 ret;
+    local UBYTE bytes[3];
+    ReadBytes(bytes, pos, 3);
+    ret = bytes[0]*65536;
+    ret += bytes[1]*256;
+    ret += bytes[2];
+    return ret;
+}
+
+INT64 CHS_to_OFF(UBYTE cyl, UBYTE head, UBYTE sect){
+    local INT64 ret <hidden=true> = 0;
+    local INT64 c, s;
+    local UBYTE i;
+        
+    //UniFLEX counts the other side in additional sectors, so no head in calculation
+    
+    if (imgfile.s != imgfile.s1){ // first Track is FM -> weird Geometry and offset calculation difficult
+        if (cyl > 0){
+            ret = (INT64)(imgfile.s1 * imgfile.bps); // is the bytes for the complete first cylinder
+            cyl = cyl - 1;
+            ret += (((INT64)cyl * imgfile.s) + sect - 1) * (INT64)imgfile.bps;
+        }
+        else{
+            ret = (INT64)(sect - 1) * (INT64)imgfile.bps;
+            //Printf("Track: %i Head: %i Sect: %i Offset: %0X\n", cyl, head, sect, ret);
+        }
+        //Printf("(weird)Track: %i Head: %i Sect: %i Offset: %0X\n", cyl, head, sect, ret);
+    }
+    else{
+        ret = (((INT64)cyl * imgfile.s) + sect - 1) * (INT64)imgfile.bps;
+        //Printf("Track: %i Head: %i Sect: %i Offset: %0X\n", cyl, head, sect, ret);
+    }
+    return ret + imgfile.blind_header;
+}
+
+void OFF_to_CHS(UBYTE &c, UBYTE &h, UBYTE &s, INT64 pos){
+    local INT64 bptrack, firsttrack <hidden=true>;
+    pos = pos - imgfile.blind_header;
+    bptrack =  imgfile.s * imgfile.bps; // Bytes per track
+    
+    if (imgfile.s != imgfile.s1){ // first Track is FM -> weird Geometry and offset calculation difficult
+        firsttrack = imgfile.s1 * imgfile.bps;
+        pos -= firsttrack;
+        c = 1;
+        c += (UBYTE)(pos / bptrack);         // Tracks
+        s = (UBYTE)(1 + (pos % bptrack)/imgfile.bps); // Sector
+    }
+    else{
+        c = (UBYTE)(pos / bptrack);         // Tracks
+        s = (UBYTE)(1 + (pos % bptrack)/imgfile.bps); // Sector
+        if (imgfile.h > 1)
+            h = (s>(imgfile.s/2))?1:0;
+        else h=0;
+    }
+}
+
+INT64 convert3(DSKADS &wc){
+    local INT64 ret;
+    //ret = (wc.hh*65536+wc.mm*256+wc.ll);
+    ret = (INT64)(wc.hh*65536);
+    ret += (INT64)(wc.mm*256);
+    ret += (INT64)(wc.ll);
+    return ret;
+}
+
+// ########################  Data Cluster  ##########################
+string GET_CHS(INT64 pos){ 
+    local string str <hidden=true>;
+    local UBYTE c,h,s <hidden=true>;
+    OFF_to_CHS(c,h,s,pos);
+    SPrintf(str, "C: %u H: %u S: %u", c, h, s);
+    return str;
+}
+// ######################  Generic Cluster  ############################
+typedef struct (INT64 Size){ 
+    //local INT64 pos_now <hidden=true>;
+    //pos_now = FTell();
+    UBYTE block[Size] <format=hex>;
+} SECTORPLAIN <optimize=false, read=GET_CHS(startof(this))>;
+
+// #######################  Root Directory  ###########################
+typedef struct (int16 Size){ 
+    local INT64 i, dest=1;
+    while (dest){
+        dest = conv24(FTell());
+        if (dest == 0) break;
+        DSKADS ptr ;
+        //dest = convert3(ptr);
+    }
+} LINKTAB <optimize=false>;
+
+typedef struct {
+    uint16  pnode; 
+    UBYTE   FileName[DIRSIZ] <bgcolor=cBlack>;
+} SHORTENTRY <optimize=false>;
+
+string ReadFSz( ENTRYSET &f, INT64 level){
+    local string str <hidden=true> ="";
+    if (f.node.mode & 8){
+        SPrintf(str, "dir lvl: %d", level);//, parentof(f).entryset.entry.FileName);
+        return str;
+        }
+    else{
+        SPrintf(str, "FileSize: %i Bytes", (f.node.size));
+        return str;
+    }
+}
+
+string ReadFN( ENTRYSET &f ) {
+    if (((UBYTE)f.entry.FileName[0] == 0) || 
+        ((UBYTE)f.entry.FileName[0] == 0xFF) || 
+        ((UBYTE)f.entry.FileName[0] == 0xE5)) 
+        return "--FREE--";
+    else
+        return f.entry.FileName;
+}
+
+typedef struct {
+    local INT64 start, blockpos, blockpos2, nextpos, blockcnt, temp, dirlvl;
+    local uint32 ptr2pos;
+    local UBYTE fmode, iblk;
+    local string str;
+    SHORTENTRY entry;
+    start = FTell();
+    nextpos = (drive.partstart + (entry.pnode - 1) * 64) + 0x200; // partstart is always at SIR!
+    SPrintf(str, "%d", (nextpos-0x200-drive.partstart)/64+1);
+    FSeek(nextpos);
+    UNIFLX_FDN node <read=parentof(this).str>;
+    fmode = (node.mode & 0xFE); // mask busy bit
+    FSeek(start);
+    if (fmode == 8){ // dir
+            if (entry.FileName[0] == '.'){
+                if ((entry.FileName[1] == '.') ||
+                    (entry.FileName[1] == 0)) {
+                    //Printf("ddir: %s %04x \n",entry.FileName, start);
+                    dirlvl = level;
+                    return; // .. or . entry - skip
+                }
+            }
+            else{
+                blockcnt = 0;
+                for (iblk=0;iblk<13;iblk++) { // max 14 blocks
+                    temp = convert3(parentof(this).entryset.node.blks[iblk]);
+                    if (temp > 0){
+                        if (iblk >= 10) Printf("ERROR! NOT IMPLEMENTED!\r");
+                        blockcnt += 32;
+                    }
+                }
+                blockpos = convert3(node.blks[0])*512;
+                if (blockpos == 0) break;
+                //Printf("subdir: %d %s %04x %04x \n",level, entry.FileName, blockpos, start);
+                FSeek(blockpos);
+                pos[level] = start;
+                dirlvl = level;
+                level++; // increase level
+                cnt[level] = blockcnt;
+                pos[level] = blockpos;
+                walk_fs(pos, cnt, level);
+                //Printf("return: %s %04x \n",entry.FileName, blockpos);
+                return;
+            }
+    }
+    else if (fmode == 0){ // file
+        //Printf("file: %s %d\n", entry.FileName, fdn);
+        for (i=0;i<13;i++) { // max 14 blocks
+            blockpos = convert3(node.blks[i])*512;
+            if (blockpos == 0) break;                 // no more entries
+            FSeek(blockpos);
+            if (i == 10){
+                LINKTAB linktab1(imgfile.bps);
+                while (1){
+                    ptr2pos = conv24(blockpos);
+                    //Printf("file 2nd level: %s %06x %04x \n", entry.FileName, blockpos, ptr2pos);
+                    if (ptr2pos == 0) break;
+                    blockpos += 3;
+                    FSeek(ptr2pos*imgfile.bps);
+                    SECTORPLAIN data(imgfile.bps);
+                    FSeek(blockpos);
+                }
+                break;
+            }
+            if (i == 11){
+                Printf("file 3nd level: %s %06x %04x %d\n", entry.FileName, blockpos, fdn, i);
+                Printf("ERROR! NOT IMPLEMENTED!\r");
+                SECTORPLAIN data(imgfile.bps);
+                break;
+            }
+            else if (i == 12){
+                Printf("file 4nd level: %s %06x %04x %d\n", entry.FileName, blockpos, fdn, i);
+                Printf("ERROR! NOT IMPLEMENTED!\r");
+                SECTORPLAIN data(imgfile.bps);
+                break;
+            }
+            else {
+                //Printf("file: %s %06x %d\n", entry.FileName, blockpos, i);
+                SECTORPLAIN data(imgfile.bps);
+            }
+        }
+        FSeek(start);
+    }
+    else if (fmode == 2){
+        //Printf("Block Special File %s at %06X\r", entry.FileName, start);
+    }
+    else if (fmode == 4){
+        //Printf("Character Special File %s at %06X\r", entry.FileName, start);
+    }
+    else if (fmode == 0x10){
+        Printf("Not Implemented! - Pipe Read Flag %s at %06X\r", entry.FileName, start);
+    }
+    else if (fmode == 0x20){
+        Printf("Not Implemented! - Pipe Wrie Flag %s at %06X\r", entry.FileName, start);
+    }
+} ENTRYSET <optimize=false, read=ReadFN, comment=ReadFSz(this, dirlvl)>;
+
+typedef struct {
+    local INT64 i;
+    i=1;
+    while (i){
+        DSKADS next;
+        i = convert3(next);
+    }
+} PNTRBLK <optimize=false>;
+
+void walk_fs(INT64 pos[], INT64 cnt[], INT64 &level){
+    local uint16 fdn, i;
+    local INT64 blks[13], temp2;
+    local string fn;
+    //local UBYTE fmode;
+    local INT64 oldpos, nextpos, ptr1pos, nextblock;
+
+    oldpos = pos[level];
+    FSeek(pos[level]);
+        //Printf("st: %04X %d %04X %04X %04X %0d %d %d\r", oldpos, level, pos[0], pos[1], pos[2], cnt[0], cnt[1], cnt[2]);
+        while (1){
+            cnt[level]--;
+            fdn = ReadShort(FTell());
+            if (fdn != 0) {
+                ENTRYSET entryset;
+            }
+            else{
+                //Printf("Skipping dir: %d \r", 32-i);
+                FSeek(FTell()+16); // Skip empty direntry
+            }
+            pos[level] = FTell();
+
+            if (cnt[level] % 32 == 0){
+                if (cnt[level] > 0){
+                    temp2 = convert3(parentof(this).entryset.node.blks[cnt[level]/32])*512;
+                    pos[level] = temp2;
+                    //Printf("still going: %06X %d \r", pos[level], cnt[level]);
+                    FSeek(pos[level]);
+                }
+                else{
+                    level --;
+                    if (level < 0) break;
+                    //Printf("done: %06X %d \r", pos[level], cnt[level]);
+                    FSeek(pos[level]);
+                    break;
+                }
+            }
+            //Printf("-: %06X %d %d\r", pos[level], cnt[level], level);
+        }
+    return;
+}
+
+// ########################## UniFLEX SIR  ############################
+
+string READ_CONV3 (DSKADS &wc) {
+    local string hexstr;
+    SPrintf(hexstr, "0x%02X%02X%02X / %d", wc.hh, wc.mm, wc.ll, wc.hh*65536+wc.mm*256+wc.ll);
+    return hexstr;
+}
+
+typedef struct { 
+    UBYTE   hh;
+    UBYTE   mm;
+    UBYTE   ll;
+} DSKADS <optimize=false, read=READ_CONV3>;
+
+string READ_BLKS(DSKADS &p){
+    local string str;
+    SPrintf(str,"maj: %d min: %d", p[0].hh, p[0].mm);
+    return str;
+}
+
+string READ_PERMS(UBYTE &p){
+    local string perms = ".......";
+    if (p&0x40) perms[0] = 's'; else perms[0] = '.';
+    if (p&0x20) perms[1] = 'r'; else perms[1] = '.';
+    if (p&0x10) perms[2] = 'w'; else perms[2] = '.';
+    if (p&0x08) perms[3] = 'x'; else perms[3] = '.';
+    if (p&0x01) perms[4] = 'r'; else perms[4] = '.';
+    if (p&0x02) perms[5] = 'w'; else perms[5] = '.';
+    if (p&0x04) perms[6] = 'x'; else perms[6] = '.';
+    return perms;
+}
+
+string READ_MODE(UBYTE &p){
+    local string mode;
+    if (p&0x01) mode = "busy";
+    if (p&0x20) mode += " pipe write flag";
+    if (p&0x10) mode += " pipe read flag";
+    if (p&0x08) mode += " directory";
+    if (p&0x04) mode += " character special";
+    if (p&0x02) mode += " block special";
+
+    return mode;
+}
+
+typedef struct {
+    UBYTE     mode          <comment=READ_MODE>; //  file mode
+    UBYTE     perms         <comment=READ_PERMS>; //  file security
+    UBYTE     links ;       //  number of links
+    uint16    owner ;       //  file owner's ID
+    uint32    size  ;       //  file size
+    if ((mode & 4) || (mode & 2)){
+        UBYTE major;
+        UBYTE minor;
+    }
+    else{
+        DSKADS    blks[13]; //      <comment=READ_BLKS>;//  block list
+    }
+    uint32    time  ;       //  file time
+    UBYTE     fd_pad[12];   //  padding
+} UNIFLX_FDN <optimize=false>; // 64 Bytes
+
+typedef struct  {
+    UNIFLX_FDN uniflx_pnode0;
+    UNIFLX_FDN uniflx_pnode1;
+    UNIFLX_FDN uniflx_pnode2;
+    UNIFLX_FDN uniflx_pnode3;
+    UNIFLX_FDN uniflx_pnode4;
+    UNIFLX_FDN uniflx_pnode5;
+    UNIFLX_FDN uniflx_pnode6;
+    UNIFLX_FDN uniflx_pnode7;
+} UNIFLX_FDN_BLK <optimize=false>;
+
+typedef struct  {
+    UBYTE    supdt;         // sir update flag
+    UBYTE    swprot;        // mounted read only flag
+    UBYTE    slkfr;         // lock free list manipulation
+    UBYTE    slkfdn;        // lock fdn list manipulation
+    uint32   sinitid;       // initializing system identifier
+    uint32   scrtim;        // creation time
+    uint32   sutime;        // last update
+    uint16   sszfdn;        // size in blocks of FDN list
+    DSKADS   ssizfr;        // size in blocks of volume
+    DSKADS   sfreec;        // total free blocks
+    uint16   sfdnc;         // free fdn count
+    UBYTE    sfname[DIRSIZ]  <fgcolor=cRed, bgcolor=cWhite>;    // file system name
+    UBYTE    spname[DIRSIZ];    // file system pack name
+    uint16   sfnumb;        // file system number
+    uint16   sflawc;        // flawed block count
+    UBYTE    sdenf;         // density flag 0=single (floppy)
+    UBYTE    ssidf;         // side flag 0 = single (floppy)
+    DSKADS   sswpbg;        // swap starting block #
+    uint16   sswpsz;        // swap block count
+    UBYTE    s64k;          // non-zero = swap count is mult of 64K
+    UBYTE    swinc[11];     // Winchester config info
+    UBYTE    sspare[11];    // spare bytes
+    UBYTE    snfdn;         // # of in core FDNS
+    uint16   scfdn[50];     // in core free fdns
+    UBYTE    snfree;        // # of in core free blocks 
+    DSKADS   sfree[100];  // in core free blocks  
+    UBYTE    not_used1[14];        // 
+    // should be @ 0x3f8 in SIR!
+    uint32   spartfst;      // first block of partition
+    uint32   spartsiz;      // total size of partition
+
+} UNIFLX_SIR <optimize=false>;
+
+
+// ###########################  Bootsector  ##########################
+typedef struct  {
+    UBYTE marker <comment="always A5">;
+    DSKADS partstart <read=READ_CONV3>;
+} PARTTAB  <optimize=false>;
+
+typedef struct  {
+    UBYTE data[496] <format=hex>;
+    PARTTAB partition[4] <comment="FF FF FF means no part.">;
+
+} BOOTSECTOR <read=ReadBOOTSECTOR, optimize=false>;
+
+string ReadBOOTSECTOR (BOOTSECTOR &boot) {
+    if (0)
+        return boot.VolumeLabel;
+    else
+        //return 0;
+        return GET_CHS(startof(boot));
+}
+
+typedef struct {
+    //local UBYTE i <hidden=true>;
+    local INT64 pos[40], cnt[40], level, entries = 0, rootdirstart, partstart, swpst, swpsz;
+    partstart = FTell();
+    
+    UNIFLX_SIR sir <bgcolor=cLtGreen>;
+    rootdirstart = (sir.sszfdn+2)*imgfile.bps + partstart-0x200;
+    Printf("Partstart: %06X %04X\r", partstart, sir.sszfdn);
+    FSeek(rootdirstart);
+    pos[0] = FTell();
+    cnt[0] = 32; // max rootdir entries
+    level = 0;
+    walk_fs(pos, cnt, level);
+    swpst = convert3(sir.sswpbg)*512;
+    if (sir.s64k)
+        swpsz = sir.sswpsz*65536;
+    else
+        swpsz = sir.sswpsz*512;
+    if (swpst){
+        Printf("Making Swap w. 0x%08X Bytes @ %08X.\r", swpsz, swpst);
+        FSeek(swpst);
+        SECTORPLAIN swapspace (swpsz);
+    }
+
+} DRIVE <open=true, optimize=false>;
+
+typedef struct {
+    local INT64 size = FileSize();
+    local INT64 partstart[4], ptmp;
+    local uint16 blind_header; //blind header is NOT part of c,h,s calculations (= not in floppy image)
+    local UBYTE c,h,s, s1,i, partitions, idx <hidden=true>;
+    local string str;
+    local uint16 bps;
+    local VARIANT variant;
+    local MEDIA media;
+    // default values, mainly for FLEX
+    h=2; s=8; c=77; bps=512; blind_header=0;
+    s1 = s;
+    variant = UNIFLEX; str = "";
+    BigEndian(); // Default for 6800, 6809,...
+    
+
+//####################################################################################
+// Guessing which disk is it?
+//####################################################################################
+// 
+// h:            How many Sides (1 or 2)
+// C:            Tracks per side (usually <= 80)
+// s:            Sectors per Track (starts usually 1)
+// bps:          Bytes per Sector
+// header:       Sometimes there is header data in the file    
+// variant:      which OS is this disk for
+//              
+// ########################################################################################################
+// totalSize      physicalSize     tracks      sectors     heads       density 
+// -----------    ---------------- ----------- ----------- ----------- ------- 
+//     102400     5                40          5           1           s          //  19000
+//     184320     5                40          9           1           d          //  2D000
+//     204800     3/5              80          5           1           s          //  32000 *
+//                5                40          5           2           s          //  32000 *
+//     315392     8                77          8           1           s          //  4D000
+//     327680     3/5              80          8           1           s          //  50000
+//     368640     3/5              80          9           1           d          //  5A000 *
+//                5                40          9           2           d          //  5A000 *
+//     409600     3/5              80          5           2           s          //  64000 *
+//                3/5              80          10          1           d          //  64000 *
+//     630784     8                77          8           2           s          //  9A000 *
+//                8                77          16          1           d          //  9A000 *
+//     655360     3/5              80          8           2           s          //  A0000 *
+//                3/5              80          16          1           d          //  A0000 *
+//     737280     3/5              80          9           2           d          //  B4000 *
+//                3                80          18          1           d          //  B4000 *
+//     819200     3/5              80          10          2           d          //  C8000 *
+//                3                80          20          1           d          //  C8000 *
+//    1261568     8                77          16          2           d          // 134000
+//    1310720     3/5              80          16          2           d          // 140000
+//    1474560     3                80          18          2           d          // 168000
+//    1638400     3                80          20          2           d          // 190000
+                     
+    BOOTSECTOR bootsector <bgcolor=cLtYellow>;
+    partitions = 0;
+    if (bootsector.partition[0].marker == 0) {
+        media = FLOPPY; // Floppy
+        partstart[0] = bps; // right after bootblock
+        partitions++;
+    }
+    else if (bootsector.partition[0].marker == 0xA5) {
+        media = HARDDISK;
+        for (i=0; i<4; i++){
+            ptmp = convert3(bootsector.partition[i].partstart);
+            if (i==0){
+                partstart[i] = ptmp*bps + bps;  // first part starts right after bootblock
+                partitions = 1;
+            }
+            else{
+                if (ptmp != 0xFFFFFF){
+                    partitions ++;
+                    partstart[i] = ptmp*bps;
+                }
+            }
+            
+            Printf("Partstart: %08X %08X\r", ptmp, partstart[i]);
+            if (partstart[i] > size){
+                Printf("PARTITION STARTS AFTER END!\r");
+            }
+        }
+    }
+    else Printf("Error! Partition Table corrupted.");
+
+    if (size > 1638400){        // UniFLEX 3.5", 80
+        s=20; c=80; // HD Image
+    }
+
+
+    else if (size == 1474560){ // UniFLEX 3.5", 80
+        s = 18; c=80; str = "UniFlex DSDD Floppy";
+    }
+
+    else if (size == 1310720){ // UniFLEX 3.5/5", 80
+        s = 16; c=80; str = "UniFlex DSDD Floppy";
+    }
+
+    else if (size == 1261568){ // UniFLEX 8", 77
+        s = 16; str = "UniFlex DSDD Floppy";
+    }
+
+    else if (size == 819200){ // UniFLEX 3.5/5", 80
+        c=80;
+        idx = InputRadioButtonBox("Please select one or two sides.", "Pick one.", -1,
+               "Single Sided: ",
+               "Double Sided: ");
+        switch (idx){
+        case 0: // SS
+            h=1; s=20; str = "UniFlex SSDD Floppy";
+        break;
+        case 1: // DS
+            h=2; s=10; str = "UniFlex DSDD Floppy";
+        break;
+        default:
+            return;
+        break;
+        }
+    }
+
+    else if (size == 737280){ // UniFLEX 3.5/5", 80
+        c=80;
+        idx = InputRadioButtonBox("Please select one or two sides.", "Pick one.", -1,
+               "Single Sided: ",
+               "Double Sided: ");
+        switch (idx){
+        case 0: // SS
+            h=1; s=18; str = "UniFlex SSDD Floppy";
+        break;
+        case 1: // DS
+            h=2; s=9; str = "UniFlex DSDD Floppy";
+        break;
+        default:
+            return;
+        break;
+        }
+    }
+
+    else if (size == 655360){ // UniFLEX 3.5/5", 80
+        c=80;
+        idx = InputRadioButtonBox("Please select one or two sides.", "Pick one.", -1,
+               "Single Sided: ",
+               "Double Sided: ");
+        switch (idx){
+        case 0: // SS
+            h=1; s=16; str = "UniFlex SSDD Floppy";
+        break;
+        case 1: // DS
+            h=2; s=8; str = "UniFlex DSSD Floppy";
+        break;
+        default:
+            return;
+        break;
+        }
+    }
+
+    else if (size == 630784){ // UniFLEX 8", 77
+        idx = InputRadioButtonBox("Please select one or two sides.", "Pick one.", -1,
+               "Single Sided: ",
+               "Double Sided: ");
+        switch (idx){
+        case 0: // SS
+            h=1; s=16; str = "UniFlex SSSD Floppy";
+        break;
+        case 1: // DS
+            h=2; s=8; str = "UniFlex DSDD Floppy";
+        break;
+        default:
+            return;
+        break;
+        }
+    }
+
+    else if (size == 409600){ // UniFLEX 3.5/5", 80
+        c=80;
+        idx = InputRadioButtonBox("Please select one or two sides.", "Pick one.", -1,
+               "Single Sided: ",
+               "Double Sided: ");
+        switch (idx){
+        case 0: // SS
+            h=1; s=10; str = "UniFlex SSDD Floppy";
+        break;
+        case 1: // DS
+            h=2; s=5; str = "UniFlex DSSD Floppy";
+        break;
+        default:
+            return;
+        break;
+        }
+    }
+
+    else if (size == 368640){ // UniFLEX 3.5/5", 80
+        idx = InputRadioButtonBox("Please select one or two sides.", "Pick one.", -1,
+               "Single Sided: ",
+               "Double Sided: ");
+        switch (idx){
+        case 0: // SS
+            h=1; s=9; c=80; str = "UniFlex SSDD Floppy";
+        break;
+        case 1: // DS
+            h=2; s=9; c=40; str = "UniFlex DSDD 40 Track Floppy";
+        break;
+        default:
+            return;
+        break;
+        }
+    }
+
+    else if (size == 327680){ // UniFLEX 3.5/5", 80
+        c=80; h=1;
+        str = "UniFlex SSSD Floppy";
+    }
+
+    else if (size == 315392){ // UniFLEX 8", 77
+        h=1;
+        str = "UniFlex SSSD Floppy";
+    }
+
+    else{
+        MessageBox( idOk, "Format NOT Found!", 
+               "Please Enter the CHS Information in the Template at Line 915" );
+        Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r");
+        Printf("Format NOT Found! Please Enter the CHS Information in the Template at Line 915\r");
+        Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r");
+        return;
+    }
+    if (media == FLOPPY)
+        Printf("         Floppy Disk with %d Bytes.\r", size);
+    else
+        Printf("         Harddisk with %d Bytes and %d partitions.\r", size, partitions);
+    Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r");
+    Printf("         %s Disk with C: %i H: %i S: %i BPS: %i.\r", str, c, h, s, bps);
+    Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r");
+
+    for (i=0; i<partitions; i++){
+        FSeek(partstart[i]);
+        //Printf("Start: %06X part# %d\r", partstart[i], i);
+        DRIVE drive;
+    }
+
+} IMGFILE <optimize=false, open=true, read=ShowParams>;
+
+string ShowParams(IMGFILE &f){
+    string str;
+
+    SPrintf( str, "Sz: %u, C: %i, H: %i, S: %i", f.size, f.c, f.h, f.s);
+    return str;
+}
+
+UBYTE FileSystemRecognizer() {  // Here the disk gets declared
+    local INT64 startPos <hidden=true> = FTell();
+    IMGFILE imgfile;
+    return 1;
+}
+
+////////////////////////////////////////////////////////////////////////
+// THIS IS THE ACTUAL STARTING POINT OF EXECUTION IN THE TEMPLATE
+////////////////////////////////////////////////////////////////////////
+
+if (FileSystemRecognizer()) {
+    //Printf("DRIVE: Success with partition-free detection (sector size == %d).\r\n", 512);
+    return;
+}
+return;

@@ -1,0 +1,205 @@
+//------------------------------------------------
+//--- 010 Editor v16.0.4 Binary Template
+//
+//      File: SonyXperiaSINv3.bt
+//   Authors: Ismael034, Thx @zxz0O0 and @Androxyde
+//   Version: 1.0
+//   Purpose: Sony Xperia SIN partition table
+//  Category: Operating System
+// File Mask: *
+//  ID Bytes: 03 53 49 4E
+//   History: 
+//   1.0    2026-09-04 Ismael034: Initial support V3
+//------------------------------------------------
+
+#define SHA1_ENTRY_SIZE 0x18
+#define SHA256_ENTRY_SIZE 0x24
+
+#define SHA1_SIZE 0x14
+#define SHA256_SIZE 0x20
+
+struct SinHeaderSha1Hash
+{
+  int shSha1HashDataSize;
+  uint8 ssSha1Hash[SHA1_SIZE];
+};
+
+struct SinHeaderSha256Hash
+{
+  int shSha256HashDataSize;
+  uint8 ssSha256Hash[SHA256_SIZE];
+};
+
+
+struct SinLz4aBlock
+{
+  int slbLength; //0x54 for LZ4A and 0x44 for ADDR
+  quad slbDataOffset; //Offset where the data block will start
+  quad slbUncompressedDataLength; //LZ4A uncompressed length of the data block
+  quad slbCompressedDataLength; //LZ4A compressed length of the data block
+  quad slbDataDest; //Address of destination in new file, everything else in the file is 0xFF (kind of 'compression')
+  quad slbReserved; // It sould be the same as slbUncompressedDataLength
+  int slbHashType; //1 = SHA1, 2 = SHA256
+
+  if (slbHashType == 0x1) // 0x1 for SHA1
+  {
+      uint8 slbSha1Hash[SHA1_SIZE];
+  }
+  else if (slbHashType == 0x2) // 0x2 for SHA256
+  {
+      uint8 slbSha256Hash[SHA256_SIZE];
+  }
+};
+
+
+struct SinAddrBlock
+{
+  int sabLength; //0x44 for ADDR
+  quad sabhDataOffset; //Offset where the data block will start
+  quad sabDataLength; //Length of the data block.
+  quad sabDataDest; //Address of destination in new file
+  int sabHashType; //1 = SHA1, 2 = SHA256
+  
+  if (sabHashType == 0x1) // 0x1 for SHA1
+  {
+      uint8 sabSha1Hash[SHA1_SIZE];
+  }
+  else if (sabHashType == 0x2) // 0x2 for SHA256
+  {
+      uint8 sabSha256Hash[SHA256_SIZE];
+  }
+};
+
+struct SinMtkmBlock
+{
+  int smbLength;
+  quad smbhDataOffset; //Offset where the data block will start
+  int unk;
+};
+
+
+struct SinBlockHeader
+{
+  char sbMagic[4];
+  //0x4C, 0x5A, 0x34, 0x41 -> LZ4A (compressed)
+  //0x41, 0x44, 0x44, 0x52 -> ADDR (uncompressed)
+  
+  if (sbMagic == "LZ4A")
+  {
+      SinLz4aBlock sinLz4aBlock;
+  }
+  else if (sbMagic == "ADDR")
+  {
+      SinAddrBlock sinAddrBlock;
+  } else if (sbMagic == "MTKM")
+  {
+      SinMtkmBlock sinMtkmBlock[3];
+  }
+
+};
+
+struct SinDataHeader
+{
+  char mmcfMagic[4]; //0x4D, 0x4D, 0x43, 0x46 -> MMCF
+  int mmcfLength; //mmcfLength + 4 (the length itself) + 4 (the magic) = SinDataHeader length
+  char gptpMagic[4]; //0x47, 0x50, 0x54, 0x50 -> GPTP
+  int gptpSize;
+  uint8 gptpuid[gptpSize - 0x8]; //GPT Unique partition GUID
+};
+
+struct SinHeader
+{
+  byte sinVersion; // 0x01, 0x02, 0x03
+  char sinMagic[3]; //0x53, 0x49, 0x4E -> SIN
+  int sinHeaderLength;
+  int sinPayloadType; 
+  int sinHashType; // 1 for SHA-1, 2 for SHA-256
+  int sinReserved;
+  int sinHeaderHashLength;
+  
+  if (sinHashType == 0x1)
+  {
+      for( int i = 0; i < sinHeaderHashLength / SHA1_ENTRY_SIZE; i++ )
+      {
+        SinHeaderSha1Hash sinHeaderHash;
+      }
+  }
+  else if (sinHashType == 0x2)
+  {
+      for( int i = 0; i < sinHeaderHashLength / SHA256_ENTRY_SIZE; i++ )
+      {
+        SinHeaderSha256Hash sinHeaderHash;
+      }
+  }
+  
+  int sinSignatureBlobLength;
+  char sinSignatureBlob[sinSignatureBlobLength];
+  
+  if (sinHeaderLength - FTell() > 0)
+  {
+      uint8 zeroPadding[sinHeaderLength - FTell()];  
+  }
+  
+};
+
+struct SinBlockTableTrailer
+{
+    int sbtLength;
+    uint8 sbtHash[SHA1_SIZE];
+};
+
+struct SinBlock(uint size)
+{
+    uint8 data[size];
+};
+
+
+BigEndian();
+
+SinHeader sinHeader <fgcolor=cBlack, bgcolor=0xffffcc>;
+SinDataHeader sinDataHeader <fgcolor=cBlack, bgcolor=0xffcc99>;
+
+local uint8 sinBlockCounter = 0;
+local uint32 sinBlockSizeCounter = 0;
+local uint32 sinBlockSizeList[0xFF];
+
+//Loop through all the ADDR or LZ4A blocks
+
+local char peekMagic[4];
+
+while (FileSize() - FTell() > sinBlockSizeCounter)
+{
+    ReadBytes(peekMagic, FTell(), 4);
+    if (peekMagic != "LZ4A" && peekMagic != "ADDR" && peekMagic != "MTKM")
+        break;
+
+    SinBlockHeader sinBlockHeader <fgcolor=cBlack, bgcolor=0xcc99ff>;
+    if (sinBlockHeader.sbMagic == "LZ4A")
+    {
+        sinBlockSizeCounter += sinBlockHeader.sinLz4aBlock.slbCompressedDataLength;
+        sinBlockSizeList[sinBlockCounter++] = sinBlockHeader.sinLz4aBlock.slbCompressedDataLength;
+    } else if (sinBlockHeader.sbMagic == "ADDR")
+    {
+        sinBlockSizeCounter += sinBlockHeader.sinAddrBlock.sabDataLength;
+        sinBlockSizeList[sinBlockCounter++] = sinBlockHeader.sinAddrBlock.sabDataLength;
+    } else if (sinBlockHeader.sbMagic == "MTKM")
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            sinBlockSizeCounter += sinBlockHeader.sinMtkmBlock[i].smbLength;
+            sinBlockSizeList[sinBlockCounter++] = sinBlockHeader.sinMtkmBlock[i].smbLength;
+        }
+        SinBlockTableTrailer sinBlockTableTrailer <fgcolor=cBlack, bgcolor=0xffcc99>;
+    }
+}
+
+
+for(int i = 0; i < sinBlockCounter; i++)
+{
+    if (sinBlockSizeList[i] == 0)
+    {
+        Printf("Warning: Data block %d with compressed length 0. Skipping...\n", i);
+        continue;
+    }
+    SinBlock sinBlock(sinBlockSizeList[i]) <fgcolor=cBlack, bgcolor=0xccff99>;
+}

@@ -95,6 +95,7 @@ impl AppState {
             dialog: None,
             viewer: None,
             editor: None,
+            editor_stack: Vec::new(),
             menu: None,
             force_clear: false,
             procview: None,
@@ -364,6 +365,13 @@ impl AppState {
         {
             dirty = true;
         }
+        // The hex editor's binary template: its run finishing, or rerunning
+        // after an edit.
+        if let Some(ed) = self.editor.as_mut()
+            && ed.poll_template(Instant::now())
+        {
+            dirty = true;
+        }
         // Spin the "working…" dialog while a privileged op runs.
         if let Some(Dialog::Busy(b)) = self.dialog.as_mut() {
             b.tick();
@@ -403,6 +411,8 @@ impl AppState {
             || self.viewer.as_ref().is_some_and(|v| v.following() || v.analyzing() || v.audio_busy())
             // An edited JSON file is due a syntax check, or one is running.
             || self.editor.as_ref().is_some_and(|e| e.json_pending())
+            // A binary template is running over the hex editor's file, or due to.
+            || self.editor.as_ref().is_some_and(|e| e.template_pending())
             // A Details view's audio is still being analysed, or is playing.
             || self.details.iter().any(|d| d.audio.as_ref().is_some_and(|a| a.busy()))
             // A debounced panel reload is still waiting to fire.

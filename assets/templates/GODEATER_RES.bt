@@ -1,0 +1,149 @@
+//------------------------------------------------
+//--- 010 Editor v15.0.1 Binary Template
+//
+//      File: GODEATER_RES.bt
+//   Authors: Yamato Nagasaki
+//   Version: 1
+//   Purpose: To Read + Highlight Important RES Data
+//  Category: Game
+// File Mask: *.res
+//  ID Bytes: 73 65 72 50 //Pres
+//   History: 
+//   1     2025-03-22 Yamato Nagasaki: Release
+//------------------------------------------------
+
+// 010 Editor Template for .res File Header (GOD EATER 2)
+// This Supports the Japanese versions of:
+// GOD EATER RESURRECTION
+// GOD EATER 2 RAGE BURST
+// GOD EATER OFFSHOTS
+// Based on first 32 fixed bytes, with dynamic GroupData coloring, Fileset structure, and CHUNK_DATA EOF coloring
+
+typedef struct {
+    int     Header              <bgcolor=0x0000BF, comment="Header of each .res file (0x73657250)">;
+    int     GroupOffset         <bgcolor=0x0060BF, comment="Offset to group data table (typically 0x20)">;
+    char    GroupCount          <bgcolor=0x007F40, comment="Number of group data entries (max 8)">;
+    char    GroupVersion        <bgcolor=0x007F7F, comment="Version of group data format">;
+    ushort  Checksum            <bgcolor=0x795086, comment="Checksum of header or file">;
+    int     Version             <bgcolor=0x7F7F00, comment="File format version">;
+    int     CHUNK_DATA          <bgcolor=0xff55ff, comment="Offset to chunk data section (colored to EOF)">;
+    int     SideLoadRESOffset   <bgcolor=0x2D73A5, comment="Offset to sideload RES (non-zero for DLC)">;
+    int     SideLoadRESSize     <bgcolor=0x204F73, comment="Size of sideload RES (non-zero for DLC)">;
+    int     Padding             <bgcolor=0x575757, comment="Unused padding bytes">;
+} RES_HEADER;
+
+RES_HEADER FixedHeader <comment="Fixed 32-byte header at file start">;
+
+// Fileset Structure (32 bytes each)
+typedef struct {
+    int     Offset          <comment="Offset to file data. (check output)">;
+    int     CSIZE           <comment="Compressed size of file data">;
+    int     NameOffset      <comment="Offset to Table Names">;
+    int     ChunkName       <comment="Total Tables">;
+    uchar   Padding[12]     <comment="Unused padding bytes">;
+    int     DSIZE           <comment="Decompressed size of file data">;
+} FILESET;
+
+local int groupDataStart = FixedHeader.GroupOffset;
+if (groupDataStart >= 32) {
+    FSeek(groupDataStart);
+
+    // Define GroupData arrays with offset and count
+    typedef struct {
+        int Offset  <bgcolor=0x446600, comment="Offset to Group 1 fileset entries">;
+        int Count   <bgcolor=0x446600, comment="Number of filesets in Group 1">;
+    } GROUP_DATA1;
+    GROUP_DATA1 GroupData1 <comment="Group 1 offset/count pair">;
+
+    typedef struct {
+        int Offset  <bgcolor=0x5200a3, comment="Offset to Group 2 fileset entries">;
+        int Count   <bgcolor=0x5200a3, comment="Number of filesets in Group 2">;
+    } GROUP_DATA2;
+    GROUP_DATA2 GroupData2 <comment="Group 2 offset/count pair">;
+
+    typedef struct {
+        int Offset  <bgcolor=0xffaa80, comment="Offset to Group 3 fileset entries">;
+        int Count   <bgcolor=0xffaa80, comment="Number of filesets in Group 3">;
+    } GROUP_DATA3;
+    GROUP_DATA3 GroupData3 <comment="Group 3 offset/count pair">;
+
+    typedef struct {
+        int Offset  <bgcolor=0xffff1a, comment="Offset to Group 4 fileset entries">;
+        int Count   <bgcolor=0xffff1a, comment="Number of filesets in Group 4">;
+    } GROUP_DATA4;
+    GROUP_DATA4 GroupData4 <comment="Group 4 offset/count pair">;
+
+    typedef struct {
+        int Offset  <bgcolor=0x6666ff, comment="Offset to Group 5 fileset entries">;
+        int Count   <bgcolor=0x6666ff, comment="Number of filesets in Group 5">;
+    } GROUP_DATA5;
+    GROUP_DATA5 GroupData5 <comment="Group 5 offset/count pair">;
+
+    typedef struct {
+        int Offset  <bgcolor=0x4d88ff, comment="Offset to Group 6 fileset entries">;
+        int Count   <bgcolor=0x4d88ff, comment="Number of filesets in Group 6">;
+    } GROUP_DATA6;
+    GROUP_DATA6 GroupData6 <comment="Group 6 offset/count pair">;
+
+    typedef struct {
+        int Offset  <bgcolor=0x1ac6ff, comment="Offset to Group 7 fileset entries">;
+        int Count   <bgcolor=0x1ac6ff, comment="Number of filesets in Group 7">;
+    } GROUP_DATA7;
+    GROUP_DATA7 GroupData7 <comment="Group 7 offset/count pair">;
+
+    typedef struct {
+        int Offset  <bgcolor=0x00ffbf, comment="Offset to Group 8 fileset entries">;
+        int Count   <bgcolor=0x00ffbf, comment="Number of filesets in Group 8">;
+    } GROUP_DATA8;
+    GROUP_DATA8 GroupData8 <comment="Group 8 offset/count pair">;
+
+    // Apply Fileset ranges with individual entries
+    if (GroupData1.Offset > 0 && GroupData1.Count > 0) {
+        FSeek(GroupData1.Offset);
+        FILESET GroupData1Range[GroupData1.Count] <bgcolor=0x446600, comment="Fileset entries for Group 1">;
+    }
+    if (GroupData2.Offset > 0 && GroupData2.Count > 0) {
+        FSeek(GroupData2.Offset);
+        FILESET GroupData2Range[GroupData2.Count] <bgcolor=0x5200a3, comment="Fileset entries for Group 2">;
+    }
+    if (GroupData3.Offset > 0 && GroupData3.Count > 0) {
+        FSeek(GroupData3.Offset);
+        FILESET GroupData3Range[GroupData3.Count] <bgcolor=0xffaa80, comment="Fileset entries for Group 3">;
+    }
+    if (GroupData4.Offset > 0 && GroupData4.Count > 0) {
+        FSeek(GroupData4.Offset);
+        FILESET GroupData4Range[GroupData4.Count] <bgcolor=0xffff1a, comment="Fileset entries for Group 4">;
+    }
+    if (GroupData5.Offset > 0 && GroupData5.Count > 0) {
+        FSeek(GroupData5.Offset);
+        FILESET GroupData5Range[GroupData5.Count] <bgcolor=0x6666ff, comment="Fileset entries for Group 5">;
+    }
+    if (GroupData6.Offset > 0 && GroupData6.Count > 0) {
+        FSeek(GroupData6.Offset);
+        FILESET GroupData6Range[GroupData6.Count] <bgcolor=0x4d88ff, comment="Fileset entries for Group 6">;
+    }
+    if (GroupData7.Offset > 0 && GroupData7.Count > 0) {
+        FSeek(GroupData7.Offset);
+        FILESET GroupData7Range[GroupData7.Count] <bgcolor=0x1ac6ff, comment="Fileset entries for Group 7">;
+    }
+    if (GroupData8.Offset > 0 && GroupData8.Count > 0) {
+        FSeek(GroupData8.Offset);
+        FILESET GroupData8Range[GroupData8.Count] <bgcolor=0x00ffbf, comment="Fileset entries for Group 8">;
+    }
+}
+
+// Handle CHUNK_DATA section (offset to EOF)
+if (FixedHeader.CHUNK_DATA > 0) {
+    local int fileSize = FileSize();                // Get total file size
+    local int chunkDataSize = fileSize - FixedHeader.CHUNK_DATA; // Size from offset to EOF
+    if (chunkDataSize > 0) {
+        FSeek(FixedHeader.CHUNK_DATA);              // Seek to CHUNK_DATA offset
+        uchar ChunkDataRange[chunkDataSize] <bgcolor=0xff55ff, comment="Raw chunk data from offset to end of file">;
+    }
+}
+
+// Notes and Stuff
+Printf("Name Offsets are not colored since you can just easily navigate to that area\n");
+Printf("Notes: Offsets per GroupDataRange needs their first byte to be trimmed to get the real offset\n");
+Printf("'4' is for package.rdp OFFSET\n'5' is for data.rdp OFFSET\n'6' is for patch.rdp OFFSET\n'C' is for Current RES File OFFSET\n'D' is for Current RES File OFFSET\n");
+Printf("To properly read them, trim the first value of the offset '5001D422h' for example, remove '5' and you get '001D422h' or `Real Offset`.\nMultiply these values by 0x800 = [you get the true RDP offset].\nThis does not apply for `C` or `D` since they are inside of the .res file you're reading so you can just `Goto Address` but still removing `C` or `D` to get `Real Offset`.");

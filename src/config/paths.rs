@@ -36,6 +36,13 @@ pub fn lang_dir() -> Option<PathBuf> {
     ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("lang"))
 }
 
+/// Path to the binary-template directory (`templates/`), where the bundled
+/// 010 Editor templates are deployed and the user's own `.bt` files live; or
+/// `None` if the config directory can't be determined.
+pub fn templates_dir() -> Option<PathBuf> {
+    ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("templates"))
+}
+
 /// Path to the persistent command-line history file (`history`, one command per
 /// line), or `None` if the config directory can't be determined.
 pub fn history_file() -> Option<PathBuf> {

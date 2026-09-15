@@ -32,15 +32,30 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
     ed.menu_area = status;
 
     if ed.is_hex() {
-        let cursor_pos = render_hex(f, text_area, ed, theme);
+        // The template panel takes the room beside or below the bytes.
+        let hex_w = super::hex::HexGeom::for_len(ed.hex.as_ref().map_or(0, |h| h.len)).width();
+        let (hex_area, tpl_area) =
+            super::template::split(text_area, hex_w, ed.template_panel(), ed.template_focus());
+        ed.text_area = hex_area;
+        ed.view_rows = hex_area.height as usize;
+        ed.view_cols = hex_area.width as usize;
+        ed.tpl_area = tpl_area.unwrap_or_default();
+        let cursor_pos =
+            if hex_area.height > 0 { render_hex(f, hex_area, ed, theme) } else { None };
+        let caret = tpl_area.and_then(|a| super::template::render_panel(f, a, ed, theme));
         render_hex_status(f, status, ed, theme);
         render_hex_footer(f, footer, ed, theme);
+        if ed.help_open() {
+            render_help(f, area, theme);
+            return;
+        }
         // The open menu replaces the status row, as in mcedit, and hides the
         // hardware cursor while it is up.
         if render_menu(f, area, ed, theme) {
             return;
         }
-        if let Some(p) = cursor_pos {
+        let pos = if ed.template_focus() { caret } else { cursor_pos };
+        if let Some(p) = pos {
             f.set_cursor_position(p);
         }
         return;
@@ -166,20 +181,21 @@ fn render_help(f: &mut Frame, area: Rect, theme: &Theme) {
 fn render_hex(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) -> Option<Position> {
     let rows = area.height as usize;
     let bpr = super::hex::BYTES_PER_ROW;
+    let geom = super::hex::HexGeom::for_len(ed.hex.as_ref().map_or(0, |h| h.len));
+    // Scroll first, so the template colours are fetched for the rows drawn.
+    if let Some(h) = ed.hex.as_mut() {
+        let cur_row = h.cursor / bpr;
+        let top_row = h.top / bpr;
+        if cur_row < top_row {
+            h.top = cur_row * bpr;
+        } else if rows > 0 && cur_row >= top_row + rows as u64 {
+            h.top = (cur_row + 1 - rows as u64) * bpr;
+        }
+    }
+    let top = ed.hex.as_ref().map_or(0, |h| h.top);
+    let (tints, selected) = ed.template_byte_styles(top, rows * bpr as usize, theme);
     let h = ed.hex.as_mut().unwrap();
     h.view_rows = rows;
-
-    // Scroll so the cursor's row is visible.
-    let cur_row = h.cursor / bpr;
-    let top_row = h.top / bpr;
-    let new_top_row = if cur_row < top_row {
-        cur_row
-    } else if rows > 0 && cur_row >= top_row + rows as u64 {
-        cur_row + 1 - rows as u64
-    } else {
-        top_row
-    };
-    h.top = new_top_row * bpr;
     let window = h.window(h.top, rows * bpr as usize);
 
     let normal = Style::default().fg(theme.text_fg).bg(theme.panel_bg);
@@ -188,6 +204,15 @@ fn render_hex(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) ->
     let active = theme.cursor; // highlighted cell in the focused pane
     let inactive =
         Style::default().fg(theme.panel_bg).bg(theme.panel_border).add_modifier(Modifier::BOLD);
+    // The bytes of the variable selected in the template tree.
+    let in_selection =
+        |off: u64| selected.is_some_and(|(s, n)| off >= s && off < s.saturating_add(n.max(1)));
+    let byte_style = |off: u64| -> Style {
+        if in_selection(off) {
+            return theme.cursor_inactive;
+        }
+        tints.get((off - top) as usize).copied().flatten().unwrap_or(normal)
+    };
 
     // `window` can come back shorter than `len` implies (the file shrank under
     // us, or a read failed), so index it rather than trusting the length.
@@ -199,18 +224,31 @@ fn render_hex(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) ->
     for r in 0..rows {
         let base = h.top + r as u64 * bpr;
         let mut spans: Vec<Span> = Vec::new();
-        spans.push(Span::styled(format!("{base:08X}"), offset_style));
+        spans.push(Span::styled(format!("{base:0w$X}", w = geom.off_w as usize), offset_style));
         spans.push(Span::styled("  ", sep));
         for j in 0..bpr {
             let off = base + j;
-            let txt = match cell(off) {
-                Some(b) => format!("{b:02X}"),
-                None => "  ".to_string(),
+            let (txt, present) = match cell(off) {
+                Some(b) => (format!("{b:02X}"), true),
+                None => ("  ".to_string(), false),
             };
-            let st =
-                if off == h.cursor { if h.ascii_pane { inactive } else { active } } else { normal };
+            let st = if off == h.cursor {
+                if h.ascii_pane { inactive } else { active }
+            } else if present {
+                byte_style(off)
+            } else {
+                normal
+            };
             spans.push(Span::styled(txt, st));
-            spans.push(Span::styled(if j == 7 { "  " } else { " " }, sep));
+            // A gap inside one variable's colour stays that colour.
+            let gap_style =
+                if present && cell(off + 1).is_some() && j != 7 && st != active && st != inactive {
+                    let next = byte_style(off + 1);
+                    if next == st { st } else { sep }
+                } else {
+                    sep
+                };
+            spans.push(Span::styled(if j == 7 { "  " } else { " " }, gap_style));
         }
         spans.push(Span::styled("|", sep));
         for j in 0..bpr {
@@ -222,6 +260,8 @@ fn render_hex(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) ->
             };
             let st = if present && off == h.cursor {
                 if h.ascii_pane { active } else { inactive }
+            } else if present {
+                byte_style(off)
             } else {
                 normal
             };
@@ -236,13 +276,14 @@ fn render_hex(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) ->
     );
 
     // Hardware cursor on the active nibble / ascii cell.
+    let (cur_row, new_top_row) = (h.cursor / bpr, h.top / bpr);
     if cur_row >= new_top_row {
         let rrow = (cur_row - new_top_row) as u16;
         let j = (h.cursor % bpr) as u16;
         let x = if h.ascii_pane {
-            60 + j
+            geom.ascii_col(j)
         } else {
-            10 + 3 * j + u16::from(j >= 8) + u16::from(h.nibble_low)
+            geom.hex_col(j) + u16::from(h.nibble_low)
         };
         if (rrow as usize) < rows && x < area.width {
             return Some(Position::new(area.x + x, area.y + rrow));
@@ -252,7 +293,9 @@ fn render_hex(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) ->
 }
 
 fn render_hex_status(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
-    let name = ellipsize(&ed.name, area.width.saturating_sub(56).max(4) as usize);
+    let tpl = ed.template_status().map(|t| format!("  Template: {t}")).unwrap_or_default();
+    let reserve = 56 + tpl.chars().count() as u16;
+    let name = ellipsize(&ed.name, area.width.saturating_sub(reserve).max(4) as usize);
     let h = ed.hex.as_mut().unwrap();
     let cur = h.cursor;
     let byte = match h.byte_at(cur) {
@@ -263,7 +306,7 @@ fn render_hex_status(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Th
     let flags =
         format!("{}{}", if h.dirty { "[+]" } else { "   " }, if h.readonly { " [RO]" } else { "" });
     let text =
-        format!(" HEX {flags} {name}  Off 0x{cur:08X}/{:X}  Byte {byte}  pane:{pane} ", h.len);
+        format!(" HEX {flags} {name}  Off 0x{cur:08X}/{:X}  Byte {byte}  pane:{pane}{tpl} ", h.len);
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
             pad_right(&text, area.width as usize),

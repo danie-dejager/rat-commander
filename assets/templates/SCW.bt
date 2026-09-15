@@ -1,0 +1,567 @@
+//------------------------------------------------
+//--- 010 Editor v11.0 Binary Template
+//
+//      File: SCW.bt
+//   Authors: Vorono4ka
+//   Version: 0.5
+//   Purpose: SC3D 3D file format template (Supercell).
+//  Category: GIS
+// File Mask: *.scw
+//  ID Bytes: 53 43 33 44
+//   History: 
+//   0.5   2023-07-30 Fred-31: Refactoring and all chunks implementation
+//   0.4   2020-10-12 Vorono4ka: Added CAME, MATE
+//   0.3   2020-10-10 Vorono4ka: Fixed a bug with breaking the template due to several materials + fixed the display of Node
+//   0.2   2020-10-09 Vorono4ka: Added HEAD, GEOM, NODE
+//------------------------------------------------
+
+BigEndian();
+
+// Data types
+typedef struct {
+    ushort size;
+    if (size > 0) {
+        char data[size];
+    }
+} String <read=stringRead>;
+
+string stringRead(String &v) {
+    if (v.size > 0) {
+        return v.data;
+    } else {
+        return "";
+    }
+};
+
+typedef struct {
+    float segments[16];
+} Matrix4x4;
+
+
+// Chunks
+
+// Header
+typedef struct {
+    ushort version;
+
+    fileVersion = version;
+
+    ushort frameRate;
+    ushort timelineFrameStart;
+    ushort timelineFrameEnd;
+
+    String materialsFile;
+
+    if (fileVersion > 0)
+        ubyte overrideMaterialsFromFile;
+
+} Header <read=headerRead>;
+
+string headerRead(Header &v) {
+    string s;
+    SPrintf(s, "Version: %d", v.version);
+    return s;
+}
+
+
+// Material
+typedef struct {
+    ubyte a;
+    ubyte r;
+    ubyte g;
+    ubyte b;
+} ARGB <read=ARGBRead>;
+
+string ARGBRead(ARGB &v) {
+    string s;
+    SPrintf(s, "#%x%x%x %d", v.r, v.g, v.b, v.a);
+    return s;
+}
+
+typedef struct {
+    byte useTexture;
+    if (useTexture == 1) 
+        String sampler2D;
+    else
+        ARGB color;
+} Uniform <read=UniformRead>;
+
+string UniformRead(Uniform &v) {
+    string s;
+
+    if (v.useTexture == 1) 
+        s = stringRead(v.sampler2D);
+    else
+        s = ARGBRead(v.color);
+
+    return s;
+}
+
+typedef struct {
+    String name;
+    String shaderFile;
+
+    ubyte blendMode;
+    ubyte unk; // Maybe CullMode
+
+    ARGB ambient;
+
+    Uniform diffuse;
+    Uniform specular;
+
+    String stencilTex2D;
+
+    if (fileVersion > 0)
+        String normalTex2D;
+
+    Uniform colorize;
+    Uniform emission;
+
+    String opacityTex2D;
+    float opacity;
+
+    float cutout;
+
+    String lightmapDiffuseTex2D;
+    String lightmapSpecularTex2D;
+    if (fileVersion == 2)
+        String lightmapBackedTex2D;
+
+    int shaderDefineFlags <format=binary>;
+
+/*
+    All shader define flags:
+        useAmbient = 1 bit
+        useDiffuse = 2 bit
+        useStencil = 3 bit
+        useColorize = 4 bit
+        useEmission = 5 bit
+        useOpacity = 6 bit
+        useLightmap = 7 bit
+        useSpecular = 8 bit
+        useColorTransformMul = 9 bit
+        useColorTransformAdd = 10 bit
+        useShadowmap = 11 bit
+        useCutout = 12 bit
+        useNormal = 13 bit
+        useVertexColor = 14 bit
+        useBackedLightmap = 15 bit
+        useClipPlane = 16 bit
+        useColorGrading = 17 bit
+        useSSS = 18 bit
+*/
+
+    if ((shaderDefineFlags & (1 << 15)) != 0) {
+        float clipPlaneX;
+        float clipPlaneY;
+        float clipPlaneZ;
+        float clipPlaneW;
+    }
+
+} Material <read=materialRead>;
+
+string materialRead(Material &v) {
+    string s;
+    SPrintf(s, "%s -> %s", v.name.data, v.shaderFile.data);
+    return s;
+}
+
+
+// Camera
+typedef struct {
+    String name;
+
+    float yFov;
+    float xFov;
+
+    float aspectRatio;
+
+    float zNear;
+    float zFar;
+} Camera <read=cameraRead>;
+
+string cameraRead(Camera &v) {
+    string s;
+    SPrintf(s, "%s", v.name.data);
+    return s;
+}
+
+
+// Geometry
+typedef struct {
+    for (k = 0; k < stride; k++) {
+        short position;
+    }
+} Point;
+
+typedef struct {
+    String semantic;
+
+    ubyte indexOffset;
+    ubyte indexSet;
+
+    ubyte stride;
+    float scale;
+    int count;
+
+    for (j = 0; j < count; j++) {
+        Point point;
+    }
+} Source <read=sourceRead>;
+
+string sourceRead(Source &v) {
+    string s;
+    SPrintf(s, "%s - %d", v.semantic.data, v.count);
+    return s;
+}
+
+typedef struct {
+    ubyte sourcesCount;
+    for (i = 0; i < sourcesCount; i++) {
+        Source source;
+    }
+} Sources <read=sourcesRead>;
+
+string sourcesRead(Sources &v) {
+    string s;
+    SPrintf(s, "Count: %d", v.sourcesCount);
+    return s;
+}
+
+
+typedef struct {
+    String name;
+    Matrix4x4 inverseBindMatrix;
+} Joint <read=jointRead>;
+
+string jointRead(Joint &v) {
+    string s;
+    SPrintf(s, "%s", v.name.data);
+    return s;
+}
+
+typedef struct {
+    ubyte jointsCount;
+    for (i = 0; i < jointsCount; i++) {
+        Joint joint;
+    }
+} Joints <read=jointsRead>;
+
+string jointsRead(Joints &v) {
+    string s;
+    SPrintf(s, "Count: %d", v.jointsCount);
+    return s;
+}
+
+
+typedef struct {
+    ubyte jointIds[4];
+
+    if (fileVersion > 0)
+        ushort weights[4];
+    else
+        ubyte weights[4];
+} VertexWeight;
+
+typedef struct {
+    int vertexWeightsCount;
+    for (i = 0; i < vertexWeightsCount; i++) {
+        VertexWeight vertexWeight;
+    }
+} VertexWeights <read=vertexWeightsRead>;
+
+string vertexWeightsRead(VertexWeights &v) {
+    string s;
+    SPrintf(s, "Count: %d", v.vertexWeightsCount);
+    return s;
+};
+
+
+typedef struct {
+    for (l = 0; l < inputsCount; l++) {
+        switch (indexLength) {
+            case 1:
+                ubyte index;
+                break;
+
+            case 2:
+                ushort index;
+                break;
+
+            case 4:
+                uint32 index;
+                break;
+
+            case 8:
+                uint64 index;
+                break;
+        }
+    }
+} VertexIndex;
+
+typedef struct {
+    for (k = 0; k < 3; k++) {
+        VertexIndex vertexIndex;
+    }
+} Triangle;
+
+typedef struct {
+    String materialSymbol;
+
+    int count;
+
+    ubyte inputsCount;
+    ubyte indexLength;
+
+    for (j = 0; j < count; j++) {
+        Triangle triangle;
+    }
+} Mesh <read=meshRead>;
+
+string meshRead(Mesh &v) {
+    string s;
+    SPrintf(s, "%s - %d", v.materialSymbol.data, v.count);
+    return s;
+}
+
+typedef struct {
+    ubyte meshesCount;
+    for (i = 0; i < meshesCount; i++) {
+        Mesh mesh;
+    }
+} Meshes <read=meshesRead>;
+
+string meshesRead(Meshes &v) {
+    string s;
+    SPrintf(s, "Count: %d", v.meshesCount);
+    return s;
+}
+
+
+typedef struct {
+    String name;
+    String groupName;
+
+    if (fileVersion < 2)
+        Matrix4x4 unk;
+
+    Sources sources;
+
+    ubyte hasBindShapeMatrix;
+    if (hasBindShapeMatrix == 1)
+        Matrix4x4 bindShapeMatrix;
+
+    Joints joints;
+    VertexWeights vertexWeights;
+
+    Meshes meshes;
+} Geometry <read=geometryRead>;
+
+string geometryRead(Geometry &v) {
+    string s;
+    SPrintf(s, "%s -> %s", v.name.data, v.groupName.data);
+    return s;
+}
+
+
+// Scene
+typedef struct {
+    char type[4];
+    String targetInstance;
+
+    switch (type) {
+        case "GEOM":
+        case "CONT":
+            ushort materialsCount;
+            for (k = 0; k < materialsCount; k++) {
+                String symbol;
+                String target;
+            }
+            break;
+
+        case "CAME":
+            String lookAtTarget;
+            break;
+    }
+} Instance <read=instanceRead>;
+
+string instanceRead(Instance &v) {
+    string s;
+    SPrintf(s, "%s -> %s", v.type, v.targetInstance.data);
+    return s;
+}
+
+typedef struct {
+    ushort instancesCount;
+    for (j = 0; j < instancesCount; j++) {
+        Instance instance;
+    }
+} Instances <read=instancesRead>;
+
+string instancesRead(Instances &v) {
+    string s;
+    SPrintf(s, "Count: %d", v.instancesCount);
+    return s;
+}
+
+
+typedef struct {
+    ushort index; 
+
+    if ((_frameFlags & 1) != 0) {
+		ushort rotationX;
+		ushort rotationY;
+		ushort rotationZ;
+		ushort rotationW;
+	}
+
+    if ((_frameFlags & 2) != 0)
+        float positionX;
+    if ((_frameFlags & 4) != 0)
+        float positionY;
+    if ((_frameFlags & 8) != 0)
+        float positionZ;
+
+    if ((_frameFlags & 16) != 0)
+        float scaleX;
+    if ((_frameFlags & 32) != 0)
+        float scaleY;
+    if ((_frameFlags & 64) != 0)
+        float scaleZ;
+} Frame;
+
+typedef struct {
+    if (fileVersion > 0)
+        ushort framesCount;
+    else
+        uint32 framesCount;
+
+    if (framesCount > 0) {
+        if (fileVersion > 0)
+            ubyte frameFlags <format=binary>;
+
+/*
+        All frame flags:
+            useRotation = 1 bit
+            useTranslationX = 2 bit
+            useTranslationY = 3 bit
+            useTranslationZ = 4 bit
+            useScaleX = 5 bit
+            useScaleY = 6 bit
+            useScaleZ = 7 bit
+*/
+
+        for (j = 0; j < framesCount; j++) {
+
+            if (j == 0 || fileVersion == 0) _frameFlags = 127;
+            else _frameFlags = frameFlags;
+
+            Frame frame;
+        }
+    }
+} Frames <read=framesRead>;
+
+string framesRead(Frames& v) {
+    string s;
+    SPrintf(s, "Count: %d", v.framesCount);
+    return s;
+}
+
+
+typedef struct {
+    local ubyte _frameFlags;
+
+    String name;
+    String parentName;
+
+    Instances instances;
+    Frames frames;
+} Node <read=nodeRead>;
+
+string nodeRead(Node &v) {
+    string s;
+
+    SPrintf(s, "%s", v.name.data);
+    if (v.parentName.size > 0)
+        SPrintf(s, "%s -> %s", v.name.data, v.parentName.data);
+
+    return s;
+}
+
+typedef struct {
+    ushort nodesCount;
+    for (i = 0; i < nodesCount; i++) {
+        Node node;
+    }
+} Scene <read=sceneRead>;
+
+string sceneRead(Scene &v) {
+    string s;
+    SPrintf(s, "Count: %d", v.nodesCount);
+    return s;
+}
+
+
+typedef struct {
+    int length;
+    char signature[4];
+
+    switch (signature) {
+        case "HEAD":
+            Header header;
+            break;
+
+        case "MATE":
+            Material material;
+            break;
+
+        case "CAME":
+            Camera camera;
+            break;
+
+        case "GEOM":
+            Geometry geometry;
+            break;
+
+        case "NODE":
+            Scene scene;
+            break;
+
+        case "WEND": // EoF
+            break;
+
+        default:
+            Warning("Unknown SC3D chunk signature: %s. Skipping!", signature);
+            FSkip(length);
+            break;
+    }
+
+    int crc32;
+} Chunk <read=chunkRead>;
+
+string chunkRead(Chunk &v) {
+    string s;
+    SPrintf(s, "%s - %d", v.signature, v.length);
+    return s;
+};
+
+
+struct FILE {
+    local ushort fileVersion;
+
+    local int i, j, k, l;
+
+    char magic[4];
+
+    if (magic != "SC3D") {
+        Warning("Bad SC3D file magic!");
+        Exit(1);
+    }
+
+    while (!FEof()) {
+        Chunk chunk;
+    }
+
+} file;
+
+// Hi!

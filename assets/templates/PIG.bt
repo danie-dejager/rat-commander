@@ -1,0 +1,295 @@
+//------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+//
+//      File: PIG.bt
+//   Authors: RED_EYE, xXCooBloyXx, pavidloq (Fred-31)
+//   Version: 0.1.0
+//   Purpose: Parse .pig files (3D models) from Gameloft games.
+//  Category: Game
+// File Mask: *.pig
+//  ID Bytes: 
+//   History: 
+//	 0.1.0 2024-07-25 pavidloq: Made the template (by RED_EYE and xXCooBloyXx) more pretty and also added "tags" section reading.
+//------------------------------------------------
+
+
+// Endian
+LittleEndian();
+
+
+// Iterators
+local int i = 0;
+local int j = 0;
+local int k = 0;
+local int l = 0;
+
+
+// Align function
+void Align(uint alignment) {
+    FSeek((FTell() + (alignment-1)) & ~(alignment-1));
+}
+
+
+// Base data types
+typedef struct {
+    ushort size;
+    if (size > 0)
+        char data[size];
+} String <read=stringRead>;
+
+string stringRead(String& v) {
+    if (v.size > 0)
+        return v.data;
+    
+    return "";
+}
+
+
+typedef struct {
+    float x, y, z;
+} Vec3 <read=vec3Read>;
+
+string vec3Read(Vec3& v) {
+    return Str("%.3f %.3f %.3f", v.x, v.y, v.z);
+}
+
+
+typedef struct {
+    float x, y, z, w;
+} Vec4 <read=vec4Read>;
+
+string vec4Read(Vec4& v) {
+    return Str("%.3f %.3f %.3f %.3f", v.x, v.y, v.z, v.w);
+}
+
+
+typedef struct {
+    Vec3 position;
+    Vec4 rotation;
+    Vec3 scale;
+    float unk;
+} Transform;
+
+
+// Nodes
+typedef struct {
+    uint ident;
+    
+    String name;
+    ubyte nodeType;
+    short nodeParentId;
+    
+    Transform transform;
+    
+    ubyte unk1[2];
+} Node;
+
+
+typedef struct {
+    ushort nodesCount;
+    for (i = 0; i < nodesCount; i++) {
+        Node node;
+    }
+} Nodes;
+
+
+// Compressed data struct
+typedef enum <ubyte> {
+    LZ4 = 1,
+    ZSTD = 2
+} CompressionMethod;
+
+
+typedef struct {
+    CompressionMethod compressionMethod; // LZ4 and ZSTD
+   
+    uint compressedSize;
+    uint decompressedSize;
+
+    ubyte compressedData[compressedSize];
+} CompressedData;
+
+
+// Objects
+typedef struct {
+    uint positions : 1;
+    uint normals : 1;
+    uint tanget : 1;
+    uint unk : 1;
+    uint unk : 1;
+    uint unk : 1;
+    uint unk : 1;
+    uint uv1 : 1;
+    uint uv2 : 1;
+} VertexFormat;
+
+
+typedef struct {
+    String name;
+    if (name.size > 0 && flagAboveObjects < 2)
+        ushort unk;
+} TextureEntry;
+
+
+typedef struct {
+    for (l = 0; l < 8; l++) {
+        TextureEntry textureEntry;
+    }
+} Textures;
+
+
+typedef struct {
+    ushort unk;
+    ushort jointsCount;
+    uint unk;
+    
+    CompressedData compressedUnknownData;
+} Skeleton;
+
+
+typedef struct {
+    uint ident;
+    
+    uint flags;
+    
+    VertexFormat vertexFormat;
+    
+    Vec3 pivotPoint;
+    
+    // 0x1 - PACKED_VERTEX_DATA
+    if (flags & 0x1) {
+        Vec3 offset;
+        Vec3 size;
+    }
+    
+    ushort verticesCount;
+    uint facesCount;
+    
+    String materialName;
+    
+    ushort unk;
+    
+    Textures textures;
+    
+    Align(4);
+    while (ReadInt() == 0) {
+        uint pad;
+    };
+    
+    CompressedData compressedGeometryData;
+    
+    if (haveSkeleton > 0)
+        Skeleton skeleton;
+    
+} Mesh;
+
+typedef struct {
+    ushort meshesCount;
+    for (k = 0; k < meshesCount; k++) {
+        Mesh mesh;
+    }
+} Meshes;
+
+
+typedef struct {
+    ubyte lod_id;
+    
+    uint ident;
+    ushort haveSkeleton;
+    
+    Vec3 bbox[2];
+    
+    Meshes meshes;
+} Lod;
+
+
+typedef struct {
+    ushort lodsCount;
+    for (j = 0; j < lodsCount; j++) {
+        Lod lod;
+    }
+} Lods;
+
+
+typedef struct {
+    uint ident;
+    
+    uint nodeId;
+    
+    Lods lods;
+} Object;
+
+
+typedef struct {
+    ushort objectsCount;
+    for (i = 0; i < objectsCount; i++) {
+        Object object;
+    }
+} Objects;
+
+
+// Cameras
+typedef struct {
+    uint ident;
+    
+    String cameraName;
+    
+    ushort unk;
+    
+    ubyte pad;
+    
+    Transform transform;
+    
+    uint16 pad;
+    
+    String cameraDataName;
+    
+    float xfov;
+    float aspectRatio;
+    
+    float znear;
+    float zfar;
+    
+    //Align(4);
+    
+    ubyte pad;
+} Camera;
+
+
+typedef struct {
+    ushort camerasCount;
+    for (i = 0; i < camerasCount; i++) {
+        Camera camera;
+    }
+} Cameras;
+
+
+// Tags
+typedef struct {
+    String name;
+    String value;
+} Tag;
+
+
+typedef struct {
+    ushort tagsCount;
+    for (i = 0; i < tagsCount; i++) {
+        Tag tag;
+    }
+} Tags;
+
+
+// Entry point
+struct FILE {
+    uint ident;
+    
+    Nodes nodes;
+    
+    ubyte flagAboveObjects;
+    
+    Objects objects;
+    
+    Cameras cameras;
+    
+    Tags tags;
+} file;

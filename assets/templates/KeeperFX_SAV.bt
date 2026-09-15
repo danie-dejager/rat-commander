@@ -1,0 +1,3311 @@
+//------------------------------------------------
+//--- 010 Editor v13.0 Binary Template
+//
+//      File: KeeperFX_SAV.bt
+//    Author: jomalin (from KeeperKlan forum https://keeperklan.com/)
+//   Version: 1.1
+//   Purpose: Parse savegame SAV files (fx1g000X.sav) from KeeperFX videogame ver 0.4.9.2762
+//  Category: Game
+// File Mask: fx1g*.sav
+//   History:  
+//   1.1   2022-09-15 jomalin: Add RequiresVersion, clarify some messages and show expected savegame file size in case of error
+//   1.0   2022-09-15 jomalin: Initial release.
+//------------------------------------------------
+
+/*
+IMPORTANT NOTE: This binary template is exactly for KeeperFX 0.4.9.2762 version, it can't be used for any other KeeperFX version that makes
+the savegame file be bigger in size (some new versions add more info to it so the file size change), in this case, this code will detect it
+and you will see in the Output pane an error like this:
+"BLOCKNAME block is INCORRECT..." (where BLOCKNAME is the current block being parsed).
+Of course, KeeperFX savegame format is different from the original Dungeon Keeper one.
+
+The process to make this binary template has been:
+Being the KeeperFX repository here: https://github.com/dkfans/keeperfx
+- Start to read what the load game does:
+  https://github.com/dkfans/keeperfx/blob/master/src/game_saves.c
+- Copy all defines and structs from the source code that are used from game_saves.c (recursively)
+- Replace all syntax that 010 Editor scripting language doesn't understand (*)
+- Take care about pragma pack preprocessor directives (makes structs be bigger in size as expected) so add the necessary padding bytes (*)(*)
+- All the code comments i added here starts with: "010 Editor note"
+
+(*) These are all the generic kind of comments i have written in this code in the structs, unions or variables to make it work for this
+scripting language (very similar to C):
+- 010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+- 010 Editor note: structs and unions must have a name, we add one
+- 010 Editor note: multi-dimensional arrays are not supported, we change it to a struct (workaround proposed on the 010 Editor manual)
+- 010 Editor note: this throws "Invalid array size in typedef". Typedefs do not support an expression for an array size, they said to me they will add this on a future version
+- 010 Editor note: hardcode value needed as typedefs do not support an expression for an array size
+There are only a few other comments, more specific ones.
+
+(*)(*) As KeeperFX uses this preprocessor directive in some parts of the code:
+#pragma pack()
+some structs are bigger in size as they have padding bytes added between some of its members.
+This comment reflects all the places where the padding was necessary here:
+- 010 Editor note: necessary padding
+More info about alignment and structure packing here:
+http://www.catb.org/esr/structure-packing/
+https://www.geeksforgeeks.org/is-sizeof-for-a-struct-equal-to-the-sum-of-sizeof-of-each-member/
+Keep in mind that every compiler can have its own alignment/packing algorithm, so adding padding bytes must be done in the same place where
+the original compiler supposed to added them.
+010 Editor will support pragma pack directive in the future, so this tedious process will be avoided someday adding that directive to the
+corresponding structs and keeping them clear (without the specific padding bytes).
+Some structs that have pragma pack enabled in the KeeperFX source code are:
+DoorConfigStats
+TrapConfigStats
+ManufactureData
+TrapDoorConfig
+ObjectConfigStats
+ObjectsConfig
+CreatureModelConfig
+CreatureJobConfig
+CreatureConfig
+TrapInfo
+BoxInfo
+Coord3d
+ComputerEvent
+ComputerCheck
+ComputerInfo
+DungeonAdd
+RoomSpace
+Take care about them if they change in the future or a new savegame version support want to be added, as padding bytes can be necessary to
+be added to parse them.
+
+TO-DO in this binary template in future versions:
+- Use InputRadioButtonBox function (requires 010 Editor v5.0 or higher) to select which KeeperFX savegame version is going to be read to
+  appropriately parse it.
+  This will allow open different savegame version files, not only from 0.4.9.2672.
+  "Ifs" must be used on structs to add or not certain members depending on version.
+- Add comments to the "Comment" column in the Template results windows with relevant or summarized data:
+  https://www.sweetscape.com/010editor/manual/TemplateVariables.htm#VarComments
+*/
+
+RequiresVersion(4); //For SPrintf and variable comments
+LittleEndian();
+
+//010 Editor note: Additional typedefs i added and one constant:
+typedef unsigned char uint8_t; //010 Editor note: necessary typedef two structs use
+typedef uint32 anyPointer; //010 Editor note: as pointer syntax is not supported in 010 Editor, we create this typedef for all the kind of them used in the KeeperFX source code
+#define EXPECTED_SAVEGAME_SIZE 1912654
+
+//From actionpt.h
+#define ACTN_POINTS_COUNT     32
+
+//From ariadne.h
+#define ARID_WAYPOINTS_COUNT 10
+
+//From bflib_basics.h
+typedef int TbFileHandle;
+typedef unsigned char TbBool;
+#define DISKPATH_SIZE    144
+#define LINEMSG_SIZE     160
+#define COMMAND_WORD_LEN  32
+typedef unsigned char TbChecksum;
+
+//From config_campaigns.h
+/** Strings length */
+#define CAMPAIGN_FNAME_LEN           64
+
+//From config_creature.h
+#define CREATURE_TYPES_MAX 64
+#define CREATURE_STATES_MAX 256
+#define INSTANCE_TYPES_MAX 64
+
+//From config_cubes.h
+#define CUBE_ITEMS_MAX 512
+#define CUBE_TEXTURES 6
+
+//From config_magic.h
+#define POWER_TYPES_COUNT      20
+#define SPELL_MAX_LEVEL         8
+#define MAGIC_OVERCHARGE_LEVELS (SPELL_MAX_LEVEL+1)
+
+//From config_objects.h
+#define OBJECT_TYPES_MAX  256
+
+//From config_rules.h
+#define MAX_SACRIFICE_RECIPES 60
+#define MAX_SACRIFICE_VICTIMS 6
+
+//From config_terrain.h
+#define TERRAIN_ITEMS_MAX    256
+
+//From creature_battle.h
+/** Max amount of battles supported on any map. */
+#define BATTLES_COUNT          48
+
+//From creature_control.h
+/** Max amount of rooms needed for a creature to be attracted to a dungeon. */
+#define ENTRANCE_ROOMS_COUNT               3
+/** Max amount of creatures supported on any map. */
+#define CREATURES_COUNT       256
+/** Number of possible melee combat opponents. */
+#define COMBAT_MELEE_OPPONENTS_LIMIT       4
+/** Number of possible range combat opponents. */
+#define COMBAT_RANGED_OPPONENTS_LIMIT      4
+/** Amount of instances. */
+#define CREATURE_INSTANCES_COUNT          48
+/** Max amount of spells casted at the creature at once. */
+#define CREATURE_MAX_SPELLS_CASTED_AT 5
+
+//From creature_graphics.h
+// note - this is temporary value; not correct
+#define CREATURE_GRAPHICS_INSTANCES     22
+
+//From creature_groups.h
+#define GROUP_MEMBERS_COUNT 8
+
+//From dungeon_data.h
+#define CUSTOM_BOX_COUNT            256
+#define FX_LINES_COUNT              32
+#define DUNGEONS_COUNT              5
+#define SCRIPT_FLAGS_COUNT          8
+#define MAX_SOE_RADIUS              13 //010 Editor note: take a look to the SOE_EXPLORED_FLAGS struct
+#define MAX_THINGS_IN_HAND          8
+#define DUNGEON_RESEARCH_COUNT      34
+#define KEEPER_POWERS_COUNT         20
+#define TURN_TIMERS_COUNT           8
+#define DIGGER_TASK_MAX_COUNT       64
+#define CREATURE_GUI_JOBS_COUNT     3
+
+//From game_legacy.h
+// Animated textures amount
+#define TEXTURE_BLOCKS_ANIM_COUNT    48
+#define BOOKMARKS_COUNT               5
+
+//From game_lghtshdw.h
+#define SHADOW_CACHE_COUNT     40
+
+//From game_merge.h
+#define QUICK_MESSAGES_COUNT         50
+#define MESSAGE_TEXT_LEN           1024
+#define BONUS_LEVEL_STORAGE_COUNT     6
+#define TRANSFER_CREATURE_STORAGE_COUNT     255
+#define PLAYERS_FOR_CAMPAIGN_FLAGS    5
+#define CAMPAIGN_FLAGS_PER_PLAYER     8
+
+//From game_merge.h and config_trapdoor.h
+#define TRAPDOOR_TYPES_MAX 128
+
+//From game_saves.h
+#define SAVE_TEXTNAME_LEN        15
+#define PLAYER_NAME_LENGTH       64
+
+enum SaveGameChunks {
+	SGC_InfoBlock      = 0x4F464E49, //"INFO"
+	SGC_GameOrig       = 0x53444C4F, //"OLDS"
+	SGC_GameAdd        = 0x44444147, //"GADD"
+	SGC_PacketHeader   = 0x52444850, //"PHDR"
+	SGC_PacketData     = 0x544B4350, //"PCKT"
+	SGC_IntralevelData = 0x4C564C49, //"ILVL"
+};
+
+//From globals.h
+/** Type which stores thing model. */
+typedef unsigned char ThingModel;
+/** Player identification number, or owner of in-game thing/room/slab. */
+typedef signed char PlayerNumber;
+/** Level number within a campaign. */
+typedef long LevelNumber;
+/** Type which stores room role flags. */
+typedef unsigned long RoomRole;
+/** Type which stores EvKind_* values. */
+typedef unsigned char EventKind;
+/** Type which stores creature state index. */
+typedef unsigned short CrtrStateId;
+/** Identifier of a national text string. */
+typedef int TextStringId;
+/** Type which stores slab kind index. */
+typedef unsigned char SlabKind;
+typedef short BattleIndex;
+/** Map slab coordinate. Slab is a cubic part of map with specific content. */
+typedef short MapSlabCoord;
+/** Type which stores room kind index. */
+typedef unsigned char RoomKind;
+/** Type which stores thing class. */
+typedef unsigned char ThingClass;
+/** Type which stores digger task type as DigTsk_* values. */
+typedef unsigned short SpDiggerTaskType;
+
+//From gui_msgs.h
+#define GUI_MESSAGES_COUNT      7
+
+//From light_data.h
+#define LIGHTS_COUNT          400
+#define SHADOW_LIMITS_COUNT  2048
+
+//From lvl_script.h
+#define TUNNELLER_TRIGGERS_COUNT 256
+#define PARTY_TRIGGERS_COUNT     256
+#define SCRIPT_VALUES_COUNT      256
+#define CONDITIONS_COUNT         255
+#define CREATURE_PARTYS_COUNT    256
+#define WIN_CONDITIONS_COUNT      4
+#define TUNNELLER_TRIGGERS_COUNT_OLD 16
+#define PARTY_TRIGGERS_COUNT_OLD     48
+#define SCRIPT_VALUES_COUNT_OLD      64
+#define CONDITIONS_COUNT_OLD         48
+#define CREATURE_PARTYS_COUNT_OLD    16
+#define WIN_CONDITIONS_COUNT_OLD      4
+
+//From map_columns.h
+#define COLUMNS_COUNT        2048
+#define COLUMN_STACK_HEIGHT     8
+
+//From map_events.h
+#define EVENT_KIND_COUNT       34
+#define EVENTS_COUNT          100
+#define EVENT_BUTTONS_COUNT    12
+
+//From net_game.h
+#define PACKETS_COUNT           5
+
+//From player_complookup.h
+#define GOLD_LOOKUP_COUNT      40
+
+//From player_computer.h
+//010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+/*
+typedef long (*Comp_Event_Func)(struct Computer2 *, struct ComputerEvent *,struct Event *);
+typedef long (*Comp_EvntTest_Func)(struct Computer2 *, struct ComputerEvent *);
+typedef long (*Comp_Process_Func)(struct Computer2 *, struct ComputerProcess *);
+typedef long (*Comp_Check_Func)(struct Computer2 *, struct ComputerCheck *);
+*/
+typedef anyPointer Comp_Event_Func;
+typedef anyPointer Comp_EvntTest_Func;
+typedef anyPointer Comp_Process_Func;
+typedef anyPointer Comp_Check_Func;
+#define COMPUTER_EVENTS_COUNT        33
+#define COMPUTER_CHECKS_COUNT        32
+#define COMPUTER_TASKS_COUNT        100
+#define COMPUTER_PROCESSES_COUNT     20
+#define COMPUTER_SPARK_POSITIONS_COUNT 64
+#define COMPUTER_TRAP_LOC_COUNT      20
+#define COMPUTER_SOE_GRID_SIZE        8
+#define COMPUTER_CHECKS_COUNT_OLD    15
+#define COMPUTER_EVENTS_COUNT_OLD    12
+
+//From player_data.h
+#define PLAYERS_COUNT           5
+#define PLAYER_MP_MESSAGE_LEN  64
+#define WANDER_POINTS_COUNT    200
+#define PLAYERS_EXT_COUNT       6
+
+//From roomspace.h
+#define MAX_ROOMSPACE_WIDTH                        20
+
+//From room_data.h
+#define ROOMS_COUNT          150
+#define ROOM_TYPES_COUNT      17
+
+//From slab_data.h
+#define SLABSET_COUNT        1304
+#define SLABOBJS_COUNT        512
+
+//From tasks_list.h
+#define MAPTASKS_COUNT        300
+
+//From thing_creature.h
+#define CREATURE_TYPES_COUNT  32
+#define DEAD_CREATURES_MAX_COUNT 64
+
+//From thing_doors.h
+#define DOOR_TYPES_COUNT        5
+
+//From thing_list.h
+#define THINGS_COUNT         2048
+
+//From thing_objects.h
+#define OBJECT_TYPES_COUNT  255
+#define OBJECT_TYPES_COUNT_ORIGINAL  136
+
+//From thing_stats.h
+#define CREATURE_MAX_LEVEL     10
+#define LEARNED_INSTANCES_COUNT 10
+
+//From thing_traps.h
+#define TRAP_TYPES_COUNT        7
+
+/************************** STRUCTS **************************/
+
+//From globals.h
+struct CoordDelta3d {
+    union {
+      short val;
+      struct {
+        unsigned char pos;
+        char num;
+        } stl;
+    } x;
+    union {
+      short val;
+      struct {
+        unsigned char pos;
+        char num;
+        } stl;
+    } y;
+    union {
+      short val;
+      struct {
+        unsigned char pos;
+        char num;
+        } stl;
+    } z;
+};
+
+struct Coord2d {
+    union {
+      unsigned short val;
+      struct {
+        unsigned char pos;
+        unsigned char num;
+        } stl;
+    } x;
+    union {
+      unsigned short val;
+      struct {
+        unsigned char pos;
+        unsigned char num;
+        } stl;
+    } y;
+};
+
+struct Coord3d {
+    union {
+      unsigned short val;
+      struct {
+        unsigned char pos;
+        unsigned char num;
+        } stl;
+    } x;
+    union {
+      unsigned short val;
+      struct {
+        unsigned char pos;
+        unsigned char num;
+        } stl;
+    } y;
+    union {
+      unsigned short val;
+      struct {
+        unsigned char pos;
+        unsigned char num;
+        } stl;
+    } z;
+};
+
+//From game_saves.h
+// Stores the file header information
+struct FileChunkHeader {
+    unsigned long len;
+    unsigned long id;
+    unsigned long ver;
+};
+
+struct CatalogueEntry
+{
+    unsigned short flags;
+    unsigned long version;
+    char textname[SAVE_TEXTNAME_LEN];
+    LevelNumber level_num;
+    char campaign_name[LINEMSG_SIZE];
+    char campaign_fname[DISKPATH_SIZE];
+    char player_name[PLAYER_NAME_LENGTH];
+};
+
+//From config_cubes.h
+struct CubeAttribs { // sizeof=0x12
+    unsigned short texture_id[CUBE_TEXTURES];
+    unsigned char field_C[CUBE_TEXTURES];
+};
+
+//From light_data.h
+struct LightSystemState {
+    long bitmask[32];
+    long static_light_needs_updating;
+    long total_dynamic_lights;
+    long total_stat_lights;
+    long rendered_dynamic_lights;
+    long rendered_optimised_dynamic_lights;
+    long updated_stat_lights;
+    long out_of_date_stat_lights;
+};
+
+struct InitLight { // sizeof=0x14
+short radius;
+unsigned char intensity;
+unsigned char field_3;
+short field_4;
+short field_6;
+short field_8;
+    struct Coord3d mappos;
+unsigned char field_10;
+    unsigned char is_dynamic;
+short field_12;
+};
+
+struct Light { // sizeof = 46
+  unsigned char flags;
+  unsigned char flags2;
+  unsigned char intensity;
+  unsigned char field_3[2];
+  unsigned char range;
+  unsigned char field_6;
+  unsigned short field_7;
+  unsigned char field_9;
+  unsigned char field_A[4];
+  unsigned short index;
+  unsigned short shadow_index;
+  long field_12;
+  unsigned short radius;
+  short field_18;
+  short field_1A;
+  unsigned char field_1C[8];
+  unsigned short field_24;
+  unsigned short field_26;
+  struct Coord3d mappos;
+};
+
+//From config_objects.h
+struct ObjectConfig { // sizeof=0x1D
+    long health;
+char fall_acceleration;
+char light_unaffected;
+char is_heart;
+char resistant_to_nonmagic;
+char movement_flag;
+    struct InitLight ilght;
+};
+
+struct ObjectConfigStats {
+    char code_name[COMMAND_WORD_LEN];
+    unsigned short model_flags;
+    char padding1[2] <comment=PaddingCommentFunc>; //010 Editor note: necessary padding
+    long genre;
+    long name_stridx;
+    long map_icon;
+};
+
+struct ObjectsConfig {
+    long object_types_count;
+    struct ObjectConfigStats object_cfgstats[OBJECT_TYPES_MAX];
+    ThingModel object_to_door_or_trap[OBJECT_TYPES_MAX];
+    ThingModel object_to_power_artifact[OBJECT_TYPES_MAX];
+    ThingModel object_to_special_artifact[OBJECT_TYPES_MAX];
+    ThingClass workshop_object_class[OBJECT_TYPES_MAX];
+    struct ObjectConfig base_config[OBJECT_TYPES_MAX];
+};
+
+//From game_lghtshdw.h
+struct UnkStruc6 { // sizeof = 8
+  unsigned char field_0;
+  unsigned char field_1;
+  unsigned char field_2;
+  unsigned char field_3;
+  unsigned long field_4;
+};
+
+struct ShadowCache { // sizeof = 129
+  unsigned char flags;
+  unsigned char field_1[127];
+  unsigned char field_80;
+};
+
+/**
+ * Structure which stores data of lights and shadows system.
+ */
+struct LightsShadows { // sizeof = 164886
+    struct UnkStruc6 field_1DD41[1024];
+    unsigned char shadow_limits[SHADOW_LIMITS_COUNT];
+    struct Light lights[LIGHTS_COUNT];
+    struct ShadowCache shadow_cache[SHADOW_CACHE_COUNT];
+    unsigned short stat_light_map[256*256];
+    long field_46149;
+    char field_4614D;
+    char field_4614E;
+    int field_4614F;
+    int field_46153;
+    unsigned short subtile_lightness[256*256];
+};
+
+//From config_rules.h
+struct SacrificeRecipe {
+    long victims[MAX_SACRIFICE_VICTIMS];
+    long action;
+    long param;
+};
+
+//From gui_msgs.h
+struct GuiMessage {
+    char text[64];
+	PlayerNumber plyr_idx;
+	unsigned long creation_turn;
+	PlayerNumber target_idx;
+};
+
+struct GuiMessage_OLD { // sizeof = 0x45 (69)
+    char text[64];
+PlayerNumber plyr_idx;
+unsigned long creation_turn;
+};
+
+//From ariadne.h
+struct Navigation { // sizeof = 0x27
+  unsigned char navstate;
+  unsigned char field_1[3];
+  unsigned char field_4;
+  long field_5;
+  long field_9;
+  long field_D;
+  unsigned char field_11[4];
+  unsigned short field_15;
+  unsigned short field_17;
+  unsigned char field_19[2];
+  struct Coord3d pos_next;
+  struct Coord3d pos_final;
+};
+
+struct Ariadne { // sizeof = 102
+    /** Position where the journey stated. */
+    struct Coord3d startpos;
+    /** Final position where we're heading. */
+    struct Coord3d endpos;
+    /** Position of the last reached waypoint. */
+    struct Coord3d current_waypoint_pos;
+  struct Coord3d pos_12;
+  struct Coord3d pos_18;
+  unsigned char route_flags;
+  unsigned char field_1F;
+  unsigned char field_20;
+  unsigned char update_state;
+  unsigned char field_22;
+  unsigned char field_23;
+  short field_24;
+  unsigned short move_speed;
+    /** Index of the current waypoint in list of nearest waypoints stored. */
+    unsigned char current_waypoint;
+    /** List of nearest waypoints in the way towards destination, stored in an array. */
+    struct Coord2d waypoints[ARID_WAYPOINTS_COUNT];
+    /** Amount of nearest waypoints stored in the array. */
+    unsigned char stored_waypoints; // offs = 0x51
+    /** Total amount of waypoints planned on the way towards endpos. */
+    unsigned char total_waypoints;
+  struct Coord3d pos_53;
+  struct Coord3d pos_59;
+  unsigned char manoeuvre_state;
+  short wallhug_angle;
+  long field_62;
+};
+
+//From creature_control.h
+struct CreatureSound {
+    long index;
+    long count;
+};
+
+struct CreatureSounds {
+    struct CreatureSound foot;
+    struct CreatureSound hit;
+    struct CreatureSound happy;
+    struct CreatureSound sad;
+    struct CreatureSound hurt;
+    struct CreatureSound die;
+    struct CreatureSound hang;
+    struct CreatureSound drop;
+    struct CreatureSound torture;
+    struct CreatureSound slap;
+    struct CreatureSound fight;
+};
+
+struct Persons {
+    //010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+	//struct CreatureControl *cctrl_lookup[CREATURES_COUNT];
+    //struct CreatureControl *cctrl_end;
+	anyPointer CreatureControl_cctrl_lookup[CREATURES_COUNT];
+    anyPointer CreatureControl_cctrl_end;
+};
+
+struct CastedSpellData {
+    unsigned char spkind;
+    short duration;
+    unsigned char field_3;
+};
+
+struct CreatureStatsOLD { // sizeof = 230
+  unsigned short job_primary;
+  unsigned short job_secondary;
+  unsigned short jobs_not_do;
+  unsigned char eye_effect;
+  unsigned short health;
+  unsigned char heal_requirement;
+  unsigned char heal_threshold;
+  unsigned char strength;
+  unsigned char armour;
+  unsigned char dexterity;
+  unsigned char fear_wounded;
+  unsigned char defense;
+  unsigned char luck;
+  unsigned char sleep_recovery;
+  unsigned short hunger_rate;
+  unsigned char hunger_fill;
+  unsigned short annoy_level;
+  unsigned char lair_size;
+  unsigned char hurt_by_lava;
+  unsigned char sleep_exp_slab;
+  unsigned char sleep_experience;
+  short exp_for_hitting;
+  short gold_hold;
+  short training_cost;
+  short scavenger_cost;
+  short scavenge_require;
+  unsigned char scavenge_value;
+  unsigned long to_level[10];
+  unsigned char base_speed;
+  short grow_up;
+  unsigned char grow_up_level;
+  TbBool entrance_force;
+  short max_angle_change;
+  short eye_height;
+short field_57[14];
+short field_73;
+  unsigned short size_xy;
+  unsigned short size_yz;
+  unsigned short walking_anim_speed;
+  TbBool flying;
+  TbBool immune_to_gas;
+  unsigned char attack_preference;
+  short field_of_view;
+  unsigned char learned_instance_id[10];
+  unsigned char learned_instance_level[10];
+  unsigned char research_value;
+  TbBool humanoid_creature;
+  TbBool piss_on_dead;
+  unsigned char training_value;
+  short pay;
+  unsigned char manufacture_value;
+  unsigned char hearing;
+  unsigned char entrance_rooms[3];
+  unsigned char entrance_slabs_req[3];
+  unsigned char visual_range;
+  unsigned char partner_training;
+  short torture_time;
+  short annoy_no_lair;
+  short annoy_no_hatchery;
+  short annoy_woken_up;
+  short annoy_on_dead_friend;
+  short annoy_sulking;
+  short annoy_no_salary;
+  short annoy_slapped;
+  short annoy_on_dead_enemy;
+  short annoy_in_temple;
+  short annoy_sleeping;
+  short annoy_got_wage;
+  short annoy_in_torture;
+  short annoy_win_battle;
+  short annoy_untrained_time;
+  short annoy_untrained;
+  short field_C4;
+  short annoy_queue;
+  short annoy_will_not_do_job;
+  unsigned short job_stress;
+  short annoy_job_stress;
+  unsigned short jobs_anger;
+  short annoy_others_leaving;
+  unsigned char slaps_to_kill;
+  short lair_enemy;
+  short hero_vs_keeper_cost;
+  unsigned char rebirth;
+  TbBool can_see_invisible;
+  TbBool can_go_locked_doors;
+  TbBool bleeds;
+  TbBool affected_by_wind;
+  unsigned short thing_size_xy;
+  unsigned short thing_size_yz;
+  short annoy_eat_food;
+  short annoy_in_hand;
+  short damage_to_boulder;
+};
+
+struct CreatureStats { // These stats are not compatible with original DK - they have more fields
+    unsigned short job_primary;
+    unsigned short job_secondary;
+    unsigned short jobs_not_do;
+    unsigned char eye_effect;
+    unsigned short health;
+    unsigned char heal_requirement;
+    unsigned char heal_threshold;
+    unsigned char strength;
+    unsigned char armour;
+    unsigned char dexterity;
+    unsigned char fear_wounded;
+    unsigned char defense;
+    unsigned char luck;
+    unsigned char sleep_recovery;
+    unsigned short hunger_rate;
+    unsigned char hunger_fill;
+    unsigned short annoy_level;
+    unsigned char lair_size;
+    unsigned char hurt_by_lava;
+    unsigned char sleep_exp_slab;
+    short sleep_experience;
+    short exp_for_hitting;
+    short gold_hold;
+    short training_cost;
+    short scavenger_cost;
+    short scavenge_require;
+    unsigned char scavenge_value;
+    unsigned long to_level[CREATURE_MAX_LEVEL];
+    unsigned char base_speed;
+    short grow_up;
+    unsigned char grow_up_level;
+    TbBool entrance_force;
+    short max_angle_change;
+    short eye_height;
+  short field_57[14];
+  short field_73;
+    unsigned short size_xy;
+    unsigned short size_yz;
+    unsigned short walking_anim_speed;
+    TbBool flying;
+    TbBool immune_to_gas;
+    unsigned char attack_preference;
+    short field_of_view;
+    /** Instance identifiers of the instances creature can learn. */
+    unsigned char learned_instance_id[LEARNED_INSTANCES_COUNT];
+    /** Required level to use the instances creature can learn. Scaled 1..CREATURE_MAX_LEVEL. */
+    unsigned char learned_instance_level[LEARNED_INSTANCES_COUNT];
+    unsigned char research_value;
+    TbBool humanoid_creature;
+    TbBool piss_on_dead;
+    unsigned char training_value;
+    short pay;
+    unsigned char manufacture_value;
+    unsigned char hearing;
+    unsigned char entrance_rooms[ENTRANCE_ROOMS_COUNT];
+    unsigned char entrance_slabs_req[ENTRANCE_ROOMS_COUNT];
+    unsigned char visual_range;
+    unsigned char partner_training;
+    /** Minimal game turns a creature must be tortured before it gets a chance to be broken */
+    short torture_break_time;
+    short annoy_no_lair;
+    short annoy_no_hatchery;
+    short annoy_woken_up;
+    short annoy_on_dead_friend;
+    short annoy_sulking;
+    short annoy_no_salary;
+    short annoy_slapped;
+    short annoy_on_dead_enemy;
+    short annoy_in_temple;
+    short annoy_sleeping;
+    short annoy_got_wage;
+    short annoy_in_torture;
+    short annoy_win_battle;
+    short annoy_untrained_time;
+    short annoy_untrained;
+    short field_C4;
+    short annoy_queue;
+    /* Annoyance caused by tries to assign creature to a job it won't do */
+    short annoy_will_not_do_job;
+    /* Job kinds which cause stress for the creature */
+    unsigned short job_stress;
+    /* Amount of annoyance given to creature under stressful job */
+    short annoy_job_stress;
+    /* Job kinds which the creature will start when it is angry */
+    unsigned short jobs_anger;
+    short annoy_others_leaving;
+    unsigned char slaps_to_kill;
+    short lair_enemy;
+    short hero_vs_keeper_cost;
+    TbBool rebirth;
+    TbBool can_see_invisible;
+    TbBool can_go_locked_doors;
+    TbBool bleeds;
+    TbBool affected_by_wind;
+    unsigned short thing_size_xy;
+    unsigned short thing_size_yz;
+    short annoy_eat_food;
+    short annoy_in_hand;
+    short damage_to_boulder;
+    // New fields go there; don't change earlier fields.
+    unsigned short fear_stronger;
+    unsigned short fearsome_factor;
+    short entrance_score;
+    short annoy_going_postal;
+    short toking_recovery;
+    TbBool illuminated;
+    char corpse_vanish_effect;
+};
+
+struct CreatureControl {
+    unsigned char index;
+    unsigned char flgfield_1;
+    unsigned char flgfield_2;
+    unsigned char combat_flags;
+    unsigned char party_objective;
+    unsigned long wait_to_turn;
+    short distance_to_destination;
+    short opponents_melee[COMBAT_MELEE_OPPONENTS_LIMIT];
+    short opponents_ranged[COMBAT_RANGED_OPPONENTS_LIMIT];
+    unsigned char opponents_melee_count;
+    unsigned char opponents_ranged_count;
+    unsigned short players_prev_creature_idx;
+    unsigned short players_next_creature_idx;
+    unsigned short slap_turns;
+    unsigned char explevel;
+    long exp_points;
+    long prev_exp_points;
+unsigned char field_2C;
+    struct Coord3d moveto_pos;
+unsigned char field_33[2];
+    short field_35;
+unsigned char field_37[2];
+    long hunger_level;
+    long temple_cure_gameturn;
+    unsigned char hunger_amount;
+    unsigned char hunger_loss;
+    long field_43;
+    unsigned char field_47;
+    unsigned char paydays_owed;
+    char paydays_advanced;
+    long annoy_untrained_turn;
+    unsigned long last_roar_turn;
+   /** The game enumerates the elements of annoyance array periodically and looks for the highest value.
+    * When the highest value is above CreatureStats->annoy_level, the creature becomes angry/livid,
+    * depending on how high the highest value is.
+    */
+    long annoyance_level[5];
+    unsigned char mood_flags;
+unsigned char field_67;
+    /** Lair room index, that is the room which holds creature's lair object. */
+    unsigned short lair_room_id;
+    /** Lair object thing index. */
+    unsigned short lairtng_idx;
+    short field_6C;
+    /** Index of a thing being dragged by the creature, or index of a thing which is dragging this thing.
+     *  Specific case is determined by flags. */
+    short dragtng_idx;
+    unsigned short arming_thing_id;
+    unsigned short pickup_object_id;
+    unsigned short pickup_creature_id;
+    unsigned short next_in_group;
+    unsigned short prev_in_group;
+    unsigned short group_info;// offset 7A
+    short last_work_room_id;
+    /** Work room index, used when creature is working in a room. */
+    short work_room_id;
+    /** Target room index, used when creature is moving to a room or is attacking a room. */
+    short target_room_id;
+    long turns_at_job;
+    short blocking_door_id;
+    unsigned char move_flags;
+// Hard to tell where exactly, but somewhere here a kind-specific, job-specific or owner-specific data starts
+  union {
+  struct {
+    char target_plyr_idx;
+    unsigned char byte_8Ax;
+    long long_8B;
+    unsigned char byte_8F;
+    unsigned short member_pos_stl[5];
+  } party;
+  struct {
+    long stack_update_turn;
+    short working_stl;
+    unsigned short task_stl;
+    unsigned short task_idx;
+    unsigned char byte_93;
+    unsigned char last_did_job;
+    unsigned char task_stack_pos;
+    unsigned short task_repeats;
+    unsigned char field_98[2];
+  } digger;
+  struct {
+    short word_89;
+    short word_8B;
+    short word_8D;
+    unsigned char byte_8F;
+    unsigned short word_90[5];
+  } patrol;
+  struct {
+    char sbyte_89;
+    unsigned char byte_8A;
+    unsigned char byte_8B;
+    unsigned char byte_8C;
+    short word_8D;
+    unsigned short word_8F;
+    short word_91;
+    short word_93;
+    unsigned char field_95;
+    unsigned char field_96[4];
+  } unknownStruct1; //010 Editor note: structs and unions must have a name, we add one
+  struct {
+    long long_89;
+    long long_8D;
+    long long_91;
+    unsigned char field_95x;
+    unsigned char field_96x[4];
+  } unknownStruct2; //010 Editor note: structs and unions must have a name, we add one
+  } creatureControlFirstUnion; //010 Editor note: structs and unions must have a name, we add one
+
+  union {
+  struct {
+        long start_gameturn;
+        long long_9Ex;
+        long long_A2x;
+        short assigned_torturer;
+        unsigned char vis_state;
+  } tortured;
+  struct {
+        long start_gameturn;
+        long long_9Ex;
+        long long_A2x;
+  } idle;
+  struct {
+    unsigned char job_stage;
+    unsigned char byte_9B;
+    unsigned char byte_9C;
+    unsigned char byte_9D;
+    unsigned char byte_9E;
+    unsigned char byte_9F;
+    unsigned char byte_A0;
+    unsigned char byte_A1;
+    unsigned char byte_A2;
+    unsigned char byte_A3;
+    unsigned char byte_A4;
+    unsigned char byte_A5;
+  } unknownStruct1; //010 Editor note: structs and unions must have a name, we add one
+  struct {
+    unsigned char byte_9A_scv;
+    unsigned char byte_9B_scv;
+    unsigned char byte_9C_scv;
+    unsigned char stl_9D_x;
+    unsigned char stl_9D_y;
+    unsigned char byte_9F_scv;
+    unsigned char byte_A0_scv;
+    unsigned char byte_A1_scv;
+    unsigned char byte_A2_scv;
+    unsigned char byte_A3_scv;
+    unsigned char byte_A4_scv;
+    unsigned char byte_A5_scv;
+  } scavenge;
+  struct {
+    unsigned char mode;// offset 9A
+    unsigned char train_timeout;
+    unsigned char pole_stl_x;
+    unsigned char pole_stl_y;
+    unsigned char search_timeout;
+    short partner_idx;
+    long partner_creation;
+    unsigned char byte_A5x;
+  } training;
+  struct {
+    long seen_enemy_turn;
+    long battle_enemy_crtn;
+    short battle_enemy_idx;
+    short seen_enemy_idx;
+    unsigned char state_id;
+    unsigned char attack_type;
+    unsigned char seen_enemy_los;
+  } combat;
+  struct {
+    unsigned long start_gameturn;
+    unsigned long last_mood_sound_turn;
+  } imprison;
+  struct {
+    short word_9A;
+    short word_9C;
+    short word_9E;
+    long long_A0;
+    short word_A4;
+    short assigned_torturer;
+  } unknownStruct2; //010 Editor note: structs and unions must have a name, we add one
+  struct {
+    short word_9A_cp2;
+    long long_9C;
+    long long_A0_cp2;
+    short word_A4_cp2;
+    short word_A6_cp2;
+  } unknownStruct3; //010 Editor note: structs and unions must have a name, we add one
+  struct {
+    long long_9A;
+    long long_9E;
+    long long_A2;
+  } unknownStruct4; //010 Editor note: structs and unions must have a name, we add one
+  struct {
+    unsigned long last_mood_sound_turn;
+    long long_9E_cp2;
+    long long_A2_cp2;
+    short word_A6_cp3;
+  } unknownStruct5; //010 Editor note: structs and unions must have a name, we add one
+  struct {
+    unsigned char byte_9A_cp2;
+    long long_9B;
+    short word_9F_cp2;
+    long long_A1;
+    unsigned char byte_A5_cp2;
+    short word_A6_cp4;
+  } unknownStruct6; //010 Editor note: structs and unions must have a name, we add one
+  struct {
+    unsigned char byte_9A_cp3;
+    short word_9B;
+    short word_9D;
+    short word_9F;
+    short word_A1;
+    short word_A3;
+    unsigned char byte_A5_cp3;
+    short word_A6_cp5;
+  } unknownStruct7; //010 Editor note: structs and unions must have a name, we add one
+  } creatureControlSecondUnion; //010 Editor note: structs and unions must have a name, we add one
+
+    unsigned char fight_til_death;
+    unsigned char field_AA;
+    unsigned char stateblock_flags;
+    unsigned short spell_flags; // Sometimes treated as two bytes, but it's a short (AC + AD)
+    unsigned char field_AE;
+    short force_visible;
+    unsigned char field_B1;
+    long field_B2;
+    unsigned char disease_caster_plyridx;
+    unsigned char teleport_x;
+    unsigned char teleport_y;
+    unsigned short field_B9;
+    struct CoordDelta3d moveaccel;
+    unsigned char bloody_footsteps_turns;
+    short kills_num;
+    short max_speed;
+    short max_health;
+    short move_speed;
+    short orthogn_speed;
+    short field_CC;
+    unsigned long field_CE;
+    unsigned char instance_id;
+    unsigned char inst_repeat;
+    unsigned short inst_turn;
+    unsigned short inst_action_turns;
+    unsigned short inst_total_turns;
+    unsigned short targtng_idx;
+    unsigned char targtstl_x;
+    unsigned char targtstl_y;
+    unsigned long instance_use_turn[CREATURE_INSTANCES_COUNT];
+    char instance_available[CREATURE_INSTANCES_COUNT];
+    unsigned short instance_anim_step_turns;
+    unsigned short collided_door_subtile;
+    char fighting_player_idx;
+    unsigned char shot_model;
+    struct CastedSpellData casted_spells[CREATURE_MAX_SPELLS_CASTED_AT];
+    /** Current active skill instance. */
+    char active_instance_id;
+    unsigned char field_1E9;
+    struct Navigation navi;
+unsigned char field_211[6];
+    /* Creature movement path data. */
+    struct Ariadne arid;
+    /* State backup when a creature temporarily changes its state due to being slapped. */
+    unsigned char active_state_bkp;
+    /* State backup when a creature temporarily changes its state due to being slapped. */
+    unsigned char continue_state_bkp;
+unsigned char field_27F;
+    short conscious_back_turns;
+    short countdown_282; // signed
+    unsigned short field_284;
+    unsigned char joining_age;
+    unsigned char blood_type;
+    struct Coord3d flee_pos;
+    long flee_start_turn;
+    struct MemberPos followers_pos[GROUP_MEMBERS_COUNT];
+    unsigned short next_in_room;
+    unsigned short prev_in_room;//field_2AC
+short field_2AE;
+    unsigned char field_2B0; // 7 == heal
+    unsigned short job_assigned;
+    unsigned short spell_tngidx_armour[3];
+    unsigned short spell_tngidx_disease[3];
+unsigned char field_2BF[2];
+unsigned short shot_shift_x;
+unsigned short shot_shift_y;
+unsigned short shot_shift_z;
+    unsigned long tasks_check_turn;
+    unsigned long wander_around_check_turn;
+    unsigned long job_primary_check_turn;
+    unsigned long job_secondary_check_turn;
+    unsigned long healing_sleep_check_turn;
+    unsigned long garden_eat_check_turn;
+    unsigned long temple_pray_check_turn;
+    unsigned long sulking_sleep_check_turn;
+    unsigned long job_assigned_check_turn;
+    unsigned long disease_start_turn;
+    unsigned long armageddon_teleport_turn;
+    short battle_prev_creatr;
+    short battle_next_creatr;
+    unsigned char battle_id;
+    unsigned char alarm_stl_x;
+    unsigned char alarm_stl_y;
+    unsigned long field_2FA;
+    unsigned long field_2FE;
+    unsigned char field_302;
+    long following_leader_since;
+    unsigned char follow_leader_fails;
+};
+
+
+//From config.h
+struct CommandWord {
+    char text[COMMAND_WORD_LEN];
+};
+
+//From config_creature.h
+struct CreatureModelConfig {
+    char name[COMMAND_WORD_LEN];
+    long namestr_idx;
+    unsigned short model_flags;
+    char padding1[2] <comment=PaddingCommentFunc>; //010 Editor note: necessary padding
+};
+
+struct CreatureStateConfig {
+    char name[COMMAND_WORD_LEN];
+};
+
+struct CreatureInstanceConfig {
+    char name[COMMAND_WORD_LEN];
+};
+
+struct CreatureAngerJobConfig {
+    char name[COMMAND_WORD_LEN];
+};
+
+/**
+ * Structure which stores levelling up stats.
+ */
+struct CreatureExperience {
+    long size_increase_on_exp;
+    long pay_increase_on_exp;
+    long spell_damage_increase_on_exp;
+    long range_increase_on_exp;
+    long job_value_increase_on_exp;
+    long health_increase_on_exp;
+    long strength_increase_on_exp;
+    long dexterity_increase_on_exp;
+    long defense_increase_on_exp;
+    long loyalty_increase_on_exp;
+    long armour_increase_on_exp;
+};
+
+struct CreatureJobConfig {
+    char name[COMMAND_WORD_LEN];
+    unsigned char func_plyr_check_idx;
+    unsigned char func_plyr_assign_idx;
+    unsigned char func_cord_check_idx;
+    unsigned char func_cord_assign_idx;
+    RoomRole room_role;
+    EventKind event_kind;
+    char padding1 <comment=PaddingCommentFunc>; //010 Editor note: necessary padding
+    /** The state creature should go into when job is started. */
+    CrtrStateId initial_crstate;
+    /** The state creature should back to after job is interrupted. */
+    CrtrStateId continue_crstate;
+    char padding2[2] <comment=PaddingCommentFunc>; //010 Editor note: necessary padding
+    unsigned long job_flags;
+};
+
+struct CreatureConfig {
+    long model_count;
+    struct CreatureModelConfig model[CREATURE_TYPES_MAX];
+    long states_count;
+    struct CreatureStateConfig states[CREATURE_STATES_MAX];
+    long instances_count;
+    struct CreatureInstanceConfig instances[INSTANCE_TYPES_MAX];
+    long jobs_count;
+    struct CreatureJobConfig jobs[INSTANCE_TYPES_MAX];
+    long angerjobs_count;
+    struct CreatureAngerJobConfig angerjobs[INSTANCE_TYPES_MAX];
+    long attacktypes_count;
+    struct CommandWord attacktypes[INSTANCE_TYPES_MAX];
+    struct CreatureExperience exp;
+    ThingModel special_digger_good;
+    ThingModel special_digger_evil;
+    ThingModel spectator_breed;
+    char padding1 <comment=PaddingCommentFunc>; //010 Editor note: necessary padding
+    long sprite_size;
+};
+
+//From config_trapdoor.h
+/**
+ * Manufacture types data.
+ * Originally was named TrapData, but stores both traps and doors; now no longer matches original.
+ */
+struct ManufactureData {
+      ThingClass tngclass; //< Thing class created when manufactured design is placed
+      ThingModel tngmodel; //< Thing model created when manufactured design is placed
+      char padding1[2] <comment=PaddingCommentFunc>; //010 Editor note: necessary padding
+      long work_state; //< Work state used to place the manufactured item on map
+      TextStringId tooltip_stridx;
+      long panel_tab_idx;
+      long bigsym_sprite_idx;
+      long medsym_sprite_idx;
+};
+
+struct ManfctrConfig { // sizeof=0x14
+  int manufct_level;
+  int manufct_required;
+  int shots;
+  int shots_delay;
+  long selling_value;
+};
+
+struct TrapConfigStats {
+    char code_name[COMMAND_WORD_LEN];
+    TextStringId name_stridx;
+    TextStringId tooltip_stridx;
+    long panel_tab_idx;
+    long bigsym_sprite_idx;
+    long medsym_sprite_idx;
+    long pointer_sprite_idx;
+    long hidden;
+    long slappable;
+    long notify;
+};
+
+struct DoorConfigStats {
+    char code_name[COMMAND_WORD_LEN];
+    TextStringId name_stridx;
+    TextStringId tooltip_stridx;
+    long panel_tab_idx;
+    long bigsym_sprite_idx;
+    long medsym_sprite_idx;
+    long pointer_sprite_idx;
+};
+
+struct TrapDoorConfig {
+    long trap_types_count;
+    struct TrapConfigStats trap_cfgstats[TRAPDOOR_TYPES_MAX];
+    long door_types_count;
+    struct DoorConfigStats door_cfgstats[TRAPDOOR_TYPES_MAX];
+    ThingModel trap_to_object[TRAPDOOR_TYPES_MAX];
+    ThingModel door_to_object[TRAPDOOR_TYPES_MAX];
+    long manufacture_types_count;
+    /** Stores manufacturable items. Was originally named trap_data. */
+    struct ManufactureData manufacture_data[2*TRAPDOOR_TYPES_MAX];
+};
+
+//From thing_traps.h
+struct TrapStats {  // sizeof=54
+unsigned long field_0;
+  unsigned long sprite_anim_idx;
+  unsigned long sprite_size_max;
+unsigned char unanimated;
+  unsigned long anim_speed;
+unsigned char field_11;
+  unsigned char field_12; // transparency in lower 2 bits
+unsigned char field_13;
+  short size_xy;
+short field_16;
+  unsigned char trigger_type;
+  unsigned char activation_type;
+  unsigned char created_itm_model; // Shot model, effect model, slab kind
+  unsigned char hit_type;
+short light_1C; // creates light if not null
+unsigned char light_1E;
+unsigned char light_1F;
+unsigned char field_20[8];
+unsigned char field_28[8];
+short field_30;
+short field_32;
+short field_34;
+};
+
+//From creature_groups.h
+/** Used for storing group members positions around leader.
+ */
+struct MemberPos { // sizeof=3
+    unsigned short stl_num;
+    unsigned char flags;
+};
+
+struct PartyMember { // sizeof = 13
+  unsigned char flags;
+  unsigned char field_65;
+  unsigned char crtr_kind;
+  unsigned char objectv;
+  long countdown;
+  unsigned char crtr_level;
+  unsigned short carried_gold;
+  unsigned short field_6F;
+};
+
+struct Party { // sizeof = 208
+  char prtname[100];
+  struct PartyMember members[GROUP_MEMBERS_COUNT];
+  unsigned long members_num;
+};
+
+//From lvl_script.h
+struct ScriptFxLine
+{
+    int used;
+    struct Coord3d from;
+    struct Coord3d here;
+    struct Coord3d to;
+
+    int cx, cy; // midpoint
+
+    int curvature;
+    int spatial_step;
+    int steps_per_turn;
+    int partial_steps;
+    int effect;
+
+    int total_steps;
+    int step;
+};
+
+struct PartyTrigger { // sizeof = 13
+  unsigned char flags;
+  unsigned char condit_idx;
+  char creatr_id;
+  union
+  {
+      unsigned char plyr_idx;
+      char party_id; // for add_to_party
+  } plyr_idx_and_party_id; //010 Editor note: structs and unions must have a name, we add one
+  union  
+  {
+      unsigned long location;
+      unsigned long countdown;
+  } location_and_countdown; //010 Editor note: structs and unions must have a name, we add one
+  unsigned char crtr_level;
+  unsigned short carried_gold;
+  union 
+  {
+      unsigned short ncopies;
+      unsigned char objectv;
+  } ncopies_and_objectv; //010 Editor note: structs and unions must have a name, we add one
+};
+
+struct TunnellerTrigger { // sizeof = 18
+  unsigned char flags;
+  unsigned char condit_idx;
+  unsigned char plyr_idx;
+  unsigned long location;
+  unsigned char heading_OLD;//no longer used
+  unsigned long heading; // originally was 'target'
+  long carried_gold;
+  unsigned char crtr_level;
+  char party_id;
+};
+
+struct ScriptValue { // sizeof = 16
+  unsigned char flags;
+  unsigned char condit_idx;
+  unsigned char valtype;
+  unsigned char plyr_range;
+  union
+  {
+    struct
+    {
+      long arg0;
+      long arg1;
+      union
+      {
+          long arg2;
+          //char* str2; //010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+		  anyPointer char_str2;
+      } arg2_and_pointer_to_str2; //010 Editor note: structs and unions must have a name, we add one
+    } unknownStruct1; //010 Editor note: structs and unions must have a name, we add one
+    struct
+    {
+      unsigned long uarg0;
+      unsigned long uarg1;
+      union
+      {
+          unsigned long uarg2;
+          //unsigned char* ustr2; //010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+		  anyPointer char_ustr2;
+      } uarg2_and_pointer_to_ustr2; //010 Editor note: structs and unions must have a name, we add one
+    } unknownStruct2; //010 Editor note: structs and unions must have a name, we add one
+    struct
+    {
+        char action;
+        char param;
+        char victims[MAX_SACRIFICE_VICTIMS];
+    } sac;
+    unsigned char bytes[12];
+    char chars[12];
+    short shorts[6];
+  } args_and_more; //010 Editor note: structs and unions must have a name, we add one
+};
+
+struct Condition {
+  short condit_idx;
+  unsigned char status;
+  unsigned char plyr_range;
+  unsigned char variabl_type;
+  unsigned short variabl_idx;
+  unsigned char operation;
+  unsigned long rvalue;
+  unsigned char plyr_range_right;
+  unsigned char variabl_type_right;
+  unsigned short variabl_idx_right;
+  TbBool use_second_variable;
+};
+
+struct ConditionOld { // sizeof = 12
+  short condit_idx;
+  unsigned char status;
+  unsigned char plyr_range;
+  unsigned char variabl_type;
+  unsigned short variabl_idx;
+  unsigned char operation;
+  unsigned long rvalue;
+};
+
+struct LevelScriptOld { // sizeof = 5884
+    struct TunnellerTrigger tunneller_triggers[TUNNELLER_TRIGGERS_COUNT_OLD];
+    unsigned long tunneller_triggers_num;
+    struct PartyTrigger party_triggers[PARTY_TRIGGERS_COUNT_OLD];
+    unsigned long party_triggers_num;
+    struct ScriptValue values[SCRIPT_VALUES_COUNT_OLD];
+    unsigned long values_num;
+    struct ConditionOld conditions[CONDITIONS_COUNT_OLD];
+    unsigned long conditions_num;
+    struct Party creature_partys[CREATURE_PARTYS_COUNT_OLD];
+    unsigned long creature_partys_num;
+    unsigned short win_conditions[WIN_CONDITIONS_COUNT_OLD];
+    unsigned long win_conditions_num;
+    unsigned short lose_conditions[WIN_CONDITIONS_COUNT_OLD];
+    unsigned long lose_conditions_num;
+};
+
+struct LevelScript {
+    struct TunnellerTrigger tunneller_triggers[TUNNELLER_TRIGGERS_COUNT];
+    unsigned long tunneller_triggers_num;
+    struct PartyTrigger party_triggers[PARTY_TRIGGERS_COUNT];
+    unsigned long party_triggers_num;
+    struct ScriptValue values[SCRIPT_VALUES_COUNT];
+    unsigned long values_num;
+    struct Condition conditions[CONDITIONS_COUNT];
+    unsigned long conditions_num;
+    struct Party creature_partys[CREATURE_PARTYS_COUNT];
+    unsigned long creature_partys_num;
+    unsigned short win_conditions[WIN_CONDITIONS_COUNT];
+    unsigned long win_conditions_num;
+    unsigned short lose_conditions[WIN_CONDITIONS_COUNT];
+    unsigned long lose_conditions_num;
+
+    // Store strings used at level here
+    char strings[2048];
+    //char *next_string; //010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+	anyPointer char_next_string;
+};
+
+//From player_computer.h
+struct ComputerDig { // sizeof = 78
+    struct Coord3d pos_E;
+    struct Coord3d pos_dest;
+    struct Coord3d pos_begin;
+    struct Coord3d pos_next;
+    long distance;
+    unsigned char hug_side;
+    unsigned char direction_around;
+    unsigned long subfield_2C;
+    long subfield_30;
+    long subfield_34;
+    long subfield_38;
+    long subfield_3C; // dig direction index
+    long subfield_40;
+    long subfield_44; // marked tiles so far
+    long subfield_48;
+    long sub4C_stl_x;
+    long sub4C_stl_y;
+    long calls_count;
+    /** Amount of valuable slabs tagged for digging during this dig process. */
+    long valuable_slabs_tagged;
+};
+
+struct ComputerCheck { // sizeof = 32
+  //char *name; //010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+  anyPointer char_name;
+  unsigned long flags;
+  long turns_interval;
+  Comp_Check_Func func;
+  long param1;
+  long param2;
+  long param3;
+  long last_run_turn;
+};
+
+struct ComputerProcess { // sizeof = 72
+  //char *name; //010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+  anyPointer char_name;
+  long priority;
+  // Signed process config values
+  long confval_2;
+  long confval_3;
+  long confval_4;
+  long confval_5;
+  Comp_Process_Func func_check;
+  Comp_Process_Func func_setup;
+  Comp_Process_Func func_task;
+  Comp_Process_Func func_complete;
+  Comp_Process_Func func_pause;
+  //struct ComputerProcess *parent; //010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+  anyPointer ComputerProcess_parent;
+  // Unsigned process parameters storage (stores gameturns)
+  unsigned long param_1;
+  unsigned long param_2;
+  unsigned long param_3;
+  unsigned long last_run_turn;
+  // Signed process parameters storage
+  long param_5;
+  unsigned long flags; /**< Values from ComProc_* enumeration. */
+};
+
+struct ComputerEvent { // sizeof = 44
+  //char *name; //010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+  anyPointer char_name;
+  unsigned long cetype;
+  unsigned long mevent_kind;
+  Comp_Event_Func func_event;
+  Comp_EvntTest_Func func_test;
+  long test_interval;
+  //struct ComputerProcess *process; //010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+  anyPointer ComputerProcess_process;
+  long param1;
+  long param2;
+  long param3;
+  long last_test_gameturn; // event last checked time
+};
+
+struct ComputerTask { // sizeof = 148
+    unsigned char flags;
+    unsigned char task_state;
+    unsigned char ttype;
+    unsigned char ottype;
+    unsigned char rkind;
+    unsigned char field_5[5];
+    long created_turn;
+    union {
+        struct ComputerDig dig;
+        struct {
+            unsigned char field_E[21];
+            unsigned char field_23[32];
+            unsigned char field_43[6];
+            unsigned char field_49[19];
+        } unknownStruct1; //010 Editor note: structs and unions must have a name, we add one
+    } computerTaskFirstUnion; //010 Editor note: structs and unions must have a name, we add one
+    long lastrun_turn;
+    long field_60;
+    struct Coord3d pos_64; // new room position?
+    struct Coord3d pos_6A;
+    union {
+    struct {
+        /** Amount of items to be sold; task is removed when it reaches zero. */
+        long items_amount;
+        short field_74;
+        /** Sum of gold generated by selling. */
+        long gold_gain;
+        short field_7A;
+        /** Limit of gold generated by selling; task is removed when it is exceeded. */
+        long gold_gain_limit;
+        /** Limit of total gold owned by player; task is removed when it is exceeded. */
+        long total_money_limit;
+        /** Whether deployed traps and doors are considered while selling. */
+        short allow_deployed; // can be converted to flags
+        /** Index of the item currently being checked in list of sellable things. */
+        long sell_idx;
+        unsigned char field_8A[2];
+    } sell_traps_doors;
+    struct {
+        /* Amount of gold piles/pots to move */
+        long items_amount;
+        short room_idx;
+        long gold_gain;
+        short field_7A;
+        long gold_gain_limit;
+        long total_money_limit;
+        short field_84;
+        long field_86;
+        unsigned char field_8A[2];
+    } move_gold;
+    struct {
+        struct Coord3d pos_70;
+        struct Coord3d target_pos;
+        long repeat_num;
+        long long_80;
+        short field_84;
+        short word_86;
+        long field_88;
+    } magic_cta;
+    struct {
+        long splevel;
+        short field_74;
+        short target_thing_idx;
+        short word_78;
+        short field_7A;
+        long repeat_num;
+        long gaction;
+        short field_84;
+        long pwkind;
+        unsigned char field_8A[2];
+    } attack_magic;
+    struct {
+        short room_idx1;
+        short word_72;
+        short field_74;
+        short word_76;
+        short word_78;
+        short field_7Ac;
+        long repeat_num;
+        short room_idx2;
+        short word_82;
+        unsigned char field_84[2];
+        struct Coord3d pos_86;
+    } move_to_room;
+    struct {
+        long field_70;
+        short field_74;
+        struct Coord3d target_pos;
+        long repeat_num;
+        short word_80;
+        short word_82;
+        unsigned char field_84[2];
+        struct Coord3d pos_86;
+    } move_to_defend;
+    struct {
+        long field_70;
+        short field_74;
+        short target_thing_idx;
+        short word_78;
+        short field_7Ac;
+        long repeat_num;
+        short word_80;
+        short word_82;
+        unsigned char field_84[2];
+        struct Coord3d pos_86;
+    } move_to_pos;
+    struct {
+        long field_70;
+        short field_74;
+        struct Coord3d target_pos;
+        long repeat_num;
+        short word_80;
+        short word_82;
+        unsigned char field_84[2];
+        long long_86;
+        short word_8A;
+    } pickup_for_attack;
+    struct {
+        struct Coord3d startpos;
+        struct Coord3d endpos;
+        long field_7C;
+        /** Target room index. */
+        short target_room_idx;
+        short word_82;
+        short word_84;
+        short target_plyr_idx;
+        long field_88;
+    } dig_to_room;
+    struct {
+        struct Coord3d startpos;
+        struct Coord3d endpos;
+        long field_7C;
+        /** Target gold lookup index. */
+        short target_lookup_idx;
+        short word_82;
+        short word_84;
+        long slabs_dig_count;
+        short word_8A;
+    } dig_to_gold;
+    struct {
+        struct Coord3d startpos;
+        struct Coord3d endpos;
+        long field_7C;
+        unsigned char byte_80;
+        unsigned char byte_81;
+        short word_82;
+        short word_84;
+        short target_plyr_idx;
+        long field_88;
+    } dig_somewhere;
+    struct {
+        struct Coord3d startpos;
+        struct Coord3d endpos;
+        short width;
+        short height;
+        long long_80;
+        short word_84;
+        long area;
+        short word_8A;
+    } create_room;
+    } computerTaskSecondUnion; //010 Editor note: structs and unions must have a name, we add one
+    unsigned short field_8C; /* CProcessId */
+    long field_8E;
+    unsigned short next_task;
+};
+
+struct OpponentRelation { // sizeof = 394
+    unsigned long field_0;
+    short field_4;
+    long hate_amount;
+    struct Coord3d pos_A[COMPUTER_SPARK_POSITIONS_COUNT];
+};
+
+struct Computer2 { // sizeof = 5322
+  long task_state;
+  unsigned long gameturn_delay;
+  unsigned long gameturn_wait;
+  unsigned long field_C;
+  unsigned long tasks_did;
+  unsigned long field_14;
+  unsigned long field_18;
+  unsigned long field_1C; // seems to be signed long
+  unsigned long sim_before_dig;
+  //struct Dungeon *dungeon; //010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+  anyPointer Dungeon_dungeon;
+  unsigned long model;
+  unsigned long field_2C;
+  unsigned long max_room_build_tasks;
+  unsigned long field_34;
+  struct ComputerProcess processes[COMPUTER_PROCESSES_COUNT+1];
+  union
+  {
+      struct ComputerCheck checks_OLD[COMPUTER_CHECKS_COUNT_OLD];
+      struct
+      {
+          struct ComputerCheck checks_guard[2];
+          //struct ComputerCheck *checks; //010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+		  anyPointer ComputerCheck_checks;
+      } computerCheckStruct; //010 Editor note: structs and unions must have a name, we add one
+  } computer2FirstUnion; //010 Editor note: structs and unions must have a name, we add one
+  union
+  {
+      struct ComputerEvent events_OLD[COMPUTER_EVENTS_COUNT_OLD];
+      struct
+      {
+          struct ComputerEvent event_guard[2]; // Set to invalid event if some would like to list events
+          //struct ComputerEvent *events; //010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+		  anyPointer ComputerEvent_events;
+      } computerEventStruct; //010 Editor note: structs and unions must have a name, we add one
+  } computer2SecondUnion; //010 Editor note: structs and unions must have a name, we add one
+  struct OpponentRelation opponent_relations[PLAYERS_EXT_COUNT];
+  // TODO we could use coord2d for trap locations
+  struct Coord3d trap_locations[COMPUTER_TRAP_LOC_COUNT];
+  /** Stores Sight Of Evil target points data. */
+  unsigned long soe_targets[COMPUTER_SOE_GRID_SIZE];
+  /* seem unused */
+  unsigned char field_13E4[224];
+  short ongoing_process;
+  short task_idx;
+  short held_thing_idx;
+};
+
+//From tasks_list.h
+struct MapTask { // sizeof = 3
+  unsigned char kind;
+  unsigned short coords;
+};
+
+//From map_data.h
+struct Map {
+      unsigned char flags;
+      unsigned long data;
+};
+
+//From dungeon_stats.h
+struct LevelStats { // sizeof = 392
+  unsigned long things_researched;
+  unsigned long field_4;
+  unsigned long field_8;
+  unsigned long field_C;
+  unsigned long field_10;
+  unsigned long field_14;
+  unsigned long field_18;
+  unsigned long field_1C;
+  unsigned long field_20;
+  unsigned long field_24;
+  unsigned long field_28;
+  unsigned long field_2C;
+  unsigned long field_30;
+  unsigned long field_34;
+  unsigned long field_38;
+  unsigned long field_3C;
+  unsigned long field_40;
+  unsigned long field_44;
+  unsigned long field_48;
+  unsigned long field_4C;
+  unsigned long field_50;
+  unsigned long field_54;
+  unsigned long field_58;
+  unsigned long field_5C;
+  unsigned long field_60;
+  unsigned long field_64;
+  unsigned long field_68;
+  unsigned long field_6C;
+  unsigned long field_70;
+  unsigned long field_74;
+  unsigned long field_78;
+  unsigned long field_7C;
+  unsigned long field_80;
+  unsigned long field_84;
+  unsigned long field_88;
+  unsigned long gold_mined;
+  unsigned long field_90;
+  unsigned long manufactured_doors;
+  unsigned long manufactured_traps;
+  unsigned long manufactured_items;
+  unsigned long start_time;
+  unsigned long end_time;
+  unsigned long creatures_trained;
+  unsigned long creatures_tortured;
+  unsigned long creatures_sacrificed;
+  unsigned long creatures_converted;
+  unsigned long creatures_summoned;
+  unsigned long num_slaps;
+  unsigned long num_caveins;
+  unsigned long bridges_built;
+  unsigned long rock_dug_out;
+  unsigned long salary_cost;
+  unsigned long flies_killed_by_spiders;
+  unsigned long territory_destroyed;
+  unsigned long territory_lost;
+  unsigned long rooms_constructed;
+  unsigned long traps_used;
+  unsigned long traps_armed;
+  unsigned long doors_used;
+  unsigned long keepers_destroyed;
+  unsigned long area_claimed;
+  unsigned long backs_stabbed;
+  unsigned long chickens_hatched;
+  unsigned long chickens_eaten;
+  unsigned long chickens_wasted;
+  unsigned long promises_broken;
+  unsigned long ghosts_raised;
+  unsigned long skeletons_raised;
+  unsigned long friendly_kills;
+  unsigned long lies_told;
+  unsigned long creatures_annoyed;
+  unsigned long graveyard_bodys;
+  unsigned long vamps_created;
+  unsigned long num_creatures;
+  unsigned long imps_deployed;
+  unsigned long battles_won;
+  unsigned long battles_lost;
+  unsigned long money;
+  unsigned long dngn_breached_count;
+  unsigned long doors_destroyed;
+  unsigned long rooms_destroyed;
+  unsigned long dungeon_area;
+  unsigned long ideas_researched;
+  unsigned long creatures_scavenged;
+  unsigned long creatures_from_sacrifice;
+  unsigned long spells_stolen;
+  unsigned long gold_pots_stolen;
+  unsigned long average_room_efficiency;
+  unsigned long player_rating;
+  unsigned long player_style;
+  unsigned long doors_unused;
+  unsigned long traps_unused;
+  unsigned long num_rooms;
+  unsigned long gameplay_time;
+  unsigned long num_entrances;
+  unsigned long hopes_dashed;
+  unsigned long allow_save_score;
+  unsigned long player_score;
+};
+
+//From thing_creature.h
+struct CreatureStorage {
+  unsigned char model;
+  unsigned char explevel : 4;
+  unsigned char count : 4;
+};
+
+//From dungeon_data.h
+struct BoxInfo
+{
+    uint8_t               activated[CUSTOM_BOX_COUNT];
+};
+
+struct ComputerInfo
+{
+    struct ComputerEvent events[COMPUTER_EVENTS_COUNT];
+    struct ComputerCheck checks[COMPUTER_CHECKS_COUNT];
+};
+
+struct TrapInfo
+{
+    unsigned char trap_amount_offmap[TRAPDOOR_TYPES_MAX];
+    unsigned char trap_amount_stored[TRAPDOOR_TYPES_MAX];
+    /** Stores flag information about players manufacture of traps of specific kind. */
+    unsigned char trap_build_flags[TRAPDOOR_TYPES_MAX];
+    /** Amount of traps of every kind for which we can place blueprints. This include both off-map traps and on-map trap boxes.*/
+    unsigned char trap_amount_placeable[TRAPDOOR_TYPES_MAX];
+    /** Amount of doors of every kind which are stored in workshops. Only on-map door crates which exist in workshop are mentioned here.*/
+
+    unsigned char door_amount_offmap[TRAPDOOR_TYPES_MAX];
+    unsigned char door_amount_stored[TRAPDOOR_TYPES_MAX];
+    /** Stored flag information about players manufacture of doors of specific kind. */
+    unsigned char door_build_flags[TRAPDOOR_TYPES_MAX];
+    /** Stored information whether player can place blueprints of doors of specific kind (actually, doors are placed instantly). */
+    unsigned char door_amount_placeable[TRAPDOOR_TYPES_MAX];
+
+};
+
+struct DungeonAdd
+{
+    struct TrapInfo       mnfct_info;
+    struct BoxInfo        box_info;
+    struct Coord3d        last_combat_location;
+    char padding1[2] <comment=PaddingCommentFunc>; //010 Editor note: necessary padding
+    int                   creature_awarded[CREATURE_TYPES_COUNT];
+    unsigned char         creature_entrance_level;
+    char padding2[3] <comment=PaddingCommentFunc>; //010 Editor note: necessary padding
+    unsigned long         evil_creatures_converted;
+    unsigned long         good_creatures_converted;
+    unsigned long         creatures_transferred;
+    unsigned long         traps_sold;
+    unsigned long         doors_sold;
+    unsigned long         manufacture_gold;
+    long                  creatures_total_backpay;
+    long                  cheaper_diggers;
+    struct ComputerInfo   computer_info;
+    long event_last_run_turn[EVENT_KIND_COUNT];
+    long script_flags[SCRIPT_FLAGS_COUNT];
+};
+
+struct ResearchVal { // sizeof = 6
+  unsigned char rtyp;
+  unsigned char rkind;
+  long req_amount;
+};
+
+struct TurnTimer { // sizeof = 5
+  unsigned long count;
+  unsigned char state;
+};
+
+struct DiggerStack { // sizeof = 4
+      unsigned short stl_num;
+      SpDiggerTaskType task_type;
+};
+
+struct Dungeon {
+    unsigned short dnheart_idx;
+    struct Coord3d mappos;
+    unsigned char creature_tendencies;
+    unsigned char field_9;
+    unsigned char computer_enabled;
+    unsigned short room_kind[ROOM_TYPES_COUNT];
+    short creatr_list_start;
+    short digger_list_start;
+    short field_31;
+    short things_in_hand[MAX_THINGS_IN_HAND];
+    short field_43;
+    int field_45;
+    int field_49;
+    int field_4D;
+    short field_51;
+    short field_53;
+    int field_55;
+    int field_59;
+    int field_5D;
+    short field_61;
+    unsigned char num_things_in_hand;
+
+    //unsigned short field_64[CREATURE_TYPES_COUNT][15]; //010 Editor note: multi-dimensional arrays are not supported, we change it to a struct (workaround proposed on the 010 Editor manual)
+	typedef struct {
+		unsigned short field_64[CREATURE_TYPES_COUNT];
+	} FIELD_64[15];
+	FIELD_64 field_64;
+	
+	
+    //unsigned short guijob_all_creatrs_count[CREATURE_TYPES_COUNT][3]; //010 Editor note: multi-dimensional arrays are not supported, we change it to a struct (workaround proposed on the 010 Editor manual)
+	typedef struct {
+		unsigned short guijob_all_creatrs_count[CREATURE_TYPES_COUNT];
+	} GUIJOB_ALL_CREATRS_COUNT[3];
+	GUIJOB_ALL_CREATRS_COUNT guijob_all_creatrs_count;
+	
+	
+    //unsigned short guijob_angry_creatrs_count[CREATURE_TYPES_COUNT][3]; //010 Editor note: multi-dimensional arrays are not supported, we change it to a struct (workaround proposed on the 010 Editor manual)
+	typedef struct {
+		unsigned short guijob_angry_creatrs_count[CREATURE_TYPES_COUNT];
+	} GUIJOB_ANGRY_CREATRS_COUNT[3];
+	GUIJOB_ANGRY_CREATRS_COUNT guijob_angry_creatrs_count;
+
+    short field_5A4[9];//originally was [15], but seem unused
+    unsigned char trap_amount_offmap_[TRAP_TYPES_COUNT];
+    unsigned char door_amount_offmap_[DOOR_TYPES_COUNT];
+    unsigned char room_slabs_count[ROOM_TYPES_COUNT+1];
+    int sight_casted_gameturn;
+    short sight_casted_thing_idx;
+    unsigned char sight_casted_splevel;
+    unsigned char sight_casted_stl_x;
+    unsigned char sight_casted_stl_y;
+	
+	//unsigned char soe_explored_flags[2*MAX_SOE_RADIUS][2*MAX_SOE_RADIUS]; //010 Editor note: multi-dimensional arrays are not supported, we change it to a struct (workaround proposed on the 010 Editor manual)
+	typedef struct {
+		unsigned char soe_explored_flags[2*MAX_SOE_RADIUS];
+	//} SOE_EXPLORED_FLAGS[2*MAX_SOE_RADIUS]; //010 Editor note: this throws "Invalid array size in typedef". Typedefs do not support an expression for an array size, they said to me they will add this on a future version
+	} SOE_EXPLORED_FLAGS[26]; //010 Editor note: hardcode value needed as typedefs do not support an expression for an array size
+	SOE_EXPLORED_FLAGS soe_explored_flags;
+
+    unsigned char cta_stl_x;
+    unsigned char cta_stl_y;
+    unsigned char cta_splevel;
+    unsigned long cta_start_turn;
+    unsigned long must_obey_turn;
+    int hold_audience_cast_turn;
+    int scavenge_counters_turn;
+    /** Counter of creatures scavenging of each kind, zeroized and recomputed each game turn. */
+    unsigned char creatures_scavenging[CREATURE_TYPES_COUNT];
+    /** Counter of creatures praying. */
+    unsigned char creatures_praying[CREATURE_TYPES_COUNT];
+    unsigned char chickens_sacrificed;
+    unsigned char gold_piles_sacrificed;
+    unsigned char creature_sacrifice[CREATURE_TYPES_COUNT];
+    unsigned char creature_sacrifice_exp[CREATURE_TYPES_COUNT];
+    unsigned char field_916[2];
+    unsigned char num_active_diggers;
+    unsigned char num_active_creatrs;
+    unsigned char owned_creatures_of_model[CREATURE_TYPES_COUNT];
+    /** Total amount of rooms in possession of a player. Rooms which can never be built are not counted. */
+    unsigned char total_rooms;
+    unsigned short total_doors;
+    unsigned short total_area;
+    unsigned short total_creatures_left;
+    int field_941;
+    int doors_destroyed;
+    short room_manage_area;
+    short creatures_scavenged[CREATURE_TYPES_COUNT];
+    short creatures_scavenge_gain;
+    short creatures_scavenge_lost;
+    long scavenge_turn_points[CREATURE_TYPES_COUNT];
+    short scavenge_targets[CREATURE_TYPES_COUNT];
+    int creature_max_level[CREATURE_TYPES_COUNT];
+    unsigned short creatures_annoyed;
+    unsigned short battles_lost;
+    unsigned short battles_won;
+    /** Amount of room tiles a player had which were destroyed (vandalized or damaged by enemy). */
+    unsigned short rooms_destroyed;
+    unsigned short spells_stolen;
+    unsigned short times_broken_into;
+    unsigned short gold_pots_stolen;
+    int last_entrance_generation_gameturn;
+    int turns_between_entrance_generation;
+    int last_research_complete_gameturn;
+    int manage_score;
+    int total_score;
+    unsigned long max_gameplay_score;
+    short times_breached_dungeon;
+    short highest_task_number;
+    int total_money_owned;
+    int offmap_money_owned;
+    short hates_player[DUNGEONS_COUNT];
+    struct MapTask task_list[MAPTASKS_COUNT];
+    int task_count;
+    int field_E93[3];
+    unsigned char owner;
+    int camera_deviate_quake;
+    int camera_deviate_jump;
+    long score;
+    struct ResearchVal research[DUNGEON_RESEARCH_COUNT];
+    int current_research_idx;
+    unsigned char research_num;
+    unsigned char field_F7D_UNUSED;
+    unsigned char room_buildable[ROOM_TYPES_COUNT];
+    unsigned char room_resrchable[ROOM_TYPES_COUNT];
+    /** How many creatures are force-enabled for each kind.
+     * Force-enabled creature can come from portal without additional conditions,
+     * but only until dungeon has up to given amount of their kind. */
+    unsigned char creature_force_enabled[CREATURE_TYPES_COUNT];
+    /** Defines whether a creature of each kind is allowed to come from portal.
+     * Allowed creatures can join a dungeon if whether attraction condition is met
+     * or force-enabled amount isn't reached. */
+    unsigned char creature_allowed[CREATURE_TYPES_COUNT];
+    unsigned char magic_level[KEEPER_POWERS_COUNT];
+    unsigned char magic_resrchable[KEEPER_POWERS_COUNT];
+    /** Amount of traps of every kind which are stored in workshops. Only on-map trap crates which exist in workshop are mentioned here.*/
+    unsigned char trap_amount_stored_[TRAP_TYPES_COUNT];
+    /** Stores flag information about players manufacture of traps of specific kind. */
+    unsigned char trap_build_flags_[TRAP_TYPES_COUNT];
+    /** Amount of traps of every kind for which we can place blueprints. This include both off-map traps and on-map trap boxes.*/
+    unsigned char trap_amount_placeable_[TRAP_TYPES_COUNT];
+    /** Amount of doors of every kind which are stored in workshops. Only on-map door crates which exist in workshop are mentioned here.*/
+    unsigned char door_amount_stored_[DOOR_TYPES_COUNT];
+    /** Stored flag information about players manufacture of doors of specific kind. */
+    unsigned char door_build_flags_[DOOR_TYPES_COUNT];
+    /** Stored information whether player can place blueprints of doors of specific kind (actually, doors are placed instantly). */
+    unsigned char door_amount_placeable_[DOOR_TYPES_COUNT];
+    struct TurnTimer turn_timers[TURN_TIMERS_COUNT];
+    unsigned char script_flags_OLD[SCRIPT_FLAGS_COUNT];
+    long max_creatures_attracted;
+    unsigned char heart_destroy_state;
+    long heart_destroy_turn;
+    struct Coord3d essential_pos;
+    struct DiggerStack digger_stack[DIGGER_TASK_MAX_COUNT];
+    unsigned long digger_stack_update_turn;
+    unsigned long digger_stack_length;
+    unsigned char visible_event_idx;
+    /** Array with battle indexes with the battles currently visible in fight event message */
+    unsigned char visible_battles[3];
+    short zoom_annoyed_creature_idx;
+    long total_experience_creatures_gained;
+    long total_research_points;
+    long total_manufacture_points;
+    long manufacture_progress;
+    unsigned char manufacture_class;
+    unsigned char manufacture_kind;
+long field_118B;
+long manufacture_level;
+    long research_progress;
+    struct LevelStats lvstats;
+    struct CreatureStorage dead_creatures[DEAD_CREATURES_MAX_COUNT];
+    long dead_creatures_count;
+    long dead_creature_idx;
+    /** Contains map event index or each even button visible on screen. */
+    unsigned char event_button_index[EVENT_BUTTONS_COUNT+1];
+    long event_last_run_turn_UNUSED[27];
+    unsigned short tortured_creatures[CREATURE_TYPES_COUNT];
+    unsigned char bodies_rotten_for_vampire;
+unsigned char field_1461[36];
+    long portal_scavenge_boost;
+    /** Stores how many creatures of each kind of has joined the dungeon during the level.
+     * Values are saturated at 255. */
+    unsigned char creature_models_joined[CREATURE_TYPES_COUNT];
+    unsigned long fights_num;
+    unsigned char research_override; // could be easily changed into flags..
+    int last_creature_dropped_gameturn;
+    unsigned char devastation_centr_x;
+    unsigned char devastation_centr_y;
+    unsigned long devastation_turn;
+    long creatures_total_pay;
+unsigned short field_14BC;
+unsigned long field_14BE;
+    /** Index of last creature picked up of given model. */
+    unsigned short selected_creatures_of_model[CREATURE_TYPES_COUNT];
+    /** Index of last creature picked up of given GUI Job. */
+    unsigned short selected_creatures_of_gui_job[CREATURE_GUI_JOBS_COUNT];
+    };
+
+//From thing_objects.h
+struct Objects {
+    unsigned char initial_state;
+    unsigned char field_1;
+    unsigned char field_2;
+    unsigned char field_3;
+    unsigned char field_4;
+    short sprite_anim_idx;
+    short anim_speed;
+    short size_xy;
+    short size_yz;
+    short sprite_size_max;
+    unsigned char field_F;      // Lower 2 bits are transparency flags
+    unsigned char field_10;
+    unsigned char draw_class;
+    unsigned char destroy_on_lava;
+    /** Creature model related to the object, ie for lairs - which creature lair it is. */
+    unsigned char related_creatr_model;
+    unsigned char own_category;
+    unsigned char destroy_on_liquid;
+    unsigned char rotation_flag;
+};
+
+//From roomspace.h
+
+// RoomSpace describes a space or "roomspace" - i.e. a collection of slabs that are a valid
+// location from the currently selected room type (when placing rooms).
+// The 2D array of booleans, slab_grid[][] describes each of the slabs within
+// the roomspace's extents. A value of 1 indicates a slab that is part of the roomspace,
+// a value of 0 indicates a slab that is not part of the roomspace.
+
+struct RoomSpace {
+    //TbBool slab_grid[MAX_ROOMSPACE_WIDTH][MAX_ROOMSPACE_WIDTH]; //010 Editor note: multi-dimensional arrays are not supported, we change it to a struct (workaround proposed on the 010 Editor manual)
+    typedef struct {
+		TbBool slab_grid[MAX_ROOMSPACE_WIDTH];
+	} SLAB_GRID[MAX_ROOMSPACE_WIDTH];
+	SLAB_GRID slab_grid;
+	int slab_count;
+    TbBool is_roomspace_a_box;
+    char padding1[3] <comment=PaddingCommentFunc>; //010 Editor note: necessary padding
+    int width;
+    int height;
+    MapSlabCoord left;
+    MapSlabCoord top;
+    MapSlabCoord right;
+    MapSlabCoord bottom;
+    MapSlabCoord centreX;
+    MapSlabCoord centreY;
+    int total_roomspace_cost;
+    int invalid_slabs_count;
+    PlayerNumber plyr_idx;
+    RoomKind rkind;
+	  TbBool is_roomspace_a_single_subtile;
+
+	  MapSlabCoord buildx, buildy;
+	  TbBool is_active;
+    char padding2 <comment=PaddingCommentFunc>; //010 Editor note: necessary padding
+    TbBool render_roomspace_as_box;
+    TbBool tag_for_dig;
+    TbBool highlight_mode;
+    TbBool untag_mode;
+    TbBool one_click_mode_exclusive;
+    MapSlabCoord drag_start_x;
+    MapSlabCoord drag_start_y;
+    MapSlabCoord drag_end_x;
+    MapSlabCoord drag_end_y;
+    TbBool drag_mode;
+    char padding3 <comment=PaddingCommentFunc>; //010 Editor note: necessary padding
+};
+
+//From player_data.h
+struct SubtileXY {
+    unsigned char stl_x;
+    unsigned char stl_y;
+};
+
+struct CheatSelection
+{
+    SlabKind chosen_terrain_kind; 
+    PlayerNumber chosen_player;
+    unsigned char chosen_creature_kind;
+    unsigned char chosen_hero_kind;
+    unsigned char chosen_experience_level;
+};
+
+struct PlayerInfoAdd {
+	struct CheatSelection cheatselection;
+	
+    TbBool first_person_dig_claim_mode;
+    unsigned char teleport_destination;
+    TbBool nearest_teleport;
+    BattleIndex battleid;
+    unsigned short selected_fp_thing_pickup;
+    
+	struct RoomSpace render_roomspace;
+	struct RoomSpace roomspace;
+
+    unsigned char roomspace_mode;
+    int user_defined_roomspace_width;
+    int roomspace_detection_looseness;
+    int roomspace_width;
+    int roomspace_height;
+    TbBool one_click_mode_exclusive;
+    TbBool one_click_lock_cursor;
+    TbBool ignore_next_PCtr_RBtnRelease;
+    TbBool ignore_next_PCtr_LBtnRelease;
+    char swap_to_untag_mode; // 0 = no, 1 = maybe, 2= yes, -1 = disable
+    unsigned char roomspace_highlight_mode;
+    TbBool roomspace_no_default;
+    };
+
+struct PlayerInfo {
+    unsigned char allocflags;
+    unsigned char field_1;
+    unsigned char boxsize; //field_2 seems to be used in DK, so now renamed and used in KeeperFX
+    unsigned char additional_flags; // Uses PlayerAdditionalFlags
+    unsigned char input_crtr_control;
+    unsigned char input_crtr_query;
+    unsigned char flgfield_6;
+    //unsigned char *lens_palette; //010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+	anyPointer char_lens_palette;
+    /** Index of packet slot associated with this player. */
+    unsigned char packet_num;
+    long field_C;
+    unsigned int hand_busy_until_turn;
+unsigned char field_14;
+    char field_15[20]; //size may be shorter
+    unsigned char victory_state;
+    unsigned char allied_players;
+    unsigned char id_number;
+    unsigned char is_active;
+    unsigned char field_2D[2];
+    short controlled_thing_idx;
+    long controlled_thing_creatrn;
+    short thing_under_hand;
+    unsigned char view_mode;
+    /** Pointer to the currently active camera. */
+    //struct Camera *acamera; //010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+	anyPointer Camera_acamera;
+    struct Camera cameras[4];
+    unsigned short zoom_to_pos_x;
+    unsigned short zoom_to_pos_y;
+char field_E8[2];
+    struct Wander wandr_within;
+    struct Wander wandr_outside;
+    short hand_thing_idx;
+    short field_43C;
+    short influenced_thing_idx;
+    long influenced_thing_creation;
+    short engine_window_width;
+    short engine_window_height;
+    short engine_window_x;
+    short engine_window_y;
+    short minimap_pos_x;
+    short minimap_pos_y;
+    unsigned short minimap_zoom;
+    unsigned char view_type;
+    unsigned char work_state;
+    unsigned char primary_cursor_state;
+    unsigned char secondary_cursor_state;
+    unsigned char continue_work_state;
+char field_457[8];
+char field_45F;
+short field_460;
+char field_462;
+    char mp_message_text[PLAYER_MP_MESSAGE_LEN];
+    unsigned char chosen_room_kind;
+    unsigned char full_slab_cursor; // 0 for subtile sized cursor, 1 for slab sized cursor
+    char chosen_trap_kind;
+    char chosen_door_kind;
+    char field_4A7[4];
+    short cursor_stl_x; // current x coord of subtile under the mouse cursor
+    short cursor_stl_y; // current y coord of subtile under the mouse cursor
+    unsigned char cursor_button_down; // left or right button down (whilst using the bounding box cursor)
+    /** Player instance, from PlayerInstanceNum enum. */
+    unsigned char instance_num;
+    unsigned long instance_remain_rurns;
+    /** If view mode is temporarily covered by another, the original mode which is to be restored later will be saved here.*/
+    char view_mode_restore;
+    long dungeon_camera_zoom;
+    char field_4BA[3];
+    long field_4BD;
+    long palette_fade_step_pain;
+    long palette_fade_step_possession;
+    //unsigned char *main_palette; //010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+	anyPointer char_main_palette;
+    long field_4CD;
+    char field_4D1;
+    /** Overcharge level while casting keeper powers. */
+    long cast_expand_level;
+    long field_4D6;
+    char video_cluedo_mode;
+    long field_4DB;
+    long field_4DF;
+    long field_4E3;
+    long field_4E7;
+    long field_4EB;
+    };
+
+struct Wander // sizeof = 424
+{
+  unsigned long points_count;
+  /** Index at which the search function inserts (or replaces) points. */
+  unsigned long point_insert_idx;
+  /** Slab last checked by the search function. */
+  unsigned long last_checked_slb_num;
+  /** Amount of slabs to be checked in one run of the search function. */
+  unsigned long num_check_per_run;
+  /** Max amount of points added in one run of the search function. */
+  unsigned long max_found_per_check;
+  unsigned char wdrfield_14;
+  unsigned char wandr_slot;
+  unsigned char plyr_idx;
+  unsigned char plyr_bit;
+  /** Array of points where the creatures could go wander. */
+  struct SubtileXY points[WANDER_POINTS_COUNT];
+};
+
+//From game_merge.h
+/** Structure which stores state of scrollable message with text.
+ */
+struct TextScrollWindow {
+    char text[MESSAGE_TEXT_LEN];
+    long start_y;
+    char action;
+    long text_height;
+    long window_height;
+};
+
+/**
+ * Structure which stores data copied between levels.
+ * This data is not lost between levels of a campaign.
+ */
+struct IntralevelData {
+    unsigned char bonuses_found[BONUS_LEVEL_STORAGE_COUNT];
+    
+	//struct CreatureStorage transferred_creatures[PLAYERS_COUNT][TRANSFER_CREATURE_STORAGE_COUNT]; //010 Editor note: multi-dimensional arrays are not supported, we change it to a struct (workaround proposed on the 010 Editor manual)
+	typedef struct {
+		struct CreatureStorage transferred_creatures[PLAYERS_COUNT];
+	} CREATURE_STORAGE[TRANSFER_CREATURE_STORAGE_COUNT];
+	CREATURE_STORAGE creatureStorage;
+
+	//long campaign_flags[PLAYERS_FOR_CAMPAIGN_FLAGS][CAMPAIGN_FLAGS_PER_PLAYER]; //010 Editor note: multi-dimensional arrays are not supported, we change it to a struct (workaround proposed on the 010 Editor manual)
+	typedef struct {
+		long campaign_flags[PLAYERS_FOR_CAMPAIGN_FLAGS];
+	} CAMPAIGN_FLAGS[CAMPAIGN_FLAGS_PER_PLAYER];
+	CAMPAIGN_FLAGS campaignFlags;
+};
+
+/**
+ * Defines additional elements, which are not stored in main 'Game' struct.
+ */
+struct GameAdd {
+    struct CreatureStats creature_stats[CREATURE_TYPES_MAX];
+    struct CreatureConfig crtr_conf;
+    unsigned long turn_last_checked_for_gold;
+    unsigned long flee_zone_radius;
+    unsigned long time_between_prison_break;
+    unsigned long time_in_prison_without_break;
+    unsigned char prison_break_chance;
+    unsigned short game_turns_unconscious;
+    unsigned char stun_enemy_chance_evil;
+    unsigned char stun_enemy_chance_good;
+    long critical_health_permil;
+    long friendly_fight_area_damage_permil;
+    long friendly_fight_area_range_permil;
+    unsigned char torture_death_chance;
+    unsigned char torture_convert_chance;
+    unsigned short bag_gold_hold;
+    TbBool scavenge_good_allowed;
+    TbBool scavenge_neutral_allowed;
+    long scavenge_effectiveness_evil; //unused
+    long scavenge_effectiveness_good; //unused
+    TbBool armegeddon_teleport_neutrals;
+    unsigned long classic_bugs_flags;
+    unsigned short computer_chat_flags;
+    /** The creature model used for determining amount of sacrifices which decrease digger cost. */
+    ThingModel cheaper_diggers_sacrifice_model;
+    //char quick_messages[QUICK_MESSAGES_COUNT][MESSAGE_TEXT_LEN]; //010 Editor note: multi-dimensional arrays are not supported, we change it to a struct (workaround proposed on the 010 Editor manual)
+	typedef struct {
+		char quick_messages[QUICK_MESSAGES_COUNT];
+	} QUICK_MESSAGES[MESSAGE_TEXT_LEN];
+	QUICK_MESSAGES quick_messages;
+    struct GuiMessage messages[GUI_MESSAGES_COUNT];
+    struct SacrificeRecipe sacrifice_recipes[MAX_SACRIFICE_RECIPES];
+    struct LightSystemState lightst;
+    long digger_work_experience;
+    unsigned long gem_effectiveness;
+    long door_sale_percent;
+    long room_sale_percent;
+    long trap_sale_percent;
+    unsigned long pay_day_speed;
+    unsigned short disease_to_temple_pct;
+    TbBool place_traps_on_subtiles;
+    unsigned long gold_per_hoard;
+
+    struct ManfctrConfig traps_config[TRAPDOOR_TYPES_MAX];
+    struct ManfctrConfig doors_config[TRAPDOOR_TYPES_MAX];
+    struct TrapStats trap_stats[TRAPDOOR_TYPES_MAX];
+    struct TrapDoorConfig trapdoor_conf;
+
+    uint8_t               max_custom_box_kind;
+    unsigned long         current_player_turn; // Actually it is a hack. We need to rewrite scripting for current player
+    int                   script_current_player;
+    struct Coord3d        triggered_object_location; //Position of `TRIGGERED_OBJECT`
+
+    //char                  box_tooltip[CUSTOM_BOX_COUNT][MESSAGE_TEXT_LEN]; //010 Editor note: multi-dimensional arrays are not supported, we change it to a struct (workaround proposed on the 010 Editor manual)
+	typedef struct {
+		char                  box_tooltip[CUSTOM_BOX_COUNT];
+	} BOX_TOOLTIP[MESSAGE_TEXT_LEN];
+	BOX_TOOLTIP box_tooltip;
+	
+	
+    struct ScriptFxLine   fx_lines[FX_LINES_COUNT];
+    int                   active_fx_lines;
+
+    struct DungeonAdd dungeon[DUNGEONS_COUNT];
+
+    struct ThingAdd things[THINGS_COUNT];
+
+    struct Objects thing_objects_data[OBJECT_TYPES_COUNT];
+    struct ObjectsConfig object_conf;
+
+    LevelNumber last_level; // Used to restore custom sprites
+    struct LevelScript script;
+    PlayerNumber script_player;
+    unsigned char script_timer_id;
+    unsigned long script_timer_limit;
+    TbBool timer_real;
+    unsigned char script_value_type;
+    unsigned char script_value_id;
+    long script_variable_target;
+    unsigned char script_variable_target_type;
+    TbBool heart_lost_display_message;
+    TbBool heart_lost_quick_message;
+    unsigned long heart_lost_message_id;
+    long heart_lost_message_target;
+    unsigned char slab_ext_data[85 * 85];
+	struct PlayerInfoAdd players[PLAYERS_COUNT];
+};
+
+//From packets.h
+struct PacketSaveHead { // sizeof=0xF (15)
+    unsigned short game_ver_major;
+    unsigned short game_ver_minor;
+    unsigned short game_ver_release;
+    unsigned short game_ver_build;
+    unsigned long level_num;
+    unsigned char players_exist;
+    unsigned char players_comp;
+    TbBool chksum_available; // if needed, this can be replaced with flags
+};
+
+/**
+ * Stores data exchanged between players each turn and used to re-create their input.
+ */
+struct Packet { // sizeof = 0x11 (17)
+    int field_0;
+    TbChecksum chksum; //! Checksum of all things within the game and synchronized random seed
+    unsigned char action; //! Action kind performed by the player which owns this packet
+    unsigned short actn_par1; //! Players action parameter #1
+    unsigned short actn_par2; //! Players action parameter #2
+    short pos_x; //! Mouse Cursor Position X
+    short pos_y; //! Mouse Cursor Position Y
+    unsigned short control_flags;
+    unsigned char additional_packet_values; // uses the flags and values from TbPacketAddValues
+};
+
+//From engine_camera.h
+struct Camera {
+    struct Coord3d mappos;
+    unsigned char view_mode;
+    int orient_a;
+    int orient_b;
+    int orient_c;
+    int field_13;
+    int zoom;
+    int inertia_rotation;
+    TbBool in_active_movement_rotation;
+    long inertia_x;
+    TbBool in_active_movement_x;
+    long inertia_y;
+    TbBool in_active_movement_y;
+};
+
+//From map_columns.h
+struct Column { // sizeof=0x18
+    short use;
+    unsigned char bitfields;
+    unsigned short solidmask;
+    unsigned short baseblock;
+    unsigned char orient;
+    unsigned short cubes[COLUMN_STACK_HEIGHT];
+};
+
+struct Columns {
+    //010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+	//struct Column *lookup[COLUMNS_COUNT];
+    //struct Column *end;
+	anyPointer Column_lookup[COLUMNS_COUNT];
+    anyPointer Column_end;
+};
+
+//From thing_list.h
+struct Things {
+    //010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+	//struct Thing *lookup[THINGS_COUNT];
+    //struct Thing *end;
+	anyPointer Thing_lookup[THINGS_COUNT];
+    anyPointer Thing_end;
+};
+
+struct StructureList {
+     unsigned long count;
+     unsigned long index;
+};
+
+//From slab_data.h
+struct SlabSet { // sizeof = 18
+  short col_idx[9];
+};
+
+struct SlabMap {
+      SlabKind kind;
+      short next_in_room;
+      unsigned char room_index;
+      unsigned char health;
+      unsigned char field_5;
+};
+
+struct SlabObj { // sizeof = 13
+  unsigned char field_0;
+  short field_1;
+  unsigned char field_3;
+  short field_4;
+  short field_6;
+  short field_8;
+  unsigned char field_A;
+  unsigned char sofield_B;
+  unsigned char sofield_C;
+};
+
+//From thing_data.h
+struct ThingAdd // Additional thing data
+{
+    unsigned long flags; //ThingAddFlags
+};
+
+struct Thing {
+    unsigned char alloc_flags;
+    unsigned char state_flags;
+    unsigned short next_on_mapblk;
+    unsigned short prev_on_mapblk;
+    unsigned char owner;
+    unsigned char active_state;
+    unsigned char continue_state;
+    long creation_turn;
+    struct Coord3d mappos;
+    union {
+//TCls_Empty
+//TCls_Object
+      struct {
+        long gold_stored;
+        short word_17v;
+      } valuable;
+      struct {
+        short life_remaining;
+        char byte_15;
+        unsigned char byte_16;
+        TbBool some_chicken_was_sacrificed;
+        unsigned short angle;
+      } food;
+      struct {
+        unsigned char box_kind;
+      } custom_box;
+      struct {
+        short belongs_to;
+        short cssize;
+        short spr_size;
+      } lair;
+      struct {
+        short belongs_to;
+        short cssize;
+        short spr_size;
+      } torturer;
+      struct {
+        unsigned char state;
+      } call_to_arms_flag;
+      struct {
+        unsigned char countdown_UNUSED;
+        unsigned char beat_direction;
+      } heart;
+      struct {
+        unsigned char number;
+      } hero_gate;
+      struct {
+        unsigned char spell_level;
+      } lightning;
+      struct {
+        short belongs_to;
+        unsigned char shspeed;
+      } armor;
+      struct {
+        short belongs_to;
+        unsigned char effect_slot;
+      } disease;
+      struct {
+        long room_idx;
+      } roomflag;
+      struct {
+      short unused3;
+      long turntime;
+      unsigned char byte_19;
+      }roomflag2; // both roomflag and roomflag2 are used in same function on same object but have 2 bytes overlapping between room_idx and turntime 
+//TCls_Shot
+      struct {
+        unsigned char dexterity;
+        short damage;
+        unsigned char hit_type;
+        short target_idx;
+        unsigned char spell_level;
+      } shot;
+      struct {
+        long x;
+        short target_idx;
+        unsigned char posint;
+      } shot_lizard;
+      struct {
+        unsigned char range;
+      } shot_lizard2;// both shot_lizard and shot_lizard2 are used in same function on same object but have 1 byte overlapping between x and range 
+//TCls_EffectElem
+//TCls_DeadCreature
+      struct {
+          unsigned char exp_level;
+          unsigned char laid_to_rest;
+      } corpse;
+//TCls_Creature
+      struct {
+        long gold_carried;
+        short health_bar_turns;
+      } creature;
+//TCls_Effect
+      struct {
+        char unused;
+        short unused2;
+        unsigned char hit_type;
+      } shot_effect;
+      struct {
+        long number;
+      } price_effect;
+//TCls_EffectGen
+      struct {
+      short range;
+      long generation_delay;
+      } effect_generator;
+//TCls_Trap
+      struct {
+        unsigned char num_shots;
+        long rearm_turn;
+        unsigned char revealed;
+      } trap;
+//TCls_Door
+      struct {
+      short orientation;
+      unsigned char opening_counter;
+      short closing_counter;
+      unsigned char is_locked;
+      } door;
+//TCls_Unkn10
+//TCls_Unkn11
+//TCls_AmbientSnd
+//TCls_CaveIn
+      struct {
+        unsigned char x;
+        unsigned char y;
+        short time;
+        unsigned char model;
+      }cave_in;
+    } singleUnion; //010 Editor note: structs and unions must have a name, we add one
+    unsigned char model;
+    unsigned short index;
+    /** Parent index. The parent may either be a thing, or a slab index.
+     * What it means depends on thing class, ie. it's thing index for shots
+     *  and slab number for objects.
+     */
+    short parent_idx;
+    unsigned char class_id;
+    unsigned char fall_acceleration;
+unsigned char field_21;
+    unsigned char bounce_angle;
+    unsigned char field_23;
+    unsigned char field_24;
+    unsigned char movement_flags;
+    struct CoordDelta3d veloc_push_once;
+    struct CoordDelta3d veloc_base;
+    struct CoordDelta3d veloc_push_add;
+    struct CoordDelta3d velocity;
+    // Push when moving; needs to be signed
+    short anim_speed;
+    long field_40; // animation time (measured in 1/256 of a frame)
+unsigned short anim_sprite;
+    unsigned short sprite_size;
+
+unsigned char field_48;     // current frame
+unsigned char field_49;     // max frames
+    char field_4A;          // thing growth speed (when it is growing/shrinking)
+unsigned short field_4B;    // min_sprite_size
+unsigned short field_4D;    // max_sprite_size
+    unsigned char field_4F;
+    unsigned char field_50; // control rendering process (draw_class << 2) + (growth/shrink continiously) + (shrink/grow then stop)
+unsigned char field_51;   // Tint color (from colours)
+    short move_angle_xy;
+    short move_angle_z;
+    unsigned short clipbox_size_xy;
+    unsigned short clipbox_size_yz;
+    unsigned short solid_size_xy;
+    unsigned short solid_size_yz;
+    short health; //signed
+unsigned short field_60;
+    unsigned short light_id;
+    short ccontrol_idx;
+    unsigned char snd_emitter_id;
+    short next_of_class;
+    short prev_of_class;
+};
+
+//From room_data.h
+struct RoomStats {
+  short cost;
+  unsigned short health;
+};
+
+struct Room {
+    unsigned char alloc_flags;
+    unsigned short index; // index in the rooms array
+    unsigned char owner;
+    short prev_of_owner;
+    short next_of_owner;
+    unsigned char central_stl_x;
+    unsigned char central_stl_y;
+    unsigned short kind;
+    unsigned short health;
+    unsigned short total_capacity;
+    unsigned short used_capacity;
+    /* Informs whether players are interested in that room.
+     * Usually used for neutral rooms, set if a player is starting to dig to that room. */
+    unsigned char player_interested[5];
+    union {
+    /** For rooms which can store things, amount of storage space, or sum of gold, used by them.
+     *  Rooms which can store things are workshops, libraries, treasure rooms etc. */
+    struct {
+      unsigned long capacity_used_for_storage;
+      short hatchfield_1B;
+      unsigned char field_1D[26];
+    } hatcheryStruct; //010 Editor note: structs and unions must have a name, we add one
+    /** For rooms which are often browsed for various reasons, list of all rooms of given kind.
+     *  Rooms which have such list are entrances (only?). */
+    struct {
+      short prev_of_kind;
+      short next_of_kind;
+      unsigned char field_1Bx[28];
+    } roomKindStruct; //010 Editor note: structs and unions must have a name, we add one
+    struct {
+      /** For rooms which store creatures, amount of each model.
+       * Rooms which have such lists are lairs. */
+      unsigned char content_per_model[32];
+    } contentPerModelStruct; //010 Editor note: structs and unions must have a name, we add one
+    /* For hatchery; integrate with something else, if possible */
+    struct {
+      long hatch_gameturn;
+      unsigned char field_1Bh[28];
+    } hatchGameturnStruct; //010 Editor note: structs and unions must have a name, we add one
+    } roomFirstUnion; //010 Editor note: structs and unions must have a name, we add one
+    unsigned short slabs_list;
+    unsigned short slabs_list_tail;
+    unsigned short slabs_count;
+    unsigned short creatures_list;
+    unsigned short efficiency;
+    unsigned short field_41;
+    unsigned char field_43;
+    unsigned char flame_stl;
+};
+
+//From map_events.h
+struct Event { // sizeof=0x15
+    unsigned char flags;
+    unsigned char index;
+    long mappos_x;
+    long mappos_y;
+    unsigned char owner;
+    unsigned char kind;
+    long target;
+    /** Button lifespan, decreased over time. When reaches 0, the button disappears. */
+    unsigned long lifespan_turns;
+    unsigned char falling_button; // Old way - make it unused when only EvF_BtnFirstFall is used
+};
+
+struct Bookmark { // sizeof = 3
+  unsigned char x;
+  unsigned char y;
+  unsigned char flags;
+};
+
+//From config_magic.h
+struct MagicStats {  // sizeof=0x4C
+  long cost[MAGIC_OVERCHARGE_LEVELS];
+  long time;
+  long strength[MAGIC_OVERCHARGE_LEVELS];
+};
+
+struct SpellConfig { // sizeof=4
+  int duration;
+};
+
+//From actionpt.h
+struct ActionPoint { // sizeof = 0xA
+    unsigned char flags;
+    struct Coord2d mappos;
+    unsigned short range;
+    unsigned short num;
+    unsigned char activated;
+};
+
+//From player_complookup.h
+struct GoldLookup { // sizeof = 28
+    unsigned char flags;
+    /* Informs whether players are interested in that gold vein. */
+    unsigned char player_interested[5];
+unsigned short x_stl_num;
+unsigned short y_stl_num;
+unsigned short field_A;
+unsigned short field_C;
+unsigned short num_gold_slabs;
+unsigned long num_gem_slabs;
+unsigned char field_14[6];
+unsigned short field_1A;
+};
+
+//From sounds.h
+struct SoundSettings {
+  //010 Editor note: pointer syntax is not supported, changed to use my anyPointer typedef
+  //char *sound_data_path;
+  //char *music_data_path;
+  //char *dir3;
+  anyPointer char_sound_data_path;
+  anyPointer char_music_data_path;
+  anyPointer char_dir3;
+  unsigned short sound_type;
+  unsigned short flags;
+  unsigned char max_number_of_samples;
+  unsigned char stereo;
+  unsigned char field_12;
+  unsigned char danger_music;
+  unsigned char no_load_sounds;
+  unsigned char no_load_music;
+  unsigned char field_16;
+  unsigned char sound_system;
+  unsigned char field_18;
+  unsigned char redbook_enable;
+};
+
+//From creature_battle.h
+struct CreatureBattle { // sizeof = 17
+  unsigned long fighters_num;
+  unsigned char field_4[9];
+  unsigned short first_creatr;
+  unsigned short last_creatr;
+};
+
+//From power_process.h
+struct Armageddon { // sizeof = 14
+  unsigned long count_down;
+  unsigned long duration;
+  struct Coord3d mappos;
+};
+
+//From game_legacy.h
+struct PerExpLevelValues { // sizeof = 10
+  unsigned char value[10];
+};
+
+struct CreaturePool { // sizeof = 129
+  long crtr_kind[CREATURE_TYPES_COUNT];
+  unsigned char is_empty;
+};
+
+// only one such struct exists at .data:005F0310
+// it ends at 00741B35
+struct Game { // sizeof=0x151825
+    // This was a level and version before, but now saved games have another versioning system.
+    unsigned short unused_version[3];
+    LevelNumber continue_level_number;
+    unsigned char system_flags;
+char align_B;
+    /** Flags which control how the game operates, mostly defined by command line. */
+    unsigned char operation_flags;
+    unsigned char numfield_D;
+    unsigned char flags_font;
+    unsigned char flags_gui;
+    unsigned char eastegg01_cntr;
+    unsigned char flags_cd;
+    unsigned char eastegg02_cntr;
+    char audiotrack;
+char numfield_14;
+char numfield_15;
+    LevelNumber selected_level_number;
+char numfield_1A;
+    unsigned char numfield_1B;
+    struct PlayerInfo players[PLAYERS_COUNT];
+    struct Column columns_data[COLUMNS_COUNT];
+    struct CubeAttribs cubes_data[CUBE_ITEMS_MAX];
+    struct ObjectConfig objects_config[OBJECT_TYPES_COUNT_ORIGINAL];
+struct ObjectConfig objects_config_UNUSED[103];
+char field_117DA[14];
+    // Traps and doors config; note that eventually we'll want to merge it with trapdoor_conf
+    struct ManfctrConfig traps_config_[TRAP_TYPES_COUNT];
+    struct ManfctrConfig doors_config_[DOOR_TYPES_COUNT];
+    struct SpellConfig spells_config[30];
+    struct Things things;
+    struct Persons persons;
+    struct Columns columns;
+    unsigned short slabset_num;
+    struct SlabSet slabset[SLABSET_COUNT];
+    unsigned short slabobjs_num;
+    short slabobjs_idx[SLABSET_COUNT];
+    struct SlabObj slabobjs[SLABOBJS_COUNT];
+    unsigned char land_map_start;
+    struct LightsShadows lish;
+    struct CreatureControl cctrl_data[CREATURES_COUNT];
+    struct Thing things_data[THINGS_COUNT];
+    unsigned char navigation_map[256*256];
+    struct Map map[256*256]; // field offset 0xDC157
+    struct ComputerTask computer_task[COMPUTER_TASKS_COUNT];
+    struct Computer2 computer[PLAYERS_COUNT];
+    struct SlabMap slabmap[85*85];
+    struct Room rooms[ROOMS_COUNT];
+    struct Dungeon dungeon[DUNGEONS_COUNT];
+char field_149E05;
+    struct StructureList thing_lists[13];
+    int field_149E6E; // signed
+char field_149E72[5];
+    unsigned int unrevealed_column_idx;
+unsigned char field_149E7B;
+unsigned int field_149E7C;
+    unsigned char packet_save_enable;
+    unsigned char packet_load_enable;
+    char packet_fname[150];
+    char packet_fopened;
+    TbFileHandle packet_save_fp;
+unsigned int packet_file_pos;
+    struct PacketSaveHead packet_save_head;
+    unsigned long turns_stored;
+    unsigned long turns_fastforward;
+unsigned char numfield_149F38;
+    unsigned char packet_checksum_verify;
+    unsigned long log_things_start_turn;
+    unsigned long log_things_end_turn;
+    unsigned long turns_packetoff;
+    unsigned char local_plyr_idx;
+unsigned char numfield_149F47;
+// Originally, save_catalogue was here.
+    char campaign_fname[CAMPAIGN_FNAME_LEN];
+    char save_catalogue_UNUSED[72];
+    struct Event event[EVENTS_COUNT];
+unsigned long field_14A804;
+unsigned long field_14A808;
+unsigned long field_14A80C;
+unsigned long field_14A810;
+unsigned long field_14A814;
+short field_14A818[18];
+char field_14A83C;
+    //unsigned char level_file_number; // merged with level_number to get maps > 255
+    short loaded_level_number;
+    short texture_animation[8*TEXTURE_BLOCKS_ANIM_COUNT];
+    unsigned short columns_used;
+    unsigned char texture_id;
+    unsigned short free_things[THINGS_COUNT-1];
+    /** Index of the first used element in free things array. All elements BEYOND this index are free. If all things are free, it is set to 0. */
+    unsigned short free_things_start_index;
+    unsigned long play_gameturn;
+    unsigned long pckt_gameturn;
+    /** Synchronized random seed. used for game actions, as it's always identical for clients of network game. */
+    unsigned long action_rand_seed;
+    /** Unsynchronized random seed. Shouldn't affect game actions, because it's local - other clients have different value. */
+    unsigned long unsync_rand_seed;
+short field_14BB52;
+unsigned char field_14BB54;
+int field_14BB55;
+int field_14BB59;
+int field_14BB5D;
+    unsigned long time_delta;
+short field_14BB65[592];
+    unsigned char small_map_state;
+    struct Coord3d pos_14C006;
+    struct Packet packets[PACKETS_COUNT];
+    struct CreatureStatsOLD creature_stats_OLD[CREATURE_TYPES_COUNT]; // New stats are in GameAdd
+    struct RoomStats room_stats[ROOM_TYPES_COUNT];
+    struct MagicStats keeper_power_stats[POWER_TYPES_COUNT];
+    struct ActionPoint action_points[ACTN_POINTS_COUNT];
+char active_players_count;
+    unsigned char hero_player_num;
+    unsigned char neutral_player_num;
+int field_14E498;
+short field_14E49C;
+short field_14E49E;
+int field_14E4A0;
+short field_14E4A4;
+    struct GoldLookup gold_lookup[GOLD_LOOKUP_COUNT];
+    unsigned short ambient_sound_thing_idx;
+    unsigned short block_health[9];
+    unsigned short minimum_gold;
+    unsigned short max_gold_lookup;
+    unsigned short min_gold_to_record;
+    unsigned short wait_for_room_time;
+    unsigned short check_expand_time;
+    unsigned short max_distance_to_dig;
+    unsigned short wait_after_room_area;
+    unsigned short per_imp_gold_dig_size;
+    unsigned short default_generate_speed;
+    unsigned short generate_speed;
+    unsigned short field_14E92E;
+unsigned char field_14E930[4];
+    unsigned long entrance_last_generate_turn;
+    unsigned short entrance_room_id;
+    unsigned short entrances_count;
+    unsigned short gold_per_gold_block;
+    unsigned short pot_of_gold_holds;
+    unsigned short chest_gold_hold;
+    unsigned short gold_pile_value;
+    unsigned short gold_pile_maximum;
+    unsigned short fight_max_hate;
+    unsigned short fight_borderline;
+    unsigned short fight_max_love;
+    unsigned short food_life_out_of_hatchery;
+    unsigned short fight_hate_kill_value;
+    unsigned short body_remains_for;
+    unsigned short graveyard_convert_time;
+    unsigned short tile_strength;
+    unsigned short gold_tile_strength;
+unsigned char field_14E958[208];
+unsigned short field_14EA28;
+unsigned short field_14EA2A;
+unsigned short field_14EA2C;
+unsigned short field_14EA2E;
+unsigned long field_14EA30;
+unsigned short field_14EA34;
+unsigned short field_14EA36;
+unsigned short field_14EA38;
+unsigned char field_14EA3A[8];
+    unsigned char min_distance_for_teleport;
+    unsigned char recovery_frequency;
+unsigned short field_14EA44;
+    unsigned short nodungeon_creatr_list_start; /**< Linked list of creatures which have no dungeon (neutral and owned by nonexisting players) */
+    unsigned short food_generation_speed;
+    char game_kind; /**< Kind of the game being played, from GameKinds enumeration. Originally was GameMode. */
+char field_14EA4B;
+    struct PerExpLevelValues creature_scores[CREATURE_TYPES_COUNT];
+    unsigned long default_max_crtrs_gen_entrance;
+    unsigned long default_imp_dig_damage;
+    unsigned long default_imp_dig_own_damage;
+    unsigned short game_turns_in_flee;
+    unsigned short hunger_health_loss;
+    unsigned short turns_per_hunger_health_loss;
+    unsigned short food_health_gain;
+    unsigned char prison_skeleton_chance;
+    unsigned short torture_health_loss;
+    unsigned short turns_per_torture_health_loss;
+    unsigned char ghost_convert_chance;
+    struct LevelScriptOld script;
+    struct Bookmark bookmark[BOOKMARKS_COUNT];
+    struct CreaturePool pool;
+    long frame_skip;
+    unsigned long pay_day_gap;
+unsigned long pay_day_progress;
+    unsigned long power_hand_gold_grab_amount;
+    unsigned char no_intro;
+    unsigned long hero_door_wait_time;
+    unsigned long dungeon_heart_heal_time;
+    long dungeon_heart_heal_health;
+    unsigned long dungeon_heart_health;
+    unsigned char disease_transfer_percentage;
+    unsigned char disease_lose_percentage_health;
+    unsigned char disease_lose_health_time;
+    unsigned long armageddon_cast_turn;
+unsigned long armageddon_field_15035A;
+    unsigned char armageddon_caster_idx;
+    unsigned long hold_audience_time;
+    unsigned long armagedon_teleport_your_time_gap;
+    unsigned long armagedon_teleport_enemy_time_gap;
+    unsigned char hits_per_slab;
+    long collapse_dungeon_damage;
+    unsigned long turns_per_collapse_dngn_dmg;
+    struct SoundSettings sound_settings;
+long field_15038E;
+    long num_fps;
+    unsigned long train_cost_frequency;
+    unsigned long scavenge_cost_frequency;
+    unsigned long temple_scavenge_protection_turns;
+char numfield_1503A2;
+    unsigned char bodies_for_vampire;
+    struct CreatureBattle battles[BATTLES_COUNT];
+unsigned char field_1506D4;
+    long music_track_index;
+    char evntbox_text_objective[MESSAGE_TEXT_LEN];
+    char evntbox_text_buffer[MESSAGE_TEXT_LEN];
+    struct TextScrollWindow evntbox_scroll_window;
+char field_1512E6[1037];
+    long flash_button_index; /**< GUI Button Designation ID of a button which is supposed to flash, as part of tutorial. */
+    long flash_button_gameturns; // signed
+long field_1516FB;
+    char loaded_swipe_idx;
+    long boulder_reduce_health_wall;
+    long boulder_reduce_health_slap;
+    long boulder_reduce_health_room;
+    struct GuiMessage_OLD messages_[3];
+    unsigned char active_messages_count;
+    // Moved bonuses_foudn to IntralevelData
+    unsigned char ex_intralvl_plug[6];
+    long bonus_time;
+    // Moved transfered_creauture to IntralevelData
+    unsigned char ex_transfered_creature_plug[2];
+    struct Armageddon armageddon;
+    char active_panel_mnu_idx; /**< The MenuID of currently active panel menu, or 0 if none. */
+    char comp_player_aggressive;
+    char comp_player_defensive;
+    char comp_player_construct;
+    char comp_player_creatrsonly;
+    /** Imprisonment tendency variable. Used for GUI only; the real tendency is a flag inside Dungeon. */
+    char creatures_tend_imprison;
+    /** Flee tendency variable. Used for GUI only; the real tendency is a flag inside Dungeon. */
+    char creatures_tend_flee;
+    short hand_over_subtile_x;
+    short hand_over_subtile_y;
+    int chosen_room_kind;
+    int chosen_room_spridx;
+    int chosen_room_tooltip;
+    int chosen_spell_type;
+    int chosen_spell_spridx;
+    int chosen_spell_tooltip;
+    int manufactr_element;
+    int manufactr_spridx;
+    int manufactr_tooltip;
+};
+
+string PaddingCommentFunc(char &padding)
+{
+  return "This member doesn't exist in the original KeeperFX source code but the compiler produces padding bytes (as pragma pack() directive was used) like this one, so this is necessary";
+}
+
+/* This function helps to detect if one of the main structs is not well parsed (if the size specified by its chunk header does not match
+the size of the main struct after 010 Editor parsed it) and jumps to the next main struct in that case */
+void maybeSkipBytes(int64 startOfHeaderStruct, int64 lenOfDataBlock, unsigned long lenOfHeaderBlock, string blockName) {
+	local int64 currPos = FTell();
+	local int64 lastByte = startOfHeaderStruct + lenOfHeaderBlock;
+	local string reason;
+  SPrintf(reason, "This is due to that an unexpected KeeperFX savegame version has been loaded here.\nAre you really loading a savegame from KeeperFX v0.4.9.2762 or compatible version (with same savegame size: %d bytes)?\n", EXPECTED_SAVEGAME_SIZE);
+	if (currPos < lastByte) {
+    local string smallStruct;
+    SPrintf(smallStruct, "%s block is INCORRECT, %d bytes has not been parsed for this struct (its FileChunkHeader says it must be %d bytes long but it's %d).\n%s", blockName, lastByte - currPos, lenOfHeaderBlock, lenOfDataBlock, reason);
+    Printf(smallStruct);
+    Warning(smallStruct);
+    FSkip(lenOfHeaderBlock - lenOfDataBlock);
+	} else if (currPos > lastByte) {
+		local string biggerStruct;
+    SPrintf(biggerStruct, "%s block is INCORRECT, %d bytes exceed the expected size for this struct (its FileChunkHeader says it must be %d bytes long but it's %d).\n%s", blockName, currPos - lastByte, lenOfHeaderBlock, lenOfDataBlock, reason);
+		Printf(biggerStruct);
+    Warning(biggerStruct);
+    FSeek(startOfHeaderStruct + lenOfHeaderBlock + lenOfDataBlock);
+	}
+}
+
+while(!FEof()) {
+	if (FTell() + sizeof(FileChunkHeader) > FileSize()) {
+    local string incompleteChunkErr;
+    SPrintf(incompleteChunkErr, "Incomplete chunk header found at position %ld, more bytes are needed. These leftover bytes can probably be from a higher savegame version\n", FTell());
+    Printf(incompleteChunkErr);
+		Warning(incompleteChunkErr);
+		SetCursorPos(FTell());
+		SetSelection( FTell(), FileSize() - FTell());
+		return;
+	}
+	FileChunkHeader hdr;
+	switch(hdr.id) {
+		case SGC_InfoBlock:
+			Printf("INFO (%ld bytes) at position %ld\n", hdr.len, startof(hdr));
+			CatalogueEntry INFO;
+      maybeSkipBytes(startof(INFO), sizeof(INFO), hdr.len, "INFO");
+			break;
+		case SGC_GameAdd:
+			Printf("GADD (%ld bytes) at position %ld\n", hdr.len, startof(hdr));
+			GameAdd GADD;
+			maybeSkipBytes(startof(GADD), sizeof(GADD), hdr.len, "GADD");
+			break;
+		case SGC_GameOrig:
+			Printf("OLDS (%ld bytes) at position %ld\n", hdr.len, startof(hdr));
+			Game OLDS;
+			maybeSkipBytes(startof(OLDS), sizeof(OLDS), hdr.len, "OLDS");
+			break;
+		case SGC_PacketHeader:
+			Printf("PHDR (%ld bytes) at position %ld\n", hdr.len, startof(hdr));
+			PacketSaveHead packetSaveHead;
+			maybeSkipBytes(startof(packetSaveHead), sizeof(packetSaveHead), hdr.len, "PHDR");
+			break;
+		case SGC_PacketData: //010 Editor note: TODO: is this entire case correct? See game_saves.c file from KeeperFX
+			Printf("PCKT (%ld bytes) at position %ld\n", hdr.len, startof(hdr));
+			Printf("Incompatible PacketData chunk\n");
+			FSkip(hdr.len);
+			break;
+		case SGC_IntralevelData:
+			Printf("ILVL (%ld bytes) at position %ld\n", hdr.len, startof(hdr));
+			IntralevelData intraLevelData;
+			maybeSkipBytes(startof(intraLevelData), sizeof(intraLevelData), hdr.len, "ILVL");
+			break;
+		default:
+      local string unrecognizedChunkErr;
+			SPrintf(unrecognizedChunkErr, "Unrecognized chunk, ID = %08lx at position %ld or these additional bytes are from a higher savegame version\n",hdr.id, startof(hdr.id));
+      Printf(unrecognizedChunkErr);
+      Warning(unrecognizedChunkErr);
+			SetCursorPos(FTell() - sizeof(hdr));
+		  SetSelection(FTell() - sizeof(hdr), sizeof(hdr));
+      return;
+			//break;
+	}
+	Printf("\n");
+}

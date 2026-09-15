@@ -1,0 +1,77 @@
+//------------------------------------------------
+//--- 010 Editor Binary Template
+//
+//      File: ASTERIX.bt
+//   Authors: Kevin O. Grover
+//    E-mail: kevin.grover@jt4llc.com
+//   Version: 0.3
+//   Purpose: Eurocontrol ASTERIX Data
+//  Category: Network
+// File Mask: *.asterix
+//   History:
+//   0.3   2023-08-18 kog: parse FSPEC and read next two bytes as SAC/SIC.
+//   0.2   2023-08-14 kog: Correct reads/writes for unsigned.
+//   0.1   2016-05-27 kog: Original Version.
+//
+// ASTERIX (All Purpose Structured Eurocontrol Surveillance
+// Information Exchange)
+//
+// EUROCONTROL-SPEC-0149 Ed 2.3
+// http://www.eurocontrol.int/services/asterix
+//
+// There are no magic identifiers.  Data layout:
+//
+// Data Block              # called 'packet' in WSD
+//   <category> <length>
+//   Data Record...        # called 'message' in WSD
+//     [<FSPEC> Data_Item...]...
+//
+// WSD = Wireshark Dissector (packet_asterix.c)
+//
+// Blocks hold one or more Messages of the same category.
+// You must know the format in order to be able to decode
+// the messages.  They have an FSPEC (Field
+// Specification) field that has a bit on/off for whether each
+// field is present.  The data for each present field follows
+// in the same order as in the FSPEC.   NOTE: FSPEC bit meaning
+// is unique for each category.
+//------------------------------------------------
+
+BigEndian();
+
+typedef ubyte uint8;
+
+uint16 get_FSPEC_size()
+{
+    local uint16 sz = 1;
+    local uint8 data = ReadByte(FTell());
+    while ( data & 0x1 ) {
+        data = ReadUByte(FTell() + sz);
+        sz += 1;
+    }
+    return sz;
+}
+
+typedef struct {
+    uint8  category;
+    uint16 length;    // len(data) + 3 [len(category) + len(length)]
+    if (length <= 3) {
+        Printf("ERROR: Bad length: %u (must be > 3)", length);
+        Exit(1);
+    }
+    local uint16 fspec_size = get_FSPEC_size();
+    uint8  FSPEC[fspec_size];
+    uint8  sac;
+    uint8  sic;
+    uint8  data[length - 3 - fspec_size - 2];
+} Block <read=read_Block>;
+
+string read_Block(Block &b) {
+    string res;
+    SPrintf(res, "I%03u  SAC/SIC: %u/%u (%02x/%02x)", b.category, b.sac, b.sic, b.sac, b.sic);
+    return res;
+}
+
+while(!FEof()) {
+    Block block;
+}

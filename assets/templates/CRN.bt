@@ -1,0 +1,86 @@
+//------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+//
+//      File: CRN.bt
+//   Authors: HearHellacopters
+//   Version: 1.2
+//   Purpose: Header parsing for crunch texture files in .crn format.
+//  Category: Image
+// File Mask: *.crn
+//  ID Bytes: 48 78
+//   History: 
+//   1.2   2023-11-02 HearHellacopters: Added format enum.
+//   1.1   2023-11-01 HearHellacopters: Update file purpose and name.
+//   1.0   2023-10-31 HearHellacopters: Initial release.
+//------------------------------------------------
+BigEndian();
+
+typedef enum <ubyte> {
+    cCRNFmtInvalid = -1,
+    
+    cCRNFmtDXT1 = 0,
+    
+    // cCRNFmtDXT3 is not currently supported when writing to CRN - only DDS.
+    cCRNFmtDXT3 = 1,
+    
+    cCRNFmtDXT5 = 2,
+    
+    // Various DXT5 derivatives
+    cCRNFmtDXT5_CCxY = 3,    // Luma-chroma
+    cCRNFmtDXT5_xGxR = 4,    // Swizzled 2-component
+    cCRNFmtDXT5_xGBR = 5,    // Swizzled 3-component
+    cCRNFmtDXT5_AGBR = 6,    // Swizzled 4-component
+    
+    // ATI 3DC and X360 DXN
+    cCRNFmtDXN_XY = 7,
+    cCRNFmtDXN_YX = 8,
+    
+    // DXT5 alpha blocks only
+    cCRNFmtDXT5A =  9,
+   
+    cCRNFmtETC1 = 10,
+    cCRNFmtETC2 = 11,
+    cCRNFmtETC2A = 12,
+    cCRNFmtETC1S = 13,
+    cCRNFmtETC2AS = 14,
+    
+    cCRNFmtTotal = 15,
+    
+    cCRNFmtForceDWORD = 0xFFFFFFFF
+   
+} crn_format;
+
+typedef struct {
+    BitfieldDisablePadding();
+    uint m_ofs : 24;
+    uint m_size : 24;
+    BitfieldEnablePadding();
+    ushort m_num;
+}crn_palette <open=true>;
+
+struct{
+    char m_sig[2]<comment="Hx">;
+    Assert(m_sig == "Hx");
+    ushort m_header_size;
+    ushort m_header_crc16;
+    uint m_data_size;
+    ushort m_data_crc16;
+    ushort m_width;
+    ushort m_height;
+    ubyte m_levels;
+    ubyte m_faces;
+    crn_format m_format;
+    ushort m_flags;
+    uint m_reserved;
+    uint m_userdata0;
+    uint m_userdata1;
+    crn_palette m_color_endpoints;
+    crn_palette m_color_selectors;
+    crn_palette m_alpha_endpoints;
+    crn_palette m_alpha_selectors;
+    ushort m_tables_size;
+    BitfieldDisablePadding();
+    uint m_tables_ofs : 24;
+    BitfieldEnablePadding();
+    uint m_level_ofs[m_levels] <open=true>;
+} header <open=true>;

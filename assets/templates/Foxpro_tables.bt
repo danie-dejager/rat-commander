@@ -1,0 +1,243 @@
+//------------------------------------------------
+//--- 010 Editor v15.0 Binary Template
+//
+//      File: Foxpro_tables.bt
+//   Authors: A. Auerswald
+//   Version: 1.0.0
+//   Purpose: Parses files in Visual FoxPro table format (DBC, DBF, FRX, LBX, MNX, PJX, SCX, VCX).
+//  Category: Database
+// File Mask: *.dbc,*.dbf,*.frx,*.lbx,*.mnx,*.pjx,*.scx,*.vcx
+//  ID Bytes: 30, 31, 32 // Visual FoxPro table
+//   History:
+//   1.0.0 2024-08-20 AA: initial version
+// References:
+//   https://www.vfphelp.com/help/_5wn12pc0x.htm
+//------------------------------------------------
+
+// many thanks for the kind support of sweetscape :)
+
+RequiresVersion(15);
+LittleEndian();
+
+const int MILLISECONDS_IN_HOUR <hidden=true> = 3600000;
+const int MILLISECONDS_IN_MINUTE <hidden=true> = 60000;
+const int MILLISECONDS_IN_SECOND <hidden=true> = 1000;
+
+// Field subrecords 
+// The number of fields determines the number of field subrecords. One field 
+// subrecord exists for each field in the table.
+typedef struct {
+    char fieldName[11] <comment="Field name in ASCII (zero-filled).">;
+    char fieldType[1] <comment="Field type in ASCII ">;
+    uint32 displacementOfFieldInRecord <comment="Field data address">;
+    uint8 lengthOfField <comment="Length of field (in bytes)">;
+    uint8 decimalCount;
+    
+    struct FieldFlags {
+        ubyte F_SYSTEM_COLUMN       : 1 <comment="System Column (not visible to user)">;
+        ubyte F_IS_NULLABLE         : 1 <comment="Column can store null values">;
+        ubyte F_BINARY_COLUMN       : 1 <comment="Binary column (for CHAR and MEMO only)">;
+        ubyte F_IS_AUTOINCREMENTING : 1 <comment="Column is autoincrementing">;
+    } fieldFlags <bgcolor=cDkRed>;
+
+    uint32 nextAutoincrement <comment="Value of autoincrement next value">;
+    uint8 autoincrementStep <comment="Value of autoincrement step value">;
+    char reserved[8] <hidden=true>;
+} FieldDescriptor <size=32, optimize=false>;
+
+typedef enum <uint8> {
+    VALID   = 0x20,
+    DELETED = 0x2A
+} DeletionFlag;
+
+typedef enum <uint8> {
+    CP437 = 0x01,
+    CP620 = 0x69,
+    CP737 = 0x6A,
+    CP850 = 0x02,
+    CP852 = 0x64,
+    CP857 = 0x6B,
+    CP861 = 0x67,
+    CP865 = 0x66,
+    CP866 = 0x65,
+    CP874 = 0x7C,
+    CP895 = 0x68,
+    CP932 = 0x7B,
+    CP936 = 0x7A,
+    CP949 = 0x79,
+    CP950 = 0x78,
+    CP1250 = 0xC8,
+    CP1251 = 0xC9,
+    CP1252 = 0x03,
+    CP1253 = 0xCB,
+    CP1254 = 0xCA,
+    CP1255 = 0x7D,
+    CP1256 = 0x7E,
+    CP10000 = 0x04,
+    CP10006 = 0x98,
+    CP10007 = 0x96,
+    CP10029 = 0x97
+} CodePage;
+
+
+typedef struct {
+    uint8 fileType <format=hex>;
+    
+    struct LastUpdated {
+        uint8 year; // yes, there seems to be a y2k problem here
+        uint8 month;
+        uint8 day;
+    } lastUpdated <comment="Last update (YYMMDD)">;
+
+    uint32 numberOfRecords <comment="Number of records in file">;
+    uint16 positionOfFirstDataRecord <comment="Position of first data record">;
+    uint16 lengthOfOneDataRecord <comment="Length of one data record, including delete flag">;
+    char reserved2[16] <hidden=true>;
+
+    struct TableFlags {
+        ubyte F_FILE_HAS_CDX    :  1 <comment="file has a structural .cdx">;
+        ubyte F_FILE_HAS_MEMO   :  1 <comment="file has a Memo field">;
+        ubyte F_FILE_IS_DATABASE:  1 <comment="file is a database (.dbc)">;
+        ubyte : 5;
+    } tableFlags;
+
+    CodePage codePage <format=hex, comment="Code page mark">;
+    char reserved3[2] <hidden=true, comment="Reserved, contains 0x00">;
+
+    // number of fields in one data record (without deletion flag field)
+    local uint fieldCount <hidden=true> = (positionOfFirstDataRecord - 296)/32;
+
+    FieldDescriptor fieldDescriptor[fieldCount];
+    uint8 FieldDescriptorTerminator <bgcolor=cGray,format=hex, comment="Header record terminator (0x0D)">;
+
+    if (FieldDescriptorTerminator != 0x0D) {
+        Warning("the field descriptor terminator 0x0D is not present at the expected position. Template stopped.");
+        return -1;
+    }
+
+    // A 263-byte range that contains the backlink, which is the relative path of an
+    // associated database (.dbc) file, information. If the first byte is 0x00, the 
+    // file is not associated with a database. Therefore, database files always
+    // contain 0x00.
+    char backlink[263] <bgcolor=cLtGray>;
+} Header;
+
+// julian date vodoo
+void vfpJulianToGregorian(int julianDay, int &year, int &month, int &day) {
+    local int J = julianDay + 32044;
+    local int g = J / 146097;
+    local int dg = J % 146097;
+    local int c = (dg / 36524 + 1) * 3 / 4;
+    local int dc = dg - c * 36524;
+    local int b = dc / 1461;
+    local int db = dc % 1461;
+    local int a = (db / 365 + 1) * 3 / 4;
+    local int da = db - a * 365;
+    local int y = g * 400 + c * 100 + b * 4 + a;
+    local int m = (da * 5 + 308) / 153 - 2;
+    local int d = da - (m + 4) * 153 / 5 + 122;
+    year = y - 4800 + (m + 2) / 12;
+    month = (m + 2) % 12 + 1;
+    day = d + 1;
+}
+
+typedef struct {
+    uint32 julianDay;
+    uint32 millisecs;
+
+    local string datetimeString <hidden=true> = "<not set>";
+    
+    if (julianDay != 0) {
+        local int year <hidden=true>, month <hidden=true>, day <hidden=true>;
+        vfpJulianToGregorian(julianDay, year, month, day);
+    
+        datetimeString = Str("%d-%02d-%02d %02d:%02d:%02d", year, month, day, 
+            millisecs / MILLISECONDS_IN_HOUR, 
+            (millisecs % 3600000) / MILLISECONDS_IN_MINUTE,
+            (millisecs % 60000) / MILLISECONDS_IN_SECOND
+        );
+    }
+} VFP_Timestamp <read=(datetimeString)>;
+
+typedef struct {
+    char raw;
+    local string logicalString <hidden=true> = "False";
+    if (raw == 0x54) { // "T"
+        logicalString = "True";
+    }
+} VFP_Logical <read=(logicalString)>;
+
+typedef struct (uint fieldIndex) {
+    int64 raw;
+    local uint decimals <hidden=true> = header.fieldDescriptor[fieldIndex].decimalCount;
+    local string currency <hidden=true> = "";
+
+    SPrintf(currency, "%0.*f", decimals, raw / 10000.0);
+} VFP_Currency <read=(currency)>;
+
+typedef struct {
+    char year[4];
+    char month[2];
+    char day[2];
+    local string formattedDate <hidden=true> = "<empty>";
+    local string yearStr <hidden=true> = (string)year;
+    local string monthStr <hidden=true> = (string)month;
+    local string dayStr <hidden=true> = (string)day;
+
+    if (yearStr != "    " || monthStr != "  " || dayStr != "  ") {
+        formattedDate = Str("%s-%s-%s", yearStr, monthStr, dayStr);
+    }
+} VFP_Date <read=(formattedDate)>;
+
+// 
+typedef struct (uint fieldIndex) {
+    local string storedName <hidden=true> = header.fieldDescriptor[fieldIndex].fieldName;
+    local uint length <hidden=true> = header.fieldDescriptor[fieldIndex].lengthOfField;
+    
+    // wip...
+    switch (header.fieldDescriptor[fieldIndex].fieldType) {
+        case "L" : VFP_Logical value; break;   /* Logical */
+        case "Y" : VFP_Currency value(fieldIndex); break;  /* Currency */
+        case "T" : VFP_Timestamp value; break; /* DateTime */
+        case "D" : VFP_Date value; break;  /* Date */
+        
+        case "W" : char value[length]; break;  /* Blob */
+        case "M" : uint32 value; break;        /* Memo */
+        case "N" : uint8 value[length]; break; /* Numeric */
+        case "C" : char value[length]; break;  /* Character */
+        case "F" : char value[length]; break;  /* Float */
+        case "B" : char value[length]; break;  /* Double */
+        case "I" : uint32 value; break;        /* Integer */
+        case "G" : uint32 value; break;        /* General */
+        case "P" : char value[length]; break;  /* Picture */
+        case "Q" : char value[length]; break;  /* Varchar */
+        default  : char value[length];
+    }
+} RecordField <name=(storedName)>;
+
+typedef struct {
+    local uint fldIndex <hidden=true> = 0;
+
+    DeletionFlag deletionFlag;
+
+    for (fldIndex=0; fldIndex < header.fieldCount; fldIndex++) {
+        RecordField field(fldIndex);
+    }
+} Record <size=(header.lengthOfOneDataRecord)>;
+
+struct VisualFoxProTable {
+    switch (ReadByte(FTell())) {
+        case 0x30: break;
+        case 0x31: break;
+        case 0x32: break;
+        default:
+            Warning("File is not a Visual FoxPro table file. Template stopped.");
+            return -1;
+    }
+
+    Header header <style=sHeading1Accent>;
+    Record records[header.numberOfRecords] <optimize=false>;
+    if (!FEof()) {
+        byte eofMark <hidden=true>;
+    }
+} vfpTable <name="Visual FoxPro Table">;

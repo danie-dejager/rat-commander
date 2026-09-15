@@ -1,0 +1,68 @@
+//------------------------------------------------
+//--- 010 Editor v12.0.1 Binary Template
+//
+//      File: GPTHeader.bt
+//   Authors: Satoshi Kinebuchi
+//   Version: 1.0
+//   Purpose: Decode GPT (GUID Partition Table) Header information
+//  Category: Drives
+// File Mask: 
+//  ID Bytes: 
+//   History:
+//     1.0   2022-02-02 SatoshiKinebuchi: Initial release
+//------------------------------------------------
+typedef struct {
+    // Header for the file
+    char    gpSignature[8];    //0x45 0x46 0x49 0x20 0x50 0x41 0x52 0x54
+    uint    gpRevision      <format=hex>;
+    uint    gpHeaderSize    <format=decimal>;
+    uint    gpHeaderCRC32   <format=hex>;
+    uint    gpReserved      <format=hex>;
+    uint64  gpMyLBA         <format=hex>;
+    uint64  gpBackupGPT     <format=decimal>;
+    uint64  gpFirstUsableLBA    <format=decimal>;
+    uint64  gpLastUsableLBA     <format=decimal>;
+    GUID    gpDiskGUID;
+    uint64  gpPartitionEntriesLBA   <format=decimal>;
+    uint    gpNumberOfPartitionEntries  <format=decimal>;
+    uint    gpSizeOfSinglePartitionEntry    <format=decimal>;
+    uint    gpCRC32         <format=hex>; 
+// } GPTHEADER <read=ReadGPTHEADER>;
+} GPTHEADER ;
+
+//--------------------------------------------
+
+// Custom read functions that allows the name of the
+//  of the file to appear in the Template Results.
+
+string ReadGPTHEADER( GPTHEADER &header )
+{
+    if( exists( header.gpSignature ) )
+        return header.gpSignature;
+    else
+        return "";
+}
+
+//--------------------------------------------
+
+// Define the file
+local uint64 tag;
+LittleEndian(); 
+while( !FEof() )
+{
+    // Read a tag
+    tag = ReadUInt64( FTell() );
+
+    // Read data depending upon tag 
+    if( tag == 0x5452415020494645 )
+    {
+        SetBackColor( cLtGray );
+        GPTHEADER header;
+    }
+
+    else
+    {
+        Warning( "This data may not be GPT Header data. Template stopped." );
+        return -1;
+    }
+}

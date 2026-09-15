@@ -40,11 +40,7 @@ impl AppState {
     pub(in crate::app::state) async fn apply_editor_signal(&mut self, signal: EditorSignal) {
         match signal {
             EditorSignal::Stay => {}
-            EditorSignal::Close => {
-                self.record_editor_position();
-                self.editor = None;
-                self.reload_all().await;
-            }
+            EditorSignal::Close => self.close_editor().await,
             EditorSignal::Save { close_after } => {
                 if self.editor.as_ref().is_some_and(|e| e.is_unnamed()) {
                     // No filename yet → go straight to "Save as" (nothing to
@@ -123,6 +119,107 @@ impl AppState {
             // The screen is repainted from scratch on the next frame.
             EditorSignal::RefreshScreen => self.force_clear = true,
             EditorSignal::OpenGeoMap => self.open_geo_map(),
+            EditorSignal::OpenTemplatePicker => self.open_template_picker(),
+            EditorSignal::EditTemplate { path, line } => self.open_template_editor(path, line),
+            EditorSignal::NewTemplate => {
+                let stem = self
+                    .editor
+                    .as_ref()
+                    .map(|e| {
+                        let p = std::path::Path::new(&e.name);
+                        p.extension()
+                            .map(|x| x.to_string_lossy().to_uppercase())
+                            .unwrap_or_else(|| e.name.clone())
+                    })
+                    .unwrap_or_default();
+                self.dialog = Some(Dialog::Input(InputDialog::new(
+                    "New template",
+                    "Template name",
+                    stem,
+                    InputPurpose::EditorNewTemplate,
+                )));
+            }
+        }
+    }
+
+    /// Close the editor: back to the one it was opened over (a hex editor
+    /// whose template was being edited), or to the panels.
+    pub(in crate::app::state) async fn close_editor(&mut self) {
+        self.record_editor_position();
+        let closed = self.editor.take().map(|e| e.path.path.clone());
+        if let Some(mut under) = self.editor_stack.pop() {
+            if let Some(path) = closed {
+                under.resume_after_edit(&path);
+            }
+            self.editor = Some(under);
+            return;
+        }
+        self.reload_all().await;
+    }
+
+    /// The hex editor's template picker: every template, the ones that fit the
+    /// file first.
+    fn open_template_picker(&mut self) {
+        let Some(ed) = self.editor.as_mut() else { return };
+        let head = ed.file_head();
+        let name = ed.name.clone();
+        let current = ed.active_template().map(|i| i.file_name);
+        let templates = crate::bt::library::discover();
+        let fitting = crate::bt::library::rank(&templates, &name, &head);
+        self.dialog = Some(Dialog::TemplatePicker(Box::new(TemplatePickerDialog::new(
+            &templates, &fitting, current,
+        ))));
+    }
+
+    /// Open binary template `path` in a text editor over the current (hex)
+    /// editor, which comes back when this one closes — at `line` when given
+    /// (where the last run stopped).
+    pub(in crate::app::state) fn open_template_editor(
+        &mut self,
+        path: std::path::PathBuf,
+        line: Option<usize>,
+    ) {
+        match std::fs::read(&path) {
+            Ok(data) => {
+                let vpath = VfsPath::local(&path);
+                let name = vpath.file_name();
+                let mut ed = EditorState::new(name, vpath, &String::from_utf8_lossy(&data));
+                self.prepare_editor(&mut ed);
+                match line {
+                    Some(l) => ed.restore_position(l.saturating_sub(1), 0),
+                    None => Self::restore_editor_position(&mut ed),
+                }
+                if let Some(under) = self.editor.take() {
+                    self.editor_stack.push(under);
+                }
+                self.editor = Some(ed);
+            }
+            Err(e) => self.show_error(format!("Cannot open the template: {e}")),
+        }
+    }
+
+    /// Start a new binary template named `name` for the hex editor's file —
+    /// its header filled in from the file — use it, and open it for editing.
+    pub(in crate::app::state) fn create_template(&mut self, name: String) {
+        let Some(dir) = crate::bt::library::user_dir() else {
+            return self.show_error("No config directory available");
+        };
+        let Some(ed) = self.editor.as_mut() else { return };
+        let head = ed.file_head();
+        let file_name = ed.name.clone();
+        match crate::bt::library::create_user_template(&dir, &name, &file_name, &head) {
+            Ok(path) => {
+                crate::bt::library::invalidate();
+                let data = std::fs::read(&path).unwrap_or_default();
+                let fname =
+                    path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+                let mut info = crate::bt::header::parse_header(&fname, &data);
+                info.path = Some(path.clone());
+                info.origin = crate::bt::header::Origin::User;
+                ed.set_template(Some(info));
+                self.open_template_editor(path, None);
+            }
+            Err(e) => self.show_error(format!("Cannot create the template: {e}")),
         }
     }
 
@@ -713,8 +810,7 @@ impl AppState {
             match res {
                 Ok(()) => {
                     if close_after {
-                        self.editor = None;
-                        self.reload_all().await;
+                        self.close_editor().await;
                     } else if let Some(ed) = self.editor.as_mut() {
                         ed.mark_saved();
                     }
@@ -731,16 +827,14 @@ impl AppState {
         };
         match write_file(&backend, &path, contents.as_bytes()).await {
             Ok(()) => {
+                // Editing a config file (themes.toml, the F2 menu, rc.ext, a
+                // binary template) applies immediately on save.
+                self.reload_config_if_edited(&path);
                 if close_after {
-                    self.record_editor_position();
-                    self.editor = None;
-                    self.reload_all().await;
+                    self.close_editor().await;
                 } else if let Some(ed) = self.editor.as_mut() {
                     ed.mark_saved();
                 }
-                // Editing a config file (themes.toml, the F2 menu, rc.ext)
-                // applies immediately on save.
-                self.reload_config_if_edited(&path);
             }
             // A failed save (e.g. read-only location, permission denied) drops the
             // user into "Save as" prefilled with the path, so they can redirect it.
@@ -882,6 +976,10 @@ impl AppState {
         self.reload_themes_if_edited(path);
         self.reload_usermenu_if_edited(path);
         self.reload_ext_if_edited(path);
+        // A template's header (masks, ID bytes) may have changed.
+        if crate::config::paths::templates_dir().is_some_and(|d| path.path.starts_with(d)) {
+            crate::bt::library::invalidate();
+        }
     }
 
     /// If the file just saved is `themes.toml`, re-read the palettes and

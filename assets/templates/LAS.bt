@@ -1,0 +1,238 @@
+//------------------------------------------------
+//--- 010 Editor v11.0.1 Binary Template
+//
+//      File: LAS.bt
+//   Authors: M. Nicke
+//    E-mail: maik.nicke@apluss.de
+//   Version: 0.7
+//   Purpose: Analysis of point-clouds in LAS-Format 
+//  Category: CAD
+// File Mask: *.las, *.laz
+//  ID Bytes: 4C 41 53 46 //LASF
+//   History:
+//   0.7    2026-03-19  M. Nicke:  supplement of point records in format 3
+//   0.6    2022-07-04  M. Nicke: better and correct representation of last 2 guid-parts
+//   0.5    2022-06-23  M. Nicke: supplement of point records in format 2
+//   0.4    2021-12-01  M. Nicke: supplement of point records in format 6
+//   0.3    2021-11-26  M. Nicke: bitwise splitting of flags
+//   0.2    2021-09-21  M. Nicke: supplement of point records in format 7, correct offset for PointDataRecords
+//   0.1    2021-05-12  M. Nicke: basis template for header and point records in formats 0, 1 without variable length records (VLR)
+//
+//     Spec.: https://www.asprs.org/divisions-committees/lidar-division/laser-las-file-format-exchange-activities
+//------------------------------------------------
+
+typedef struct {
+    uint16 ProjectIdGuidData51 <format=hex>;
+    uint32 ProjectIdGuidData52 <format=hex>;
+} GUIDUINT48;
+
+typedef struct {
+	char	FileSignature[4];
+    if( FileSignature != "LASF")
+    {
+        // Warning( "File is not a valid LAS. Template stopped." );
+	    return -1;
+    };
+	uint16	FileSourceId;
+	uint16	GlobalEncoding;
+    // ProjectIdGuid
+	uint32	ProjectIdGuidData1 <format=hex>;
+	uint16	ProjectIdGuidData2 <format=hex>;
+	uint16	ProjectIdGuidData3 <format=hex>;
+	uint16	ProjectIdGuidData4 <format=hex>;
+	uint16	ProjectIdGuidData51 <format=hex>;
+	uint32	ProjectIdGuidData52 <format=hex>;
+	// GUIDUINT48  ProjectIdGuidData5;
+
+	ubyte	VersionMajor;
+
+    if( VersionMajor != 1)
+    {
+	    // Warning( "Not supplied MajorVersion. Template stopped." );
+	    return -1;
+    };
+	ubyte	VersionMinor;
+    char    SystemIdentifier[32];
+    char    GeneratingSoftware[32];
+    uint16  FileCreationDayofYear;
+    uint16  FileCreationYear;
+    uint16  HeaderSize;
+    uint32  OffsettoPointData;
+    uint32  NumberofVariableLengthRecords;
+    ubyte   PointDataRecordFormat;
+    uint16  PointDataRecordLength;
+    uint32  LegacyNumberofPointRecords;
+    uint32  LegacyNumberofPointbyReturn[5];
+    double  XScaleFactor;
+    double  YScaleFactor;
+    double  ZScaleFactor;
+    double  XOffset;
+    double  YOffset;
+    double  ZOffset;
+    double  MaxX;
+    double  MinX;
+    double  MaxY;
+    double  MinY;
+    double  MaxZ;
+    double  MinZ;
+    uint64  StartofWaveformDataPacketRecord;
+    if( VersionMinor >= 4)
+    {
+        uint64  StartofFirstExtendedVariableLengthRecord;
+        uint32  NumberofExtendedVariableLengthRecords;
+        uint64  NumberofPointRecords;
+        uint64  NumberofPointsbyReturn[15];
+        SetBackColor( cLtGreen );
+    }
+} LASHEADER;
+
+typedef struct {
+    int32   X;
+    int32   Y;
+    int32   Z;
+    uint16  Intensity;
+    ubyte   ReturnNumber        : 3;
+    ubyte   NumberOfReturns     : 3;
+    ubyte   ScanDirectionFlag   : 1;
+    ubyte   EdgeOfFlightLine    : 1;
+    ubyte   Classification;
+    byte    ScanAngleRank;
+    ubyte   UserData;
+    uint16  PointSourceId;
+} POINTDATARECORD0;
+
+typedef struct {
+    int32   X;
+    int32   Y;
+    int32   Z;
+    uint16  Intensity;
+    ubyte   ReturnNumber        : 3;
+    ubyte   NumberOfReturns     : 3;
+    ubyte   ScanDirectionFlag   : 1;
+    ubyte   EdgeOfFlightLine    : 1;
+    ubyte   Classification;
+    byte    ScanAngleRank;
+    ubyte   UserData;
+    uint16  PointSourceId;
+    double  GpsTime;
+} POINTDATARECORD1;
+
+typedef struct {
+    int32   X;
+    int32   Y;
+    int32   Z;
+    uint16  Intensity;
+    ubyte   ReturnNumber        : 3;
+    ubyte   NumberOfReturns     : 3;
+    ubyte   ScanDirectionFlag   : 1;
+    ubyte   EdgeOfFlightLine    : 1;
+    ubyte   Classification;
+    byte    ScanAngleRank;
+    ubyte   UserData;
+    uint16  PointSourceId;
+    uint16  Red;
+    uint16  Green;
+    uint16  Blue;
+} POINTDATARECORD2;
+
+typedef struct {
+    int32   X;
+    int32   Y;
+    int32   Z;
+    uint16  Intensity;
+    ubyte   ReturnNumber        : 3;
+    ubyte   NumberOfReturns     : 3;
+    ubyte   ScanDirectionFlag   : 1;
+    ubyte   EdgeOfFlightLine    : 1;
+    ubyte   Classification;
+    byte    ScanAngleRank;
+    ubyte   UserData;
+    uint16  PointSourceId;
+    double  GpsTime;
+    uint16  Red;
+    uint16  Green;
+    uint16  Blue;
+} POINTDATARECORD3;
+
+typedef struct {
+    int32   X;
+    int32   Y;
+    int32   Z;
+    uint16  Intensity;
+    ubyte   ReturnNumber        : 4;
+    ubyte   NumberOfReturns     : 4;
+    ubyte   ClassificationFlags : 4;
+    ubyte   ScannerChannel      : 2;
+    ubyte   ScanDirectionFlag   : 1;
+    ubyte   EdgeOfFlightLine    : 1;
+    ubyte   Classification;
+    ubyte   UserData;
+    int16   ScanAngle;
+    uint16  PointSourceId;
+    double  GpsTime;
+} POINTDATARECORD6;
+
+typedef struct {
+    int32   X;
+    int32   Y;
+    int32   Z;
+    uint16  Intensity;
+    ubyte   ReturnNumber        : 4;
+    ubyte   NumberOfReturns     : 4;
+    ubyte   ClassificationFlags : 4;
+    ubyte   ScannerChannel      : 2;
+    ubyte   ScanDirectionFlag   : 1;
+    ubyte   EdgeOfFlightLine    : 1;
+    ubyte   Classification;
+    ubyte   UserData;
+    int16   ScanAngle;
+    uint16  PointSourceId;
+    double  GpsTime;
+    uint16  Red;
+    uint16  Green;
+    uint16  Blue;
+} POINTDATARECORD7;
+
+//---------------------------------------------
+
+LittleEndian(); 
+SetBackColor( cLtAqua );
+
+LASHEADER LasHeader;
+if( LasHeader.FileSignature != "LASF")
+{
+	Warning( "File is not a valid LAS. Template stopped." );
+	return -1;
+};
+if( LasHeader.VersionMajor != 1)
+{
+    Warning( "Not supplied MajorVersion. Template stopped." );
+	return -1;
+};
+
+FSeek(LasHeader.OffsettoPointData);
+
+SetBackColor( cLtRed );
+{
+    switch( LasHeader.PointDataRecordFormat )
+    {
+    case 0:
+        if( LasHeader.PointDataRecordLength == 20 )
+            POINTDATARECORD0    PointDataRecord[LasHeader.LegacyNumberofPointRecords];
+    case 1:
+        if( LasHeader.PointDataRecordLength == 28 )
+    		POINTDATARECORD1    PointDataRecord[LasHeader.LegacyNumberofPointRecords];
+    case 2:
+        if( LasHeader.PointDataRecordLength == 26 )
+    		POINTDATARECORD2    PointDataRecord[LasHeader.LegacyNumberofPointRecords];
+    case 3:
+        if( LasHeader.PointDataRecordLength == 34 )
+    		POINTDATARECORD3    PointDataRecord[LasHeader.LegacyNumberofPointRecords];
+    case 6:
+        if( LasHeader.PointDataRecordLength == 30 )
+    		POINTDATARECORD6    PointDataRecord[LasHeader.LegacyNumberofPointRecords];
+    case 7:
+        if( LasHeader.PointDataRecordLength == 36 )
+    		POINTDATARECORD7    PointDataRecord[LasHeader.LegacyNumberofPointRecords];
+   }
+};

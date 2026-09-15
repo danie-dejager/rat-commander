@@ -1,0 +1,136 @@
+//------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+//
+//      File: 2bit.bt
+//   Authors: Andrew Sutton
+//   Version: 1.0
+//   Purpose: Decode the UCSC 2bit genome file format
+//  Category: Medical
+// File Mask: *.2bit
+//  ID Bytes: 1A 41 27 43, 43 27 41 1A
+//   History: 
+//   1.0 2026-08-03 Andrew Sutton: Initial release
+//------------------------------------------------
+//Reference: https://genome.ucsc.edu/FAQ/FAQformat.html#format7
+
+// ####################
+//       Defines 
+// ####################
+
+// When true, this template will break all the bytes into enum'd two-bit values that correspond to the DNA bases
+// When false, just displays them as bytes, this is much faster
+#define DECODE_DNA_BASES true 
+
+#define twoBitSig 0x1A412743
+#define twoBitSwapSig 0x4327411A
+
+// ####################
+//      Structures
+// ####################
+
+enum <ubyte> DnaBase
+{
+    T = 0,
+    C = 1,
+    A = 2,
+    G = 3
+};
+
+typedef struct {
+    DnaBase base0 : 2;
+    DnaBase base1 : 2;
+    DnaBase base2 : 2;
+    DnaBase base3 : 2;
+} dnaByte<optimize=true>;
+
+typedef struct {
+    uint32 signature<comment="File signature, indicates endianness",format=hex>;
+    uint32 version<comment="Only version 0 and 1 permitted">;
+    uint32 sequenceCount<comment="The number of sequences in the file">;
+    uint32 reserved<comment="Always zero for now">;    
+} TwoBitHeader;
+
+typedef struct (uint32 version){
+    uchar nameSize<comment="Size of name string in bytes">;
+    char name[nameSize]<comment="Name of the sequence">;
+    if (version == 1){
+        uint64 offset<comment="Offset of the sequence record, relative to start of the file",format=hex>;
+    } else {
+        uint32 offset<comment="Offset of the sequence record, relative to start of the file",format=hex>; 
+    }
+} TwoBitIndexEntry<read=IndexRead>;
+
+typedef struct(string name) {
+    uint32 dnaSize<comment="Number of bases of DNA in the sequence">;
+    uint32 nBlockCount<comment="Number of block of Ns in the file (representing unknown sequence)">;
+    if (nBlockCount){ // Prevents warnings
+        uint32 nBlockStarts[nBlockCount]<comment="Array of length nBlockCount of 32 bit integers indicating the (0-based) starting position of a block of Ns">;
+        uint32 nBlockSizes[nBlockCount]<comment="Array of length nBlockCount of 32 bit integers indicating the length of a block of Ns">;
+    }
+    uint32 maskBlockCount<comment="Number of masked (lower-case) blocks">;
+    if (maskBlockCount){ // Prevents warnings
+        uint32 maskBlockStarts[maskBlockCount]<comment="Array of length maskBlockCount of 32 bit integers indicating the (0-based) starting position of a masked block">;
+        uint32 maskBlockSizes[maskBlockCount]<comment="Array of length maskBlockCount of 32 bit integers indicating the length of a masked block">;
+    }
+    uint32 reserved<comment="Always zero for now">;
+    if (DECODE_DNA_BASES){
+        dnaByte packedDna[(dnaSize+3)/4]<comment="the DNA packed to two bits per base, represented as so: T - 00, C - 01, A - 10, G - 11. The first base is in the most significant 2-bit byte; the last base is in the least significant 2 bits. For example, the sequence TCAG is represented as 00011011.">;
+    } else {
+        uchar packedDna[(dnaSize+3)/4]<comment="the DNA packed to two bits per base, represented as so: T - 00, C - 01, A - 10, G - 11. The first base is in the most significant 2-bit byte; the last base is in the least significant 2 bits. For example, the sequence TCAG is represented as 00011011.">;
+    }
+    
+    local string displayName = name;
+} TwoBitSequenceRecord<read = displayName>;
+
+string IndexRead(TwoBitIndexEntry &entry){
+    string s;
+    SPrintf(s,"%-10s @ %016X\n",entry.name,entry.offset);
+    return s;
+}
+
+// ####################
+// Template starts here
+// ####################
+
+// Detect endianness
+local uint32 sig = ReadUInt(0);
+if (sig == twoBitSig){
+    LittleEndian();
+} else if (sig == twoBitSwapSig) {
+    BigEndian();   
+} else {
+    Warning("Could not detect signature, is this a .2bit file?");
+}
+BitfieldLeftToRight(); // Ensures the two-bit fields are in the right order
+BitfieldDisablePadding();
+
+// Declare header, check it
+TwoBitHeader header;
+if ((header.version != 0) && (header.version != 1)){
+    Warning("Detected invalid version in header");
+}
+if (header.reserved != 0) {
+    Warning("Dected invalid reserved field in header");   
+}
+
+// File Indices
+TwoBitIndexEntry sequenceIndices(header.version)[header.sequenceCount]<optimize=false>;
+
+// Sequence Records
+local int i;
+local string tempName;
+local int64 lastRecordStartOf = 0;
+local int64 lastRecordSizeOf = 0;
+for (i = 0; i < header.sequenceCount; i++){
+    FSeek(sequenceIndices[i].offset);
+    SPrintf(tempName,"%s",sequenceIndices[i].name); // Carry the name into the record
+    TwoBitSequenceRecord record(tempName);
+    if (startof(record) > lastRecordStartOf){ // Keep track of "bottom" record, to see if any more bytes exist beyond it
+        lastRecordStartOf = startof(record);
+        lastRecordSizeOf = sizeof(record);   
+    }
+}
+
+if (FileSize() != (lastRecordStartOf + lastRecordSizeOf)){
+    Warning("There is more content at end of file, possibly a bug in this template!");   
+}

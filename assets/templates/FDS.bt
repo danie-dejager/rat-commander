@@ -1,0 +1,152 @@
+//------------------------------------------------
+//--- 010 Editor v12.0.1 Binary Template
+//
+//      File: FDS.bt
+//   Authors: Alex Sadler
+//   Version: 2.0
+//   Purpose: Decode information in FDS files (Famicom Disk System)
+//  Category: Game
+// File Mask: *.FDS
+//  ID Bytes: 46 44 53
+//   History: 
+//   2.0     2025-09-25 Alex Sadler: Complete re-write in a more 010 friendly
+//------------------------------------------------
+
+LittleEndian();
+#define FDS_SIZE 0xFFDC
+#define BLOCK1_PARTIAL_SIZE 20
+
+typedef struct
+{
+        SetForeColor(cDkBlue);
+        UBYTE blck <name="Block Type = 1", comment="Block 1 contains Disk information only">;
+        if (blck==1)
+            {
+                SetForeColor(0x0000ff);
+                BYTE nin[0xe] <name="Nintendo Header" ,comment="Disk Header, must be present">;
+                SetForeColor(0x00ff00);
+                BYTE Mnfr <format=hex ,name="manufacturer" ,comment="Manufacturer of game">;
+                SetForeColor(0x00ffff);
+                BYTE Name[3] <format=hex ,name="Game Name" ,comment="Game Name">;
+                SetForeColor(0xf0ff80);
+                BYTE Game_Type <name="Game Type" ,comment="Space=normal, E=Event, J=Unknown, R=Reduction">;
+                BYTE Version <name="Game Version" ,comment="starts at 00, increments per revision">;
+                SetForeColor(0xffff80);
+                BYTE Side <name="Side" ,comment="$00 = Side A, $01=Side B Single sided Disks use 00">;
+                SetForeColor(0xff8080);
+                BYTE DiskNum <name="Disk Number" ,comment=" First disk is $00, second is $01, etc.">;
+                SetForeColor(0xffff80);
+                BYTE Disk_Type <name="FMC Type" ,comment="$01 for FMC blue-disk releases, and $00 otherwise">;
+                BYTE Unknown_00 <name="Unknown 00" ,comment="00 in all known games">;
+                BYTE BootRF <name="Boot Read File Code" ,comment="Refers to the file code/file number to load upon boot/start-up">;
+                BYTE Unknown[5] <name="Unknown" ,comment="Raw Bytes FF FF FF FF FF">;
+                SetForeColor(0xffff80);
+                BYTE DateJP[3] <format=hex, name="Japanese Date" , comment="Japanese, not gregorian calendar">;                
+                BYTE Country_Code <name="Country Code" ,comment="$49 = Japan" ,format=hex>;
+                BYTE Unknown <name="Region?" ,comment="Speculative: Region code? = 61" ,format=hex>;
+                BYTE Unknown <name="Location?" ,comment="Speculative: Location or Site = 00">;
+                SetForeColor(0xecffa0);
+                BYTE Unknown_02[2] <name="Unknown" ,comment="00 02">;  
+                SetForeColor(0xCfCfff);
+                BYTE Unknown_5[5] <name="Unknown", comment="Speculative: Some kind of game info representation?">;
+                BYTE Disk_Rewrite[3] <name="Disk Rewrite", comment="Speculated that this is Disk WRiter Kiosk date">;
+                BYTE Unknown_80[8] <name="Unknown", comment="Unknown">;
+                BYTE Disk_Version <name="Disk Version", comment="Unknown how this differs from game version">;
+            };
+}  block_type_1;
+
+typedef struct
+{
+       SetForeColor(cDkBlue);
+       UBYTE blck <name="Block Type = 2", comment="Block 2 Contains the number of original files on the disk">;
+       if (blck==2)
+            {
+                SetForeColor(cYellow);
+                BYTE files <name="Number of Files", comment="Number of files on side">;                
+            };
+} block_type_2;
+
+typedef struct {
+    UBYTE blck <name="Block Type Should be 4", comment="Type of Block, The file Proper">;
+        if (blck==3)
+                {
+                    SetForeColor(cPurple);
+                    BYTE FileNumber <name="Filenumber", comment="This is the File number on disk">;
+                    BYTE FIleInd <name="File Indicate Code", comment="Don't know what file indicate code means">;
+                    BYTE Filename[8] <format=hex, comment="Filename of this Block">;
+                    SetForeColor(cRed);
+                    UINT16 Address <format=hex, comment="Load Address">;
+                    SetForeColor(cDkYellow);
+                    UINT16 Size <format=hex, comment="File Size">;
+                    SetForeColor(0xCfCfff);
+                    BYTE Type <name="File Type", comment="0=Program, 1=Character, 2=Name Table">;
+                };
+} block_type_3;
+
+
+typedef struct {
+        SetForeColor(cGreen);
+        BYTE magic[4] <format=hex, comment="4644531A -> FDS.", name="Magic">;
+        SetForeColor(cPurple);
+        UBYTE DiscNum <name="Number of Disks", comment="How many sides">;
+        SetForeColor(cGray);
+        BYTE Dummy[11] <format=hex, name="Dummy Bytes", comment="Not Used">;
+        } header <name="Header">;
+
+local uint check_header;
+local uint total_sides,count_sides,count;
+local uint side_unused[4];
+
+void allocate_header(void)
+{
+    FSeek(0);
+    check_header = ReadUInt(0);
+    if (check_header == 0x1A534446) 
+    {
+        header head;
+    }
+    else
+    {
+        FSeek(0);
+    }
+}
+
+
+struct {
+    allocate_header();      // If there is a header allocate it, then forget about it as we never use it
+    total_sides=total_sides = (FileSize() - FTell()) / FDS_SIZE;        // How many sides in total are there?
+    Printf ("Total Sides are %d",total_sides);
+    
+        for (count_sides = 0; count_sides < total_sides; count_sides++) 
+        {
+            struct {
+            //set_block_1_side(count_sides);
+            block_type_1 block_1;
+            //set_block_2_side(count_sides);
+            block_type_2 block_2;
+            // Parse block3 and block4 structures for each file
+            for (count = 0; count < block_2.files; count++) 
+                {
+                    struct {
+                        block_type_3 block_3;
+                        //block_type_4 block_4;
+                        struct {
+                            SetForeColor(cDkBlue);
+                            UBYTE blck <name="Block Type Should be 4", comment="Type of Block, The file Proper">;
+                            SetForeColor(cLtGreen);
+                            UBYTE file[block_3.Size];
+                            } block_4;
+                        } file;
+                }
+            SetForeColor(cDkGray);
+            // How much space left on this side?
+            side_unused[count_sides]=FDS_SIZE-(FTell()-startof(side));
+            Printf ("Space left on side %d is %4.4X  Size of Data is %4.4X",count_sides,side_unused[count_sides],(FTell()-startof(side)));
+            struct {
+                UBYTE uknown[side_unused[count_sides]];     // label it as unknwon for now, although it can contain saves
+                } unkown_space;
+            } side;
+        }
+        
+} FDS_Disk <open=true>;
+

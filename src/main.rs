@@ -4,6 +4,7 @@
 mod activity;
 mod app;
 mod audio;
+mod bt;
 mod config;
 mod console;
 mod details;
