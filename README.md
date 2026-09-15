@@ -35,7 +35,9 @@ The installed executable is named **`rc`** for quick typing.
   transfer-speed chart, rich overwrite handling, chmod / chown / symlink (with
   recursion), and make-directory.
 - **Built-in viewer (F3)** — text and hex modes, goto, line wrap, syntax
-  highlighting, a **rendered Markdown** mode for `.md` files, and hex-color
+  highlighting, a **rendered Markdown** mode for `.md` files, a **spreadsheet
+  table** for `.csv` / `.tsv` files (delimiter detected, quoted line breaks
+  understood, header row pinned, paged from disk however large), and hex-color
   swatches. Pages huge files straight from disk. **Follow mode** (`f`) tails a
   growing file like `tail -f` — pausing while you scroll back, and surviving
   truncation and log rotation — with log lines coloured by severity. **Git
@@ -299,10 +301,11 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `F7` | Search (`n` repeats) |
 | `f` | Follow the file as it grows (`tail -f`) |
 | `b` | Git blame column; `Enter` opens the cursor line's commit |
-| `F8` | (Markdown) toggle Raw / Render — (image) toggle Image / Raw — (model) toggle Model / Raw — (audio) toggle Audio / Raw — (map) toggle Density / Bytes — (binary) toggle demangled / raw names |
+| `F8` | (Markdown) toggle Raw / Render — (CSV/TSV) toggle Table / Raw — (image) toggle Image / Raw — (model) toggle Model / Raw — (audio) toggle Audio / Raw — (map) toggle Density / Bytes — (binary) toggle demangled / raw names |
 | `Space` / `s` | (audio) play / pause — stop |
 | `← →` / `PgUp PgDn` / `Home End` | (audio) seek 5 s / 30 s / to either end; click or drag on the picture to seek |
 | `+` / `-` / `↑ ↓` | (audio) volume |
+| `← → ↑ ↓` / `Tab` / `<` `>` | (table) move the cell cursor / step through the cells / narrow or widen the column; `F2` toggles the header row |
 | `Tab` / `Shift-Tab` / `1`–`7` | (binary) switch between Info, Sections, Libraries, Imports, Exports, Functions and Strings |
 | `Enter` / `Esc` | (binary) open the hex view at the highlighted row / drop a *Find all* filter |
 | `← → ↑ ↓` / `Enter` | (map) move the cursor / open the hex view at that offset |

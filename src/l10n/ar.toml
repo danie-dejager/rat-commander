@@ -630,3 +630,7 @@ rtl = true
 "Artist" = "الفنان"
 "Title" = "العنوان"
 "Album" = "الألبوم"
+
+# -- Viewer: table view (CSV/TSV) --
+"Table" = "جدول"
+"Header" = "الترويسة"

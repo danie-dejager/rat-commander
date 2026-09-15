@@ -631,3 +631,7 @@ code = "de"
 "Artist" = "Interpret"
 "Title" = "Titel"
 "Album" = "Album"
+
+# -- Viewer: table view (CSV/TSV) --
+"Table" = "Tabelle"
+"Header" = "Kopf"

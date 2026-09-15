@@ -626,3 +626,7 @@ code = "ja"
 "Artist" = "アーティスト"
 "Title" = "タイトル"
 "Album" = "アルバム"
+
+# -- Viewer: table view (CSV/TSV) --
+"Table" = "表"
+"Header" = "見出し"

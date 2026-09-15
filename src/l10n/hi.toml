@@ -626,3 +626,7 @@ code = "hi"
 "Artist" = "कलाकार"
 "Title" = "शीर्षक"
 "Album" = "एल्बम"
+
+# -- Viewer: table view (CSV/TSV) --
+"Table" = "तालिका"
+"Header" = "शीर्षक"

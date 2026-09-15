@@ -626,3 +626,7 @@ code = "hu"
 "Artist" = "Előadó"
 "Title" = "Cím"
 "Album" = "Album"
+
+# -- Viewer: table view (CSV/TSV) --
+"Table" = "Táblázat"
+"Header" = "Fejléc"

@@ -12,6 +12,7 @@ pub mod loglevel;
 pub mod markdown;
 pub mod render;
 pub mod search;
+mod table;
 
 use crate::space3d::CamPose;
 use crate::syntax::{ColorRun, Highlighter};
@@ -299,6 +300,14 @@ pub struct ViewerState {
     /// In text mode, whether to draw the Markdown approximation (true) or the raw
     /// text with syntax highlighting (false). Only meaningful when `is_markdown`.
     markdown_render: bool,
+    /// The file is a table by its extension (CSV, TSV), so the table view and
+    /// its F8 Raw/Table toggle are offered.
+    is_sheet: bool,
+    /// In text mode, whether the table (true) or the raw text (false) shows.
+    /// Only meaningful when `is_sheet`.
+    sheet_render: bool,
+    /// The table view's record index and grid, built the first time it shows.
+    table: Option<table::TableView>,
     pub wrap: bool,
     /// Top visible logical line (text) or top 16-byte row (hex).
     top: usize,
@@ -375,6 +384,7 @@ impl ViewerState {
         let line_starts = compute_line_starts(&data);
         let scanned = data.len();
         let is_markdown = is_markdown_name(&name);
+        let is_sheet = crate::sheet::is_sheet_name(&name);
         ViewerState {
             name,
             path: None,
@@ -389,6 +399,9 @@ impl ViewerState {
             mode: ViewMode::Text,
             is_markdown,
             markdown_render: is_markdown,
+            is_sheet,
+            sheet_render: is_sheet,
+            table: None,
             wrap: false,
             top: 0,
             h_offset: 0,
@@ -432,6 +445,7 @@ impl ViewerState {
         temp: Option<PathBuf>,
     ) -> Self {
         let is_markdown = is_markdown_name(&name);
+        let is_sheet = crate::sheet::is_sheet_name(&name);
         ViewerState {
             name,
             path: None,
@@ -446,6 +460,9 @@ impl ViewerState {
             mode: ViewMode::Text,
             is_markdown,
             markdown_render: is_markdown,
+            is_sheet,
+            sheet_render: is_sheet,
+            table: None,
             wrap: false,
             top: 0,
             h_offset: 0,
@@ -584,6 +601,7 @@ impl ViewerState {
             self.hl = None;
         }
         self.outline = None;
+        self.table = None;
         if self.mode != ViewMode::Map {
             self.map = None;
         }
@@ -602,6 +620,7 @@ impl ViewerState {
         self.found_lines.clear();
         self.last_match = None;
         self.outline = None;
+        self.table = None;
         self.map = None;
         if self.mode == ViewMode::Map {
             self.ensure_map();
@@ -659,6 +678,7 @@ impl ViewerState {
         self.path.is_some()
             && self.mode == ViewMode::Text
             && !self.markdown_active()
+            && !self.table_active()
             && self.active_image().is_none()
             && self.active_model().is_none()
             && self.active_audio().is_none()
@@ -963,6 +983,10 @@ impl ViewerState {
             return self.handle_binary_key(key);
         }
 
+        if self.table_active() {
+            return self.handle_table_key(key);
+        }
+
         // The map takes the navigation keys too: they move its cursor, and
         // Enter carries that offset into the hex view — which is what makes this
         // a way of finding something rather than only a picture of it.
@@ -1069,6 +1093,8 @@ impl ViewerState {
             KeyCode::F(8) if self.is_markdown && self.mode == ViewMode::Text => {
                 self.markdown_render = !self.markdown_render;
             }
+            // F8 (table files): back from the raw text to the table.
+            KeyCode::F(8) if self.is_sheet && self.mode == ViewMode::Text => self.toggle_table(),
             KeyCode::F(7) => return ViewerSignal::OpenSearch,
             KeyCode::Char('n') => self.find_next(),
             KeyCode::Char('f') | KeyCode::Char('F') => self.toggle_follow(),
@@ -1134,6 +1160,11 @@ impl ViewerState {
 
         if self.mode == ViewMode::Binary {
             self.handle_binary_mouse(ev);
+            return ViewerSignal::Stay;
+        }
+
+        if self.table_active() {
+            self.handle_table_mouse(ev);
             return ViewerSignal::Stay;
         }
 
@@ -1513,6 +1544,10 @@ impl ViewerState {
             };
             return ["Help", "", "Quit", mode, "Goto", "", "Search", f8, "Next", "Quit"];
         }
+        // The table: F2 turns the header row on and off, F8 shows the raw text.
+        if self.table_active() {
+            return ["Help", "Header", "Quit", mode, "Goto", "", "Search", "Raw", "Next", "Quit"];
+        }
         // F8: for an image file, toggle Image/Raw; for a Markdown file in text
         // mode, "Raw" shows the source and "Render" the approximation.
         let f8 = if self.mode == ViewMode::Map {
@@ -1525,6 +1560,8 @@ impl ViewerState {
             if self.show_image { "Raw" } else { "Image" }
         } else if self.is_markdown && self.mode == ViewMode::Text {
             if self.markdown_render { "Raw" } else { "Render" }
+        } else if self.is_sheet && self.mode == ViewMode::Text {
+            "Table"
         } else {
             ""
         };
@@ -1680,6 +1717,9 @@ impl ViewerState {
         let v = value.trim();
         if self.mode == ViewMode::Binary {
             return self.goto_binary(v, mode);
+        }
+        if self.table_active() {
+            return self.goto_table(v, mode);
         }
         let text = self.mode == ViewMode::Text;
         // Parse first, then extend the index as far as the target needs before
@@ -1850,6 +1890,8 @@ impl ViewerState {
     /// Scroll so the byte at `off` is on screen.
     fn reveal(&mut self, off: usize) {
         match self.mode {
+            // The table puts its cursor on the cell holding the match.
+            ViewMode::Text if self.table_active() => self.table_reveal_byte(off),
             ViewMode::Text => {
                 // The match may lie beyond the indexed region; index up to it.
                 self.extend_to_byte(off + 1);
@@ -1883,6 +1925,9 @@ impl ViewerState {
                 view.set_filter(&term, &needle);
             }
             return;
+        }
+        if self.table_active() {
+            return self.table_find_all();
         }
         self.found_lines.clear();
         let Some(needle) = self.needle() else { return };

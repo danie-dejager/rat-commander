@@ -626,3 +626,7 @@ code = "sk"
 "Artist" = "Interpret"
 "Title" = "Názov"
 "Album" = "Album"
+
+# -- Viewer: table view (CSV/TSV) --
+"Table" = "Tabuľka"
+"Header" = "Hlavička"

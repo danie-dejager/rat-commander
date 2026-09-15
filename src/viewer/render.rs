@@ -38,9 +38,14 @@ pub fn render(
     // pull the view back if a resize or jump left it beyond the last full
     // screen, so blank space never shows below the end of the file.
     // A model, like an image, replaces the document entirely, so there is no
-    // page to index or clamp for it either.
+    // page to index or clamp for it either. Nor does the table, which pages
+    // by record rather than by line — and is built before the header, which
+    // reports its cursor.
+    if v.table_active() {
+        v.ensure_table();
+    }
     if v.active_image().is_none() && v.active_model().is_none() && v.active_audio().is_none() {
-        if v.mode == ViewMode::Text {
+        if v.mode == ViewMode::Text && !v.table_active() {
             v.extend_to_line(v.top + v.view_rows);
         }
         v.top = v.top.min(v.max_top());
@@ -75,6 +80,7 @@ pub fn render(
         ViewMode::Hex => render_hex(f, content, v, theme),
         // Markdown files render the approximation by default; F8 shows the raw,
         // syntax-highlighted source.
+        ViewMode::Text if v.table_active() => super::table::render(f, content, v, theme),
         ViewMode::Text if v.markdown_active() => render_markdown(f, content, v, theme),
         ViewMode::Text => {
             let rows = render_text(f, text_area, v, theme);
@@ -827,6 +833,29 @@ fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
     }
     if v.mode == ViewMode::Binary {
         render_binary_header(f, area, v, theme);
+        return;
+    }
+    // The table counts records rather than lines, and says where the cursor is.
+    if v.table_active()
+        && let Some((row, total, exact)) = v.table_status()
+    {
+        let more = if exact { "" } else { "+" };
+        let text = format!(
+            " {}: {}  [{}]  {}/{}{more} {}",
+            crate::l10n::trd("View"),
+            ellipsize(&v.name, area.width.saturating_sub(36) as usize),
+            crate::l10n::trd("Table"),
+            row + 1,
+            total,
+            crate::l10n::trd("rows"),
+        );
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                pad_right(&text, area.width as usize),
+                theme.menubar.add_modifier(Modifier::BOLD),
+            ))),
+            area,
+        );
         return;
     }
     let mode = match v.mode {

@@ -626,3 +626,7 @@ code = "pt"
 "Artist" = "Artista"
 "Title" = "Título"
 "Album" = "Álbum"
+
+# -- Viewer: table view (CSV/TSV) --
+"Table" = "Tabela"
+"Header" = "Cabeç."

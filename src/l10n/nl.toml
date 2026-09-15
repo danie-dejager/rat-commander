@@ -626,3 +626,7 @@ code = "nl"
 "Artist" = "Artiest"
 "Title" = "Titel"
 "Album" = "Album"
+
+# -- Viewer: table view (CSV/TSV) --
+"Table" = "Tabel"
+"Header" = "Kop"

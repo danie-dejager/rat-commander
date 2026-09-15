@@ -626,3 +626,7 @@ code = "zh-Hant"
 "Artist" = "演出者"
 "Title" = "標題"
 "Album" = "專輯"
+
+# -- Viewer: table view (CSV/TSV) --
+"Table" = "表格"
+"Header" = "標題列"

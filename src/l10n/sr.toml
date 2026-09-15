@@ -626,3 +626,7 @@ code = "sr"
 "Artist" = "Izvođač"
 "Title" = "Naslov"
 "Album" = "Album"
+
+# -- Viewer: table view (CSV/TSV) --
+"Table" = "Tabela"
+"Header" = "Zaglav."

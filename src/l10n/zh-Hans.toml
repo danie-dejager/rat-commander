@@ -626,3 +626,7 @@ code = "zh-Hans"
 "Artist" = "艺术家"
 "Title" = "标题"
 "Album" = "专辑"
+
+# -- Viewer: table view (CSV/TSV) --
+"Table" = "表格"
+"Header" = "标题行"

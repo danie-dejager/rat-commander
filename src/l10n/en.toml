@@ -635,3 +635,7 @@ code = "en"
 "Artist" = "Artist"
 "Title" = "Title"
 "Album" = "Album"
+
+# -- Viewer: table view (CSV/TSV) --
+"Table" = "Table"
+"Header" = "Header"

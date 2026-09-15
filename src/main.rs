@@ -26,6 +26,7 @@ mod receive;
 mod rename;
 mod saver;
 mod send;
+mod sheet;
 mod shell;
 mod sizes;
 mod space3d;

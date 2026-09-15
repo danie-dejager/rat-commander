@@ -249,7 +249,8 @@ used to share now lives on `Alt-T`.
 ### Viewer (F3)
 
 - `F1` — Help (opens this manual)
-- `F2` — Toggle line wrap (in an **audio view**: switch Spectrogram / Waveform)
+- `F2` — Toggle line wrap (in an **audio view**: switch Spectrogram / Waveform;
+  in a **table**: turn the header row on or off)
 - `F4` — Cycle text / hex / byte-map mode (and the binary view, for an
   executable or library)
 - `F5` — Goto (line / percent / byte offset)
@@ -258,7 +259,8 @@ used to share now lives on `Alt-T`.
   (or a click) to jump to it, `Esc` / `F6` to dismiss. Opening this manual with
   `F1` lands on its outline.
 - `F7` — Search
-- `F8` — (Markdown files) toggle Raw / Render; (image files) toggle Image / Raw;
+- `F8` — (Markdown files) toggle Raw / Render; (CSV / TSV files) toggle Table /
+  Raw; (image files) toggle Image / Raw;
   (model files) toggle Model / Raw; (audio files) toggle Audio / Raw; (byte map)
   toggle Density / Bytes colouring; (binary view) toggle demangled / raw symbol
   names
@@ -269,6 +271,10 @@ used to share now lives on `Alt-T`.
 - `f` — Follow the file as it grows (`tail -f`); `f` again stops
 - `b` — Git blame: show who last changed each line; `↑ ↓` move a line cursor,
   `Enter` opens that line's commit in the panel, `b` again hides the column
+- In a **table**: `← → ↑ ↓` / `PgUp PgDn` move the cell cursor, `Home End` go to
+  the first / last field of the record, `Ctrl-Home Ctrl-End` to the first / last
+  record, `Tab` / `Shift-Tab` step through the cells, `<` `>` (or `Ctrl-← →`)
+  narrow and widen the column; a click picks a cell
 - In the **binary view**: `Tab` / `Shift-Tab` or `1`–`7` switch lists, `Enter`
   opens the hex view at the highlighted row, `Esc` drops a *Find all* filter
 - `↑ ↓` / `PgUp PgDn` / `Home End` — Scroll (in a **model view**: `← → ↑ ↓`
@@ -930,7 +936,7 @@ and shows its address as a **QR code**; scan it, choose files, and they arrive.
 ## The viewer (F3)
 
 A read-only file viewer with text and hex modes, search,
-syntax highlighting, a Markdown render mode, fullscreen image and 3D model
+syntax highlighting, a Markdown render mode, a spreadsheet table for CSV files, fullscreen image and 3D model
 views, and a look inside executables and libraries.
 
 **Useful for** quickly reading a file — including very large ones — without
@@ -1133,6 +1139,40 @@ loading it into an editor.
   matched to the active light/dark UI. It covers syntect's default languages
   plus bundled extras (TOML, INI, Dockerfile, HCL/Terraform, GraphQL, Protobuf,
   CMake, TypeScript/TSX, Kotlin, Swift, SCSS/Sass, Elixir, Zig, Nix and more).
+- **Table view** — `.csv`, `.tsv` and `.tab` files open as a **spreadsheet**: a
+  grid of cells with row numbers down the side, the columns separated by rules,
+  numbers right-aligned, and a **cell bar** along the top naming the cell under
+  the cursor (`B12`), its column's title, and its whole value. When the first
+  record reads as column titles — every cell filled, none a number, none twice —
+  it becomes a **header row** that stays in place while the rows scroll beneath
+  it; **F2** turns that on or off. Without a header the columns are lettered A,
+  B, C… as in a spreadsheet.
+
+  The delimiter is worked out from the file: commas, semicolons (the European
+  convention, where the comma is the decimal separator), tabs or pipes —
+  whichever splits the first records into the same number of fields most
+  consistently. `.tsv` and `.tab` files are always tab-separated. Quoted fields
+  may hold the delimiter, doubled quotes and **line breaks**; a line break shows
+  as `↵` in its cell, and the record after it is still the next row. Quotes are
+  read leniently — one in the middle of a field is just a character — and a file
+  whose quotes never close is read as if it had none, rather than as one giant
+  field.
+
+  Move the **cell cursor** with the arrows, `PgUp`/`PgDn`, `Home`/`End` (first
+  and last field of the record) and `Ctrl-Home`/`Ctrl-End` (first and last
+  record); `Tab` and `Shift-Tab` walk the cells in reading order. Columns are
+  sized to their contents, up to 40 cells, and `<` / `>` (or `Ctrl-←`/`Ctrl-→`)
+  make the one under the cursor narrower or wider; the cell bar always shows a
+  cut value whole. A click picks a cell, and the wheel scrolls.
+
+  **F7** searches the file as usual and puts the cursor on the **cell** holding
+  the match; **Find all** tints every record with a hit. **F5** goes to a row
+  number, a percentage, or the record holding a byte offset. **F8** shows the
+  raw text on the record the cursor was on, and F8 again returns to the table
+  there; **F4** steps on to hex and the byte map. Like the text view, the table
+  is paged from disk: only the start of each record is indexed, as far as you
+  have moved, so a multi-gigabyte export opens at once (the header's row count
+  carries a `+` until the end has been reached).
 - **Markdown view** — `.md` files open *rendered*: the markup (`#`, `**`, `` ` ``,
   links, …) is hidden, headings are colored by level, emphasis and inline code
   are styled, and list bullets and rules are drawn. Press **F8** (*Raw*) to see

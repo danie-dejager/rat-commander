@@ -626,3 +626,7 @@ code = "ru"
 "Artist" = "Исполнитель"
 "Title" = "Название"
 "Album" = "Альбом"
+
+# -- Viewer: table view (CSV/TSV) --
+"Table" = "Таблица"
+"Header" = "Шапка"

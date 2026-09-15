@@ -626,3 +626,7 @@ code = "uk"
 "Artist" = "Виконавець"
 "Title" = "Назва"
 "Album" = "Альбом"
+
+# -- Viewer: table view (CSV/TSV) --
+"Table" = "Таблиця"
+"Header" = "Шапка"

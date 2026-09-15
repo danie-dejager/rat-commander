@@ -386,7 +386,7 @@ impl AppState {
                     // line, so F3 on a result lands where the search matched.
                     let hit = self.find_hit_lines.get(&path.display()).copied();
                     if let Some(line) = hit {
-                        v.goto(&line.to_string(), crate::viewer::GotoMode::Line);
+                        v.goto_hit_line(line as usize);
                     }
                     // An executable or a library opens in Binary mode — except
                     // when F3 came from a content search, whose hit is in the

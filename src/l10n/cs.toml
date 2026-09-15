@@ -626,3 +626,7 @@ code = "cs"
 "Artist" = "Interpret"
 "Title" = "Název"
 "Album" = "Album"
+
+# -- Viewer: table view (CSV/TSV) --
+"Table" = "Tabulka"
+"Header" = "Záhlaví"

@@ -630,3 +630,7 @@ rtl = true
 "Artist" = "هنرمند"
 "Title" = "عنوان"
 "Album" = "آلبوم"
+
+# -- Viewer: table view (CSV/TSV) --
+"Table" = "جدول"
+"Header" = "سرستون"
