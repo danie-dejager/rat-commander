@@ -14,8 +14,16 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
         return;
     }
     let status = Rect { height: 1, ..area };
-    let text_area = Rect { y: area.y + 1, height: area.height - 2, ..area };
+    let body = Rect { y: area.y + 1, height: area.height - 2, ..area };
     let footer = Rect { y: area.y + area.height - 1, height: 1, ..area };
+    // A JSON file's text gives up its first columns to the error gutter —
+    // always, not only while there are errors, so the text never shifts
+    // sideways as they come and go. Recorded before anything measures the text
+    // area, so scrolling and the mouse see the narrower one.
+    let gutter_w =
+        if ed.json_checked() && !ed.sheet_active() { JSON_GUTTER.min(body.width) } else { 0 };
+    let gutter = Rect { width: gutter_w, ..body };
+    let text_area = Rect { x: body.x + gutter_w, width: body.width - gutter_w, ..body };
 
     ed.view_rows = text_area.height as usize;
     ed.view_cols = text_area.width as usize;
@@ -77,6 +85,9 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
     } else {
         render_text(f, text_area, ed, theme)
     };
+    if gutter_w > 0 {
+        render_json_gutter(f, gutter, ed, theme);
+    }
     render_footer(f, footer, ed, theme);
 
     // The F1 help overlay sits above the text and hides the hardware cursor.
@@ -285,6 +296,66 @@ fn ensure_visible(ed: &mut EditorState) {
     ed.left_col = crate::util::scroll::scroll_to_visible(ed.left_col, col, ed.view_cols);
 }
 
+/// Columns the JSON error gutter takes: the mark and a space.
+const JSON_GUTTER: u16 = 2;
+
+/// The mark a line with a JSON syntax error gets in the gutter.
+const ERROR_MARK: &str = "✗";
+
+/// The gutter beside a JSON file's text: a mark on each line an error starts
+/// on (on the first row of a wrapped line).
+fn render_json_gutter(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
+    let blank = Style::default().bg(theme.panel_bg);
+    let mark = Style::default().fg(theme.error_fg).bg(theme.panel_bg).add_modifier(Modifier::BOLD);
+    let total = ed.buf.len_lines();
+    let mut pos = Some((ed.top_line, if ed.wrap() { ed.top_sub } else { 0 }));
+    let mut lines = Vec::with_capacity(area.height as usize);
+    for _ in 0..area.height {
+        let row = match pos {
+            Some((line, sub))
+                if line < total && sub == 0 && !ed.json_errors_on_line(line).is_empty() =>
+            {
+                Line::from(vec![Span::styled(ERROR_MARK, mark), Span::styled(" ", blank)])
+            }
+            _ => Line::from(Span::styled(" ".repeat(area.width as usize), blank)),
+        };
+        lines.push(row);
+        pos = pos.and_then(
+            |(line, sub)| {
+                if ed.wrap() { ed.vis_next(line, sub) } else { Some((line + 1, 0)) }
+            },
+        );
+    }
+    f.render_widget(Paragraph::new(lines).style(blank), area);
+}
+
+/// The columns of `line` a JSON error underlines, as `[from, to)` char columns.
+fn error_columns(
+    ed: &EditorState,
+    line: usize,
+    line_start: usize,
+    len: usize,
+) -> Vec<(usize, usize)> {
+    ed.json_errors_on_line(line)
+        .iter()
+        .filter_map(|d| {
+            // A check of text that has changed since can point past the line.
+            let from = d.start.checked_sub(line_start)?;
+            (from < len.max(1)).then(|| (from, (d.end - line_start).min(len.max(from + 1))))
+        })
+        .collect()
+}
+
+/// How a character a JSON error covers is drawn: in the error colour,
+/// underlined in it too.
+fn error_style(theme: &Theme, bg: ratatui::style::Color) -> Style {
+    Style::default()
+        .fg(theme.error_fg)
+        .bg(bg)
+        .add_modifier(Modifier::UNDERLINED)
+        .underline_color(theme.error_fg)
+}
+
 fn render_status(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
     let line = ed.buf.char_to_line(ed.cursor);
     let col = ed.cursor - ed.buf.line_to_char(line);
@@ -298,20 +369,27 @@ fn render_status(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
     let wrap = if ed.wrap() { " WRAP" } else { "" };
     let mode = if ed.overwrite() { " OVR" } else { "" };
     let name = ellipsize(&ed.name, area.width.saturating_sub(58) as usize);
-    let text = format!(
-        " {name} {dirty}{wrap}{mode}  Ln {}/{}  Col {}  {code}  Ofs {} ",
-        line + 1,
-        total,
-        col + 1,
-        ed.cursor,
-    );
-    f.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            pad_right(&text, area.width as usize),
-            theme.menubar.add_modifier(Modifier::BOLD),
-        ))),
-        area,
-    );
+    let position =
+        format!(" {name} {dirty}{wrap}{mode}  Ln {}/{}  Col {}", line + 1, total, col + 1,);
+    let style = theme.menubar.add_modifier(Modifier::BOLD);
+    let width = area.width as usize;
+    // A JSON file's errors: how many, and what the one at the cursor is — in
+    // place of the character code and offset, which say little next to it.
+    let errors = ed.json_errors();
+    let explained = ed.json_error_at_cursor();
+    let spans = if ed.json_checked() && (!errors.is_empty() || explained.is_some()) {
+        let bg = theme.menubar.bg.unwrap_or(theme.panel_bg);
+        let alert = style.fg(crate::ui::theme::readable_on(theme.error_fg, bg));
+        let count = format!("  {ERROR_MARK} {}", errors.len());
+        let message = explained.map_or(String::new(), |d| format!("  {}", d.message));
+        let head_w = unicode_width::UnicodeWidthStr::width(position.as_str());
+        let tail = pad_right(&format!("{count}{message} "), width.saturating_sub(head_w));
+        vec![Span::styled(position, style), Span::styled(tail, alert)]
+    } else {
+        let text = format!("{position}  {code}  Ofs {} ", ed.cursor);
+        vec![Span::styled(pad_right(&text, width), style)]
+    };
+    f.render_widget(Paragraph::new(Line::from(spans)).style(style), area);
 }
 
 /// Render the text body. Returns the hardware cursor position, if on screen.
@@ -382,6 +460,7 @@ fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Op
         let bookmark_fg = ed.line_bookmarked(li).then_some(theme.marked_fg);
         let chars: Vec<char> = ed.buf.line_text(li).chars().collect();
         let trail_from = trailing_start(&chars, ed.show_trailing_spaces());
+        let errors = error_columns(ed, li, line_start, chars.len());
         // Syntax foreground per character (None ⇒ all `text_fg`).
         let mut fg = ed.line_fg(li, chars.len(), theme.text_fg);
         // Tint the `#` of any hex-color token with its own color, regardless of
@@ -408,6 +487,8 @@ fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Op
                 let (dch, marker) = display_char(chars[ci], ci >= trail_from, ed.show_tabs());
                 if block.map(|(s, e)| abs >= s && abs < e).unwrap_or(false) {
                     (dch, block_style)
+                } else if errors.iter().any(|&(a, b)| ci >= a && ci < b) {
+                    (dch, error_style(theme, line_bg))
                 } else if marker {
                     (dch, Style::default().fg(theme.panel_border).bg(line_bg))
                 } else {
@@ -535,6 +616,7 @@ fn render_text_wrapped(
         let bookmark_fg = ed.line_bookmarked(line).then_some(theme.marked_fg);
         let chars: Vec<char> = ed.buf.line_text(line).chars().collect();
         let trail_from = trailing_start(&chars, ed.show_trailing_spaces());
+        let errors = error_columns(ed, line, line_start, chars.len());
         let mut fg = ed.line_fg(line, chars.len(), theme.text_fg);
         let hashes = crate::ui::hexcolor::hex_color_hashes(&chars);
         if !hashes.is_empty() {
@@ -566,6 +648,8 @@ fn render_text_wrapped(
                 let (dch, marker) = display_char(chars[ci], ci >= trail_from, ed.show_tabs());
                 if block.map(|(s, e)| abs >= s && abs < e).unwrap_or(false) {
                     (dch, block_style)
+                } else if errors.iter().any(|&(a, b)| ci >= a && ci < b) {
+                    (dch, error_style(theme, line_bg))
                 } else if marker {
                     (dch, Style::default().fg(theme.panel_border).bg(line_bg))
                 } else {

@@ -642,3 +642,7 @@ code = "ru"
 "InsCol" = "ВстСтл"
 "DelRow" = "УдлСтр"
 "DelCol" = "УдлСтл"
+
+# -- Editor: JSON syntax check --
+"Next &error" = "Следующая ошибка (&E)"
+"Pre&vious error" = "Предыдущая ошибка (&V)"

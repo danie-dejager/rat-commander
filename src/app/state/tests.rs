@@ -5109,6 +5109,43 @@ async fn a_csv_edited_in_the_grid_saves_as_text() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// A JSON file is checked on the app's tick while it is edited: the ticker
+/// keeps running while a check is due, and the error shows once it lands.
+#[tokio::test]
+async fn an_edited_json_file_is_checked_on_the_tick() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let dir = temp_dir("edjson");
+    let file = dir.join("config.json");
+    std::fs::write(&file, b"{\"a\": 1}\n").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(file).await;
+    let settle = |st: &mut AppState| {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while st.editor.as_ref().is_some_and(|e| e.json_pending()) && Instant::now() < deadline {
+            st.on_tick();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    settle(&mut st);
+    assert!(st.editor.as_ref().unwrap().json_errors().is_empty(), "the file as saved is valid");
+    // Break it: a second member with no comma before it.
+    let ed = st.editor.as_mut().unwrap();
+    for code in [KeyCode::End, KeyCode::Left] {
+        ed.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+    }
+    for c in " \"b\": 2".chars() {
+        ed.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    }
+    assert!(st.wants_ticks(), "a check is due, so the tick keeps coming");
+    settle(&mut st);
+    let errors = st.editor.as_ref().unwrap().json_errors();
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert_eq!(errors[0].message, "Missing ',' after this value");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// The editor options dialog round-trips: what it submits reaches the open
 /// editor *and* the config, so the next file opens with the same settings.
 #[tokio::test]

@@ -198,10 +198,12 @@ impl SheetGrid {
 }
 
 impl EditorState {
-    /// Decide from the file name whether this is a table, and give it a grid
-    /// if so — shown straight away, since that is how a table opens. Run when a
-    /// file is opened and when a buffer is saved under a new name.
+    /// Decide from the file name what kind of file this is: a table gets a
+    /// grid — shown straight away, since that is how a table opens — and JSON a
+    /// syntax check. Run when a file is opened and when a buffer is saved under
+    /// a new name.
     pub fn detect_kind(&mut self) {
+        self.detect_json();
         let is_sheet = crate::sheet::is_sheet_name(&self.name);
         if is_sheet && self.sheet.is_none() {
             self.sheet = Some(SheetGrid::new(&self.buf, &self.name));

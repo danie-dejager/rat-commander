@@ -642,3 +642,7 @@ code = "hu"
 "InsCol" = "OszBes"
 "DelRow" = "SorTör"
 "DelCol" = "OszTör"
+
+# -- Editor: JSON syntax check --
+"Next &error" = "Következő hiba (&E)"
+"Pre&vious error" = "Előző hiba (&V)"

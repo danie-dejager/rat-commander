@@ -646,3 +646,7 @@ rtl = true
 "InsCol" = "درجستو"
 "DelRow" = "حذفسط"
 "DelCol" = "حذفستو"
+
+# -- Editor: JSON syntax check --
+"Next &error" = "خطای بعدی (&E)"
+"Pre&vious error" = "خطای قبلی (&V)"

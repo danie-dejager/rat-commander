@@ -642,3 +642,7 @@ code = "ja"
 "InsCol" = "列挿入"
 "DelRow" = "行削除"
 "DelCol" = "列削除"
+
+# -- Editor: JSON syntax check --
+"Next &error" = "次のエラー(&E)"
+"Pre&vious error" = "前のエラー(&V)"

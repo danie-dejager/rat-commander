@@ -63,6 +63,10 @@ pub enum EditorAction {
     BookmarkNext,
     BookmarkPrev,
     BookmarkFlush,
+    /// Move to the next JSON syntax error.
+    NextError,
+    /// Move to the previous JSON syntax error.
+    PrevError,
 
     // -- Command --
     GotoLine,
@@ -152,8 +156,9 @@ pub enum MenuMode {
 /// these actions and the spreadsheet grid has no use for the ones that act on
 /// lines and marked blocks, so those are greyed out rather than silently doing
 /// nothing — and the grid's own row and column actions are greyed out
-/// everywhere else.
-pub fn editor_menu(active: usize, mode: MenuMode) -> EditorMenu {
+/// everywhere else. `json` is whether the file is checked as JSON, which is
+/// what gives the error items something to move between.
+pub fn editor_menu(active: usize, mode: MenuMode, json: bool) -> EditorMenu {
     let hex = mode == MenuMode::Hex;
     // In hex mode the text buffer isn't the thing being edited, so everything
     // that reads or writes it is unavailable.
@@ -214,6 +219,9 @@ pub fn editor_menu(active: usize, mode: MenuMode) -> EditorMenu {
             not_grid(item_key("&Next bookmark", "Alt-J", EditorAction::BookmarkNext)),
             not_grid(item_key("&Prev bookmark", "Alt-I", EditorAction::BookmarkPrev)),
             not_grid(item_key("&Flush bookmarks", "Alt-O", EditorAction::BookmarkFlush)),
+            sep(),
+            item_key("Next &error", "Alt-E", EditorAction::NextError).disabled(!json),
+            item_key("Pre&vious error", "Alt-Shift-E", EditorAction::PrevError).disabled(!json),
         ],
     };
 
@@ -300,6 +308,8 @@ pub const MENU_KEYS: &[&[&str]] = &[
         "&Next bookmark",
         "&Prev bookmark",
         "&Flush bookmarks",
+        "Next &error",
+        "Pre&vious error",
     ],
     &[
         "&Go to line...",
@@ -330,7 +340,7 @@ mod tests {
 
     #[test]
     fn accelerators_are_unique_within_each_menu() {
-        let m = editor_menu(0, MenuMode::Text);
+        let m = editor_menu(0, MenuMode::Text, false);
         for (mi, menu) in m.menus().iter().enumerate() {
             let mut seen = Vec::new();
             for it in &menu.items {
@@ -349,7 +359,7 @@ mod tests {
     fn menu_keys_mirror_the_built_menus() {
         // The l10n accelerator test reads MENU_KEYS; if a menu gains an item and
         // the list isn't updated, that test would quietly stop covering it.
-        let m = editor_menu(0, MenuMode::Text);
+        let m = editor_menu(0, MenuMode::Text, false);
         assert_eq!(m.menus().len(), MENU_KEYS.len());
         for (mi, menu) in m.menus().iter().enumerate() {
             let built = menu.items.iter().filter(|it| !it.action.is_separator()).count();
@@ -359,7 +369,7 @@ mod tests {
 
     #[test]
     fn hex_mode_greys_out_the_text_only_actions() {
-        let m = editor_menu(0, MenuMode::Hex);
+        let m = editor_menu(0, MenuMode::Hex, false);
         let find = |a: EditorAction| find_item(&m, a);
         assert!(!find(EditorAction::Undo).selectable(), "undo needs the text buffer");
         assert!(!find(EditorAction::FormatParagraph).selectable());
@@ -368,6 +378,15 @@ mod tests {
         assert!(find(EditorAction::Quit).selectable());
         assert!(find(EditorAction::ToggleHex).selectable());
         assert!(!find(EditorAction::SheetInsertRow).selectable());
+    }
+
+    #[test]
+    fn the_error_items_need_a_json_file() {
+        let plain = editor_menu(0, MenuMode::Text, false);
+        let json = editor_menu(0, MenuMode::Text, true);
+        assert!(!find_item(&plain, EditorAction::NextError).selectable());
+        assert!(find_item(&json, EditorAction::NextError).selectable());
+        assert!(find_item(&json, EditorAction::PrevError).selectable());
     }
 
     fn find_item(m: &EditorMenu, a: EditorAction) -> &MenuItem<EditorAction> {
@@ -380,8 +399,8 @@ mod tests {
 
     #[test]
     fn the_grid_greys_out_line_actions_and_offers_its_own() {
-        let grid = editor_menu(0, MenuMode::Sheet);
-        let text = editor_menu(0, MenuMode::Text);
+        let grid = editor_menu(0, MenuMode::Sheet, false);
+        let text = editor_menu(0, MenuMode::Text, false);
         for a in
             [EditorAction::SheetInsertRow, EditorAction::SheetDeleteCol, EditorAction::SheetHeader]
         {

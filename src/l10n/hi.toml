@@ -642,3 +642,7 @@ code = "hi"
 "InsCol" = "स्तंडाल"
 "DelRow" = "पंहटा"
 "DelCol" = "स्तंहटा"
+
+# -- Editor: JSON syntax check --
+"Next &error" = "अगली त्रुटि (&E)"
+"Pre&vious error" = "पिछली त्रुटि (&V)"

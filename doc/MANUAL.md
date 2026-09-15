@@ -316,6 +316,7 @@ used to share now lives on `Alt-T`.
 - `Shift-F9` — Toggle word wrap
 - `Ctrl-F9` — Toggle the in-place hex editor
 - `Alt-G` — Toggle the spreadsheet grid (see *Spreadsheet grid* below)
+- `Alt-E` / `Alt-Shift-E` — (JSON files) Jump to the next / previous syntax error
 - `Esc` / `F10` — Quit (prompts if modified)
 
 While **Shift** or **Ctrl** is held, the F-key bar relabels the keys those
@@ -351,7 +352,9 @@ Beyond the F-key actions, the menus offer:
   and end of the file.
 - **Search** — Search, search again, replace, and the four **line bookmark**
   actions. A bookmarked line's text is drawn in the "marked" colour, and
-  `Alt-J` / `Alt-I` step through the bookmarks in order, wrapping around.
+  `Alt-J` / `Alt-I` step through the bookmarks in order, wrapping around. In a
+  JSON file, **Next error** and **Previous error** step through its syntax
+  errors.
 - **Command** — Go to line, jump to the matching bracket, and the syntax /
   word-wrap / hex-mode / spreadsheet toggles, plus a screen repaint.
 - **Format** — Insert the date and time, re-wrap the current paragraph to the
@@ -1336,6 +1339,34 @@ CR LF) are kept, and search and replace (**F7**, **F4**) work as always and put
 the cursor on the cell holding the match. **Alt-G** switches to the text with
 the cursor on the cell that was selected, and back — for any file, so a table
 without a table's name can be edited as one too.
+
+**JSON syntax check.** A `.json` file — and `.geojson`, `.topojson`, JSON Lines
+(`.jsonl`, `.ndjson`) and JSONC (`.jsonc`, and the `tsconfig.json`-style
+configuration files that allow comments) — is **checked as you type**. Once you
+pause for a quarter of a second the whole file is read again in the background,
+and **every** syntax error is shown, not only the first: each line with an error
+gets a red `✗` in a two-column **gutter** on the left, the characters it is
+about are drawn in the theme's error colour and underlined, and the status line
+counts them (`✗ 3`). With the cursor on an error's line the status line says
+what is wrong — *Missing ',' after this value*, *Trailing comma before ']'*,
+*Keys must be strings in double quotes*, *Expected '}' to close the object from
+line 12*. **Alt-E** jumps to the next error and **Alt-Shift-E** to the previous
+one, wrapping round, with the message on the bottom line.
+
+The checker reads past each mistake the way a person would, so one slip is one
+error rather than a cascade: a value with its comma missing is still the next
+value, a key without its colon is still the key, and a closing bracket of the
+wrong kind closes the container it was meant for. What it points out goes
+beyond missing punctuation: comments and trailing commas (in files that do not
+allow them), single-quoted or unquoted strings and keys, `True`, `None`, `NaN`
+and other words JSON does not have, numbers with leading zeros, a leading `+` or
+a hexadecimal prefix, invalid escapes and raw tabs inside strings, strings that
+never close (the check picks up again on the next line), brackets left open at
+the end of the file — reported where they were opened — and anything after the
+end of the document. JSONC files may have comments and trailing commas; JSON
+Lines files may hold one document after another. A file with more than a
+thousand errors is not checked past the thousandth. JSON5 is a different
+language and is not checked.
 
 **Hex editor (Ctrl-F9).** Toggles an in-place offset / hex / ASCII editor. Only the
 visible window is read and only changed bytes are written back, so arbitrarily

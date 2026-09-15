@@ -647,3 +647,7 @@ code = "de"
 "InsCol" = "SpaEin"
 "DelRow" = "ZeiLös"
 "DelCol" = "SpaLös"
+
+# -- Editor: JSON syntax check --
+"Next &error" = "Nächster &Fehler"
+"Pre&vious error" = "Vorheriger F&ehler"

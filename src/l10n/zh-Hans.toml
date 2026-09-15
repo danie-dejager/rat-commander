@@ -642,3 +642,7 @@ code = "zh-Hans"
 "InsCol" = "插入列"
 "DelRow" = "删除行"
 "DelCol" = "删除列"
+
+# -- Editor: JSON syntax check --
+"Next &error" = "下一个错误(&E)"
+"Pre&vious error" = "上一个错误(&V)"

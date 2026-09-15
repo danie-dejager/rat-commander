@@ -14,6 +14,7 @@ mod editor;
 mod ext;
 mod flash;
 mod git;
+mod json;
 mod l10n;
 mod mesh;
 mod mount;

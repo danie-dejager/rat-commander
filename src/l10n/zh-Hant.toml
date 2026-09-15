@@ -642,3 +642,7 @@ code = "zh-Hant"
 "InsCol" = "插入欄"
 "DelRow" = "刪除列"
 "DelCol" = "刪除欄"
+
+# -- Editor: JSON syntax check --
+"Next &error" = "下一個錯誤(&E)"
+"Pre&vious error" = "上一個錯誤(&V)"

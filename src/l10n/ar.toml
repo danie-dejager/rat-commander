@@ -646,3 +646,7 @@ rtl = true
 "InsCol" = "إدرعمود"
 "DelRow" = "حذفصف"
 "DelCol" = "حذفعمود"
+
+# -- Editor: JSON syntax check --
+"Next &error" = "الخطأ التالي (&E)"
+"Pre&vious error" = "الخطأ السابق (&V)"

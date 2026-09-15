@@ -357,6 +357,12 @@ impl AppState {
         if self.poll_details_audio() {
             dirty = true;
         }
+        // The editor's JSON check: start one once typing pauses, show its result.
+        if let Some(ed) = self.editor.as_mut()
+            && ed.poll_json(Instant::now())
+        {
+            dirty = true;
+        }
         // Spin the "working…" dialog while a privileged op runs.
         if let Some(Dialog::Busy(b)) = self.dialog.as_mut() {
             b.tick();
@@ -394,6 +400,8 @@ impl AppState {
             // A followed file is polled for growth on the tick, and a binary's
             // background analysis for its result.
             || self.viewer.as_ref().is_some_and(|v| v.following() || v.analyzing() || v.audio_busy())
+            // An edited JSON file is due a syntax check, or one is running.
+            || self.editor.as_ref().is_some_and(|e| e.json_pending())
             // A Details view's audio is still being analysed, or is playing.
             || self.details.iter().any(|d| d.audio.as_ref().is_some_and(|a| a.busy()))
             // A debounced panel reload is still waiting to fire.

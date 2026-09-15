@@ -642,3 +642,7 @@ code = "cs"
 "InsCol" = "VloSlo"
 "DelRow" = "OdsŘád"
 "DelCol" = "OdsSlo"
+
+# -- Editor: JSON syntax check --
+"Next &error" = "Další chyba (&E)"
+"Pre&vious error" = "Předchozí chyba (&V)"

@@ -642,3 +642,7 @@ code = "sr"
 "InsCol" = "UmeKol"
 "DelRow" = "BriRed"
 "DelCol" = "BriKol"
+
+# -- Editor: JSON syntax check --
+"Next &error" = "Sledeća greška (&E)"
+"Pre&vious error" = "Prethodna greška (&V)"

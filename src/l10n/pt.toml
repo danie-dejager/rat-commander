@@ -642,3 +642,7 @@ code = "pt"
 "InsCol" = "InsCol"
 "DelRow" = "ExcLin"
 "DelCol" = "ExcCol"
+
+# -- Editor: JSON syntax check --
+"Next &error" = "Próximo erro (&E)"
+"Pre&vious error" = "Erro anterior (&V)"

@@ -84,7 +84,9 @@ The installed executable is named **`rc`** for quick typing.
 - **Built-in editor (F4)** — `mcedit`-style block copy/move/delete, clipboard,
   search & replace, undo/redo, syntax highlighting, a **spreadsheet grid** for
   `.csv` / `.tsv` files (edit cells in a cell bar, insert and delete rows and
-  columns, every change one undo step and saved as plain text), and an
+  columns, every change one undo step and saved as plain text), a **live JSON
+  syntax check** that marks every error in the file as you type — in a gutter,
+  underlined, explained on the status line, `Alt-E` to the next one — and an
   in-place **hex editor** for arbitrarily large files.
 - **Multi rename** — batch-rename selected files with a masked, live two-column
   preview, counter, case transform and search-and-replace.
@@ -331,6 +333,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `F9` | Pulldown menu |
 | `Shift-F9` | Toggle word wrap |
 | `Ctrl-F9` | Toggle in-place hex editor |
+| `Alt-E` / `Alt-Shift-E` | (JSON) next / previous syntax error |
 | `Alt-G` | Toggle the spreadsheet grid (CSV/TSV): `Enter` or typing edits a cell, `F5`/`F6` insert a row/column, `F8`/`Shift-F8` delete one, `F3` toggles the header row |
 | `Ins` | Toggle insert / overwrite |
 | `Ctrl-C` / `Ctrl-X` / `Ctrl-V` | Copy / cut block to clipboard, paste |

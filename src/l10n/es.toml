@@ -642,3 +642,7 @@ code = "es"
 "InsCol" = "InsCol"
 "DelRow" = "EliFil"
 "DelCol" = "EliCol"
+
+# -- Editor: JSON syntax check --
+"Next &error" = "Error siguiente (&E)"
+"Pre&vious error" = "Error anterior (&V)"

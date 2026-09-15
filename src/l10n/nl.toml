@@ -642,3 +642,7 @@ code = "nl"
 "InsCol" = "InsKol"
 "DelRow" = "VerRij"
 "DelCol" = "VerKol"
+
+# -- Editor: JSON syntax check --
+"Next &error" = "Volgende fout (&E)"
+"Pre&vious error" = "Vorige fout (&V)"

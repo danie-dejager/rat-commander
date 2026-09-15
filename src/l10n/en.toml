@@ -651,3 +651,7 @@ code = "en"
 "InsCol" = "InsCol"
 "DelRow" = "DelRow"
 "DelCol" = "DelCol"
+
+# -- Editor: JSON syntax check --
+"Next &error" = "Next &error"
+"Pre&vious error" = "Pre&vious error"

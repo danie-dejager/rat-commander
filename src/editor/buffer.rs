@@ -77,6 +77,12 @@ impl EditorBuffer {
         self.rope.chunks()
     }
 
+    /// The text as it stands, for a thread to read while editing goes on: a
+    /// rope clone shares its storage, so this copies nothing.
+    pub fn snapshot(&self) -> Rope {
+        self.rope.clone()
+    }
+
     /// The char index of byte offset `byte`.
     pub fn byte_to_char(&self, byte: usize) -> usize {
         self.rope.byte_to_char(byte.min(self.rope.len_bytes()))

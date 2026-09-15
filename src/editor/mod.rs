@@ -6,6 +6,7 @@
 
 pub mod buffer;
 pub mod hex;
+mod jsoncheck;
 pub mod menu;
 pub mod render;
 mod sheet;
@@ -155,6 +156,8 @@ pub struct EditorState {
     /// The spreadsheet grid over a CSV or TSV file (Alt-G switches it with the
     /// text), when the file is one — or when it was asked for.
     sheet: Option<sheet::SheetGrid>,
+    /// The live syntax check of a JSON file.
+    json: Option<jsoncheck::JsonCheck>,
 }
 
 /// Above this size a file is opened straight into hex mode (text mode loads the
@@ -176,6 +179,7 @@ pub const EDITOR_HELP: &[(&str, &str)] = &[
     ("Shift-F9", "Toggle word wrap"),
     ("Ctrl-F9", "Toggle hex editor"),
     ("Alt-G", "Spreadsheet grid / text (CSV, TSV)"),
+    ("Alt-E / Alt-Shift-E", "Next / previous JSON syntax error"),
     ("Grid: Enter / F3", "Edit the cell / header row on or off"),
     ("Grid: F5 F6 / F8", "Insert row, column / delete row (Shift: column)"),
     ("F10 / Esc", "Quit (prompts if modified)"),
@@ -234,6 +238,7 @@ impl EditorState {
             bookmarks: std::collections::HashSet::new(),
             hl_dark: false,
             sheet: None,
+            json: None,
         };
         ed.detect_kind();
         ed
@@ -663,7 +668,7 @@ impl EditorState {
         } else {
             menu::MenuMode::Text
         };
-        self.menu = Some(menu::editor_menu(active, mode));
+        self.menu = Some(menu::editor_menu(active, mode, self.json_checked()));
     }
 
     /// Whether the F9 menu is currently open (the renderer draws it over the
@@ -751,6 +756,8 @@ impl EditorState {
             A::BookmarkNext => self.bookmark_jump(true),
             A::BookmarkPrev => self.bookmark_jump(false),
             A::BookmarkFlush => self.bookmark_flush(),
+            A::NextError => self.jump_json_error(true),
+            A::PrevError => self.jump_json_error(false),
 
             // -- Command --
             A::GotoLine => return EditorSignal::OpenGotoLine,
@@ -1162,6 +1169,7 @@ impl EditorState {
             self.enable_syntax(self.hl_dark);
         }
         self.sheet = None;
+        self.json = None;
         self.detect_kind();
     }
 
@@ -1428,6 +1436,8 @@ impl EditorState {
             KeyCode::Char('i') if alt => self.bookmark_jump(false),
             KeyCode::Char('o') if alt => self.bookmark_flush(),
             KeyCode::Char('g') if alt => self.toggle_sheet(),
+            KeyCode::Char('e') if alt && !shift => self.jump_json_error(true),
+            KeyCode::Char('e' | 'E') if alt => self.jump_json_error(false),
 
             KeyCode::Up => {
                 self.pre_move(shift);
