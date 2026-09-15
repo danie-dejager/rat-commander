@@ -86,7 +86,11 @@ The installed executable is named **`rc`** for quick typing.
   `.csv` / `.tsv` files (edit cells in a cell bar, insert and delete rows and
   columns, every change one undo step and saved as plain text), a **live JSON
   syntax check** that marks every error in the file as you type — in a gutter,
-  underlined, explained on the status line, `Alt-E` to the next one — and an
+  underlined, explained on the status line, `Alt-E` to the next one — a
+  **GeoJSON map** (`Alt-M`) that draws the GeoJSON in a file, or nested anywhere
+  in a larger JSON document, over a built-in vector map of the world (land,
+  lakes, borders, rivers and cities from Natural Earth) with pan, zoom and
+  click-to-pick, in pixels or braille, and an
   in-place **hex editor** for arbitrarily large files.
 - **Multi rename** — batch-rename selected files with a masked, live two-column
   preview, counter, case transform and search-and-replace.
@@ -334,6 +338,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Shift-F9` | Toggle word wrap |
 | `Ctrl-F9` | Toggle in-place hex editor |
 | `Alt-E` / `Alt-Shift-E` | (JSON) next / previous syntax error |
+| `Alt-M` | Show the file's GeoJSON on a world map (drag/wheel to pan and zoom, click a feature, `Enter` to go to it) |
 | `Alt-G` | Toggle the spreadsheet grid (CSV/TSV): `Enter` or typing edits a cell, `F5`/`F6` insert a row/column, `F8`/`Shift-F8` delete one, `F3` toggles the header row |
 | `Ins` | Toggle insert / overwrite |
 | `Ctrl-C` / `Ctrl-X` / `Ctrl-V` | Copy / cut block to clipboard, paste |
@@ -487,3 +492,6 @@ Midnight Commander format). See the
 ## License
 
 GNU General Public License, version 2 (GPL-2.0-only). See the `LICENSE` file.
+
+The built-in world map is made from [Natural Earth](https://www.naturalearthdata.com/)
+data, which is in the public domain; `assets/world/make_world.py` rebuilds it.

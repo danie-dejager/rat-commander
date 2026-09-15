@@ -15,6 +15,7 @@ mod drive;
 mod find;
 mod flash;
 mod form;
+mod geomap;
 mod gitout;
 mod goto;
 mod history;
@@ -56,6 +57,7 @@ pub use flash::{FileBrowserDialog, FlashTargetDialog, ImageSaveDialog};
 pub use form::{FormDialog, SettingsTab};
 #[cfg(test)]
 pub(crate) use form::{HELP_ROWS, HELP_WIDTH, settings_help_texts};
+pub use geomap::GeoMapDialog;
 pub use gitout::GitOutputDialog;
 pub use goto::GotoDialog;
 pub use history::ShellHistoryDialog;
@@ -138,6 +140,8 @@ pub enum Dialog {
     DirHistory(DirHistoryDialog),
     /// The active panel's open tabs, for picking one (Alt-J).
     TabPicker(TabPickerDialog),
+    /// The editor's GeoJSON drawn over a world map.
+    GeoMap(Box<GeoMapDialog>),
 }
 
 /// What the app should do after a dialog handles a key.
@@ -177,6 +181,9 @@ pub enum Submit {
     /// A path chosen in the editor's file browser for one of the File menu's
     /// open / insert / copy-to actions.
     EditorBrowsed(crate::editor::BrowseKind, std::path::PathBuf),
+    /// Move the editor's cursor to this byte offset of its text (the GeoJSON
+    /// map's Go to).
+    EditorGotoOffset(usize),
     /// Jump the editor to a line (the text typed into its "go to line" prompt).
     EditorGotoLine(String),
     /// Run this command and insert its output at the editor's cursor.
@@ -489,6 +496,7 @@ impl Dialog {
             Dialog::SyncPreview(d) => d.handle_key(key),
             Dialog::DirHistory(d) => d.handle_key(key),
             Dialog::TabPicker(d) => d.handle_key(key),
+            Dialog::GeoMap(d) => d.handle_key(key),
         }
     }
 
@@ -530,6 +538,7 @@ impl Dialog {
             Dialog::SyncPreview(d) => d.render(f, area, theme, gfx),
             Dialog::DirHistory(d) => d.render(f, area, theme),
             Dialog::TabPicker(d) => d.render(f, area, theme),
+            Dialog::GeoMap(d) => d.render(f, area, theme, gfx),
         }
     }
 
@@ -540,6 +549,7 @@ impl Dialog {
         match self {
             // Precise per-button hit-testing.
             Dialog::GitOutput(d) => return d.handle_click(col, row),
+            Dialog::GeoMap(d) => return d.handle_click(col, row),
             Dialog::SyncPreview(d) => return d.handle_click(col, row),
             Dialog::Overwrite(d) => return d.handle_click(col, row),
             Dialog::Compare(d) => return d.handle_click(col, row),

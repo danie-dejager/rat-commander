@@ -646,3 +646,17 @@ code = "hi"
 # -- Editor: JSON syntax check --
 "Next &error" = "अगली त्रुटि (&E)"
 "Pre&vious error" = "पिछली त्रुटि (&V)"
+
+# -- Editor: GeoJSON map --
+"Show GeoJSON &map..." = "GeoJSON मानचित्र… (&M)"
+"GeoJSON map" = "GeoJSON मानचित्र"
+"Go to" = "जाएँ"
+"Close" = "बंद करें"
+"Reading…" = "पढ़ा जा रहा है…"
+"objects" = "ऑब्जेक्ट"
+"features" = "फ़ीचर"
+"positions skipped" = "स्थितियाँ छोड़ी गईं"
+"syntax errors" = "सिंटैक्स त्रुटियाँ"
+"All objects" = "सभी ऑब्जेक्ट"
+"Drag to pan, wheel or +/- to zoom, click a feature, n/p to step through them" = "खिसकाने के लिए खींचें, ज़ूम के लिए व्हील या +/-, फ़ीचर चुनने के लिए क्लिक, n/p से एक-एक करके"
+"No GeoJSON found in this file" = "इस फ़ाइल में कोई GeoJSON नहीं मिला"

@@ -646,3 +646,17 @@ code = "zh-Hant"
 # -- Editor: JSON syntax check --
 "Next &error" = "下一個錯誤(&E)"
 "Pre&vious error" = "上一個錯誤(&V)"
+
+# -- Editor: GeoJSON map --
+"Show GeoJSON &map..." = "GeoJSON 地圖…(&M)"
+"GeoJSON map" = "GeoJSON 地圖"
+"Go to" = "前往"
+"Close" = "關閉"
+"Reading…" = "讀取中…"
+"objects" = "個物件"
+"features" = "個圖徵"
+"positions skipped" = "個座標已略過"
+"syntax errors" = "個語法錯誤"
+"All objects" = "所有物件"
+"Drag to pan, wheel or +/- to zoom, click a feature, n/p to step through them" = "拖曳平移，滾輪或 +/- 縮放，點擊選取圖徵，n/p 逐一切換"
+"No GeoJSON found in this file" = "此檔案中找不到 GeoJSON"

@@ -13,6 +13,7 @@ mod drive;
 mod editor;
 mod ext;
 mod flash;
+mod geo;
 mod git;
 mod json;
 mod l10n;

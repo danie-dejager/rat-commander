@@ -102,6 +102,9 @@ pub enum AppEvent {
     /// The viewer's background `git blame` finished. Only a viewer still waiting
     /// on this `generation` takes it; the error is a message for a dialog.
     BlameLoaded { generation: u64, result: Result<Box<crate::git::blame::Blame>, String> },
+    /// The GeoJSON in the editor's text was read for the map dialog waiting on
+    /// `generation`.
+    GeoJsonRead { generation: u64, doc: Box<crate::geo::geojson::GeoDoc> },
     /// One revision's file sizes arrived for the 3D time machine. A stale
     /// `generation` — the user scrubbed onward while this was in flight — is
     /// still cached, since it cost a `git` call, but does not become the scene.

@@ -650,3 +650,17 @@ rtl = true
 # -- Editor: JSON syntax check --
 "Next &error" = "الخطأ التالي (&E)"
 "Pre&vious error" = "الخطأ السابق (&V)"
+
+# -- Editor: GeoJSON map --
+"Show GeoJSON &map..." = "خريطة GeoJSON… (&M)"
+"GeoJSON map" = "خريطة GeoJSON"
+"Go to" = "انتقال"
+"Close" = "إغلاق"
+"Reading…" = "جارٍ القراءة…"
+"objects" = "كائنات"
+"features" = "معالم"
+"positions skipped" = "مواضع تم تجاوزها"
+"syntax errors" = "أخطاء نحوية"
+"All objects" = "كل الكائنات"
+"Drag to pan, wheel or +/- to zoom, click a feature, n/p to step through them" = "اسحب للتحريك، العجلة أو +/- للتكبير، انقر لاختيار معلم، n/p للتنقل بينها"
+"No GeoJSON found in this file" = "لم يُعثر على GeoJSON في هذا الملف"

@@ -646,3 +646,17 @@ code = "nl"
 # -- Editor: JSON syntax check --
 "Next &error" = "Volgende fout (&E)"
 "Pre&vious error" = "Vorige fout (&V)"
+
+# -- Editor: GeoJSON map --
+"Show GeoJSON &map..." = "GeoJSON-kaart… (&M)"
+"GeoJSON map" = "GeoJSON-kaart"
+"Go to" = "Ga naar"
+"Close" = "Sluiten"
+"Reading…" = "Bezig met lezen…"
+"objects" = "objecten"
+"features" = "objecten"
+"positions skipped" = "posities overgeslagen"
+"syntax errors" = "syntaxfouten"
+"All objects" = "Alle objecten"
+"Drag to pan, wheel or +/- to zoom, click a feature, n/p to step through them" = "Sleep om te schuiven, wiel of +/- om te zoomen, klik op een object, n/p om ze door te lopen"
+"No GeoJSON found in this file" = "Geen GeoJSON gevonden in dit bestand"

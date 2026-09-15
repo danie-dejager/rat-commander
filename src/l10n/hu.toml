@@ -646,3 +646,17 @@ code = "hu"
 # -- Editor: JSON syntax check --
 "Next &error" = "Következő hiba (&E)"
 "Pre&vious error" = "Előző hiba (&V)"
+
+# -- Editor: GeoJSON map --
+"Show GeoJSON &map..." = "GeoJSON-térkép… (&M)"
+"GeoJSON map" = "GeoJSON-térkép"
+"Go to" = "Ugrás"
+"Close" = "Bezárás"
+"Reading…" = "Olvasás…"
+"objects" = "objektum"
+"features" = "elem"
+"positions skipped" = "pozíció kihagyva"
+"syntax errors" = "szintaktikai hiba"
+"All objects" = "Minden objektum"
+"Drag to pan, wheel or +/- to zoom, click a feature, n/p to step through them" = "Húzással mozgat, görgővel vagy +/- jellel nagyít, kattintással kijelöl, n/p léptet"
+"No GeoJSON found in this file" = "Ebben a fájlban nincs GeoJSON"

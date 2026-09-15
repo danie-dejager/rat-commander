@@ -17,11 +17,12 @@ use crate::ui::dialog::{
     BackgroundOpsDialog, BgRow, BoolSetting, BusyDialog, ChecksumResultDialog,
     CommandPaletteDialog, CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult,
     DirHistoryDialog, DriveDialog, DupCriteria, FileBrowserDialog, FindDialog, FindParams,
-    FlashTargetDialog, FormDialog, GitOutputDialog, GotoDialog, HotlistDialog, HotlistOutcome,
-    ImageSaveDialog, InputDialog, InputPurpose, MessageDialog, MultiRenameDialog, OverwriteDialog,
-    PaletteAction, PaletteCategory, PaletteEntry, ProgressDialog, ReceiveDialog, SaveAsDialog,
-    SearchReplaceDialog, SearchReplaceParams, SelectDialog, SendFileDialog, SettingsTab,
-    ShellHistoryDialog, SpeedChart, Submit, SyncPreviewDialog, TabPickerDialog, UserMenuDialog,
+    FlashTargetDialog, FormDialog, GeoMapDialog, GitOutputDialog, GotoDialog, HotlistDialog,
+    HotlistOutcome, ImageSaveDialog, InputDialog, InputPurpose, MessageDialog, MultiRenameDialog,
+    OverwriteDialog, PaletteAction, PaletteCategory, PaletteEntry, ProgressDialog, ReceiveDialog,
+    SaveAsDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, SendFileDialog,
+    SettingsTab, ShellHistoryDialog, SpeedChart, Submit, SyncPreviewDialog, TabPickerDialog,
+    UserMenuDialog,
 };
 use crate::ui::layout::SplitDir;
 use crate::ui::menu::{MenuAction, MenuBarState, MenuSignal};
@@ -400,6 +401,9 @@ pub struct AppState {
     /// closes, and the generation that tells its answer from an older one's.
     blame_task: Option<tokio::task::JoinHandle<()>>,
     blame_gen: u64,
+    /// Numbers the GeoJSON map dialog's background reads, so a late one for a
+    /// dialog already closed or reopened is dropped.
+    geo_gen: u64,
     /// Git activity calendars already counted, newest last, so moving the
     /// Details view back over an item doesn't run `git log` again.
     activity_cache:

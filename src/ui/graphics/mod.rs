@@ -56,6 +56,8 @@ pub enum Slot {
     ViewerAudio,
     /// The QR code in the "Send file over LAN" dialog.
     SendQr,
+    /// The editor's GeoJSON map.
+    GeoMap,
 }
 
 struct Cached {

@@ -17,6 +17,7 @@
 mod parser;
 
 pub use parser::parse;
+use std::borrow::Cow;
 use std::ops::Range;
 
 /// Most errors reported for one document. Past this many the file is not
@@ -88,6 +89,70 @@ pub trait Sink {
     fn literal(&mut self, _lit: Lit, _span: Range<usize>) {}
 }
 
+/// A string's value from its text as a [`Sink`] receives it: the quotes taken
+/// off and the escapes resolved (a surrogate pair into its one character). An
+/// escape that is not valid is kept as written — the error has been reported
+/// already, and the text around it is still worth having.
+pub fn unescape(raw: &str) -> Cow<'_, str> {
+    let quote = raw.chars().next().filter(|c| matches!(c, '"' | '\''));
+    let inner = match quote {
+        Some(q) => {
+            let body = &raw[1..];
+            body.strip_suffix(q).unwrap_or(body)
+        }
+        None => raw,
+    };
+    if !inner.contains('\\') {
+        return Cow::Borrowed(inner);
+    }
+    let mut out = String::with_capacity(inner.len());
+    let mut chars = inner.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('t') => out.push('\t'),
+            Some('r') => out.push('\r'),
+            Some('b') => out.push('\u{8}'),
+            Some('f') => out.push('\u{c}'),
+            Some('u') => {
+                let hex: String = chars.clone().take(4).collect();
+                match u16::from_str_radix(&hex, 16) {
+                    Ok(unit) if hex.len() == 4 => {
+                        chars.nth(3);
+                        let mut units = vec![unit];
+                        // A high surrogate wants the low one after it.
+                        if (0xD800..0xDC00).contains(&unit) {
+                            let rest: String = chars.clone().take(6).collect();
+                            if let Some(low) = rest
+                                .strip_prefix("\\u")
+                                .and_then(|h| u16::from_str_radix(h, 16).ok())
+                                .filter(|l| (0xDC00..0xE000).contains(l))
+                            {
+                                chars.nth(5);
+                                units.push(low);
+                            }
+                        }
+                        out.extend(char::decode_utf16(units).map(|r| r.unwrap_or('\u{fffd}')));
+                    }
+                    _ => out.push_str("\\u"),
+                }
+            }
+            Some(other) => out.push(other),
+            None => out.push('\\'),
+        }
+    }
+    Cow::Owned(out)
+}
+
+/// A number's value from its text, when it is a finite one.
+pub fn number(raw: &str) -> Option<f64> {
+    raw.parse::<f64>().ok().filter(|v| v.is_finite())
+}
+
 /// A sink that keeps nothing: checking only.
 pub struct NullSink;
 
@@ -96,6 +161,20 @@ impl Sink for NullSink {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strings_are_read_back_to_their_values() {
+        assert_eq!(unescape(r#""plain""#), "plain");
+        assert!(matches!(unescape(r#""plain""#), Cow::Borrowed(_)));
+        assert_eq!(unescape(r#""a\"b\\c\/d\n""#), "a\"b\\c/d\n");
+        assert_eq!(unescape(r#""caf\u00e9""#), "café");
+        assert_eq!(unescape(r#""\ud83d\ude00""#), "😀", "a surrogate pair is one character");
+        assert_eq!(unescape(r#""bad \q and \u12""#), "bad q and \\u12");
+        assert_eq!(unescape("'single'"), "single");
+        assert_eq!(unescape("\"unterminated"), "unterminated");
+        assert_eq!(number("-1.5e3"), Some(-1500.0));
+        assert_eq!(number("1e999"), None);
+    }
 
     #[test]
     fn the_file_name_decides_how_strict_the_check_is() {

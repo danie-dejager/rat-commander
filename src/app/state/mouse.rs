@@ -21,6 +21,12 @@ impl AppState {
         let (col, row) = (ev.column, ev.row);
         let left_down = matches!(ev.kind, MouseEventKind::Down(MouseButton::Left));
 
+        // The GeoJSON map takes every mouse event: it is dragged, wheeled and
+        // pointed at, not only clicked.
+        if let Some(Dialog::GeoMap(d)) = self.dialog.as_mut() {
+            let res = d.handle_mouse(ev);
+            return self.handle_dialog_result(res).await;
+        }
         // A modal dialog gets first claim on a left click.
         if self.dialog.is_some() {
             if left_down {
@@ -305,6 +311,10 @@ impl AppState {
     ///
     /// [`handle_mouse`]: AppState::handle_mouse
     fn orbiting(&self) -> bool {
+        // A drag panning the GeoJSON map is folded like an orbit.
+        if let Some(Dialog::GeoMap(d)) = &self.dialog {
+            return d.panning();
+        }
         if self.dialog.is_some()
             || self.menu.is_some()
             || self.mountview.is_some()

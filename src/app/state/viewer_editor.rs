@@ -122,6 +122,7 @@ impl AppState {
             }
             // The screen is repainted from scratch on the next frame.
             EditorSignal::RefreshScreen => self.force_clear = true,
+            EditorSignal::OpenGeoMap => self.open_geo_map(),
         }
     }
 
@@ -275,6 +276,49 @@ impl AppState {
 
     /// `b` in the viewer: blame the file in the background. The viewer shows
     /// that it is waiting, and takes the result only while it still is.
+    /// Alt-M in the editor: open the GeoJSON map, and read the text for it in
+    /// the background — the world map too, the first time — so a large file
+    /// shows the dialog at once and the map when it is ready.
+    fn open_geo_map(&mut self) {
+        let Some(ed) = self.editor.as_ref() else { return };
+        let (rope, cursor, name) = (ed.text_snapshot(), ed.cursor_byte(), ed.name.clone());
+        self.geo_gen = self.geo_gen.wrapping_add(1);
+        let generation = self.geo_gen;
+        self.dialog =
+            Some(Dialog::GeoMap(Box::new(GeoMapDialog::loading(name, generation, cursor))));
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let doc = tokio::task::spawn_blocking(move || {
+                let _ = crate::geo::world::world();
+                crate::geo::geojson::extract(&rope.to_string())
+            })
+            .await
+            .unwrap_or_default();
+            let _ = tx.send(AppEvent::GeoJsonRead { generation, doc: Box::new(doc) }).await;
+        });
+    }
+
+    /// The GeoJSON for the map dialog has been read: show it, or say there is
+    /// none — unless the dialog it was for has gone.
+    pub(in crate::app::state) fn apply_geojson(
+        &mut self,
+        generation: u64,
+        doc: crate::geo::geojson::GeoDoc,
+    ) {
+        let Some(Dialog::GeoMap(d)) = self.dialog.as_mut() else { return };
+        if !d.awaits(generation) {
+            return;
+        }
+        if doc.objects.is_empty() {
+            self.dialog = Some(Dialog::Message(MessageDialog::info(
+                "GeoJSON map",
+                crate::l10n::tr("No GeoJSON found in this file"),
+            )));
+        } else {
+            d.set_doc(doc);
+        }
+    }
+
     fn start_blame(&mut self) {
         let Some(v) = self.viewer.as_mut() else { return };
         let Some(path) = v.local_path().map(Path::to_path_buf) else { return };

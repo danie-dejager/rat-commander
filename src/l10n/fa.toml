@@ -650,3 +650,17 @@ rtl = true
 # -- Editor: JSON syntax check --
 "Next &error" = "خطای بعدی (&E)"
 "Pre&vious error" = "خطای قبلی (&V)"
+
+# -- Editor: GeoJSON map --
+"Show GeoJSON &map..." = "نقشهٔ GeoJSON… (&M)"
+"GeoJSON map" = "نقشهٔ GeoJSON"
+"Go to" = "برو به"
+"Close" = "بستن"
+"Reading…" = "در حال خواندن…"
+"objects" = "شیء"
+"features" = "عارضه"
+"positions skipped" = "موقعیت نادیده گرفته شد"
+"syntax errors" = "خطای نحوی"
+"All objects" = "همهٔ اشیا"
+"Drag to pan, wheel or +/- to zoom, click a feature, n/p to step through them" = "برای جابه‌جایی بکشید، برای بزرگ‌نمایی چرخ یا +/-، برای انتخاب کلیک کنید، n/p برای پیمایش"
+"No GeoJSON found in this file" = "در این فایل GeoJSON پیدا نشد"

@@ -56,6 +56,8 @@ pub enum EditorSignal {
     About,
     /// Repaint the whole screen from scratch (Ctrl-L).
     RefreshScreen,
+    /// Draw the buffer's GeoJSON on a map (Alt-M).
+    OpenGeoMap,
 }
 
 /// Which of the editor's file actions a browser was opened for.
@@ -180,6 +182,7 @@ pub const EDITOR_HELP: &[(&str, &str)] = &[
     ("Ctrl-F9", "Toggle hex editor"),
     ("Alt-G", "Spreadsheet grid / text (CSV, TSV)"),
     ("Alt-E / Alt-Shift-E", "Next / previous JSON syntax error"),
+    ("Alt-M", "Show the GeoJSON in the file on a map"),
     ("Grid: Enter / F3", "Edit the cell / header row on or off"),
     ("Grid: F5 F6 / F8", "Insert row, column / delete row (Shift: column)"),
     ("F10 / Esc", "Quit (prompts if modified)"),
@@ -471,6 +474,24 @@ impl EditorState {
 
     pub fn contents(&self) -> String {
         self.buf.text()
+    }
+
+    /// The text as it stands, for reading on another thread.
+    pub fn text_snapshot(&self) -> ropey::Rope {
+        self.buf.snapshot()
+    }
+
+    /// The cursor as a byte offset into the text.
+    pub fn cursor_byte(&self) -> usize {
+        self.buf.snapshot().char_to_byte(self.cursor.min(self.buf.len_chars()))
+    }
+
+    /// Put the cursor at byte offset `byte` of the text, centred on screen.
+    pub fn goto_byte(&mut self, byte: usize) {
+        self.pre_move(false);
+        self.cursor = self.buf.byte_to_char(byte);
+        self.goal_col = None;
+        self.pending_center = true;
     }
 
     pub fn mark_saved(&mut self) {
@@ -767,6 +788,7 @@ impl EditorState {
             A::ToggleHex => self.toggle_hex(),
             A::ToggleSheet => self.toggle_sheet(),
             A::RefreshScreen => return EditorSignal::RefreshScreen,
+            A::GeoMap => return EditorSignal::OpenGeoMap,
 
             // -- Format --
             A::InsertDateTime => self.insert_date_time(),
@@ -1436,6 +1458,7 @@ impl EditorState {
             KeyCode::Char('i') if alt => self.bookmark_jump(false),
             KeyCode::Char('o') if alt => self.bookmark_flush(),
             KeyCode::Char('g') if alt => self.toggle_sheet(),
+            KeyCode::Char('m') if alt => return EditorSignal::OpenGeoMap,
             KeyCode::Char('e') if alt && !shift => self.jump_json_error(true),
             KeyCode::Char('e' | 'E') if alt => self.jump_json_error(false),
 

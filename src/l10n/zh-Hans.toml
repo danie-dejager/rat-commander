@@ -646,3 +646,17 @@ code = "zh-Hans"
 # -- Editor: JSON syntax check --
 "Next &error" = "下一个错误(&E)"
 "Pre&vious error" = "上一个错误(&V)"
+
+# -- Editor: GeoJSON map --
+"Show GeoJSON &map..." = "GeoJSON 地图…(&M)"
+"GeoJSON map" = "GeoJSON 地图"
+"Go to" = "转到"
+"Close" = "关闭"
+"Reading…" = "读取中…"
+"objects" = "个对象"
+"features" = "个要素"
+"positions skipped" = "个坐标已跳过"
+"syntax errors" = "个语法错误"
+"All objects" = "所有对象"
+"Drag to pan, wheel or +/- to zoom, click a feature, n/p to step through them" = "拖动平移，滚轮或 +/- 缩放，单击选择要素，n/p 逐个切换"
+"No GeoJSON found in this file" = "此文件中未找到 GeoJSON"

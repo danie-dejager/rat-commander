@@ -646,3 +646,17 @@ code = "pt"
 # -- Editor: JSON syntax check --
 "Next &error" = "Próximo erro (&E)"
 "Pre&vious error" = "Erro anterior (&V)"
+
+# -- Editor: GeoJSON map --
+"Show GeoJSON &map..." = "Mapa GeoJSON… (&M)"
+"GeoJSON map" = "Mapa GeoJSON"
+"Go to" = "Ir para"
+"Close" = "Fechar"
+"Reading…" = "Lendo…"
+"objects" = "objetos"
+"features" = "feições"
+"positions skipped" = "posições ignoradas"
+"syntax errors" = "erros de sintaxe"
+"All objects" = "Todos os objetos"
+"Drag to pan, wheel or +/- to zoom, click a feature, n/p to step through them" = "Arraste para mover, roda ou +/- para ampliar, clique para escolher uma feição, n/p para percorrê-las"
+"No GeoJSON found in this file" = "Nenhum GeoJSON encontrado neste arquivo"

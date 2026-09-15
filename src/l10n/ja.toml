@@ -646,3 +646,17 @@ code = "ja"
 # -- Editor: JSON syntax check --
 "Next &error" = "次のエラー(&E)"
 "Pre&vious error" = "前のエラー(&V)"
+
+# -- Editor: GeoJSON map --
+"Show GeoJSON &map..." = "GeoJSON地図…(&M)"
+"GeoJSON map" = "GeoJSON地図"
+"Go to" = "移動"
+"Close" = "閉じる"
+"Reading…" = "読み込み中…"
+"objects" = "オブジェクト"
+"features" = "フィーチャ"
+"positions skipped" = "座標をスキップ"
+"syntax errors" = "構文エラー"
+"All objects" = "すべてのオブジェクト"
+"Drag to pan, wheel or +/- to zoom, click a feature, n/p to step through them" = "ドラッグで移動、ホイールか+/-で拡大縮小、クリックで選択、n/pで順に移動"
+"No GeoJSON found in this file" = "このファイルにGeoJSONはありません"

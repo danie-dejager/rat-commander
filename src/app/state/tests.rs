@@ -5102,10 +5102,7 @@ async fn a_csv_edited_in_the_grid_saves_as_text() {
     }
     ed.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     st.handle_submit(Submit::EditorSave).await;
-    assert_eq!(
-        std::fs::read_to_string(&file).unwrap(),
-        "item,price\n\"green tea, loose\",3\n"
-    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "item,price\n\"green tea, loose\",3\n");
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -5143,6 +5140,83 @@ async fn an_edited_json_file_is_checked_on_the_tick() {
     let errors = st.editor.as_ref().unwrap().json_errors();
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert_eq!(errors[0].message, "Missing ',' after this value");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Alt-M in the editor opens the GeoJSON map at once, fills it from a read in
+/// the background, and Go to puts the editor's cursor on what was picked; a file
+/// with no GeoJSON in it says so instead.
+#[tokio::test]
+async fn the_geojson_map_opens_from_the_editor_and_goes_back_to_the_text() {
+    use ratatui::crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+    let dir = temp_dir("geomap");
+    let file = dir.join("reply.json");
+    let text =
+        "{\"ok\": true,\n \"where\": {\"type\": \"Point\", \"coordinates\": [16.37, 48.21]}}\n";
+    std::fs::write(&file, text).unwrap();
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(file).await;
+    let alt_m = KeyEvent::new(KeyCode::Char('m'), KeyModifiers::ALT);
+    let signal = st.editor.as_mut().unwrap().handle_key(alt_m);
+    st.apply_editor_signal(signal).await;
+    assert!(
+        matches!(st.dialog, Some(Dialog::GeoMap(_))),
+        "the dialog is up while the file is read"
+    );
+    loop {
+        let ev = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+            .await
+            .expect("read")
+            .expect("open");
+        let done = matches!(ev, AppEvent::GeoJsonRead { .. });
+        st.apply_event(ev).await;
+        if done {
+            break;
+        }
+    }
+    assert!(matches!(st.dialog, Some(Dialog::GeoMap(_))));
+    // A drag over it is folded like an orbit while it pans.
+    let at = |kind| MouseEvent { kind, column: 40, row: 12, modifiers: KeyModifiers::NONE };
+    st.last_area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    if let Some(Dialog::GeoMap(d)) = st.dialog.as_mut() {
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
+        t.draw(|f| d.render(f, f.area(), &theme, None)).unwrap();
+    }
+    st.handle_mouse(at(MouseEventKind::Down(MouseButton::Left))).await;
+    assert!(st.mouse_folds(&at(MouseEventKind::Drag(MouseButton::Left))));
+    st.handle_mouse(at(MouseEventKind::Up(MouseButton::Left))).await;
+    // Enter goes to the point in the text.
+    st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+    assert!(st.dialog.is_none());
+    assert_eq!(
+        st.editor.as_ref().unwrap().cursor_line_col(),
+        (1, 10),
+        "on the point object's brace"
+    );
+
+    // A file without GeoJSON gets a message.
+    let plain = dir.join("plain.json");
+    std::fs::write(&plain, "{\"a\": [1, 2]}").unwrap();
+    st.editor = None;
+    st.open_path_in_editor(plain).await;
+    st.apply_editor_signal(EditorSignal::OpenGeoMap).await;
+    loop {
+        let ev = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+            .await
+            .expect("read")
+            .expect("open");
+        let done = matches!(ev, AppEvent::GeoJsonRead { .. });
+        st.apply_event(ev).await;
+        if done {
+            break;
+        }
+    }
+    assert!(matches!(st.dialog, Some(Dialog::Message(_))));
     std::fs::remove_dir_all(&dir).ok();
 }
 

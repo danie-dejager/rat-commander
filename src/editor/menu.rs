@@ -77,6 +77,8 @@ pub enum EditorAction {
     ToggleHex,
     /// Switch between the spreadsheet grid and the text.
     ToggleSheet,
+    /// Draw the file's GeoJSON on a map.
+    GeoMap,
     /// Repaint the whole screen (after a stray write from another program).
     RefreshScreen,
 
@@ -239,6 +241,8 @@ pub fn editor_menu(active: usize, mode: MenuMode, json: bool) -> EditorMenu {
             item_key("Toggle &hex editor", "Ctrl-F9", EditorAction::ToggleHex),
             text_only(item_key("Toggle sprea&dsheet", "Alt-G", EditorAction::ToggleSheet)),
             sep(),
+            text_only(item_key("Show GeoJSON &map...", "Alt-M", EditorAction::GeoMap)),
+            sep(),
             item_key("&Refresh screen", "Ctrl-L", EditorAction::RefreshScreen),
         ],
     };
@@ -318,6 +322,7 @@ pub const MENU_KEYS: &[&[&str]] = &[
         "Toggle &word wrap",
         "Toggle &hex editor",
         "Toggle sprea&dsheet",
+        "Show GeoJSON &map...",
         "&Refresh screen",
     ],
     &[

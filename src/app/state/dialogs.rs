@@ -278,6 +278,11 @@ impl AppState {
             Submit::Quit => self.pending_quit = true,
             Submit::EditorSaveQuit => self.save_editor(true).await,
             Submit::EditorSave => self.save_editor(false).await,
+            Submit::EditorGotoOffset(byte) => {
+                if let Some(ed) = self.editor.as_mut() {
+                    ed.goto_byte(byte);
+                }
+            }
             Submit::EditorSaveAs(dest) => self.do_save_as(dest).await,
             Submit::EditorBrowsed(kind, path) => self.editor_browsed(kind, path).await,
             Submit::EditorGotoLine(text) => {

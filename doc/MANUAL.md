@@ -317,6 +317,7 @@ used to share now lives on `Alt-T`.
 - `Ctrl-F9` — Toggle the in-place hex editor
 - `Alt-G` — Toggle the spreadsheet grid (see *Spreadsheet grid* below)
 - `Alt-E` / `Alt-Shift-E` — (JSON files) Jump to the next / previous syntax error
+- `Alt-M` — Show the GeoJSON in the file on a world map (see *GeoJSON map* below)
 - `Esc` / `F10` — Quit (prompts if modified)
 
 While **Shift** or **Ctrl** is held, the F-key bar relabels the keys those
@@ -356,7 +357,8 @@ Beyond the F-key actions, the menus offer:
   JSON file, **Next error** and **Previous error** step through its syntax
   errors.
 - **Command** — Go to line, jump to the matching bracket, and the syntax /
-  word-wrap / hex-mode / spreadsheet toggles, plus a screen repaint.
+  word-wrap / hex-mode / spreadsheet toggles, the **GeoJSON map**, plus a screen
+  repaint.
 - **Format** — Insert the date and time, re-wrap the current paragraph to the
   configured line length, sort the marked block's lines (with reverse,
   ignore-case and remove-duplicates options), and paste a shell command's output.
@@ -1367,6 +1369,42 @@ end of the document. JSONC files may have comments and trailing commas; JSON
 Lines files may hold one document after another. A file with more than a
 thousand errors is not checked past the thousandth. JSON5 is a different
 language and is not checked.
+
+**GeoJSON map (Alt-M).** Draws the GeoJSON in the file over a **map of the
+world** — a `.geojson` file, or GeoJSON anywhere inside a larger JSON document,
+such as the `geometry` in an API response. Every piece of GeoJSON the file holds
+is found: a FeatureCollection counts as one, a Feature is not counted again for
+its own geometry, and anything else — a bare geometry under some other key, a
+list of features outside a collection — is listed with the path it was found at
+(`$.data.regions[2].shape`). With more than one, a list down the left picks
+which to look at; the others stay on the map, dimmed. The dialog opens on the
+object and feature the editor's cursor is in, framed.
+
+The map is built into the program: land, lakes, country borders, rivers and
+cities from **Natural Earth** at 1:10m, stored as vector outlines at five levels
+of detail, so a coastline is a clean line at the whole-world view and when
+zoomed in on a single region alike, with the names of the biggest cities that
+fit. GeoJSON areas are filled translucently and outlined, lines are drawn over
+them and points marked; the feature you pick is drawn in a colour of its own and
+its name and properties appear along the bottom. The top row names what is
+shown and the longitude and latitude under the pointer, and says when positions
+had to be left out — GeoJSON in a projected coordinate system has no longitudes
+to draw — or the file has syntax errors (whatever reads around them is still
+drawn).
+
+Drag the map to pan and turn the wheel to zoom about the pointer, or use the
+arrow keys and `+` / `-`; `Home` frames the selection again and `w` shows the
+whole world. A click picks the feature under the pointer, and `n` / `p` step
+through the features one by one. **Go to** (or `Enter`) closes the map with the
+editor's cursor on the picked feature (or the object), and **Close** (or `Esc`)
+leaves the cursor where it was. `Tab` moves between the list and the map.
+
+On a terminal with a graphics protocol the map is true pixels, anti-aliased;
+anywhere else it is drawn in **braille** characters — two dots across and four
+down per cell, the land and sea as each cell's background and the lines as the
+dots — which a 16-colour terminal can show too. Its colours come from the
+active theme. The file is read in the background, so even a large GeoJSON file
+brings the dialog up at once.
 
 **Hex editor (Ctrl-F9).** Toggles an in-place offset / hex / ASCII editor. Only the
 visible window is read and only changed bytes are written back, so arbitrarily
@@ -2660,7 +2698,8 @@ of the keyboard focus ring: **Tab** / **↑↓** move onto them and **Enter** or
 
 Where the terminal supports a graphics protocol, the **progress bars**, the
 **process-explorer graphs** (CPU, per-core, memory, disk and network), the
-file-transfer **speed graph**, the **disk-explorer treemap** and the **dialog
+file-transfer **speed graph**, the **disk-explorer treemap**, the editor's
+**GeoJSON map** and the **dialog
 buttons** (OK, Cancel, Yes/No, …) are drawn as true-pixel images with smooth
 gradients instead of block characters. Buttons pick up the theme's button colors
 and gain a drop shadow, with a soft glow around the focused one; their labels are

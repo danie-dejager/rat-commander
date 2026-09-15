@@ -646,3 +646,17 @@ code = "ru"
 # -- Editor: JSON syntax check --
 "Next &error" = "Следующая ошибка (&E)"
 "Pre&vious error" = "Предыдущая ошибка (&V)"
+
+# -- Editor: GeoJSON map --
+"Show GeoJSON &map..." = "Карта GeoJSON… (&M)"
+"GeoJSON map" = "Карта GeoJSON"
+"Go to" = "Перейти"
+"Close" = "Закрыть"
+"Reading…" = "Чтение…"
+"objects" = "объектов"
+"features" = "объектов"
+"positions skipped" = "позиций пропущено"
+"syntax errors" = "синтаксических ошибок"
+"All objects" = "Все объекты"
+"Drag to pan, wheel or +/- to zoom, click a feature, n/p to step through them" = "Перетаскивание сдвигает, колесо или +/- масштабирует, щелчок выбирает объект, n/p — переход между ними"
+"No GeoJSON found in this file" = "В этом файле нет GeoJSON"

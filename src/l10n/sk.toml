@@ -646,3 +646,17 @@ code = "sk"
 # -- Editor: JSON syntax check --
 "Next &error" = "Ďalšia chyba (&E)"
 "Pre&vious error" = "Predchádzajúca chyba (&V)"
+
+# -- Editor: GeoJSON map --
+"Show GeoJSON &map..." = "Mapa GeoJSON… (&M)"
+"GeoJSON map" = "Mapa GeoJSON"
+"Go to" = "Prejsť"
+"Close" = "Zavrieť"
+"Reading…" = "Načítava sa…"
+"objects" = "objektov"
+"features" = "prvkov"
+"positions skipped" = "pozícií vynechaných"
+"syntax errors" = "syntaktických chýb"
+"All objects" = "Všetky objekty"
+"Drag to pan, wheel or +/- to zoom, click a feature, n/p to step through them" = "Ťahaním posuniete, kolieskom alebo +/- priblížite, kliknutím vyberiete prvok, n/p medzi nimi prechádza"
+"No GeoJSON found in this file" = "V tomto súbore sa nenašiel žiadny GeoJSON"
