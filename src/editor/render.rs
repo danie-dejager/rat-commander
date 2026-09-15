@@ -294,6 +294,7 @@ fn render_hex(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) ->
 
 fn render_hex_status(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
     let tpl = ed.template_status().map(|t| format!("  Template: {t}")).unwrap_or_default();
+    let tree = ed.template_focus();
     let reserve = 56 + tpl.chars().count() as u16;
     let name = ellipsize(&ed.name, area.width.saturating_sub(reserve).max(4) as usize);
     let h = ed.hex.as_mut().unwrap();
@@ -302,7 +303,13 @@ fn render_hex_status(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Th
         Some(b) => format!("0x{b:02X} {b:>3}"),
         None => "--".to_string(),
     };
-    let pane = if h.ascii_pane { "ASCII" } else { "HEX" };
+    let pane = if tree {
+        "TEMPLATE"
+    } else if h.ascii_pane {
+        "ASCII"
+    } else {
+        "HEX"
+    };
     let flags =
         format!("{}{}", if h.dirty { "[+]" } else { "   " }, if h.readonly { " [RO]" } else { "" });
     let text =

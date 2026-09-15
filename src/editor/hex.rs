@@ -222,7 +222,12 @@ impl HexEditor {
     }
 
     pub fn toggle_pane(&mut self) {
-        self.ascii_pane = !self.ascii_pane;
+        self.set_pane(!self.ascii_pane);
+    }
+
+    /// Put the cursor in the ASCII column (`true`) or the hex column.
+    pub fn set_pane(&mut self, ascii: bool) {
+        self.ascii_pane = ascii;
         self.nibble_low = false;
     }
 

@@ -419,7 +419,8 @@ persist across runs and apply to every file opened afterwards.
 
 - `0`–`9`, `a`–`f` — Overwrite the current byte's nibble (hex column)
 - typed character — Overwrite the current byte (ASCII column)
-- `Tab` — Switch between the hex and ASCII columns
+- `Tab` / `Shift-Tab` — Switch between the hex and ASCII columns and, when a
+  template is shown, the template tree (entered as with `F6`)
 - `← ↑ ↓ →` / `PgUp PgDn` — Move; `Home` / `End` — start / end of row
 - `Ctrl-Home` / `Ctrl-End` — Start / end of file
 - `F7` — Search (hex bytes like `48 65` or text)
@@ -440,7 +441,8 @@ In the template tree (see *Binary templates*):
   everything below
 - `Enter` — Open or close a struct or array, or edit a value (`Enter` writes it,
   `Esc` drops it)
-- `F6` / `Tab` / `Esc` — Back to the bytes
+- `F6` / `Esc` — Back to the bytes, at the selected variable; `Tab` /
+  `Shift-Tab` — the same, on to the hex / ASCII column
 
 ### Process explorer
 
@@ -1454,11 +1456,14 @@ opens it for editing, and **(No template)** stops using one. **Shift-F5** runs
 the template again.
 
 **Moving around.** **F6** selects the variable under the byte cursor in the
-tree — opening whatever it is inside — and gives the tree the keys; **F6**,
-**Tab** or **Esc** give them back to the bytes. Moving through the tree moves the
-byte cursor to each variable. **→** opens a struct or array, **←** closes it or
-steps to its parent, and **\*** opens everything below the selected row. Large
-arrays list their elements a thousand at a time, with a row to list more.
+tree — opening whatever it is inside — and gives the tree the keys; **F6** or
+**Esc** give them back to the bytes, with the byte cursor on the selected
+variable (it stays put if it is already inside it). **Tab** steps round the hex
+column, the ASCII column and the tree (**Shift-Tab** the other way), going into
+and out of the tree the same way. Moving through the tree moves the byte cursor
+to each variable. **→** opens a struct or array, **←** closes it or steps to its
+parent, and **\*** opens everything below the selected row. Large arrays list
+their elements a thousand at a time, with a row to list more.
 **F3** switches the panel to the template's **output** — what it printed, its
 warnings, and why it stopped if it did — and back.
 

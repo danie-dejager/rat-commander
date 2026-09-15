@@ -786,6 +786,22 @@ impl EditorState {
                 self.jump_to_template_variable();
                 Some(EditorSignal::Stay)
             }
+            // Tab steps hex column → ASCII column → tree, Shift-Tab back;
+            // into the tree it goes as F6 does, to the variable at the cursor.
+            // Until there are results to go to it only swaps the columns.
+            KeyCode::Tab | KeyCode::BackTab if self.template_panel() => {
+                let back = shift || key.code == KeyCode::BackTab;
+                let h = self.hex.as_mut().expect("the panel implies hex mode");
+                if h.ascii_pane != back {
+                    self.jump_to_template_variable();
+                }
+                if !self.template_focus()
+                    && let Some(h) = self.hex.as_mut()
+                {
+                    h.toggle_pane();
+                }
+                Some(EditorSignal::Stay)
+            }
             KeyCode::F(3) if self.template_panel() => {
                 if let Some(t) = self.tpl.as_mut() {
                     t.show_output = !t.show_output;
@@ -864,6 +880,21 @@ impl EditorState {
         let shift = key.modifiers.contains(KeyModifiers::SHIFT);
         let page =
             self.tpl.as_ref().map_or(1, |t| t.list_area.height.saturating_sub(1).max(1) as isize);
+        // Back to the bytes, at the variable selected in the tree: Tab goes on
+        // round to the hex column, Shift-Tab back to the ASCII one, F6 and Esc
+        // to the column the bytes had.
+        if matches!(key.code, KeyCode::Tab | KeyCode::BackTab | KeyCode::F(6) | KeyCode::Esc) {
+            if self.tpl.as_ref().is_some_and(|t| !t.show_output) {
+                self.follow_tree_cursor(true);
+            }
+            if let Some(t) = self.tpl.as_mut() {
+                t.tree_focus = false;
+            }
+            if let (KeyCode::Tab | KeyCode::BackTab, Some(h)) = (key.code, self.hex.as_mut()) {
+                h.set_pane(shift || key.code == KeyCode::BackTab);
+            }
+            return Some(EditorSignal::Stay);
+        }
         let t = self.tpl.as_mut().expect("focus implies state");
         if t.show_output {
             let lines = t.run.as_ref().map_or(0, |r| r.interp.output.len());
@@ -877,7 +908,6 @@ impl EditorState {
                 KeyCode::Home => t.out_scroll = 0,
                 KeyCode::End => t.out_scroll = lines.saturating_sub(1),
                 KeyCode::F(3) => t.show_output = false,
-                KeyCode::F(6) | KeyCode::Tab | KeyCode::Esc => t.tree_focus = false,
                 KeyCode::F(5) if shift => {
                     self.run_template();
                 }
@@ -987,7 +1017,6 @@ impl EditorState {
                 }
             }
             KeyCode::F(3) => t.show_output = true,
-            KeyCode::F(6) | KeyCode::Tab | KeyCode::Esc => t.tree_focus = false,
             KeyCode::F(5) if shift => {
                 self.run_template();
             }
@@ -996,20 +1025,22 @@ impl EditorState {
             _ => {}
         }
         if moved {
-            self.follow_tree_cursor();
+            self.follow_tree_cursor(false);
         }
         Some(EditorSignal::Stay)
     }
 
-    /// Put the byte cursor on the selected variable's first byte.
-    fn follow_tree_cursor(&mut self) {
+    /// Put the byte cursor on the selected variable's first byte — or, with
+    /// `keep_inside`, leave it where it is if it is already in the variable.
+    fn follow_tree_cursor(&mut self, keep_inside: bool) {
         let Some(t) = self.tpl.as_mut() else { return };
         t.ensure_rows();
         let Some(kind) = t.rows.get(t.cursor).map(|r| r.kind) else { return };
         t.texts_for(&[kind]);
         let range = t.texts.get(&kind).and_then(|x| x.range);
-        if let (Some((start, _)), Some(h)) = (range, self.hex.as_mut())
+        if let (Some((start, size)), Some(h)) = (range, self.hex.as_mut())
             && start < h.len
+            && !(keep_inside && (start..start.saturating_add(size)).contains(&h.cursor))
         {
             h.cursor = start;
             h.nibble_low = false;
@@ -1151,7 +1182,7 @@ impl EditorState {
                         } else if let RowKind::More(r) = row.kind {
                             more(t, r);
                         }
-                        self.follow_tree_cursor();
+                        self.follow_tree_cursor(false);
                     }
                 }
             }
@@ -1477,9 +1508,67 @@ mod tests {
         // Moving down the tree puts the byte cursor on the next variable.
         e.handle_key(key(KeyCode::Down));
         assert!(e.hex.as_ref().unwrap().cursor >= start + size);
-        // Tab goes back to the bytes.
+        // Tab goes on to the hex column.
         e.handle_key(key(KeyCode::Tab));
         assert!(!e.template_focus());
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn tab_steps_round_the_hex_and_ascii_columns_and_the_tree() {
+        let p = zip_file("tab");
+        let mut e = hex_editor(&p);
+        e.hex.as_mut().unwrap().cursor = 9; // inside frCompression, at offset 8
+        let _ = screen(&mut e, 160, 30);
+        let at = |e: &EditorState| (e.hex.as_ref().unwrap().ascii_pane, e.template_focus());
+        let back = KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT);
+        let selected = |e: &mut EditorState| {
+            let t = e.tpl.as_mut().unwrap();
+            t.ensure_rows();
+            let kind = t.rows[t.cursor].kind;
+            t.texts_for(&[kind]);
+            t.texts[&kind].clone()
+        };
+        assert_eq!(at(&e), (false, false));
+        e.handle_key(key(KeyCode::Tab));
+        assert_eq!(at(&e), (true, false), "hex → ASCII");
+        e.handle_key(key(KeyCode::Tab));
+        assert_eq!(at(&e), (true, true), "ASCII → tree");
+        // Into the tree Tab goes as F6 does: to the variable at the cursor.
+        let text = selected(&mut e);
+        assert_eq!(text.name, "frCompression");
+        assert_eq!(text.range.map(|r| r.0), Some(8));
+        let (s, _) = screen(&mut e, 160, 30);
+        assert!(s.contains("pane:TEMPLATE"), "the status line names the tree:\n{s}");
+        // Back out, the cursor stays put when it is already in the variable…
+        e.handle_key(key(KeyCode::Tab));
+        assert_eq!(at(&e), (false, false), "tree → hex");
+        assert_eq!(e.hex.as_ref().unwrap().cursor, 9);
+        e.handle_key(back);
+        assert_eq!(at(&e), (false, true), "hex ← tree");
+        // …and otherwise goes to the variable selected in the tree.
+        let t = e.tpl.as_mut().unwrap();
+        t.cursor += 1;
+        let (start, _) = selected(&mut e).range.unwrap();
+        assert!(start > 9);
+        e.handle_key(back);
+        assert_eq!(at(&e), (true, false), "tree ← ASCII");
+        assert_eq!(e.hex.as_ref().unwrap().cursor, start);
+        e.handle_key(back);
+        assert_eq!(at(&e), (false, false), "ASCII ← hex");
+        // F6 back to the bytes does the same, keeping the column.
+        e.handle_key(key(KeyCode::F(6)));
+        let t = e.tpl.as_mut().unwrap();
+        t.cursor += 1;
+        let (next, _) = selected(&mut e).range.unwrap();
+        e.handle_key(key(KeyCode::F(6)));
+        assert_eq!(at(&e), (false, false));
+        assert_eq!(e.hex.as_ref().unwrap().cursor, next);
+        // Without a template Tab only swaps the columns.
+        e.tpl.as_mut().unwrap().choice = TemplateChoice::Off;
+        e.handle_key(key(KeyCode::Tab));
+        e.handle_key(key(KeyCode::Tab));
+        assert_eq!(at(&e), (false, false));
         std::fs::remove_file(&p).ok();
     }
 

@@ -200,6 +200,7 @@ pub const EDITOR_HELP: &[(&str, &str)] = &[
     ("Alt-M", "Show the GeoJSON in the file on a map"),
     ("Hex: F5 / Shift-F5", "Choose / rerun the binary template"),
     ("Hex: F6", "Template variable at the cursor / back to the bytes"),
+    ("Hex: Tab / Shift-Tab", "Hex / ASCII column / template tree, as F6"),
     ("Hex: F3", "Template output / variables"),
     ("Tree: Enter / ← →", "Edit the value or open / close, parent"),
     ("Tree: + - *", "Open, close, open everything below"),
@@ -1737,7 +1738,7 @@ impl EditorState {
                 KeyCode::End => h.row_end(),
                 KeyCode::PageUp => h.move_rows(-(rows - 1).max(1)),
                 KeyCode::PageDown => h.move_rows((rows - 1).max(1)),
-                KeyCode::Tab => h.toggle_pane(),
+                KeyCode::Tab | KeyCode::BackTab => h.toggle_pane(),
                 KeyCode::Backspace => h.move_by(-1),
                 // Only a plainly typed character edits a byte: a Ctrl/Alt
                 // shortcut that hex mode has no answer for must be ignored, not
