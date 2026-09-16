@@ -41,6 +41,14 @@ pub enum Shape {
     Polygon(Vec<Vec<[f64; 2]>>),
 }
 
+/// One geometry as it is written: its type, and the bytes of its
+/// `coordinates` array — what an edit of its positions rewrites.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GeomSpan {
+    pub kind: String,
+    pub coords: Range<usize>,
+}
+
 /// A feature, or a bare geometry standing for one.
 #[derive(Debug, Clone)]
 pub struct Feature {
@@ -52,6 +60,10 @@ pub struct Feature {
     pub props: Vec<(String, String)>,
     pub shapes: Vec<Shape>,
     pub bounds: Option<Bounds>,
+    /// Its geometry — or a GeometryCollection's members, in order.
+    pub geoms: Vec<GeomSpan>,
+    /// Its positions left out for not being longitude and latitude.
+    pub skipped: usize,
 }
 
 /// One piece of GeoJSON found in the document.
@@ -64,6 +76,8 @@ pub struct GeoObject {
     pub kind: String,
     pub features: Vec<Feature>,
     pub bounds: Option<Bounds>,
+    /// A FeatureCollection's `features` array, where a new feature goes.
+    pub features_array: Option<Range<usize>>,
 }
 
 /// Everything found in a document.
@@ -82,6 +96,54 @@ impl GeoDoc {
     pub fn bounds(&self) -> Option<Bounds> {
         union(self.objects.iter().filter_map(|o| o.bounds))
     }
+
+    /// The bytes `[start, end)` have been replaced by `len` bytes: every span
+    /// after them moves, and every span around them stretches. A span inside
+    /// them is left for the caller, which replaces what it belonged to.
+    pub fn shift(&mut self, start: usize, end: usize, len: usize) {
+        let moved = |at: usize| at - (end - start) + len;
+        let fix = |r: &mut Range<usize>| {
+            if r.start >= end {
+                r.start = moved(r.start);
+            }
+            if r.end > start {
+                r.end = if r.end >= end { moved(r.end) } else { start + len };
+            }
+        };
+        for o in &mut self.objects {
+            fix(&mut o.span);
+            if let Some(a) = o.features_array.as_mut() {
+                fix(a);
+            }
+            for f in &mut o.features {
+                fix(&mut f.span);
+                f.geoms.iter_mut().for_each(|g| fix(&mut g.coords));
+            }
+        }
+    }
+}
+
+impl GeoObject {
+    /// The box around its features, again, after one of them changed.
+    pub fn rebound(&mut self) {
+        self.bounds = union(self.features.iter().filter_map(|f| f.bounds));
+    }
+}
+
+/// The feature, or bare geometry, that `text` is the whole of, with its spans
+/// counted from `at` — to read one feature again after an edit without reading
+/// the document around it.
+pub fn feature_at(text: &str, at: usize) -> Option<Feature> {
+    let doc = extract(text);
+    let o = doc.objects.into_iter().find(|o| o.span == (0..text.len()))?;
+    if o.kind == "FeatureCollection" || o.features.len() != 1 {
+        return None;
+    }
+    let mut f = o.features.into_iter().next()?;
+    let add = |r: &mut Range<usize>| *r = r.start + at..r.end + at;
+    add(&mut f.span);
+    f.geoms.iter_mut().for_each(|g| add(&mut g.coords));
+    Some(f)
 }
 
 /// Find the GeoJSON in `text`.
@@ -102,6 +164,8 @@ struct Geometry {
     kind: String,
     shapes: Vec<Shape>,
     span: Range<usize>,
+    parts: Vec<GeomSpan>,
+    skipped: usize,
 }
 
 /// A container that turned out to be GeoJSON, waiting for its parent to say
@@ -118,9 +182,17 @@ impl Found {
     fn into_object(self) -> GeoObject {
         match self {
             Found::Geometry(g, path) => {
-                let feature = feature_of(g.span.clone(), None, Vec::new(), g.shapes);
+                let (span, kind) = (g.span.clone(), g.kind.clone());
+                let feature = feature_of(span.clone(), None, Vec::new(), Some(g));
                 let bounds = feature.bounds;
-                GeoObject { path, span: g.span, kind: g.kind, features: vec![feature], bounds }
+                GeoObject {
+                    path,
+                    span,
+                    kind,
+                    features: vec![feature],
+                    bounds,
+                    features_array: None,
+                }
             }
             Found::Feature(f, path) => {
                 let bounds = f.bounds;
@@ -130,6 +202,7 @@ impl Found {
                     kind: "Feature".into(),
                     features: vec![f],
                     bounds,
+                    features_array: None,
                 }
             }
             Found::Collection(o) => o,
@@ -159,6 +232,7 @@ struct Frame {
     geometry: Option<Geometry>,
     geometries: Option<Vec<Geometry>>,
     features: Option<Vec<(Feature, String)>>,
+    features_array: Option<Range<usize>>,
     /// This object's own members, when it is a `properties` object; or the
     /// `properties` it was given, when it may be a feature.
     props: Vec<(String, String)>,
@@ -182,6 +256,7 @@ impl Frame {
             geometry: None,
             geometries: None,
             features: None,
+            features_array: None,
             props: Vec::new(),
             id: None,
             items: Vec::new(),
@@ -354,7 +429,7 @@ impl Sink for GeoSink {
         self.scalar(text.into(), false);
     }
 
-    fn end_array(&mut self, _span: Range<usize>) {
+    fn end_array(&mut self, span: Range<usize>) {
         if let Some(c) = self.capture.as_mut() {
             if c.foreign > 0 {
                 return;
@@ -363,7 +438,7 @@ impl Sink for GeoSink {
                 let c = self.capture.take().expect("just checked");
                 self.skipped += c.skipped;
                 if let Some(f) = self.stack.last_mut() {
-                    f.coords = Some(c.finish());
+                    f.coords = Some(c.finish(span));
                     f.key = None;
                 }
             }
@@ -382,6 +457,7 @@ impl Sink for GeoSink {
                     }
                 }
                 parent.features = Some(features);
+                parent.features_array = Some(span);
             }
             Some(parent) if parent.is_object && parent.key.as_deref() == Some("geometries") => {
                 let mut geometries = Vec::new();
@@ -424,19 +500,40 @@ impl Sink for GeoSink {
             Some(
                 kind @ ("Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon"
                 | "MultiPolygon"),
-            ) => frame.coords.take().and_then(|c| c.shapes(kind)).map(|shapes| {
-                Found::Geometry(Geometry { kind: kind.into(), shapes, span: span.clone() }, path)
+            ) => frame.coords.take().and_then(|c| {
+                let part = GeomSpan { kind: kind.into(), coords: c.span.clone() };
+                let skipped = c.skipped;
+                c.shapes(kind).map(|shapes| {
+                    let g = Geometry {
+                        kind: kind.into(),
+                        shapes,
+                        span: span.clone(),
+                        parts: vec![part],
+                        skipped,
+                    };
+                    Found::Geometry(g, path)
+                })
             }),
             Some("GeometryCollection") => frame.geometries.take().map(|gs| {
-                let shapes = gs.into_iter().flat_map(|g| g.shapes).collect();
-                let g = Geometry { kind: "GeometryCollection".into(), shapes, span: span.clone() };
+                let mut g = Geometry {
+                    kind: "GeometryCollection".into(),
+                    shapes: Vec::new(),
+                    span: span.clone(),
+                    parts: Vec::new(),
+                    skipped: 0,
+                };
+                for member in gs {
+                    g.shapes.extend(member.shapes);
+                    g.parts.extend(member.parts);
+                    g.skipped += member.skipped;
+                }
                 Found::Geometry(g, path)
             }),
             Some("Feature") => {
-                let shapes = frame.geometry.take().map(|g| g.shapes).unwrap_or_default();
+                let geometry = frame.geometry.take();
                 let name = feature_name(&frame.props, frame.id.as_deref());
                 let props = std::mem::take(&mut frame.props);
-                Some(Found::Feature(feature_of(span.clone(), name, props, shapes), path))
+                Some(Found::Feature(feature_of(span.clone(), name, props, geometry), path))
             }
             Some("FeatureCollection") => frame.features.take().map(|features| {
                 let features: Vec<Feature> = features.into_iter().map(|(f, _)| f).collect();
@@ -447,6 +544,7 @@ impl Sink for GeoSink {
                     kind: "FeatureCollection".into(),
                     features,
                     bounds,
+                    features_array: frame.features_array.take(),
                 })
             }),
             _ => None,
@@ -470,9 +568,12 @@ impl Sink for GeoSink {
     }
 }
 
+/// The properties a feature is named by, the likeliest first.
+pub const NAME_KEYS: [&str; 6] = ["name", "Name", "NAME", "title", "Title", "label"];
+
 /// A feature's name: the first of the usual naming properties, or its id.
 fn feature_name(props: &[(String, String)], id: Option<&str>) -> Option<String> {
-    ["name", "Name", "NAME", "title", "Title", "label"]
+    NAME_KEYS
         .iter()
         .find_map(|k| props.iter().find(|(pk, v)| pk == k && !v.is_empty()).map(|(_, v)| v.clone()))
         .or_else(|| id.map(str::to_string))
@@ -482,15 +583,17 @@ fn feature_of(
     span: Range<usize>,
     name: Option<String>,
     props: Vec<(String, String)>,
-    shapes: Vec<Shape>,
+    geometry: Option<Geometry>,
 ) -> Feature {
+    let (shapes, geoms, skipped) =
+        geometry.map(|g| (g.shapes, g.parts, g.skipped)).unwrap_or_default();
     let bounds = shapes_bounds(&shapes);
-    Feature { span, name, props, shapes, bounds }
+    Feature { span, name, props, shapes, bounds, geoms, skipped }
 }
 
 /// The box around some shapes, the narrower of the two ways round the world a
 /// set of longitudes can be boxed.
-fn shapes_bounds(shapes: &[Shape]) -> Option<Bounds> {
+pub fn shapes_bounds(shapes: &[Shape]) -> Option<Bounds> {
     let mut lons = Vec::new();
     let (mut lat0, mut lat1) = (f64::INFINITY, f64::NEG_INFINITY);
     let mut add = |p: &[f64; 2]| {
@@ -617,8 +720,15 @@ impl Capture {
         }
     }
 
-    fn finish(self) -> Coords {
-        Coords { positions: self.positions, ends: self.ends, level: self.level, bad: self.bad }
+    fn finish(self, span: Range<usize>) -> Coords {
+        Coords {
+            positions: self.positions,
+            ends: self.ends,
+            level: self.level,
+            bad: self.bad,
+            span,
+            skipped: self.skipped,
+        }
     }
 }
 
@@ -629,6 +739,9 @@ struct Coords {
     ends: [Vec<usize>; 3],
     level: Option<u8>,
     bad: bool,
+    /// The array's bytes.
+    span: Range<usize>,
+    skipped: usize,
 }
 
 impl Coords {
@@ -687,7 +800,7 @@ impl Coords {
 /// A line made continuous across the antimeridian: a step of more than 180°
 /// is the short way round, so the rest of the line is carried on past ±180
 /// rather than jumping back across the whole map.
-fn unwrap_dateline(pts: &[[f64; 2]]) -> Vec<[f64; 2]> {
+pub fn unwrap_dateline(pts: &[[f64; 2]]) -> Vec<[f64; 2]> {
     let mut out = Vec::with_capacity(pts.len());
     let mut shift = 0.0;
     let mut prev: Option<f64> = None;
@@ -708,7 +821,7 @@ fn unwrap_dateline(pts: &[[f64; 2]]) -> Vec<[f64; 2]> {
 
 /// A polygon from its rings: continuous across the antimeridian, the outer
 /// ring wound one way and the holes the other.
-fn polygon<'a>(rings: impl Iterator<Item = &'a [[f64; 2]]>) -> Shape {
+pub fn polygon<'a>(rings: impl Iterator<Item = &'a [[f64; 2]]>) -> Shape {
     let mut out: Vec<Vec<[f64; 2]>> = Vec::new();
     for (i, ring) in rings.enumerate() {
         let mut ring = unwrap_dateline(ring);
@@ -851,6 +964,36 @@ mod tests {
         );
         assert_eq!(doc.errors, 1);
         assert_eq!(doc.objects.len(), 2);
+    }
+
+    #[test]
+    fn where_coordinates_and_features_are_written_is_kept_and_moves_with_edits() {
+        let text = r#"{"type":"FeatureCollection","features":[
+            {"type":"Feature","geometry":{"type":"GeometryCollection","geometries":[
+                {"type":"Point","coordinates":[1,2]},{"type":"LineString","coordinates":[[0,0],[9,9]]}]}},
+            {"type":"Feature","geometry":{"type":"Point","coordinates":[3,4]}}]}"#;
+        let mut doc = extract(text);
+        let o = &doc.objects[0];
+        let features = &text[o.features_array.clone().unwrap()];
+        assert!(features.starts_with('[') && features.ends_with("}}]"));
+        let kinds: Vec<(&str, &str)> = o.features[0]
+            .geoms
+            .iter()
+            .map(|g| (g.kind.as_str(), &text[g.coords.clone()]))
+            .collect();
+        assert_eq!(kinds, [("Point", "[1,2]"), ("LineString", "[[0,0],[9,9]]")]);
+        // Two bytes more in the first feature's point: what follows moves on,
+        // what holds it stretches, and what came before stays.
+        let at = o.features[0].geoms[0].coords.clone();
+        let before = (o.span.clone(), o.features[1].span.clone(), o.features[0].span.clone());
+        doc.shift(at.start, at.end, at.len() + 2);
+        let o = &doc.objects[0];
+        assert_eq!(o.span, before.0.start..before.0.end + 2);
+        assert_eq!(o.features[0].span, before.2.start..before.2.end + 2);
+        assert_eq!(o.features[1].span, before.1.start + 2..before.1.end + 2);
+        assert_eq!(o.features[0].geoms[0].coords, at.start..at.end + 2);
+        let f = feature_at(&text[before.1.clone()], before.1.start).unwrap();
+        assert_eq!((f.span, f.shapes.len()), (before.1, 1), "one feature read on its own");
     }
 
     #[test]

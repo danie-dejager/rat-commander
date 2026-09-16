@@ -1,0 +1,1552 @@
+//------------------------------------------------
+//--- 010 Editor v14.0beta1 Binary Template
+//
+//      File: Retrodrive.bt
+//   Authors: Robert Offner MSc.
+//   Version: 1.1
+//   Purpose: Parses a Variety of old Floppy Images (FLEX, FDOS, CP/M, es65, CP68, DOS68, D64, D71, D81, ATR, Apple ][,...).
+//  Category: Drives
+// File Mask: *.img, *.dsk, *.d64, *d71, *.d81, *.atr
+//  ID Bytes: // None. Script guesses the Variant (see the switch-case at the end of file)
+//   History:
+//  1.1  2023-11-03 R. Offner: cleanup, first Apple ][ Implementation.
+//  1.0  2023-11-01 R. Offner: first Atari Implementaion, blind header added (not in image but in file), struct positions should be fixed now, CP/M restructured
+//  0.9  2023-11-01 R. Offner: first Commodore D81 Implementaion. No Partitions or Subdirs though.
+//  0.8  2023-10-30 R. Offner: fixed calc in OFF_to_CHS, added variable sectorcount, first Commodore D64 and D71 Implementaion.
+//  0.7  2023-10-28 R. Offner: added DOS68 Format (chained Rootdir Entries)
+//  0.6  2023-10-27 R. Offner: added Questionbox if there are more Images with the same size.
+//  0.5  2023-10-23 R. Offner: removed skew and made one script to UnSkew a file (UnSkew_Image.1sc)
+//  0.4  2023-10-20 R. Offner: added es65 Format, added skew for CP/M.
+//  0.3  2023-10-17 R. Offner: added NONE Variant to make it easier to add new formats.
+//  0.2  2023-10-10 R. Offner: cleanup, make blocks more universal, CP/M Support added.
+//  0.1  2023-10-08 R. Offner: Initial release with FLEX1, FLEX2 and FDOS
+// COPYRIGHT NOTE:
+// a lot of the code has been taken from the Drive.bt Template
+// additional Information:
+// D64 format: http://unusedino.de/ec64/technical/formats/d64.html
+// FDOS, CP68, DOS68, FLEX1 and FLEX2: https://deramp.com/downloads/swtpc/software/
+// ATRARI: http://fileformats.archiveteam.org/wiki/Atari_File_Management_Subsystem
+//------------------------------------------------
+                         // Variablename
+struct IMGFILE;          // imgfile
+struct DRIVE;            // drive
+struct BOOTSECTOR;       // bootsector
+struct FLEX_SIR;         // flex_sir
+struct ROOTDIR;          // rootdir
+struct SHORTENTRY;       // shortentry
+struct DIRENTRYSET;      // direntryset
+struct FLEX_CLUSTER;     // cluster
+struct D64_CLUSTER;      // cluster
+struct SECTORPLAIN;      // sector
+struct SECTOR_GENERIC;   // sector
+struct CONTROLBLOCK;     // controlblock
+struct DOS68_CHAIN;      // dos68_ddb
+struct APPLE_CHAIN;      // apple_chain
+struct D81_HDR;          // hdr
+struct ATARI_VTOC;       // vtoc
+struct ATARI_CLUSTER;    // cluster
+struct CPMRECORD;        // record
+
+typedef enum <UBYTE> {
+    NONE=0,
+    FLEX1=1, 
+    FLEX2=2,
+    FDOS,
+    DOS68,
+    CP68,
+    CPM1,
+    CPM2,
+    ES65,
+    D64,
+    D81,
+    ATARI1,
+    APPLE1,
+    NEWFORMAT
+ }VARIANT;
+
+// Helper Functions 
+UINT64 GETIDX_ES65(UBYTE id, UINT64 pos){
+    local UINT64 ret, i <hidden=true>;
+    for(i=pos;i<400;i++){
+        if (rootdir.es65_map[i] == id){
+            //Printf("Found ID: %u @ %u\r", id, i);
+            return i;
+        }
+    }
+    return 0xFFFF; // not found
+    //Printf("Filename: %s Nr: %i Track: %i Head: %i Sect: %i Offset: %0X\n", fn, seq, cyl, head, sect, ret);
+}
+
+// returns filesize by counting the sectors in the sector map
+uint16 GET_ES65_FS(ROOTDIR &f, UBYTE id){
+    local uint16 ret, i <hidden=true>;
+    ret = 0;
+    for(i=12;i<400;i++){
+    //Printf("Map: %u ID: %i\r",f.es65_map[i], id);
+        if (f.es65_map[i] == id) ret++;
+    }
+    return ret * imgfile.bps;
+}
+
+INT64 CHS_to_OFF(UBYTE cyl, UBYTE head, UBYTE sect){
+    local INT64 ret <hidden=true> = 0;
+    local INT64 c, s;
+    local UBYTE i;
+    // Commodore weirdness. Tracks are nubered 1-40 for side 0
+    // and 41-80 for side 1. Sectors are nubered from 0-39
+    if ((imgfile.variant == D64) || 
+        (imgfile.variant == D81)){ 
+        if (imgfile.s == 0){ // use sectab
+            c = (INT64)cyl-1;
+            //if (head > 0) { c -= imgfile.c; }
+            //Printf("InC: %u S: %u Off: %06X\r", c, sect, ret);
+            for (i=0; i<imgfile.c; i++){
+                s = (INT64)imgfile.sectab[i];
+                c --;
+                //Printf("Sectab: %u\r", imgfile.sectab[i]);
+                if (c < 0) break;
+                ret += imgfile.bps * s;
+            }
+            //Printf("C: %u S: %u Off: %06X\r", i, sect, ret);
+            if (i >= imgfile.c){ // second Side
+                for (i=0; i<imgfile.c; i++){
+                    s = (INT64)imgfile.sectab[i];
+                    c --;
+                    //Printf("C: %u\r", c);
+                    if (c < 0) break;
+                    ret += imgfile.bps * s;
+                }
+                ret += (INT64)(sect) * imgfile.bps;
+            }
+            else{
+                ret += (INT64)(sect) * imgfile.bps;
+            }
+            //Printf("C: %u S: %u Off: %06X\r", i, sect, ret);
+            return ret + imgfile.blind_header;;
+        }
+        else{ // all tracks have same ammount of sectors
+            ret = (((INT64)(cyl-1) * imgfile.s * imgfile.bps) + (sect * imgfile.bps));
+            return ret + imgfile.blind_header;;
+        }
+    }
+    else{
+        if (sect > imgfile.s) { sect -= imgfile.s; } //FLEX counts the other side in additional sectors
+        ret = (((INT64)cyl * imgfile.s * imgfile.h) + (sect - 1 + head * imgfile.s)) * (INT64)imgfile.bps;
+        //Printf("Filename: %s Nr: %i Track: %i Head: %i Sect: %i Offset: %0X\n", fn, seq, cyl, head, sect, ret);
+        return ret + imgfile.blind_header;;
+    }
+}
+
+void OFF_to_CHS(UBYTE &c, UBYTE &h, UBYTE &s, INT64 pos){
+    local INT64 secdata, sec, off, i, j <hidden=true>;
+    pos = pos - imgfile.blind_header;
+    if ((imgfile.variant == D64) || 
+        (imgfile.variant == D81)){ 
+        if (imgfile.s == 0){ // use sectab
+            off = pos;
+            for (i=0; i<imgfile.c; i++){
+                sec = (INT64)imgfile.sectab[i];
+                if (off < (imgfile.bps * sec)) {
+                    break;
+                }
+                off -= imgfile.bps * sec;
+            }
+            //Printf("Off: %d Side: %i\r", off, hd);
+            if (i < imgfile.c){ // first side
+                h = 0;
+                c = i+1;
+                s = (UBYTE)(((off / imgfile.bps) % sec)); // Sector
+            }
+            else{ // second side
+                //off += imgfile.bps * sec;
+                for (j=0; j<imgfile.c; j++){
+                    sec = (INT64)imgfile.sectab[j];
+                    
+                    if (off < (imgfile.bps * sec)) {
+                        //off += imgfile.bps * sec;
+                        //Printf("Brk: %06X idx: %i OLDTrk: %i\r", off, j, i);
+                        break;
+                    }
+                off -= imgfile.bps * sec;
+                }
+                //Printf("In: %d idx: %i\r", off, j);
+                h = 1;
+                c = j+1;
+                s = (UBYTE)(1 + ((off / imgfile.bps) % sec)); // Sector
+                //Printf("In: %06X C: %u S: %u Off: %06X\r",pos, j, s, off);
+            }
+            //Printf("In: %06X C: %u S: %u Off: %06X\r",pos, c, sec, off);
+            return;
+        }
+        else{ // all tracks have same ammount of sectors
+            secdata =  imgfile.s * imgfile.bps;
+            c = (UBYTE)(pos / (secdata)) + 1; // Track
+            h = (c>40?1:0);
+            s = (UBYTE)(((pos / imgfile.bps) % (INT64)imgfile.s)); // Sector
+        }
+    }
+    else{    
+        secdata =  imgfile.s * imgfile.bps;
+        c = (UBYTE)(pos / (imgfile.h * secdata)); // Track
+        h = (UBYTE)(pos / secdata) % imgfile.h;
+        s = (UBYTE)(1 + ((pos / imgfile.bps) % (INT64)imgfile.s)); // Sector
+        //if (h == 1) s += imgfile.s;
+    }
+}
+
+void GET_NEXTCPMSECTOR(UBYTE &c, UBYTE &h, UBYTE &s){
+    s++;
+    if (s <= (imgfile.s)){ // first side (1,2,3,4,5)
+        //Printf("FS\r");
+    }
+    else if (s > imgfile.s){ // end of side (11)
+        c = (h==1) ? c+1 : c;
+        h = (h==1) ? 0 : 1;
+        s = 1;
+        //Printf("End of SS\r");
+    }
+    else {
+        //Printf("SS\r");
+    }
+}
+
+typedef struct {
+    local UBYTE i <hidden=true>;
+    for (i=0; i<122; i++){
+        UBYTE  DataTrack;
+        UBYTE  DataSector;
+    }
+} APPLE_TSL_ENTRY <optimize=false>;
+
+typedef struct {
+    UBYTE  not_used1 <bgcolor=cDkGray>;
+    UBYTE  NextTSLTrack;
+    UBYTE  NextTSLSector;
+    UBYTE  not_used2[2] <bgcolor=cDkGray>;
+    uint16 SectorOffset;
+    UBYTE  not_used3[5] <bgcolor=cDkGray>;
+    APPLE_TSL_ENTRY  tsl_entry;
+
+} APPLE_TSL <optimize=false>;
+
+// ########################  Dir Entry Set  ##########################
+// This struct makes the directory entry plus the data clusters.
+typedef struct {
+    local uint16 i,lastpos, j <hidden=true>;
+    local UBYTE fs, ft, head,c,h,s,tcb, tslcnt, t <hidden=true>;
+    local UBYTE map[16];
+    local uint16 SectorSequenceNumber , recordcnt, lrecord <hidden=true>;
+    local INT64 pos, addr, blockstart, blockend, nextstart, nextend, off, idx, sec <hidden=true>;
+
+    // Read Long/Short directory entries
+    SHORTENTRY shortentry;
+    // Get first and last track and sector
+    //head = imgfile.h - 1;
+    head = 0;
+    lastpos = 0;
+    tcb = 0;
+    tslcnt = 0; t = 0;
+    pos = FTell(); // 428
+//############################# Here are the Data Blocks following    
+    if ((imgfile.variant == NONE)){
+        //Printf("Pos: %u", rootdir.pos);
+        blockstart = (INT64)imgfile.bootsect + imgfile.blind_header + (imgfile.dir_entries * sizeof(shortentry));
+        FSeek(blockstart);        
+        SECTORPLAIN sector(imgfile.bps);
+    }
+    else if ((imgfile.variant == FLEX1) || (imgfile.variant == FLEX2)){
+        if (((UBYTE)shortentry.FileName[0] != 0xFF) && ((UBYTE)shortentry.FileName[0] != 0)) { // Not deleted!
+            fs = shortentry.FirstSector;
+            head = (fs > imgfile.s) ? 1 : 0;
+            blockstart = CHS_to_OFF(shortentry.FirstTrack, head, fs);
+            FSeek(blockstart);
+            //Printf("1Offset: %04X\r", blockstart);
+            FLEX_CLUSTER cluster(imgfile.variant == FLEX1 ? 128 : 256);
+            for (i=0; i<shortentry.TotalSectors-1; i++){
+                fs = cluster.NextSector;
+                ft = cluster.NextTrack;
+                head = (fs > imgfile.s) ? 1 : 0;
+                addr = CHS_to_OFF(ft, head, fs);
+                //Printf("Offset: %04X\r", addr);
+                FSeek(addr);
+                FLEX_CLUSTER cluster(imgfile.variant == FLEX1 ? 128 : 256);
+            }
+        }
+    }
+    else if (imgfile.variant == FDOS){ // FDOS uses 0-based sector numbering
+        if (((UBYTE)shortentry.FileName[0] != 0xFF) && 
+            ((UBYTE)shortentry.FileName[0] != 0)  && 
+            ((UBYTE)shortentry.FileName[0] != 0xE5)) { // Not deleted!
+            blockstart = CHS_to_OFF(shortentry.FirstTrack, head, shortentry.FirstSector+1);
+            FSeek(blockstart);
+            for (i=0; i<shortentry.TotalSectors; i++){
+                SECTORPLAIN sector(imgfile.bps);
+            }
+        }
+    }
+    else if (imgfile.variant == APPLE1){ // 
+        if (((UBYTE)shortentry.FileName[0] != 0xFF) && 
+            ((UBYTE)shortentry.FileName[0] != 0)  && 
+            ((UBYTE)shortentry.FileName[0] != 0xE5)) { // Not deleted!
+            blockstart = CHS_to_OFF(shortentry.FirstTSLTrack, head, shortentry.FirstTSLSector+1);
+            FSeek(blockstart);
+            do {
+                APPLE_TSL tsl <bgcolor=cLtRed, read=GET_CHS(startof(this))>;
+                tslcnt ++;
+            } while (tsl.NextTSLTrack > 0);
+            for (i=0; i<122; i++){
+                ft = tsl[t].tsl_entry.DataTrack[i];
+                fs = tsl[t].tsl_entry.DataSector[i];
+                //Printf("Track: %d Sector: %d\r", ft, fs);
+                if ((ft == 0)) break;
+                blockstart = CHS_to_OFF(ft, 0, fs+1);
+                FSeek(blockstart);
+                SECTORPLAIN sector(imgfile.bps) <bgcolor=cLtGreen>;
+            }
+        }
+    }
+    else if (imgfile.variant == CP68){
+        if (((UBYTE)shortentry.FileName[0] != 0xFF) && 
+            ((UBYTE)shortentry.FileName[0] != 0)  && 
+            ((UBYTE)shortentry.FileName[0] != 0xE5)) { // Not deleted!
+            blockstart = CHS_to_OFF(shortentry.FirstTrack, head, shortentry.FirstSector);
+            FSeek(blockstart);
+            for (i=0; i<shortentry.TotalSectors; i++){
+                SECTORPLAIN sector(imgfile.bps);
+            }
+        }
+    }
+    else if (imgfile.variant == DOS68){ // DOS68 uses Track + 0x80 and Sector + 0x3F
+        if (((UBYTE)shortentry.FileName[0] != 0xFF) && 
+            ((UBYTE)shortentry.FileName[0] != 0)  && 
+            ((UBYTE)shortentry.FileName[0] != 0xE5)) { // Not deleted!
+            blockstart = CHS_to_OFF(shortentry.FirstTrack-0x80, head, shortentry.FirstSector-0x3F);
+            FSeek(blockstart);
+            for (i=0; i<shortentry.TotalSectors; i++){
+                SECTORPLAIN sector(imgfile.bps);
+            }
+        }
+    }
+    else if (imgfile.variant == ATARI1){ // 
+        if (shortentry.FileStatus < 0x80) { // Not deleted!
+            blockstart = (shortentry.FirstSector-1) * imgfile.bps + imgfile.blind_header;
+            FSeek(blockstart);
+            for (i=0; i<shortentry.TotalSectors; i++){
+                ATARI_CLUSTER sector(imgfile.bps);
+                blockstart = (ATARI_SECT_CONV(sector.NextSector)-1) * imgfile.bps + imgfile.blind_header;
+                FSeek(blockstart);
+            }
+        }
+    }
+    else if (imgfile.variant == ES65){
+        if (((UBYTE)shortentry.FileName[0] != 0xFF) && 
+            ((UBYTE)shortentry.FileName[0] != 0)  && 
+            ((UBYTE)shortentry.FileName[0] != 0x20)) { // Not deleted!
+            //Printf("Name: %s\r", shortentry.FileName);
+            for (i=0; i<400; i++){
+                idx = GETIDX_ES65(shortentry.FileID, (i==0 ? 10 : idx+1));
+                if (idx == 0xFFFF) break;
+                //if (shortentry.FileID == 8) Printf("Index1: %04X\r", imgfile.bps * idx);
+                FSeek(imgfile.bps * idx);
+                j = ReadByte(FTell());
+                
+                if (((j == 'C') || (j == 'E')) && ((i == 0) || (tcb == 0))){ // shows control block
+                    CONTROLBLOCK controlblock(imgfile.bps);
+                    tcb = controlblock.SectorsCopy;
+                    Printf("tcb: %u idx: %u\r", tcb, idx);
+                }
+                else {
+                    tcb--;
+                    SECTORPLAIN sector(imgfile.bps);
+                }
+            }
+        }
+    }
+    else if ((imgfile.variant == D81) ||
+             (imgfile.variant == D64)) {
+        if (((UBYTE)shortentry.FileName[0] != 0xFF) && 
+            ((UBYTE)shortentry.FileName[0] != 0)  && 
+            ((UBYTE)shortentry.FileName[0] != 0x20)) { // Not deleted!
+            //Printf("Name: %s\r", shortentry.FileName);
+            fs = shortentry.FirstSector;
+            ft = shortentry.FirstTrack;
+            blockstart = CHS_to_OFF(ft, 0, fs);
+            FSeek(blockstart);
+            //Printf("Start: %06X FT: %u FS: %u\r", blockstart, ft, fs);
+            for (i=0; i<shortentry.TotalSectors; i++){
+                D64_CLUSTER cluster;
+                fs = cluster.NextSector;
+                ft = cluster.NextTrack;
+                //head = (ft >= imgfile.c) ? 1 : 0;
+                addr = CHS_to_OFF(ft, 0, fs);
+                //Printf("Track: %u Sect: %u Off: %06X\r", ft, fs, addr);
+                FSeek(addr);
+                if (ft == 0) break; // should not happen
+                //Printf("Off: %06X NT: %u NS: %u\r", addr, ft, fs);
+            }
+        }
+    }
+//    else if ((imgfile.variant == CPM1) || (imgfile.variant == CPM2)){ 
+//        if (((UBYTE)shortentry.UserNumber != 0xE5) && (shortentry.AllocationTable[0] != 0)) { // Not deleted!
+//            //Printf("Start: %s\r", GET_CHS(blockstart, blockstart));
+//            blockstart = ((INT64)shortentry.AllocationTable[0] * imgfile.dir_clust_sz) + imgfile.bootsect + imgfile.blind_header;
+//            nextend = blockstart + imgfile.dir_clust_sz;
+//            for (i=1; i<(imgfile.variant == CPM1 ? 16 : 8); i++) { // one AllocTab Entry =: one Logical Block
+//                nextstart = ((INT64)shortentry.AllocationTable[i] * imgfile.dir_clust_sz) + imgfile.bootsect + imgfile.blind_header;
+//                //Printf("i: %i\r", i);
+//                if (shortentry.AllocationTable[i] == 0) break;
+//                lastpos = i;
+//                if ((nextend ) == nextstart){ //continuous block
+//                    nextend = nextstart + imgfile.dir_clust_sz;
+//                    //Printf("cont: %i\r", i);
+//                }
+//                else {
+//                    //Printf("non cont: %i\r", i);
+//                    break;
+//                }
+//            }
+//            //Printf("%s lastpos: %i\r", shortentry.FileName, lastpos);
+//            FSeek(blockstart); 
+//            OFF_to_CHS(c, h, s, blockstart); 
+//            off = blockstart;
+//            for (j=0; j<=lastpos; j++){
+//                //Printf("Window: %04X - %04X\r", off, nextend);
+//                
+//                for (sec=0; sec<imgfile.dir_clust_sz/imgfile.bps; sec++){
+//                    //Printf("sec: %i\r", sec);
+//                    SECTOR_GENERIC sector <format=hex>;
+//                    //Printf("OffsetS: %04X C:%i H:%i S:%i - ", off, c, h, s);
+//                    GET_NEXTCPMSECTOR(c,h,s);
+//                    off = CHS_to_OFF(c,h,s);
+//                    //if ((off >= blockstart) && off < nextend) {
+//                        FSeek(off);
+//                        OFF_to_CHS(c, h, s, off);
+//                    //}
+//                    //Printf("OffsetE: %04X C:%i H:%i S:%i \r", off, c, h, s);
+//                }
+//            }
+//        }
+//    }
+    else if ((imgfile.variant == CPM1) || (imgfile.variant == CPM2)){ 
+        if (((UBYTE)shortentry.UserNumber != 0xE5) && (shortentry.AllocationTable[0] != 0)) { // Not deleted!
+            //Printf("Start: %s\r", GET_CHS(blockstart, blockstart));
+            recordcnt = 0;
+            for (i=0; i<(imgfile.variant == CPM1 ? 16 : 8); i++) { // one AllocTab Entry =: one Logical Block (Ex.: 2048Byte)
+                if (shortentry.AllocationTable[i] == 0) break;
+                off = ((INT64)shortentry.AllocationTable[i] * imgfile.dir_clust_sz) + imgfile.bootsect + imgfile.blind_header;
+                FSeek(off);
+                OFF_to_CHS(c, h, s, off);
+                //Printf("StartOffset: %06X C:%i H:%i S:%i \r", off, c, h, s);
+                for (sec=0; sec<imgfile.dir_clust_sz/imgfile.bps; sec++){ // Ex.: 2048 / 1024
+                    for (lrecord=0; lrecord<(imgfile.bps/imgfile.record);lrecord++){
+                        recordcnt ++;
+                        if (recordcnt > (shortentry.ExtentCounter*128 + shortentry.TotalRecords)) break;
+                        CPMRECORD record <format=hex>;
+                    }
+                    GET_NEXTCPMSECTOR(c,h,s);
+                    off = CHS_to_OFF(c,h,s);
+                    FSeek(off);
+                    OFF_to_CHS(c, h, s, off);
+                    //Printf("OffsetE: %06X C:%i H:%i S:%i \r", off, c, h, s);
+                }
+
+            }
+        }
+    }
+    FSeek(pos);
+
+} DIRENTRYSET <optimize=false, read=ReadDIRENTRYSET, comment=ReadRecordCount>;
+
+string ReadRecordCount( DIRENTRYSET &f){
+    local string str <hidden=true> ="";
+    local UINT64 filesize, records <hidden=true>;
+    if ((imgfile.variant == CPM1) ||
+            (imgfile.variant == CPM2) ){
+
+        if (f.shortentry.UserNumber == 0xE5) return("");
+        else{
+            if ((f.shortentry.ExtentCounter)){
+                records = (UINT64)f.shortentry.ExtentCounter * imgfile.record + (UINT64)f.shortentry.TotalRecords;
+                filesize = records * imgfile.record;
+                SPrintf(str, "Multi Record File. Size: %u Rec. %u Bytes.", records, filesize);
+
+            }
+            else {
+                filesize = ((UINT64)f.shortentry.TotalRecords * imgfile.record);
+                SPrintf(str, "Size: %u Rec. %u Byte", f.shortentry.TotalRecords, filesize);
+            }
+        }
+    }
+    else if ((imgfile.variant == D64) ||
+            (imgfile.variant == D81)) {
+        if (((UBYTE)f.shortentry.FileName[0] == 0) || 
+            ((UBYTE)f.shortentry.FileName[0] == 0xFF) || 
+            ((UBYTE)f.shortentry.FileName[0] == 0xE5) || 
+            ((UBYTE)f.shortentry.FileName[0] == 0x20))
+            SPrintf(str, "");
+        else
+            SPrintf(str, "FileSize: <= %i Bytes", f.shortentry.TotalSectors * (imgfile.bps-2));
+    }
+    else if ((imgfile.variant == FLEX1) ||
+             (imgfile.variant == FLEX2)) {
+        if (((UBYTE)f.shortentry.FileName[0] == 0) || 
+            ((UBYTE)f.shortentry.FileName[0] == 0xFF) || 
+            ((UBYTE)f.shortentry.FileName[0] == 0xE5) || 
+            ((UBYTE)f.shortentry.FileName[0] == 0x20))
+            SPrintf(str, "");
+        else
+            SPrintf(str, "FileSize: %i Bytes", f.shortentry.TotalSectors * (imgfile.bps-4));
+    }
+    else if ((imgfile.variant == CP68)  ||
+             (imgfile.variant == FDOS)  ||
+             (imgfile.variant == DOS68)) {
+        if (((UBYTE)f.shortentry.FileName[0] == 0) || 
+            ((UBYTE)f.shortentry.FileName[0] == 0xFF) || 
+            ((UBYTE)f.shortentry.FileName[0] == 0xE5) || 
+            ((UBYTE)f.shortentry.FileName[0] == 0x20))
+            SPrintf(str, "");
+        else
+            SPrintf(str, "FileSize: %i Bytes", f.shortentry.TotalSectors * imgfile.bps);
+    }
+    else if (imgfile.variant == APPLE1) {
+        if ((f.shortentry.FirstTSLTrack == 0xFF) || (f.shortentry.FirstTSLTrack == 0))
+            SPrintf(str, "");
+        else
+            SPrintf(str, "FileSize: %i Bytes", (f.shortentry.TotalSectors) * imgfile.bps);
+    }
+    else if (imgfile.variant == ATARI1) {
+        if (f.shortentry.FileStatus >= 0x80)
+            SPrintf(str, "DELETED");
+        else
+            SPrintf(str, "FileSize: %i Bytes", f.shortentry.TotalSectors * imgfile.bps);
+    }
+    else if ((imgfile.variant == ES65)){
+        if (((UBYTE)f.shortentry.FileName[0] == 0) || 
+            ((UBYTE)f.shortentry.FileName[0] == 0xFF) || 
+            ((UBYTE)f.shortentry.FileName[0] == 0xE5) || 
+            ((UBYTE)f.shortentry.FileName[0] == 0x20))
+            SPrintf(str, "");
+        else
+            SPrintf(str, "FileSize: %i Bytes", GET_ES65_FS(parentof(f), f.shortentry.FileID));        
+    }
+    return str;
+}
+
+string GetAppleFilename(char  afn[30]){
+    local char str[30] <hidden=true>;
+    local UBYTE i <hidden=true>;
+    for (i=0; i<30; i++){ //Apple II Filename is 30 Characters
+        str[i] = afn[i] & 0x7F;
+    }
+    return str;
+
+}
+
+wstring ReadDIRENTRYSET( DIRENTRYSET &f ) {
+    if ((imgfile.variant == NONE)){
+        return "--FILE--";
+    }
+    
+    else if ((imgfile.variant == FDOS))
+        if (((UBYTE)f.shortentry.FileName[0] == 0) || ((UBYTE)f.shortentry.FileName[0] == 0xFF) || ((UBYTE)f.shortentry.FileName[0] == 0xE5)) 
+            return "--FREE--";
+        else
+            return f.shortentry.FileName;
+    
+    else if ((imgfile.variant == DOS68) ||
+             (imgfile.variant == CP68)  ||
+             (imgfile.variant == FLEX2) || 
+             (imgfile.variant == FLEX1) || 
+             (imgfile.variant == ATARI1))
+        if (((UBYTE)f.shortentry.FileName[0] == 0) || ((UBYTE)f.shortentry.FileName[0] == 0xFF) || ((UBYTE)f.shortentry.FileName[0] == 0xE5)) 
+            return "--FREE--";
+        else
+            return f.shortentry.FileName+'.'+f.shortentry.FileExtension;
+    
+    else if ((imgfile.variant == CPM1) ||
+             (imgfile.variant == CPM2) )
+        if ((f.shortentry.UserNumber == 0xE5)) 
+            return "--FREE--";
+        else
+            return f.shortentry.FileName+'.'+f.shortentry.FileExtension;
+    
+    else if ((imgfile.variant == D64) ||
+            (imgfile.variant == D81) ||
+            (imgfile.variant == ES65)) 
+        if (((UBYTE)f.shortentry.FileName[0] == 0) || ((UBYTE)f.shortentry.FileName[0] == 0x20)) 
+            return "--FREE--";
+        else
+            return f.shortentry.FileName;
+
+    else if (imgfile.variant == APPLE1)
+        if (((UBYTE)f.shortentry.FileName[0] == 0) || ((UBYTE)f.shortentry.FileName[0] == 0x20)) 
+            return "--FREE--";
+        else
+            return GetAppleFilename(f.shortentry.FileName);
+
+    else return "ERROR! No imgfile.variant selected!";
+}
+
+// ########################  Data Cluster  ##########################
+//  C = LBA ÷ (HPC × SPT)    - LBA: offset, HPC: max. Heads, SPT: Sectors/Track
+//  H = (LBA ÷ SPT) mod HPC  - 
+//  S = (LBA mod SPT) + 1    - 
+//
+string GET_CHS(INT64 pos){ //, INT64 pos_start){ //pos is the actual offset of this sector
+    local string str <hidden=true>;
+    local UBYTE c,h,s <hidden=true>;
+    local INT64 blk,secdata, clustersize <hidden=true>;
+    OFF_to_CHS(c,h,s,pos);
+    clustersize = imgfile.bps;
+    if (imgfile.dir_clust_sz != 0) clustersize = imgfile.dir_clust_sz;
+    if ((imgfile.variant == CPM1) ||
+        (imgfile.variant == CPM2)) {
+        blk = (pos - imgfile.bootsect - imgfile.blind_header) / clustersize;
+    }
+    else
+        blk = (pos - imgfile.blind_header) / clustersize;
+    if (imgfile.variant == ATARI1){
+
+        SPrintf(str, "C: %u S: %u Sector total: %u", c, s, blk+1);
+    }
+    else {
+        SPrintf(str, "C: %u H: %u S: %u Block: 0x%0X %u", c, h, s, blk, blk);
+    }
+    //Printf("%s C: %d S: %d\r", imgfile.rootdir.direntryset.shortentry.FileName, c, s);
+    return str;
+}
+
+typedef struct {
+    local INT64 pos_now <hidden=true>;
+    pos_now = FTell();
+    UBYTE record[imgfile.record]  <format=hex>;
+} CPMRECORD <size=imgfile.record, optimize=false, read=GET_CHS(startof(this))>;
+
+//typedef struct {
+//    local INT64 lrecord <hidden=true>;
+//    //pos_now = FTell();
+//    for (lrecord=0; lrecord<(imgfile.bps/imgfile.record);lrecord++){
+//        CPMRECORD record <format=hex>;
+//    }
+//} SECTOR_GENERIC <size=imgfile.bps, optimize=false, read=GET_CHS(startof(this))>;
+
+// ######################  Generic Cluster  ############################
+
+typedef struct (int16 Size){ 
+    //local INT64 pos_now <hidden=true>;
+    //pos_now = FTell();
+    UBYTE data[Size] <format=hex>;
+} SECTORPLAIN <optimize=false, read=GET_CHS(startof(this))>;
+
+//string GET_CHSPLAIN(SECTORPLAIN &f){
+//    return GET_CHS(f.pos_now);//, parentof(f).blockstart);
+//}
+// ######################  es65 CONTROL Block  ############################
+typedef struct (int16 Size){ 
+    //local INT64 pos_now <hidden=true>;
+    //pos_now = FTell();
+    CHAR CheckValue <comment="'C' - ist for first and successive Data Block, 'E' is for last Block">;
+    UBYTE Bank;
+    uint16 DestinationAddress <format=hex>;
+    UBYTE SectorsCopy;
+    UBYTE zeros[251] <format=hex>;
+} CONTROLBLOCK <optimize=false, read=GET_CHS(startof(this))>;
+
+// ########################  ATARI Cluster  ############################
+// FLEX Cluster has next Cluster at the first two bytes and Sequence Number
+uint16 ATARI_SECT_CONV(uint16 s){
+    local uint16 NS <hidden=true> = 0;
+    NS = ((s >> 8) & 0xFF);
+    //NS += (s % 0x0300);
+    NS += (s & 0x03) * 256;
+    return NS;
+}
+
+string GET_ATARI_POS (uint16 s){
+    local string str <hidden=true>;
+    local uint16 NS <hidden=true> = 0;
+    NS = (s & 0xFC) >> 2;
+    SPrintf(str, "Position in Dir: %u", NS);
+    return str;
+}
+
+typedef struct (int16 Size){ 
+    UBYTE  data[Size-3] <format=hex>;
+    uint16 NextSector <read=Str("%d", ATARI_SECT_CONV(this)), comment=GET_ATARI_POS>;
+    UBYTE ShortSector <format=hex, comment="Bit7 signals Sector not filled">;
+} ATARI_CLUSTER <optimize=false, read=GET_CHS(startof(this))>;
+
+// ########################  FLEX Cluster  ############################
+// FLEX Cluster has next Cluster at the first two bytes and Sequence Number
+typedef struct (int16 Size){ 
+    //local INT64 pos_now <hidden=true>;
+    //pos_now = FTell();
+    UBYTE NextTrack;
+    UBYTE NextSector;
+    uint16 SectorSequenceNumber;
+    UBYTE data[Size-4] <format=hex>;
+} FLEX_CLUSTER <optimize=false, read=GET_CHS(startof(this))>;
+
+// ########################  D64 Cluster  ############################
+// D64 Cluster has next Cluster at the first two bytes
+typedef struct { 
+    UBYTE NextTrack  <comment="Commodore uses 1-based Track">;
+    UBYTE NextSector <comment="Commodore uses 0-based Sector">;
+    UBYTE data[254] <format=hex>;
+} D64_CLUSTER <optimize=false, read=GET_CHS(startof(this))>;
+
+typedef struct {
+    UBYTE FreeSectors;
+    UBYTE Sector1_to_8_free   <comment="Bit0 is Sector 1, 1-free", format=binary>;
+    UBYTE Sector9_to_16_free  <comment="Bit0 is Sector 9, 1-free", format=binary>;
+    UBYTE Sector17_to_24_free <comment="Bit0 is Sector 17, 1-free", format=binary>;
+} D64_BAMENTRY <optimize=false>;
+
+typedef struct {
+    UBYTE FreeSectors <bgcolor=cLtGreen>;
+    UBYTE Sector1_to_8_free   <comment="Bit0 is Sector 1, 1-free", format=binary>;
+    UBYTE Sector9_to_16_free  <comment="Bit0 is Sector 9, 1-free", format=binary>;
+    UBYTE Sector17_to_24_free <comment="Bit0 is Sector 17, 1-free", format=binary>;
+    UBYTE Sector25_to_40_free <comment="Bit0 is Sector 25, 1-free", format=binary>;
+    UBYTE Sector25_to_40_free <comment="Bit0 is Sector 32, 1-free", format=binary>;
+} D81_BAMENTRY <optimize=false>;
+
+typedef struct {
+    UBYTE FirstDirTrack;
+    UBYTE FirstDirSector;
+    CHAR DiskDOSVersion <comment="Should be 'A' if not: soft write protection">;
+    UBYTE DoubleSidedFlag <bgcolor=cDkGray, comment="0x80-DoubleSide, 0-SingleSide">;
+    D64_BAMENTRY FreeSectorTable[35] <bgcolor=cRed, comment="One Bit is one Sector">;
+    CHAR DiskName[16] <fgcolor=cPurple>;
+    CHAR not_used2[2] <bgcolor=cDkGray, fgcolor=cWhite, comment="Filled with A0">;
+    UBYTE DiskID[2] <bgcolor=cLtGray>;
+    CHAR not_used3[1] <bgcolor=cDkGray, fgcolor=cWhite, comment="Filled with A0">;
+    CHAR DOSType[2] <comment="Usually 2A">;
+    CHAR not_used4[4] <bgcolor=cDkGray, fgcolor=cWhite, comment="Filled with A0">;
+    UBYTE not_used5[50] <bgcolor=cDkGray, fgcolor=cWhite>;
+    UBYTE FreeSectorsBAM2[35] <bgcolor=cLtGray, fgcolor=cBlack>;
+} D64_BAM <optimize=false>;
+
+typedef struct {
+    UBYTE FirstDirTrack;
+    UBYTE FirstDirSector;
+    CHAR DiskDOSVersion <comment="Should be 'A' if not: soft write protection">;
+    UBYTE not_used1 <bgcolor=cDkGray>;
+    CHAR DiskName[16] <fgcolor=cPurple>;
+    CHAR not_used2[2] <bgcolor=cDkGray, fgcolor=cWhite, comment="Filled with A0">;
+    CHAR DiskID[2] <bgcolor=cLtGray>;
+    CHAR not_used3 <bgcolor=cDkGray, fgcolor=cWhite, comment="Filled with A0">;
+    CHAR DOSType[2] <comment="Usually 3D">;
+    CHAR not_used4[2] <bgcolor=cDkGray, fgcolor=cWhite, comment="Filled with A0">;
+    UBYTE not_used5[227] <bgcolor=cDkGray, fgcolor=cWhite>;
+} D81_HDR <optimize=false>;
+
+typedef struct {
+    UBYTE NextBAMTrack;
+    UBYTE NextBAMSector;
+    CHAR DiskDOSVersion <comment="Should be 'D' if not: soft write protection">;
+    UBYTE ComplementVersion;
+    CHAR DiskID[2] <bgcolor=cLtGray>;
+    UBYTE IOByte <bgcolor=cLtGray, format=hex>;
+    UBYTE AutoBootFlag <bgcolor=cLtGreen, format=hex>;
+    UBYTE Reserved[8] <bgcolor=cLtGray>;
+    D81_BAMENTRY FreeSectorTable[40] <bgcolor=cRed, comment="One Bit is one Sector">;
+} D81_BAM <optimize=false>;
+
+// #########################  ATARI VTOC  ##############################
+typedef struct {
+    UBYTE  DirectoryType <comment="Always zero">;
+    uint16 MaxSectorCount <comment="Ignored!">;
+    uint16 SectorAvailable <comment="Starts at 709">;
+    CHAR not_used1[5] <bgcolor=cDkGray, fgcolor=cWhite>;
+    UBYTE  FreeSectors[89] <format=binary>;
+    CHAR not_used2[29] <bgcolor=cDkGray, fgcolor=cWhite>;
+} ATARI_VTOC <optimize=false>;
+
+// #########################  APPLE VTOC  ##############################
+typedef struct {
+    UBYTE  not_used1 <bgcolor=cDkGray, fgcolor=cWhite>;
+    UBYTE  FirstDirTrack;
+    UBYTE  FirstDirSector;
+    UBYTE  DOS_ReleaseVersion;
+    UBYTE  not_used2[2] <bgcolor=cDkGray, fgcolor=cWhite>;
+    UBYTE  DisketteVolumeNumber;
+    UBYTE  not_used3[32] <bgcolor=cDkGray, fgcolor=cWhite>;
+    UBYTE  MaxTS <comment="maximum number of track/sector pairs which will fit in one file track/sector list sector (122 for 256 byte sectors)">;
+    UBYTE  not_used4[8] <bgcolor=cDkGray, fgcolor=cWhite>;
+    UBYTE  LastTrack;
+    UBYTE  TrackAllocDir <comment="direction of track allocation (+1 or -1)">;
+    UBYTE  not_used5[2] <bgcolor=cDkGray, fgcolor=cWhite>;
+    UBYTE  TracksPerDisk <comment="Normally 35">;
+    UBYTE  SectorsPerTrack <comment="Normally 16 or 13">;
+    uint16 BytesPerSector;
+    uint32 SectorMap[35] <bgcolor=cRed, fgcolor=cWhite>;
+    uint32 not_used6[15] <bgcolor=cDkGray, fgcolor=cWhite>;
+} APPLE_VTOC <optimize=false>;
+
+// #######################  Root Directory  ###########################
+// The RootDirectory contains 'dir_entries' ammount of Directory Sets
+// A Directory Set is the Header with the Filename and Stuff (Shortentry)
+// and the Data Blocks (=Cluster).
+
+typedef struct { // used for FLEX
+    UBYTE not_used1 <bgcolor=cDkGray>;
+    UBYTE sector;
+    UBYTE not_used[(imgfile.variant == FLEX1 ? 6:14)] <bgcolor=cDkGray>;
+} NOT_USED;
+
+typedef struct {
+    local int i,j;
+    //local INT64 pos_now;
+    //pos_now = FTell();
+    local UBYTE es65_map[400], dir_trk=0, dir_sec, dos68ver=0;
+// ON FOR DEBUG //local UBYTE dir_clust_sz = (UBYTE)(imgfile.s - (uint16)(pos / imgfile.bps));
+// ON FOR DEBUG //Printf("dir_clust_sz: %i \r", dir_clust_sz);
+    // FLEX Dir Entry is 24 Byte long. Since a multiple of that does not fit in a 256 (or 128 Byte) sector,
+    // there are some unused bytes inbetween.
+    if ((imgfile.variant == FLEX2) || (imgfile.variant == FLEX1)){
+        for (j=0; j<imgfile.dir_clust_sz; j++){
+            NOT_USED not_used;            
+            for (i=0; i<imgfile.dir_entries; i++) {
+                DIRENTRYSET direntryset;
+                //Printf("Data: %0x \n", dir_entries);
+            }
+        }
+    }
+    else if (imgfile.variant == DOS68){ // DOS68 uses a chained root directory
+        dir_sec = (imgfile.bootsect / imgfile.bps) + 1;
+        do {
+            FSeek(CHS_to_OFF(dir_trk, 0, dir_sec));
+            DOS68_CHAIN dos68_chain(dos68ver) <read=GET_CHS(startof(this))>;
+            dos68ver = 1;
+            dir_trk = dos68_chain.NextDirBlockTrack-0x80;
+            dir_sec = dos68_chain.NextDirBlockSector-0x3F;
+        } while (dos68_chain.NextDirBlockTrack > 0);
+//        Printf("Off: %04X\r", CHS_to_OFF(NextDirBlockTrack-0x80, 0, NextDirBlockSector-0x40)+imgfile.bootsect);
+    }
+    else if (imgfile.variant == D64){ // Commodore D64 Format Rootdir is on Track 18 (1 based)
+        D64_BAM bam1;
+        if (FileSize() >= 349696){ // D71 Variant
+            FSeek(CHS_to_OFF(53, 0, 0));
+            D64_BAM bam2;
+        }
+        FSeek(CHS_to_OFF(bam1.FirstDirTrack, 0, bam1.FirstDirSector));
+        for (i=0; i<imgfile.dir_entries; i++) {
+            DIRENTRYSET direntryset;// <comment=ReadDirentryset>;
+        }
+    }  
+    else if (imgfile.variant == ATARI1){ // Atari Format
+        ATARI_VTOC vtoc;
+        for (i=0; i<imgfile.dir_entries; i++) {
+            DIRENTRYSET direntryset;// <comment=ReadDirentryset>;
+        }        
+    }
+
+    else if (imgfile.variant == APPLE1){ // Apple II Format
+        APPLE_VTOC vtoc;
+        dir_trk = vtoc.FirstDirTrack;
+        dir_sec = vtoc.FirstDirSector+1;
+        do {
+            FSeek(CHS_to_OFF(dir_trk, 0, dir_sec));
+            APPLE_CHAIN apple_chain <bgcolor=cLtBlue, read=GET_CHS(startof(this)), comment=GetAppleChain(startof(this))>;
+            dos68ver = 1;
+            dir_trk = apple_chain.NextDirBlockTrack;
+            dir_sec = apple_chain.NextDirBlockSector+1;
+        } while (apple_chain.NextDirBlockTrack > 0);
+    }
+    else if (imgfile.variant == D81){ // Commodore D81 Format
+        D81_HDR hdr;
+        D81_BAM bam1;
+        FSeek(CHS_to_OFF(bam1.NextBAMTrack, 0, bam1.NextBAMSector));
+        D81_BAM bam2;
+        FSeek(CHS_to_OFF(hdr.FirstDirTrack, 0, hdr.FirstDirSector));
+        for (i=0; i<imgfile.dir_entries; i++) {
+            DIRENTRYSET direntryset;// <comment=ReadDirentryset>;
+        }        
+    } // For all other OS' the directory structure is simply a repetition of entries.
+
+    else {
+        if (imgfile.variant == ES65)
+            ReadBytes(es65_map, 0x70, 400); // es65 Map starts at 0x70
+        for (i=0; i<imgfile.dir_entries; i++) {
+            DIRENTRYSET direntryset;// <comment=ReadDirentryset>;
+        }
+        //pos = FTell();
+    }
+} ROOTDIR <open=true, optimize=false, read=GET_CHS(startof(this))>;
+
+string GetAppleChain(INT64 off){
+    local UBYTE map[256] <hidden=true>;
+    local uint16 i <hidden=true>;
+    local INT64 c <hidden=true> = 0;
+    //Printf("Read at: %04X\r", off+0x0B);
+    ReadBytes(map, off+0x0B, 245);
+    for (i=0; i<246; i++){
+        c += map[i];
+    }
+    if (c==0) return Str("Empty");
+    else return Str("Not Empty");
+}
+
+// #################### DOS68 DISC DIRECTORY BLOCK ####################
+typedef struct (UBYTE ver){
+    UBYTE   NextDirBlockTrack <bgcolor=cLtRed, comment=GET_DOS68TRK>;
+    UBYTE   NextDirBlockSector <bgcolor=cLtGreen, comment=GET_DOS68SEC>;
+    UBYTE   PreviousDirBlockTrack <bgcolor=cLtRed, comment=GET_DOS68TRK>;
+    UBYTE   PreviousDirBlockSector <bgcolor=cLtGreen, comment=GET_DOS68SEC>;
+    UBYTE   not_used1[4];
+    if (ver == 0){
+        UBYTE   Check <bgcolor=cDkRed, comment="Must be FF">;
+        UBYTE   not_used2[10] <bgcolor=cDkGray>;
+        UBYTE   NextAvailableBlockTrack <bgcolor=cLtRed, comment=GET_DOS68TRK>;
+        UBYTE   NextAvailableBlockSector <bgcolor=cLtBlue, comment=GET_DOS68SEC>;
+        UBYTE   LastAvailableBlockTrack <bgcolor=cLtRed, comment=GET_DOS68TRK>;
+        UBYTE   LastAvailableBlockSector <bgcolor=cLtBlue, comment=GET_DOS68SEC>;
+        uint16  TotalAvailableSectors  <bgcolor=cLtGreen>;
+        UBYTE   not_used3[7];
+
+        DIRENTRYSET DiscFileDirectory[4];
+    }
+    else
+        //UBYTE   not_used1[4];
+        DIRENTRYSET DiscFileDirectory[5];
+} DOS68_CHAIN <optimize=false>;
+
+// ################# APPLE II DISC DIRECTORY BLOCK ####################
+typedef struct {
+    UBYTE   not_used1 <bgcolor=cDkGray>;
+    UBYTE   NextDirBlockTrack <bgcolor=cLtRed>;
+    UBYTE   NextDirBlockSector <bgcolor=cLtGreen>;
+    UBYTE   not_used2[8] <bgcolor=cDkGray>;
+//    CHAR   Filename[35];
+    DIRENTRYSET DiscFileDirectory[7];
+} APPLE_CHAIN <optimize=false>;
+
+string GET_DOS68SEC(UBYTE &f){ // DOS68 uses a Sector Nuber which is 0x3F based
+    local string str;
+    if (f==0)
+        SPrintf(str, "Last Sector");
+    else
+        SPrintf(str, "Sector: %i", f-0x3F); // 0x40 == Sector 1
+    return str;
+}
+
+string GET_DOS68TRK(UBYTE &f){ // DOS68 uses a Track Nuber which is 0x80 based
+    local string str;
+    if (f==0)
+        SPrintf(str, "Last Track");
+    else
+        SPrintf(str, "Track: %i", f-0x80); // 0x80 == Track 0
+    return str;
+}
+
+typedef enum <UBYTE> {
+    DEL=0,
+    SEQ=0x80,
+    PRG=0x82,
+    USR,
+    REL,
+    DIR
+
+} CBM_FTYP;
+
+typedef enum <UBYTE> {
+    TXT=0,
+    INTEGERBAS=1,
+    APPLESOFTBAS=2,
+    BINARY=4,
+    S_TYPE=8,
+    RELOCATEABLE=0x10,
+    A_TYPE=0x20,
+    B_TYPE=0x40
+} APPLE_FTYP;
+
+typedef struct {
+    if (imgfile.variant == NONE){
+        CHAR    FileName[8] <fgcolor=cPurple, bgcolor=cWhite>;
+        CHAR    FileExtension[3] <fgcolor=cPurple, bgcolor=cWhite>;
+        UBYTE   someData[21]  <bgcolor=cGreen>;
+    }
+    else if ((imgfile.variant == FLEX2) || (imgfile.variant == FLEX1)){
+        CHAR    FileName[8] <fgcolor=cPurple, bgcolor=cWhite>;
+        CHAR    FileExtension[3] <fgcolor=cPurple, bgcolor=cWhite>;
+        uint16  not_used2 <bgcolor=cDkGray>;
+        UBYTE   FirstTrack  <bgcolor=cGreen>;
+        UBYTE   FirstSector  <bgcolor=cLtRed>;
+        UBYTE   LastTrack  <bgcolor=cGreen>;
+        UBYTE   LastSector  <bgcolor=cLtRed>;
+        uint16  TotalSectors  <bgcolor=cLtGreen>;
+        UBYTE   RandomFileFlag;
+        UBYTE   not_used3 <bgcolor=cDkGray>;
+        UBYTE   DateMonth;
+        UBYTE   DateDay;
+        UBYTE   DateYear;
+    }
+    else if (imgfile.variant == FDOS){
+        CHAR    FileName[8] <fgcolor=cPurple, bgcolor=cWhite,comment="FF at pos 0 means no files after this!">;
+        CHAR    Password[8] <fgcolor=cPurple, bgcolor=cWhite>;
+        UBYTE   FirstTrack  <bgcolor=cGreen>;
+        UBYTE   FirstSector  <bgcolor=cLtRed, comment="FDOS uses 0-based Sector Numbering, Output is 1-based!">;
+        uint16  TotalSectors  <bgcolor=cLtGreen>;
+        UBYTE   FileType;
+        uint16  StartingAdd  <bgcolor=cLtRed>;
+        uint16  EndingAdd  <bgcolor=cLtGreen>;
+        uint16  StartingAddress  <bgcolor=cGreen, format=hex>;
+        uint16  HighLine;
+        UBYTE   spare[3];
+    }
+    else if ((imgfile.variant == CPM1) || 
+             (imgfile.variant == CPM2) ){
+        UBYTE   UserNumber <comment=CPMFILDEL>;
+        CHAR    FileName[8] <fgcolor=cPurple, bgcolor=cWhite>;
+        CHAR    FileExtension[3] <fgcolor=cPurple, bgcolor=cWhite,comment="Bit7 is read-only on [0] and hidden on [1],">;
+        uint16  ExtentCounter  <bgcolor=cLtRed>;
+        UBYTE   reserved;
+        UBYTE   TotalRecords  <bgcolor=cLtGreen, comment="one Record = 128 Bytes">;
+        if (imgfile.variant == CPM1)
+            UBYTE   AllocationTable[16] <bgcolor=cGreen>;
+        else if (imgfile.variant == CPM2)
+            uint16  AllocationTable[8] <bgcolor=cGreen>;
+    }
+    else if (imgfile.variant == CP68){
+        CHAR    FileName[8] <fgcolor=cPurple, bgcolor=cWhite>;
+        CHAR    Dot;
+        CHAR    FileExtension[3] <fgcolor=cPurple, bgcolor=cWhite,comment="Bit7 is read-only on [0] and hidden on [1],">;
+        UBYTE   TextEndMark;
+        UBYTE   FileType <comment="0-Binary, 1-Binary Runnable, 2-Random, 3-Text">;
+        UBYTE   FileAccessCode <comment="0-no protection, 1-can be Renamed but not Deleted, 2-neither Rename nor Delete">;
+        UBYTE   FirstTrack  <bgcolor=cGreen>;
+        UBYTE   FirstSector  <bgcolor=cLtRed>;
+        UBYTE   LastTrack  <bgcolor=cGreen>;
+        UBYTE   LastSector  <bgcolor=cLtRed>;
+        uint16  TotalSectors  <bgcolor=cLtGreen>;
+        UBYTE   Unused[11];
+    }
+    else if (imgfile.variant == DOS68){
+        CHAR    FileName[6] <fgcolor=cPurple, bgcolor=cWhite>;
+        CHAR    FileExtension[3] <fgcolor=cPurple, bgcolor=cWhite>;//,comment="Bit7 is read-only on [0] and hidden on [1],">;
+        UBYTE   FileType ;//<comment="0-Binary, 1-Binary Runnable, 2-Random, 3-Text">;
+        UBYTE   FileStatus ;//<comment="0-no protection, 1-can be Renamed but not Deleted, 2-neither Rename nor Delete">;
+        UBYTE   FirstTrack  <bgcolor=cGreen, comment=GET_DOS68TRK>;
+        UBYTE   FirstSector  <bgcolor=cLtRed, comment=GET_DOS68SEC>;
+        UBYTE   LastTrack  <bgcolor=cGreen, comment=GET_DOS68TRK>;
+        UBYTE   LastSector  <bgcolor=cLtRed, comment=GET_DOS68SEC>;
+        uint16  TotalSectors  <bgcolor=cLtGreen>;
+        UBYTE   Unused[7];
+    }
+    else if (imgfile.variant == ATARI1){
+        UBYTE   FileStatus <format=binary, comment="Bit 7 set if file deleted. Bit 6 set if file in use. Bit 5 set if file locked. Bit 0 set if file open for output">;
+        uint16  TotalSectors  <bgcolor=cLtGreen>;
+        uint16  FirstSector  <bgcolor=cLtRed>;
+        CHAR    FileName[8] <fgcolor=cPurple, bgcolor=cWhite>;
+        CHAR    FileExtension[3] <fgcolor=cPurple, bgcolor=cWhite>;//,comment="Bit7 is read-only on [0] and hidden on [1],">;
+    }
+    else if (imgfile.variant == APPLE1){
+        UBYTE   FirstTSLTrack  <bgcolor=cGreen>;
+        UBYTE   FirstTSLSector  <bgcolor=cLtRed>;
+        APPLE_FTYP  FileType <format=hex>;
+        CHAR    FileName[30] <fgcolor=cPurple, bgcolor=cWhite>;
+        uint16  TotalSectors  <bgcolor=cLtGreen>;
+    }
+    else if ((imgfile.variant == D64) ||
+             (imgfile.variant == D81)) {
+        UBYTE   NextDirBlockTrack <bgcolor=cLtRed>;
+        UBYTE   NextDirBlockSector <bgcolor=cLtGreen>;
+        CBM_FTYP  FileType <format=hex>;
+        UBYTE   FirstTrack  <bgcolor=cGreen, comment="Commodore uses 1-based Track Numbering!">;
+        UBYTE   FirstSector  <bgcolor=cLtRed, comment="Commodore uses 0-based Sector Numbering!">;
+        CHAR    FileName[16] <fgcolor=cPurple, bgcolor=cWhite>;
+        UBYTE   FirstRELTrack  <bgcolor=cGreen>;
+        UBYTE   FirstRELSector  <bgcolor=cLtRed>;
+        UBYTE   RELTotalSectors  <bgcolor=cLtGreen>;
+        UBYTE   maybeGEOSuse[6];
+        uint16  TotalSectors  <bgcolor=cLtGreen>;
+    }
+    else if (imgfile.variant == ES65){
+        CHAR        FileName[32] <fgcolor=cPurple, bgcolor=cWhite>;
+        CHAR        FirstUser[8];
+        UBYTE       FUserID[3];
+        UBYTE       Version <comment="This is the Version of this File.">;
+        UBYTE       not_used1[1];          // always 0
+        UBYTE       FileID <bgcolor=cRed, comment="This links the file with the sector table, must start with 3">;
+        uint16      TotalSectors  <bgcolor=cLtGreen>;
+        CHAR        LastUser[8];
+        UBYTE       LUserID[3];
+        UBYTE       not_used2[5];        
+    }
+} SHORTENTRY <optimize=false>;
+
+string CPMFILDEL(UBYTE &UserNumber){
+    switch (UserNumber){
+        case 0xE5:
+            return "File Deleted!";
+        break;
+        default:
+            return "Regular File";
+        break;
+    }
+}
+
+// ########################### FLEX SIR  ##############################
+typedef struct  {
+    if (imgfile.variant == FLEX2){
+        UBYTE   not_used1[16] <bgcolor=cDkGray>;
+        CHAR    VolumeLabel[8] <fgcolor=cPurple, bgcolor=cWhite>;
+        uint16  VolumeNumber;
+        UBYTE   FirstFreeTrack <bgcolor=cGreen>;
+        UBYTE   FirstFreeSector <bgcolor=cLtRed>;
+        UBYTE   LastFreeTrack <bgcolor=cGreen>;
+        UBYTE   LastFreeSector <bgcolor=cLtRed>;
+        uint16  FreeSectors <bgcolor=cLtGreen>;
+        UBYTE   DateMonth;
+        UBYTE   DateDay;
+        UBYTE   DateYear;
+        UBYTE   EndTrack <bgcolor=cGreen>;
+        UBYTE   EndSector <bgcolor=cLtRed>;
+        UBYTE   dn1;
+        UBYTE   dn2;
+        UBYTE   dn3;
+        UBYTE   not_used2[216] <bgcolor=cDkGray>;
+        UBYTE   not_used3[256] <bgcolor=cDkGray>;
+    }
+    else if (imgfile.variant == FLEX1){
+        UBYTE   not_used2[128];// <bgcolor=cDkGray>;
+    }
+} FLEX_SIR <optimize=false>;
+
+// ###########################  Bootsector  ##########################
+// es65 has special bootsector
+typedef struct  {
+    local UBYTE c,h,s,i;
+    local INT64 off;
+    if (imgfile.variant == ES65){
+        CHAR    VolumeLabel[8] <fgcolor=cPurple, bgcolor=cWhite,comment="Name for mount command!">;
+        UBYTE   emptyMarker1[8]; // just 8 * e5
+        CHAR    creator[8] <comment="User who created the disk">;
+        UBYTE   creatorID[3] <format=hex>;
+        uint16  ErrorCnt;
+        UBYTE   Sectors[3];     // sectors that are worked on
+        CHAR    lastUserd[8] <comment="last User who worked the disk">;
+        UBYTE   userID3[3];
+        uint16  mounts;
+        UBYTE   emptyMarker2[3]; // just 3 * e5
+        //for (i=0; i<32; i++){
+            UBYTE FileStatus[16] <format=hex, comment="one nibble per file!">;//, name="FileStatus">; 
+        //}
+        UBYTE   always_ff[48] <bgcolor=cDkGray>;
+        UBYTE SectorTable[0x190] <bgcolor=cRed, comment="This links to the FileID, one byte is one sector", comment=ReadES65SecTab>; // This shows all the sectors (40*10 or 0x190)
+    }
+    else if (imgfile.variant == ATARI1){
+        UBYTE  BootFlag2 <comment="representing boot flag">;
+        UBYTE  BootRecordSize <comment="representing the number of sectors the boot record takes">;
+        uint16 BootAddress <format=hex>;// (0700)
+        uint16 InitAddress <format=hex>;
+        UBYTE  JMP <comment="JMP command (4B) used with address in following 2 bytes)">;
+        uint16 BootContinuationAddress <format=hex>;
+        UBYTE  MaxFilesOpen; // (1-8)
+        UBYTE  SpecificDrivesSupported <format=binary, comment="bitmap where low-order bit means drive 1, next bit drive 2, and so on up to 4">;
+        UBYTE  BufferAllocationDirection; // (set to 0)
+        uint16 BootEndAddress <format=hex>;
+        UBYTE  BootFlag2 <comment="must be nonzero if DOS.SYS is on disk">;
+        UBYTE  SectorCount <comment="not used">;
+        uint16 DOS_SYSSectorStart <comment="DOS.SYS starting sector number">;
+        UBYTE  Bootcode_2nd_Phase[110] <format=hex>; // Code for second phase of boot 
+        if (BootRecordSize > 0){
+            FSeek(1 * imgfile.bps + imgfile.blind_header);
+            for (i=1; i<BootRecordSize; i++){
+                ATARI_CLUSTER DOS_SYS (imgfile.bps);
+                //off = (ATARI_SECT_CONV(DOS_SYS.NextSector)-1) * imgfile.bps + imgfile.blind_header;
+                //FSeek(off);
+            }
+        }
+    }
+    else {
+        OFF_to_CHS(c, h, s, 0); 
+        for (i=0; i<imgfile.bootsect/imgfile.bps; i++){
+            SECTORPLAIN sector(imgfile.bps);
+            GET_NEXTCPMSECTOR(c,h,s);
+            off = CHS_to_OFF(c,h,s);
+            FSeek(off);
+            OFF_to_CHS(c, h, s, off);
+        }
+        //UBYTE Data[imgfile.bootsect];
+    }
+
+} BOOTSECTOR <read=ReadBOOTSECTOR, optimize=false>;
+
+string ReadES65SecTab (UBYTE & sectab){
+    local string str <hidden=true>;
+    if (sectab == 0) SPrintf(str, "Free");
+    else if (sectab == 1) SPrintf(str, "System");
+    else if (sectab == 2) SPrintf(str, "Directory");
+    else SPrintf(str, "File with ID: %u", sectab);
+    return str;
+}
+
+string ReadBOOTSECTOR (BOOTSECTOR &boot) {
+    if (imgfile.variant == ES65)
+        return boot.VolumeLabel;
+    else
+        return GET_CHS(startof(boot));
+}
+// ########################## 
+// ####    IMAGEFILE    ##### 
+// ########################## 
+// ########################## 
+// ####  Blind HEADER   ##### 
+// ########################## 
+//  |   
+//  |       
+//   -->     Disk Structure
+//      ##########################         _______________
+//      #####   BOOTSECTOR   #####        |              ||
+//      ##########################        |              \/               This Block is duplicated until
+//      #####     ROOTDIR    ##### -------   ########################## < dir_enries is reached.
+//      ##########################           #####   SHORTENTRY   #####
+//      #####  SECTORPLAIN  ###### - until   ##########################
+//      ##########################   end     #####  SECTORPLAIN  ##### -> Links the the Data Clusters
+//                                           ##########################    (can be more than one).
+//                                                                          
+
+void FillFormat(DRIVE &d){
+    switch (d.variant) {
+    case CPM2:
+        h=2; c=80; s=9, bps=512, bootsect=4*9*512, dir_clust_sz=2048, dir_entries=128;
+        Printf("Filled\r");
+    break;
+    default:
+        Printf("Wrong\r");
+    break;
+    }
+}
+
+// ########################  Atari ATR Header  ########################
+typedef struct {
+    uint16 Signature;
+    uint16 TotalSize <comment="size of this disk image, in paragraphs (size/16)", read=Str("%d", this*16)>;
+    uint16 SectorSize <comment="sector size. (128 or 256) bytes/sector">;
+    uint16 HiTotalSize <comment="high part of size, in paragraphs ">;
+    UBYTE DiskFlags <format=binary, comment="Bit 4 = 1 means the disk image is treated as copy protected (has bad sectors). Bit 5 = 1 means the disk is write protected">;
+    uint16 BadSectors;
+    UBYTE not_used1[5];
+} ATRHEADER <optimize=false>;
+
+void FillSectab(UBYTE st[]){
+    local UBYTE i;  //1  2  3  4  5  6  7  8  9  10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40
+    local UBYTE sectab[40]={21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,19,19,19,19,19,19,19,18,18,18,18,18,18,17,17,17,17,17,17,17,17,17,17};
+    for (i=0; i<40; i++){
+        st[i] = sectab[i];
+    }
+}
+
+typedef struct {
+    local INT64 size = FileSize();
+    local uint16 bootsect, blind_header; //blind header is NOT part of c,h,s calculations (= not in floppy image)
+    local UBYTE c,h,s,i,record, idx <hidden=true>;
+    local uint16 dir_entries;
+    local UBYTE sectab[40];
+    local string str;
+    local uint16 bps, dir_clust_sz;
+    local VARIANT variant;
+    // default values
+    record=128; //CPM Record Size
+    h=1; s=0; c=0; bps=0; bootsect=0; dir_clust_sz=0; blind_header=0;
+    BigEndian(); // Default for 6800, 6809,...
+    
+
+//####################################################################################
+// Guessing which disk is it?
+//####################################################################################
+// 
+// h:            How many Sides (1 or 2)
+// C:            Tracks per side (usually <= 80)
+// s:            Sectors per Track (starts at 1)
+// bps:          Bytes per Sector
+// bootsect:     Size of Bootsector in Bytes
+// dir_clust_sz: CP/M: Locgial Blocksize in Bytes, FLEX: Blocks of Directory entries.
+// dir_entries:  Entries per Block for FLEX or total for CP/M
+// header:       Sometimes there is header data in the file    
+// variant:      which OS is this disk for
+//               FLEX1: FLEX Version 1 (for MC6800)
+//               FLEX2: FLEX Version 2 (for MC6800)
+//               FDOS: FDOS (for MC6800)
+//               CPM1: CP/M with 8 bit File Allocation Table
+//               CPM2: CP/M with 16 bit File Allocation Table
+//              
+//              
+// ########################################################################################################
+//                   HOW TO ADD SUPPORT FOR NEW IMAGES
+//  
+// 1:   Add a new case below with the correct filesize and hopefully you have the geometry of the image (c,h,s)  
+//      If there is already a case with the same size, make a new entry in "InputRadioButtonBox" or copy an existing one.
+// 2:   Use the correct CPU Architecture (LittleEndian) is necessary.
+// 3:   use variant=NONE for now
+// 4:   bootsector can be any size for now
+// 5:   Run the script and find the start of the Directory Entries (Position = bootsector)
+// 6:   Find the pattern in the directory entries and figure out the length of one entry 
+//      Figure out the size of the directory block. dir_entries = length total / entry size
+// 7:   Count the Rest of the data. datasize / sectors / bps should be a round number
+//      (it ithe rest of free sectors), if not, recheck the directorysize or bootsectorsize.
+// 8:   Check if the data start after the directory block.
+//      Open the struct DIRENTRYSET. You find two structs: SHORTENTRY and SECTORPLAIN. Check if 
+//      SECTORPLAIN start exactly after the directoryblock.
+// 9:   Make a new Variant and add "else if{}" entries to DIRENTRYSET, SHORTENTRY, ROOTDIR
+// 10:  Fill out the SHORTENTRY struct.
+// 11:  Figure out how the datablocks are linked together.
+//          
+// ########################################################################################################
+
+    switch (size){
+    case 819200: // o+r CP/M 1 or d81
+         idx = InputRadioButtonBox("Please select which System this image belongs to.", "Pick one.", -1,
+               "Oettle + Reichler: ", 
+               "Commodore D81: ");
+        switch (idx){
+        case 0: // o+r CP/M 1
+            h=2; c=80; s=5; bps=1024; bootsect=4*s*bps; dir_clust_sz=4096; dir_entries=128; variant=CPM1;
+            str = "CPM o+r1"; LittleEndian(); //Z80 based
+        break;
+        case 1: // D81
+            h=2; c=40; s=40; bps=256; dir_entries=296; variant=D81;
+            str = "D81"; LittleEndian(); //6502 based;
+        break;
+        case 2:
+        break;
+        default:
+            return;
+        break;
+        }
+    break;        
+    case 737280: // o+r CP/M 3
+        h=2; c=80; s=9; bps=512; bootsect=4*s*bps; dir_clust_sz=2048; dir_entries=128; variant=CPM2;
+        str = "CPM o+r3"; LittleEndian(); //Z80 based 
+    break;
+    case 349696: // Commodore D71   --NOT DONE!!!!--
+        FillSectab(sectab); // s=0 if sectab is used!
+        h=2; c=35; bps=256; dir_entries=144; variant=D64; // is essentially twice the tracks as D64
+        str = "D64"; LittleEndian(); //6502 based;  
+    break;
+    case 315392: // P2500 CP/M   --NOT DONE!!!!--
+        c=77; s=16; bps=256; bootsect=2*s*bps; dir_clust_sz=2048; dir_entries=128; variant=CPM1;
+        str = "CPM P2500"; LittleEndian();  //Z80 based 
+    break;
+    case 209920: // Kaypro DS CP/M   --NOT DONE!!!!--
+        c=40; s=10; bps=512; bootsect=1*s*bps; dir_clust_sz=1024; dir_entries=128; variant=CPM1;
+        str = "CPM Kaypro DS"; LittleEndian(); //Z80 based 
+    break;
+    case 204800: // FLEX 2.0 DS or CP/M Osborne SSDD
+        idx = InputRadioButtonBox("Please select which System this image belongs to.", "Pick one.", -1,
+               "Osborne SSDD: ", 
+               "FLEX DS: ");
+        switch (idx){
+        case 0: // osborne DD
+            c=40; s=5; bps=1024; bootsect=3*s*bps; dir_clust_sz=1024; dir_entries=64; variant=CPM1;
+            str = "CPM Osborne DD"; LittleEndian(); //Z80 based 
+        break;
+        case 1: // FLEX DS
+            h=2; c=40; s=10; bps=256; bootsect=512; dir_clust_sz=16; dir_entries=10; variant=FLEX2;
+            str = "Flex 2";
+        break;
+        case 2:
+        break;
+        default:
+            return;
+        break;
+        }
+    break;
+    case 184320: // Amstrad CPC CP/M or Data
+        idx = InputRadioButtonBox("Please select is this a System or Data Disc.", "Pick one.", -1,
+               "Amstrad Data: ", 
+               "Amstrad System: ");
+        switch (idx){
+        case 0: // Amstrad Data (without Bootsector)
+            c=80; s=16; bps=512; dir_clust_sz=1024; dir_entries=64; variant=CPM1;
+            str = "Amstrad CPC Data"; LittleEndian(); //Z80 based 
+        break;
+        case 1: // Amstrad System (with Bootsector)
+            c=80; s=16; bps=512; bootsect=0x2400; dir_clust_sz=1024; dir_entries=64; variant=CPM1;
+            str = "Amstrad CPC System"; LittleEndian(); //Z80 based 
+        break;
+        case 2:
+        break;
+        case 3:
+        break;
+        default:
+            return;
+        break;
+        }
+
+    break;
+    case 174848: // Commodore D64
+        FillSectab(sectab); // s=0 if sectab is used!
+        c=35; bps=256; dir_entries=144; variant=D64;
+        str = "D64"; LittleEndian(); //6502 based;  
+    break;
+    case 161280: // DOS 68 DS
+        h=2; c=35; s=18; bps=128; bootsect=128; dir_entries=80; variant=DOS68;
+        str = "DOS68";        
+    break;
+    case 161792: // ecma70 CP/M   Bootsector is 1 Track FM (128bps), the Rest MFM (256bps)
+        c=40; s=16; bps=256; bootsect=(s*128)+(3*s*bps); dir_clust_sz=1024; dir_entries=64; variant=CPM1;
+        str = "CPM ecma70"; LittleEndian(); //Z80 based 
+    break;
+    case 143360: // Apple II DOS 3.3
+        c=35; s=16; bps=256; bootsect=(3*s*bps); variant=APPLE1;
+        str = "Apple II DOS3.3 SSSD"; LittleEndian(); //6502 based 
+    break;    
+    break;
+    case 133136: // Atari 8-bit SS ED                     ATR Header is not in floppy image
+        c=40; s=26; bps=128; bootsect=(1*bps); dir_entries=64; blind_header=16; variant=ATARI1;
+        str = "Atari SSED"; LittleEndian(); //6502 based 
+    break;    
+    case 102400: // FLEX 2.0 SS or es65 or Osborne SSSD
+        idx = InputRadioButtonBox("Please select which System this image belongs to.", "Pick one.", -1,
+               "Osborne SSSD: ", 
+               "FLEX SS: ",
+               "es65: ");
+        switch (idx){
+        case 0: // osborne SD
+            c=40; s=10; bps=256; bootsect=(3*s*bps); dir_clust_sz=1024; dir_entries=32; variant=CPM1;
+            str = "CPM Osborne SD"; LittleEndian(); //Z80 based 
+        break;
+        case 1: // FLEX SS
+            c=40; s=10; bps=256; bootsect=512; dir_clust_sz=6; dir_entries=10; variant=FLEX2;
+            str = "Flex 2";
+        break;
+        case 2:
+            c=40; s=10; bps=256; bootsect=2*bps; dir_entries=32; variant=ES65;
+            str = "es65"; LittleEndian(); //6502 based;
+        break;
+        case 3:
+        break;
+        default:
+            return;
+        break;
+        }
+
+    break;
+    case 92176: // Atari 8-bit SS SD                     ATR Header is not in floppy image
+        c=40; s=18; bps=128; bootsect=(1*bps); dir_entries=64; blind_header=16; variant=ATARI1;
+        str = "Atari SSSD"; LittleEndian(); //6502 based 
+    break;
+    case 89600: // can be FDOS or FLEX 2 SS
+        idx = InputRadioButtonBox("Please select which System this image belongs to.", "Pick one.", -1,
+               "FLEX SS: ",
+               "FDOS: ");
+        switch (idx){
+        case 0: // FLEX SS
+            c=35; s=10; bps=256; bootsect=512; dir_clust_sz=6; dir_entries=10; variant=FLEX2;
+            str = "Flex 2";
+        break;
+        case 1: // FDOS
+            c=35; s=10; bps=256; bootsect=5120; dir_entries=80; variant=FDOS;
+            str = "FDOS";
+        break;
+        case 2:
+        break;
+        case 3:
+        break;
+        default:
+            return;
+        break;
+        }
+    break;
+    case 80640: // can be CP68, DOS68 SS or FLEX 1
+        idx = InputRadioButtonBox("Please select which System this image belongs to.", "Pick one.", -1,
+               "FLEX1: ",
+               "CP68: ",
+               "DOS68: ");
+        switch (idx){
+        case 0: // FLEX SS
+            c=35; s=18; bps=128; bootsect=256; dir_clust_sz=15; dir_entries=5; variant=FLEX1;
+            str = "Flex 1";
+        break;
+        case 1: // CP68 
+                c=35; s=18; bps=128; bootsect=3*bps; dir_entries=60; variant=CP68;
+                str = "CP68";
+        break;
+        case 2: // DOS68   --NOT DONE!!!!--
+                c=35; s=18; bps=128; bootsect=128; dir_entries=3; variant=DOS68;
+                str = "DOS68";
+        break;
+        case 3:
+        break;
+        default:
+            return;
+        break;
+        }
+    break;
+    default:
+        c=40; s=16; bps=256; bootsect=(s*128)+(3*s*bps); dir_clust_sz=1024; dir_entries=64; variant=NONE;
+        str = "None"; LittleEndian(); //Z80 based 
+        MessageBox( idOk, "Format NOT Found!", 
+               "Please Enter the CHS Information in the Template at Line 915" );
+        Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r");
+        Printf("Format NOT Found! Please Enter the CHS Information in the Template at Line 915\r");
+        Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r");
+        return;
+    break;     
+    }
+    Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r");
+    Printf("         %s Disk with C: %i H: %i S: %i BPS: %i.\r", str, c, h, s, bps);
+    Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r");
+
+
+    if (imgfile.blind_header > 0){
+        ATRHEADER atrheader;
+        SetStartingAddress(-imgfile.blind_header);
+    }
+
+    DRIVE drive;
+    if (imgfile.variant == ATARI1){
+        FSeek(719*imgfile.bps + imgfile.blind_header);
+        SECTORPLAIN unuseable_sector(imgfile.bps) <bgcolor=cDkGray>;
+    }
+} IMGFILE <optimize=false, open=true, read=GuessDisk>;
+
+typedef struct {
+    if (imgfile.bootsect > 0)
+        BOOTSECTOR bootsector <bgcolor=cLtPurple>;
+    
+    if ((imgfile.variant == FLEX2) || (imgfile.variant == FLEX1))
+        FLEX_SIR flex_sir  <bgcolor=cLtBlue>;
+
+    if (imgfile.variant == D64){
+        FSeek(CHS_to_OFF(18, 0, 0)); // Directory is on CBM Track 18
+    }
+    if (imgfile.variant == D81){
+        FSeek(CHS_to_OFF(40, 0, 0)); // Directory is there
+    }
+    if (imgfile.variant == APPLE1){
+        FSeek(CHS_to_OFF(17, 0, 1)); // Directory is there
+    }
+    if (imgfile.variant == ATARI1){
+        FSeek(359*imgfile.bps + imgfile.blind_header);
+    }
+
+    ROOTDIR rootdir  <bgcolor=cLtYellow>;
+
+} DRIVE <open=true, optimize=false>;
+
+string GuessDisk(IMGFILE &f){
+    string str;
+
+    SPrintf( str, "Sz: %u, C: %i, H: %i, S: %i", f.size, f.c, f.h, f.s);
+    return str;
+}
+
+UBYTE FileSystemRecognizer() {  // Here the disk gets declared
+    local INT64 startPos <hidden=true> = FTell();
+    IMGFILE imgfile;
+    return 1;
+}
+
+////////////////////////////////////////////////////////////////////////
+// THIS IS THE ACTUAL STARTING POINT OF EXECUTION IN THE TEMPLATE
+////////////////////////////////////////////////////////////////////////
+
+if (FileSystemRecognizer()) {
+    //Printf("DRIVE: Success with partition-free detection (sector size == %d).\r\n", 512);
+    return;
+}
+return;

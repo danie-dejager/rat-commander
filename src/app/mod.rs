@@ -41,6 +41,9 @@ pub async fn run(startup: crate::Startup, last_dir_file: Option<std::path::PathB
     // Generate/discover the `lang/` files and activate the configured language
     // before anything renders.
     crate::l10n::load_languages(state.config.language.as_deref());
+    // Put the bundled binary templates in the config directory (quickly a
+    // no-op once they are there), off the main thread.
+    std::thread::spawn(crate::bt::library::deploy_once);
     crate::l10n::set_reshape_rtl(state.config.reshape_rtl);
     // The shell the command line and Ctrl-O run (empty = detect it).
     crate::shell::set_preferred(&state.config.shell);

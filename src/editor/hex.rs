@@ -15,6 +15,47 @@ use std::path::Path;
 /// Bytes shown per row.
 pub const BYTES_PER_ROW: u64 = 16;
 
+/// Where things are on a hex row — `offset  hex bytes (gap after 8)  |ascii|` —
+/// in one place for the renderer, the mouse and the hardware cursor. The offset
+/// column widens past 8 digits for files over 4 GiB.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HexGeom {
+    pub off_w: u16,
+}
+
+impl HexGeom {
+    pub fn for_len(len: u64) -> HexGeom {
+        let last = len.saturating_sub(1);
+        let digits = if last == 0 { 1 } else { (64 - last.leading_zeros()).div_ceil(4) as u16 };
+        HexGeom { off_w: digits.max(8) }
+    }
+
+    /// Columns a row takes.
+    pub fn width(&self) -> u16 {
+        self.off_w + 69
+    }
+
+    /// Column of hex cell `j`.
+    pub fn hex_col(&self, j: u16) -> u16 {
+        self.off_w + 2 + 3 * j + u16::from(j >= 8)
+    }
+
+    /// Column of ASCII cell `j`.
+    pub fn ascii_col(&self, j: u16) -> u16 {
+        self.off_w + 52 + j
+    }
+
+    /// The byte (and whether in the ASCII column) at column `x` of a row, if
+    /// `x` is on a cell.
+    pub fn cell_at(&self, x: u16) -> Option<(u16, bool)> {
+        let bpr = BYTES_PER_ROW as u16;
+        if x >= self.ascii_col(0) && x < self.ascii_col(bpr) {
+            return Some((x - self.ascii_col(0), true));
+        }
+        (0..bpr).find(|&j| x >= self.hex_col(j) && x < self.hex_col(j) + 2).map(|j| (j, false))
+    }
+}
+
 pub struct HexEditor {
     file: File,
     pub len: u64,
@@ -33,6 +74,9 @@ pub struct HexEditor {
     /// Whether a save has actually altered the file (⇒ text view must reload).
     pub saved_any: bool,
     pub view_rows: usize,
+    /// Bumped by every change to the bytes as shown (an edit, a save), so
+    /// things computed from them know to look again.
+    pub rev: u64,
 }
 
 impl HexEditor {
@@ -64,6 +108,7 @@ impl HexEditor {
             dirty: false,
             saved_any: false,
             view_rows: 1,
+            rev: 0,
         })
     }
 
@@ -103,6 +148,24 @@ impl HexEditor {
         }
         self.overlay.insert(off, val);
         self.dirty = true;
+        self.rev += 1;
+    }
+
+    /// Overwrite the bytes at `off` (clipped to the file). Returns false for a
+    /// read-only file.
+    pub fn set_bytes(&mut self, off: u64, bytes: &[u8]) -> bool {
+        if self.readonly {
+            return false;
+        }
+        for (k, &b) in bytes.iter().enumerate() {
+            self.set_byte(off + k as u64, b);
+        }
+        true
+    }
+
+    /// The pending, unsaved edits.
+    pub fn overlay_snapshot(&self) -> BTreeMap<u64, u8> {
+        self.overlay.clone()
     }
 
     /// Flush pending edits to the file, in place (one seek+write per changed
@@ -121,6 +184,7 @@ impl HexEditor {
         }
         self.overlay.clear();
         self.dirty = false;
+        self.rev += 1;
         Ok(())
     }
 
@@ -157,8 +221,9 @@ impl HexEditor {
         self.nibble_low = false;
     }
 
-    pub fn toggle_pane(&mut self) {
-        self.ascii_pane = !self.ascii_pane;
+    /// Put the cursor in the ASCII column (`true`) or the hex column.
+    pub fn set_pane(&mut self, ascii: bool) {
+        self.ascii_pane = ascii;
         self.nibble_low = false;
     }
 
@@ -316,7 +381,7 @@ mod tests {
     fn ascii_pane_overwrite_keeps_length() {
         let p = tmp(b"abc");
         let mut h = HexEditor::open(&p).unwrap();
-        h.toggle_pane();
+        h.set_pane(true);
         h.input_ascii('X'); // overwrite 'a'
         h.save().unwrap();
         assert_eq!(std::fs::read(&p).unwrap(), b"Xbc");
@@ -365,5 +430,29 @@ mod tests {
         let w = h.window(0, 4);
         assert_eq!(&w, b"A123");
         std::fs::remove_file(&p).ok();
+    }
+}
+
+#[cfg(test)]
+mod geom_tests {
+    use super::*;
+
+    #[test]
+    fn the_geometry_matches_the_classic_layout_and_widens_for_huge_files() {
+        let g = HexGeom::for_len(100);
+        assert_eq!(
+            (g.off_w, g.width(), g.hex_col(0), g.hex_col(8), g.ascii_col(0)),
+            (8, 77, 10, 35, 60)
+        );
+        assert_eq!(g.cell_at(10), Some((0, false)));
+        assert_eq!(g.cell_at(11), Some((0, false)));
+        assert_eq!(g.cell_at(12), None);
+        assert_eq!(g.cell_at(35), Some((8, false)));
+        assert_eq!(g.cell_at(75), Some((15, true)));
+        assert_eq!(g.cell_at(76), None);
+        let big = HexGeom::for_len(0x1_0000_0001);
+        assert_eq!(big.off_w, 9);
+        assert_eq!(big.hex_col(0), 11);
+        assert_eq!(big.cell_at(big.ascii_col(3)), Some((3, true)));
     }
 }

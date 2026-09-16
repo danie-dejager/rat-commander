@@ -1,0 +1,469 @@
+//------------------------------------------------
+//--- 010 Editor v5.0.2 Binary Template
+//
+//      File: AndroidManifest.bt
+//   Authors: dongmu
+//   Version: 1.3.0
+//   Purpose: Define a template for parsing
+//            AndroidManifest.xml binary files.
+//  Category: Operating System
+// File Mask: AndroidManifest.xml
+//  ID Bytes: 03 00
+//   History: 
+//   1.3.0 2025-10-11 av.gantimurov: Skip gaps in startTagChunks - obfuscation
+//                                   Add obfuscates string coloring
+//                                   Add checks for attributes names
+//   1.2.0 2025-05-21 trganda: Ignore unknown chunkk, useful for obfuscation;
+//                             Added support for UTF-8 string, added comment of string chunk reference.
+//   1.1.3 2024-03-06 ckcat: Separated type and headerSize. Added check to StringChunk.
+//   1.1.2 2022-12-18 hj: skip some useless bytes at end of STCHUNK. 
+//   1.1.1 2019-09-16 lj94093: add a Read function for STRING_CHAR16_ITEM for better reading
+//   1.1   2016-02-11 SweetScape Software: Updated header for repository submission.
+//   1.0   dongmu: Initial release.
+//------------------------------------------------
+
+// Define the structures used in a 
+// AndroidManifest.xml binary file 
+
+// Define Chunk Header
+typedef struct {
+    ushort type;
+    ushort headerSize <format=hex>;
+    uint chunkSize <format=hex>;
+} ResChunkHeader;
+
+typedef struct {
+    ResChunkHeader resHeader;
+    uint lineNumber;
+    uint comment <format=hex,comment=ReadStringAt>;
+} ResXMLTreeNode;
+
+
+
+local uint g_sflags = 0;
+local uint g_entryOffset = 0;
+local uint g_stringPoolOffset = 0;
+
+// Define String Size
+typedef struct {
+    uchar h;
+    uchar l;
+} SFSIZE;
+
+// Define the string format
+typedef struct {
+    ushort sfSize <format=hex>;
+
+    local ushort trueSize = GetTrueSize(sfSize);
+
+    if (trueSize > 0) {
+        if (g_sflags) {
+            struct {
+                char c1;
+            } ONECHAR[ trueSize ];
+        } else {
+            struct {
+                char c1;
+                char c2;
+            } ONECHAR[ trueSize ];
+        }
+    }
+    
+    if (g_sflags) {
+        uchar sfEnd;
+    } else {
+        ushort sfEnd;
+    }
+} StringItem<read=ReadStringItem>;
+
+// Define the string chunk
+typedef struct {
+    ResChunkHeader resHeader;
+    uint scStringCount;
+    uint scStyleCount;
+    uint flags;
+    if (flags & 0x100) {
+        g_sflags = 1;
+    }
+    uint scStringPoolOffset;
+    uint scStylePoolOffset;
+    if (scStringCount > 0)
+        g_entryOffset = FTell();
+        uint scStringOffsets[ scStringCount ] <comment="Relative to the 0x8+scStringPoolOffset">;
+    
+    if (scStyleCount > 0) 
+        uint scStyleOffset[ scStylePoolOffset ];
+
+    // The Strings
+    local int i;
+    local uint addr;
+    local ushort sfsize;
+    local ushort sfend;
+
+    g_stringPoolOffset = 0x8 + scStringPoolOffset;
+
+    for (i = 0; i < scStringCount; i++) {
+	    addr = 0x8 + scStringPoolOffset + scStringOffsets[i];
+
+        if (addr < (0x8 + resHeader.chunkSize)) {
+            if (g_sflags) {
+                sfsize = ReadByte(addr);
+                if ((sfsize & 0x80U) != 0) {
+                    sfsize = ((sfsize & 0x7FU) << 8U) | ReadByte(addr + 0x1);
+                } else {
+                    sfsize = ReadByte(addr + 0x1);
+                }
+                sfend = ReadByte(addr + 0x1 + sfsize + 0x1);
+            } else {
+                sfsize = ReadShort(addr);
+                sfend = ReadShort(addr + sfsize * 2 + 0x2);
+            }
+ 
+            if (sfend != 0)
+                break;
+
+            FSeek(addr);
+            StringItem strItem <bgcolor=GetStringItemColor>;
+        }
+    }
+} StringChunk;
+
+// Define the Resource chunk
+typedef struct {
+    local int pos = FTell();
+    ResChunkHeader resHeader;
+    uint rcItem[ (resHeader.chunkSize - 8)/4 ];
+} ResourceIDChunk;
+
+// Define the Start Namespace Chunk
+typedef struct {
+    ResXMLTreeNode sncHeader;
+    uint sncPrefix <format=hex,comment=ReadStringAt>;
+    uint sncUri <format=hex,comment=ReadStringAt>;
+} SNCHUNK <read=ReadStartNSName>;
+
+// Define the End Namespace Chunk
+typedef struct {
+    ResXMLTreeNode encHeader;
+    uint encPrefix <format=hex,comment=ReadStringAt>;
+    uint encUri <format=hex,comment=ReadStringAt>;
+} ENCHUNK <read=ReadEndNSName>;
+
+
+typedef enum<uchar>
+{
+    // The 'data' is either 0 or 1, specifying this resource is either
+    // undefined or empty, respectively.
+    TYPE_NULL = 0x00,
+    // The 'data' holds a ResTable_ref, a reference to another resource
+    // table entry.
+    TYPE_REFERENCE = 0x01,
+    // The 'data' holds an attribute resource identifier.
+    TYPE_ATTRIBUTE = 0x02,
+    // The 'data' holds an index into the containing resource table's
+    // global value string pool.
+    TYPE_STRING = 0x03,
+    // The 'data' holds a single-precision floating point number.
+    TYPE_FLOAT = 0x04,
+    // The 'data' holds a complex number encoding a dimension value,
+    // such as "100in".
+    TYPE_DIMENSION = 0x05,
+    // The 'data' holds a complex number encoding a fraction of a
+    // container.
+    TYPE_FRACTION = 0x06,
+    // The 'data' holds a dynamic ResTable_ref, which needs to be
+    // resolved before it can be used like a TYPE_REFERENCE.
+    TYPE_DYNAMIC_REFERENCE = 0x07,
+    // Beginning of integer flavors...
+    TYPE_FIRST_INT = 0x10,
+    // The 'data' is a raw integer value of the form n..n.
+    TYPE_INT_DEC = 0x10,
+    // The 'data' is a raw integer value of the form 0xn..n.
+    TYPE_INT_HEX = 0x11,
+    // The 'data' is either 0 or 1, for input "false" or "true" respectively.
+    TYPE_INT_BOOLEAN = 0x12,
+    // Beginning of color integer flavors...
+    TYPE_FIRST_COLOR_INT = 0x1c,
+    // The 'data' is a raw integer value of the form #aarrggbb.
+    TYPE_INT_COLOR_ARGB8 = 0x1c,
+    // The 'data' is a raw integer value of the form #rrggbb.
+    TYPE_INT_COLOR_RGB8 = 0x1d,
+    // The 'data' is a raw integer value of the form #argb.
+    TYPE_INT_COLOR_ARGB4 = 0x1e,
+    // The 'data' is a raw integer value of the form #rgb.
+    TYPE_INT_COLOR_RGB4 = 0x1f,
+    // ...end of integer flavors.
+    TYPE_LAST_COLOR_INT = 0x1f,
+    // ...end of integer flavors.
+    TYPE_LAST_INT = 0x1f
+} ResDataType;
+
+
+// Define the Resource Value
+typedef struct {
+    ushort resValueSize;
+    uchar res0 <bgcolor=(this != 0 ? cLtRed : GetBackColor()),comment="Must be zero">;
+    ResDataType resDataType;
+    uint resData <format=hex,comment=(parentof(this).resDataType == TYPE_STRING ? ReadStringAt(this) : "")>;
+    
+
+} ResValue;
+
+// Define the Attribute Chunk
+typedef struct {
+    uint acNamespaceUri <format=hex,comment=ReadStringAt>;
+    uint acName <format=hex,comment=ReadStringAt,bgcolor=GetColorStr>;
+
+    uint acValueStr <format=hex,comment=(this != 0xFFFFFFFF ? ReadStringAt(this) : "")>; 
+
+    
+    ResValue resValue;
+} AttributeChunk <read=ReadAttributeName>;
+
+// Define the Start Tag Chunk
+typedef struct {
+    local int pos = FTell();
+    ResXMLTreeNode stcHeader;
+    uint stcNamespaceUri <format=hex,comment=ReadStringAt>;
+    uint stcName <format=hex,comment=ReadStringAt>;
+    
+    ushort attributeStart <fgcolor=(this != 20 ? cRed: GetForeColor()),comment="Must be 20">;
+    ushort attributeSize <fgcolor=(this != 20 ? cRed: GetForeColor()),comment="Must be 20">;
+    ushort stcAttributeCount;
+    ushort idIndex;
+    ushort classIndex;
+    ushort styleIndex;
+    
+    local string stcName_str = ReadStringAt(stcName);
+    local int i;
+    local int attributeStartOff = pos + attributeStart + stcHeader.resHeader.headerSize;
+    local int curPos = FTell();
+    if (curPos != attributeStartOff) {
+        // Attributes must be exactly after startTagHeader
+        // if not - obfuscation detected
+        local int gap_size = attributeStartOff - curPos;
+        Printf("0x%X: Unexpected gap %d bytes in TagChunk %s\n", curPos, gap_size, stcName_str);
+        ubyte _gap [ gap_size ] <hidden=true,style=sDataAccent>;
+    }
+    //FSeek(attributeStartOff);
+    for (i = 0; i < stcAttributeCount; i++) {
+        if (FTell() == pos + stcHeader.resHeader.chunkSize) {
+            break;
+        }
+        
+        FSeek(attributeStartOff + i * attributeSize);
+        
+        AttributeChunk attributeChunk <style=sData>;
+    }
+
+    local int endPos = pos + stcHeader.resHeader.chunkSize;
+    pos = FTell();
+
+    if (endPos > pos) {
+        Printf("0x%X: found gap %d bytes in end of TagChunk %s\n", pos, endPos-pos, stcName_str); 
+        FSeek(endPos);
+    }
+} STCHUNK <read=ReadStartTagName>;
+
+// Define the End Tag Chunk
+typedef struct {
+    ResXMLTreeNode etcHeader;
+    uint etcNamespaceUri <format=hex,comment=ReadStringAt>;
+    uint etcName <format=hex,comment=ReadStringAt>;
+} ETCHUNK <read=ReadEndTagName>;
+
+// Define the CDATA Chunk
+typedef struct {
+    ResXMLTreeNode cdataHeader;
+    ResValue resValue;
+} CDATACHUNK;
+
+//--------------------------------------
+// Functions
+
+// Read the String from StringPool with id
+string ReadStringAt (uint id) {
+    if (id == 0xFFFFFFFF)
+        //return "Not Exists";
+        return "";
+
+    if (g_entryOffset == 0 || g_stringPoolOffset == 0) {
+        return "";
+    }
+
+    // Read the offset to the string data
+    local uint offsetTable = g_entryOffset + id * 4;
+    local uint strOffset = ReadUInt(offsetTable);
+    local uint pos = g_stringPoolOffset + strOffset;
+
+    // Printf("g_entryOffset: %d; g_stringPoolOffset: %d\n", g_entryOffset, g_stringPoolOffset);
+    // Read string length
+    local ushort trueSize = GetTrueSize(ReadUShort(pos));
+    pos += 2;
+
+    local string result = "";
+    local int i;
+    if (g_sflags) {
+        // UTF-8
+        for (i = 0; i < trueSize; i++) {
+            result += ReadByte(pos + i);
+        }
+    } else {
+        // UTF-16
+        for (i = 0; i < trueSize; i++) {
+            result += ReadByte(pos + i * 2);
+        }
+    }
+
+    return result;
+}
+
+string ReadStartNSName(SNCHUNK &ns)
+{
+    return "<" + ReadStringAt(ns.sncPrefix) + ">";
+  
+}
+string ReadEndNSName(ENCHUNK &ns)
+{
+    return "</" + ReadStringAt(ns.encPrefix) + ">";
+  
+}
+string ReadStartTagName(STCHUNK &tag)
+{
+    return "<" + ReadStringAt(tag.stcName) + "...>";
+  
+}
+
+string ReadEndTagName(ETCHUNK &tag)
+{
+    return "</" + ReadStringAt(tag.etcName) + ">";
+  
+}
+string ReadAttributeName(AttributeChunk &attribute)
+{
+      return ReadStringAt(attribute.acName);
+}
+
+int64 GetColorStr(uint &id) {
+    local string str = ReadStringAt(id);
+    
+    if (Strstr(str, "\n") != -1) {
+        Printf("0x%X: found obfuscated string\n", FTell());
+        return cLtRed;
+    }
+    return GetBackColor();
+}
+// Calucalte the actual size of the string
+ushort GetTrueSize (ushort sfSize) {
+    local ushort trueSize = sfSize;
+    if (g_sflags) {
+        if ((trueSize & 0x8000U) != 0) {
+            trueSize = trueSize & 0x7FFFU;
+        } else {
+            trueSize = trueSize & 0x00FFU;
+        }
+    }
+    return trueSize;
+}
+
+// View the StringItem as string
+string ReadStringItem (StringItem &string_item) {
+    local string result="";
+    local int i;
+
+    local ushort trueSize = GetTrueSize(string_item.sfSize);
+
+    for(i=0; i<trueSize; i++) {
+        result+=string_item.ONECHAR[i].c1;
+    }
+
+    return result;
+}
+
+int64 GetStringItemColor(StringItem &string_item) {
+    local string str = ReadStringItem(string_item);
+    // Printf("string item: %s\n", str);
+    if (Strstr(str, "\n") != -1) {
+        // Printf(" fount new line\n");
+        return cLtRed;
+    }
+    return GetBackColor();
+}
+
+//--------------------------------------
+// Define the file
+
+local uint type;
+local ushort headerSize;
+local uint chunkSize;
+
+LittleEndian();
+ResChunkHeader header;
+
+//SetBackColor( cLtAqua );
+StringChunk stringChunk <style=sSection1>;
+// Sometimes there are some zeros padding after the string chunk
+FSeek(0x8 + stringChunk.resHeader.chunkSize);
+
+//SetBackColor( cLtBlue );
+ResourceIDChunk resourceChunk <style=sSection2>;
+FSeek(resourceChunk.pos+resourceChunk.resHeader.chunkSize);
+
+while(!FEof())
+{
+    // Read a tag
+    type = ReadUShort(FTell());
+
+    // Read data depending upon type
+    if (type == 0x0100) {
+        //SetBackColor( cLtPurple );
+        SNCHUNK startNamespaceChunk <style=sHeading3>;
+    }
+    else if (type == 0x0101) {
+        FSkip(0x2);
+        headerSize = ReadUShort(FTell());
+        FSkip(0x2);
+        chunkSize = ReadUInt(FTell());
+        // Skipping illegal chunk
+        if (((chunkSize|headerSize)&0x3) != 0 || chunkSize > 0x18) {
+           FSkip(chunkSize - 0x4);
+           continue;
+        }
+        FSeek(FTell() - 0x4);
+        //SetBackColor( cLtPurple );
+        ENCHUNK endNamespaceChunk <style=sHeading3>;
+    }
+    else if (type == 0x0102) {
+        //SetBackColor( cLtGreen );
+        STCHUNK startTagChunk <style=sSection3>;
+    }
+    else if (type == 0x0103)
+    {
+        FSkip(0x2);
+        headerSize = ReadUShort(FTell());
+        FSkip(0x2);
+        chunkSize = ReadUInt(FTell());
+        // Skipping illegal chunk
+        if (((chunkSize|headerSize)&0x3) != 0 || chunkSize > 0x18) {
+           FSkip(chunkSize - 0x4);
+           continue;
+        }
+        FSeek(FTell() - 0x4);
+        //SetBackColor( cLtGreen );
+        //SetBackColor( cGreen );
+        ETCHUNK endTagChunk <style=sSection3Accent>;
+    }
+    else if (type == 0x0104)
+    {
+        //SetBackColor( cLtBlue );
+        CDATACHUNK TextChunk <style=sSection2>;
+    } else {
+        // Skipping unknown chunk
+        FSkip(0x2);
+        headerSize = ReadUShort(FTell());
+        FSkip(0x2);
+        chunkSize = ReadUInt(FTell());
+        FSkip(chunkSize - 0x4); 
+    }
+}
+

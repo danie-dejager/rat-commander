@@ -9,7 +9,8 @@
 //! Key files are read on a blocking worker: decrypting one runs bcrypt-pbkdf,
 //! which takes long enough (~100ms) to stutter the render loop that awaits this.
 
-use super::{RemoteCreds, SshHandle};
+use super::sshconfig::home_dir;
+use super::{Hop, RemoteCreds, SshHandle};
 use crate::util::{Error, Result};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -29,32 +30,33 @@ pub(crate) fn default_key_paths() -> Vec<PathBuf> {
         .collect()
 }
 
-/// The keys to try for `creds`: the explicitly configured one if there is one,
-/// otherwise the defaults. An explicit key is used even if it does not exist,
-/// so a typo surfaces as an error instead of silently falling back.
-pub(crate) fn candidate_keys(creds: &RemoteCreds) -> Vec<PathBuf> {
-    let explicit = creds.key_file.trim();
-    if explicit.is_empty() { default_key_paths() } else { vec![expand_tilde(explicit)] }
-}
-
 /// Whether this key file is encrypted and so needs a passphrase before it can
 /// be used. Cheap: the format check fails before any KDF work is done.
 pub(crate) fn needs_passphrase(path: &Path) -> bool {
     matches!(russh::keys::load_secret_key(path, None), Err(russh::keys::Error::KeyIsEncrypted))
 }
 
-/// The name of the first candidate key that needs a passphrase, if any. Used as
-/// a pre-flight probe: the connect itself blocks the render loop, so the
-/// passphrase has to be collected *before* it starts rather than half way through.
+/// The name of the first key any hop would try that needs a passphrase, if
+/// any. Used as a pre-flight probe: the connect itself blocks the render loop,
+/// so the passphrase has to be collected *before* it starts rather than half
+/// way through.
 pub(crate) fn first_encrypted_key(creds: &RemoteCreds) -> Option<String> {
     if !matches!(creds.protocol, super::Protocol::Sftp | super::Protocol::Scp) {
         return None;
     }
-    candidate_keys(creds).into_iter().find(|p| needs_passphrase(p)).map(|p| display_path(&p))
+    let hops = super::plan(creds, &super::sshconfig::SshConfig::load_user()).ok()?;
+    hops.iter().flat_map(|h| &h.keys).find(|p| needs_passphrase(p)).map(|p| display_path(p))
 }
 
-/// Authenticate `handle` as `creds.user`. Returns once some method succeeds.
-pub(crate) async fn authenticate(handle: &mut SshHandle, creds: &RemoteCreds) -> Result<()> {
+/// Authenticate `handle` as `hop.user` with the hop's keys — and, on the last
+/// hop, the password from `creds`. Returns once some method succeeds. An
+/// explicit key file is used even if it doesn't exist, so a typo surfaces as
+/// an error instead of silently falling back.
+pub(crate) async fn authenticate(
+    handle: &mut SshHandle,
+    hop: &Hop,
+    creds: &RemoteCreds,
+) -> Result<()> {
     // RSA keys need the hash the server actually supports; for every other key
     // type this is ignored. Failing to negotiate one is not fatal.
     let rsa_hash = handle.best_supported_rsa_hash().await.ok().flatten().flatten();
@@ -63,7 +65,8 @@ pub(crate) async fn authenticate(handle: &mut SshHandle, creds: &RemoteCreds) ->
     let mut remaining: Option<Vec<russh::MethodKind>> = None;
 
     // 1. The agent, if one is running and holds anything.
-    if let Some(mut agent) = agent_client().await
+    if hop.agent
+        && let Some(mut agent) = agent_client().await
         && let Ok(identities) = agent.request_identities().await
     {
         for identity in identities {
@@ -73,7 +76,7 @@ pub(crate) async fn authenticate(handle: &mut SshHandle, creds: &RemoteCreds) ->
                 continue;
             };
             tried.push(format!("agent:{}", short_comment(&comment)));
-            match handle.authenticate_publickey_with(&creds.user, key, rsa_hash, &mut agent).await {
+            match handle.authenticate_publickey_with(&hop.user, key, rsa_hash, &mut agent).await {
                 Ok(result) if result.success() => return Ok(()),
                 Ok(result) => remember_remaining(&result, &mut remaining),
                 // A broken agent shouldn't stop the key/password fallbacks.
@@ -83,7 +86,7 @@ pub(crate) async fn authenticate(handle: &mut SshHandle, creds: &RemoteCreds) ->
     }
 
     // 2. Key files.
-    for path in candidate_keys(creds) {
+    for path in &hop.keys {
         let passphrase = (!creds.key_passphrase.is_empty()).then(|| creds.key_passphrase.clone());
         let for_blocking = path.clone();
         let loaded = tokio::task::spawn_blocking(move || {
@@ -97,13 +100,13 @@ pub(crate) async fn authenticate(handle: &mut SshHandle, creds: &RemoteCreds) ->
             // An unreadable, encrypted-without-passphrase or malformed key is
             // just a method that didn't work; keep going.
             Err(e) => {
-                tried.push(format!("{}: {e}", display_path(&path)));
+                tried.push(format!("{}: {e}", display_path(path)));
                 continue;
             }
         };
-        tried.push(display_path(&path));
+        tried.push(display_path(path));
         let with_hash = russh::keys::PrivateKeyWithHashAlg::new(Arc::new(key), rsa_hash);
-        match handle.authenticate_publickey(&creds.user, with_hash).await {
+        match handle.authenticate_publickey(&hop.user, with_hash).await {
             Ok(result) if result.success() => return Ok(()),
             Ok(result) => remember_remaining(&result, &mut remaining),
             Err(e) => return Err(Error::other(format!("SSH auth error: {e}"))),
@@ -114,11 +117,11 @@ pub(crate) async fn authenticate(handle: &mut SshHandle, creds: &RemoteCreds) ->
     //    won't take one — otherwise every connection to a key-only host would
     //    end on a pointless rejected attempt (and burn one of its MaxAuthTries).
     let password_offered =
-        remaining.as_ref().is_none_or(|m| m.contains(&russh::MethodKind::Password));
+        hop.last && remaining.as_ref().is_none_or(|m| m.contains(&russh::MethodKind::Password));
     if password_offered {
         tried.push("password".to_string());
         let result = handle
-            .authenticate_password(&creds.user, &creds.password)
+            .authenticate_password(&hop.user, &creds.password)
             .await
             .map_err(|e| Error::other(format!("SSH auth error: {e}")))?;
         if result.success() {
@@ -163,22 +166,6 @@ async fn agent_client() -> Option<std::convert::Infallible> {
     None
 }
 
-fn home_dir() -> Option<PathBuf> {
-    directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf())
-}
-
-/// Expand a leading `~/` so a key path typed into the connect dialog behaves the
-/// way it would in a shell or in `~/.ssh/config`.
-fn expand_tilde(path: &str) -> PathBuf {
-    match path.strip_prefix("~/") {
-        Some(rest) => match home_dir() {
-            Some(home) => home.join(rest),
-            None => PathBuf::from(path),
-        },
-        None => PathBuf::from(path),
-    }
-}
-
 /// A key path shortened for the "tried:" list — the file name is the part that
 /// identifies it, and full paths make the message unreadable.
 fn display_path(path: &Path) -> String {
@@ -201,8 +188,14 @@ fn short_comment(comment: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::super::sshconfig::{SshConfig, expand_tilde};
     use super::*;
     use crate::vfs::remote::Protocol;
+
+    /// The keys the connection itself would try, with no `~/.ssh/config`.
+    fn candidate_keys(creds: &RemoteCreds) -> Vec<PathBuf> {
+        super::super::plan(creds, &SshConfig::default()).unwrap().pop().unwrap().keys
+    }
 
     /// A passphrase-protected ed25519 key (passphrase: `hunter2`), so the
     /// encrypted-key probe can be tested without generating one at runtime.
@@ -376,6 +369,50 @@ aNbaT1L+sT5Oo+M8cFWUAAAAB3JjLXRlc3QBAgMEBQY=\n\
     impl_test_server!(KeyOnlyServer, russh::server::Auth::Accept, reject());
     impl_test_server!(PasswordOnlyServer, reject(), russh::server::Auth::Accept);
 
+    /// A jump host: takes any key, and forwards a direct-tcpip channel to the
+    /// address asked for, counting the ones it forwarded.
+    #[derive(Clone)]
+    struct ForwardingServer(Arc<std::sync::atomic::AtomicUsize>);
+
+    impl russh::server::Server for ForwardingServer {
+        type Handler = ForwardingServer;
+        fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> ForwardingServer {
+            self.clone()
+        }
+    }
+
+    impl russh::server::Handler for ForwardingServer {
+        type Error = russh::Error;
+        async fn auth_publickey(
+            &mut self,
+            _user: &str,
+            _key: &russh::keys::ssh_key::PublicKey,
+        ) -> std::result::Result<russh::server::Auth, Self::Error> {
+            Ok(russh::server::Auth::Accept)
+        }
+        async fn channel_open_direct_tcpip(
+            &mut self,
+            channel: russh::Channel<russh::server::Msg>,
+            host: &str,
+            port: u32,
+            _originator_address: &str,
+            _originator_port: u32,
+            reply: russh::server::ChannelOpenHandle,
+            _session: &mut russh::server::Session,
+        ) -> std::result::Result<(), Self::Error> {
+            let Ok(mut target) = tokio::net::TcpStream::connect((host, port as u16)).await else {
+                return Ok(());
+            };
+            reply.accept().await;
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            tokio::spawn(async move {
+                let mut stream = channel.into_stream();
+                let _ = tokio::io::copy_bidirectional(&mut stream, &mut target).await;
+            });
+            Ok(())
+        }
+    }
+
     /// Start `server` on a throwaway localhost port and return that port.
     async fn spawn_server<S>(server: S) -> u16
     where
@@ -458,6 +495,41 @@ aNbaT1L+sT5Oo+M8cFWUAAAAB3JjLXRlc3QBAgMEBQY=\n\
 
         let creds = local_creds(port, &key.to_string_lossy(), "p");
         crate::vfs::remote::ssh_connect(&creds).await.expect("should fall back to the password");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A `ProxyJump` route: the connection to the host runs through a tunnel on
+    /// the jump host, which stays open while the session is used.
+    #[tokio::test]
+    async fn a_connection_runs_through_its_jump_host() {
+        let dir = tmp_dir("jump");
+        let key = dir.join("id_test");
+        std::fs::write(&key, PLAIN_KEY).unwrap();
+        let forwarded = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let jump_port = spawn_server(ForwardingServer(forwarded.clone())).await;
+        let target_port = spawn_server(KeyOnlyServer).await;
+
+        let config = format!(
+            "Host target\n  HostName 127.0.0.1\n  Port {target_port}\n  ProxyJump u@127.0.0.1:{jump_port}\n  IdentityFile {}\nHost 127.0.0.1\n  IdentityFile {}\n",
+            key.display(),
+            key.display()
+        );
+        let cfg = SshConfig::parse(&config, &dir);
+        let mut creds = local_creds(22, "", "");
+        creds.host = "target".into();
+        let hops = super::super::plan(&creds, &cfg).unwrap();
+        assert_eq!(hops.iter().map(|h| h.port).collect::<Vec<_>>(), vec![jump_port, target_port]);
+
+        let session = super::super::connect_hops(&hops, &creds).await.expect("through the jump");
+        assert_eq!(forwarded.load(std::sync::atomic::Ordering::SeqCst), 1);
+        // The tunnel is still up: the host answers a request for another
+        // channel (this test server turns sessions down, but it answers).
+        match session.channel_open_session().await {
+            Ok(_) | Err(russh::Error::ChannelOpenFailure(_)) => {}
+            Err(e) => panic!("the session went away with its jump host: {e}"),
+        }
+        assert!(!session.is_closed());
 
         std::fs::remove_dir_all(&dir).ok();
     }

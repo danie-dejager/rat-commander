@@ -1,0 +1,170 @@
+//--------------------------------------------------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+//
+//      File: U8.bt
+//   Authors: Hyper (linktr.ee/hyperbx)
+//   Version: 1.0.2
+//   Purpose: Parse Nintendo U8 archives.
+//  Category: Archive
+// File Mask: *.arc
+//  ID Bytes: 55 AA 38 2D, 2D 38 AA 55 // U.8-
+//   History: 
+//   1.0.2   2025-08-11 Hyper: Fixed Sonic '06 archive detection.
+//   1.0.1   2024-01-16 Hyper: Updated colours for the Type and NameOffset fields.
+//   1.0.0   2024-01-13 Hyper: Initial release.
+//
+// References:
+// - https://www.wiibrew.org/wiki/U8_archive
+// - https://wiki.tockdom.com/wiki/U8_(File_Format)
+// - https://github.com/hyperbx/Marathon/blob/main/Marathon/Formats/Archive/ArcFile.cs
+//--------------------------------------------------------------------------------------------
+
+local byte _isLittleEndian = false;
+local byte _isSoXArchive = false;
+local uint _filesystemEntrySize = 12;
+local uint _stringPoolOffset;
+
+BigEndian();
+
+uint Signature<hidden=true>;
+
+FSeek(0);
+
+if (Signature == 0x2D38AA55)
+{
+    LittleEndian();
+    
+    _isLittleEndian = true;
+}
+else if (Signature != 0x55AA382D)
+{
+    return;   
+}
+
+struct
+{
+    SetBackColor(cLtRed);
+    
+    uint Signature<format=hex>;
+    uint FilesystemTableOffset<format=hex>;
+    uint FilesystemTableSize;
+    uint DataOffset<format=hex>;
+    
+    BigEndian(); uint Reserved[4]<hidden=true, format=hex, bgcolor=cRed>;
+    
+    if (_isLittleEndian)
+    {
+        LittleEndian();
+    }
+}
+Header;
+
+struct UInt24
+{
+    ubyte Data[3];
+};
+
+uint GetUInt24Value(UInt24& in_rUInt24)
+{
+    if (IsBigEndian())
+    {
+        return ((uint)in_rUInt24.Data[0] << 16 | (uint)in_rUInt24.Data[1] << 8 | in_rUInt24.Data[2]);
+    }
+    else
+    {
+        return ((uint)in_rUInt24.Data[2] << 16 | (uint)in_rUInt24.Data[1] << 8 | in_rUInt24.Data[0]);
+    }
+    
+    return 0;
+}
+
+_isSoXArchive = Header.Reserved[0] == 0xE4F91200 || Header.Reserved[0] == 0xE4F91300 || Header.Reserved[3] == 0x78013800;
+
+// Checks the first entry's type and name offset after root.
+// This should always be zero for uncompressed size in Sonic '06 archives.
+// That alone would've been a better way to detect them, but their tool
+// shoved in some uninitialised memory, so this isn't 100% reliable.
+if (!_isSoXArchive)
+{
+    local uint nextEntryType = ReadUInt(FTell() + 0x0C);
+    
+    if (nextEntryType == 0)
+    {
+        _isSoXArchive = true;
+    }
+}
+
+if (_isSoXArchive)
+{
+    _filesystemEntrySize = 16;
+}
+
+struct FilesystemEntry;
+
+struct FilesystemEntry(byte in_isRoot)
+{
+    local long p;
+    
+    if (IsBigEndian())
+    {
+        byte IsDirectory<bgcolor=cYellow>;
+        UInt24 NameOffset<hidden=true, bgcolor=cLtPurple>;
+    }
+    else
+    {
+        UInt24 NameOffset<hidden=true, bgcolor=cLtPurple>;
+        byte IsDirectory<bgcolor=cYellow>;
+    }
+    
+    local uint nameOffset = GetUInt24Value(NameOffset);
+    
+    if (nameOffset > 0)
+    {
+        p = FTell();
+        FSeek(_stringPoolOffset + nameOffset); string Name<open=suppress, bgcolor=cPurple>;
+        FSeek(p);
+    }
+    
+    SetBackColor(cGreen);
+    
+    if (IsDirectory)
+    {
+        uint ParentIndex<comment="The index of the parent directory.">;
+        uint NextEntry<comment="The index of the first entry outside of this directory.">;
+        
+        if (_isSoXArchive)
+        {
+            uint Reserved<hidden=true, bgcolor=cRed>;
+        }
+        
+        if (in_isRoot)
+        {
+            _stringPoolOffset = Header.FilesystemTableOffset + (NextEntry * _filesystemEntrySize);
+        }
+    }
+    else
+    {
+        uint DataOffset<format=hex>;
+        uint DataSize;
+        
+        if (_isSoXArchive)
+        {
+            uint UncompressedDataSize<bgcolor=cLtGreen>;
+        }
+        
+        if (in_isRoot)
+        {
+            Warning("The root node is not a directory.");
+            return;
+        }
+        
+        p = FTell();
+        FSeek(DataOffset); byte Data[DataSize]<open=suppress, bgcolor=cGray>;
+        FSeek(p);
+    }
+}
+Root(true)<hidden=true>;
+
+FSeek(FTell() - _filesystemEntrySize);
+
+FilesystemEntry Entries(false)[Root.NextEntry]<optimize=false>;

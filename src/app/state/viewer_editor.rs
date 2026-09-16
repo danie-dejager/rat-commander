@@ -40,11 +40,7 @@ impl AppState {
     pub(in crate::app::state) async fn apply_editor_signal(&mut self, signal: EditorSignal) {
         match signal {
             EditorSignal::Stay => {}
-            EditorSignal::Close => {
-                self.record_editor_position();
-                self.editor = None;
-                self.reload_all().await;
-            }
+            EditorSignal::Close => self.close_editor().await,
             EditorSignal::Save { close_after } => {
                 if self.editor.as_ref().is_some_and(|e| e.is_unnamed()) {
                     // No filename yet → go straight to "Save as" (nothing to
@@ -123,6 +119,115 @@ impl AppState {
             // The screen is repainted from scratch on the next frame.
             EditorSignal::RefreshScreen => self.force_clear = true,
             EditorSignal::OpenGeoMap => self.open_geo_map(),
+            EditorSignal::ShowJwt(text) => {
+                self.dialog = Some(Dialog::GitOutput(GitOutputDialog::plain("JWT", &text)));
+            }
+            EditorSignal::OpenTemplatePicker => self.open_template_picker(),
+            EditorSignal::EditTemplate { path, line } => self.open_template_editor(path, line),
+            EditorSignal::NewTemplate => {
+                let stem = self
+                    .editor
+                    .as_ref()
+                    .map(|e| {
+                        let p = std::path::Path::new(&e.name);
+                        p.extension()
+                            .map(|x| x.to_string_lossy().to_uppercase())
+                            .unwrap_or_else(|| e.name.clone())
+                    })
+                    .unwrap_or_default();
+                self.dialog = Some(Dialog::Input(InputDialog::new(
+                    "New template",
+                    "Template name",
+                    stem,
+                    InputPurpose::EditorNewTemplate,
+                )));
+            }
+        }
+    }
+
+    /// Close the editor: back to the one it was opened over (a hex editor
+    /// whose template was being edited), or to the panels.
+    pub(in crate::app::state) async fn close_editor(&mut self) {
+        self.record_editor_position();
+        // The hex inspector stays as it was left for the next file opened.
+        if let Some(o) = self.editor.as_ref().map(|e| e.options()) {
+            self.config.editor_options.hex_inspector = o.hex_inspector;
+            self.config.editor_options.hex_inspector_big_endian = o.hex_inspector_big_endian;
+        }
+        let closed = self.editor.take().map(|e| e.path.path.clone());
+        if let Some(mut under) = self.editor_stack.pop() {
+            if let Some(path) = closed {
+                under.resume_after_edit(&path);
+            }
+            self.editor = Some(under);
+            return;
+        }
+        self.reload_all().await;
+    }
+
+    /// The hex editor's template picker: every template, the ones that fit the
+    /// file first.
+    fn open_template_picker(&mut self) {
+        let Some(ed) = self.editor.as_mut() else { return };
+        let head = ed.file_head();
+        let name = ed.name.clone();
+        let current = ed.active_template().map(|i| i.file_name);
+        let templates = crate::bt::library::discover();
+        let fitting = crate::bt::library::rank(&templates, &name, &head);
+        self.dialog = Some(Dialog::TemplatePicker(Box::new(TemplatePickerDialog::new(
+            &templates, &fitting, current,
+        ))));
+    }
+
+    /// Open binary template `path` in a text editor over the current (hex)
+    /// editor, which comes back when this one closes — at `line` when given
+    /// (where the last run stopped).
+    pub(in crate::app::state) fn open_template_editor(
+        &mut self,
+        path: std::path::PathBuf,
+        line: Option<usize>,
+    ) {
+        match std::fs::read(&path) {
+            Ok(data) => {
+                let vpath = VfsPath::local(&path);
+                let name = vpath.file_name();
+                let mut ed = EditorState::new(name, vpath, &String::from_utf8_lossy(&data));
+                self.prepare_editor(&mut ed);
+                match line {
+                    Some(l) => ed.restore_position(l.saturating_sub(1), 0),
+                    None => Self::restore_editor_position(&mut ed),
+                }
+                if let Some(under) = self.editor.take() {
+                    self.editor_stack.push(under);
+                }
+                self.editor = Some(ed);
+            }
+            Err(e) => self.show_error(format!("Cannot open the template: {e}")),
+        }
+    }
+
+    /// Start a new binary template named `name` for the hex editor's file —
+    /// its header filled in from the file — use it, and open it for editing.
+    pub(in crate::app::state) fn create_template(&mut self, name: String) {
+        let Some(dir) = crate::bt::library::user_dir() else {
+            return self.show_error("No config directory available");
+        };
+        let Some(ed) = self.editor.as_mut() else { return };
+        let head = ed.file_head();
+        let file_name = ed.name.clone();
+        match crate::bt::library::create_user_template(&dir, &name, &file_name, &head) {
+            Ok(path) => {
+                crate::bt::library::invalidate();
+                let data = std::fs::read(&path).unwrap_or_default();
+                let fname =
+                    path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+                let mut info = crate::bt::header::parse_header(&fname, &data);
+                info.path = Some(path.clone());
+                info.origin = crate::bt::header::Origin::User;
+                ed.set_template(Some(info));
+                self.open_template_editor(path, None);
+            }
+            Err(e) => self.show_error(format!("Cannot create the template: {e}")),
         }
     }
 
@@ -220,8 +325,12 @@ impl AppState {
     /// so the next file opens with them too.
     pub(in crate::app::state) fn apply_editor_options(
         &mut self,
-        opts: crate::config::EditorOptions,
+        mut opts: crate::config::EditorOptions,
     ) {
+        // The dialog doesn't show the hex inspector's settings: keep them.
+        let current = self.editor.as_ref().map_or(&self.config.editor_options, |e| e.options());
+        opts.hex_inspector = current.hex_inspector;
+        opts.hex_inspector_big_endian = current.hex_inspector_big_endian;
         self.config.editor_options = opts.clone();
         let dark = self.dark_ui();
         if let Some(ed) = self.editor.as_mut() {
@@ -284,8 +393,8 @@ impl AppState {
         let (rope, cursor, name) = (ed.text_snapshot(), ed.cursor_byte(), ed.name.clone());
         self.geo_gen = self.geo_gen.wrapping_add(1);
         let generation = self.geo_gen;
-        self.dialog =
-            Some(Dialog::GeoMap(Box::new(GeoMapDialog::loading(name, generation, cursor))));
+        let dialog = GeoMapDialog::loading(name, generation, cursor, rope.clone());
+        self.dialog = Some(Dialog::GeoMap(Box::new(dialog)));
         let tx = self.tx.clone();
         tokio::spawn(async move {
             let doc = tokio::task::spawn_blocking(move || {
@@ -298,24 +407,26 @@ impl AppState {
         });
     }
 
-    /// The GeoJSON for the map dialog has been read: show it, or say there is
-    /// none — unless the dialog it was for has gone.
+    /// The GeoJSON for the map dialog has been read: show it — or, when there
+    /// is none, the empty map to draw the first feature on — unless the dialog
+    /// it was for has gone.
     pub(in crate::app::state) fn apply_geojson(
         &mut self,
         generation: u64,
         doc: crate::geo::geojson::GeoDoc,
     ) {
         let Some(Dialog::GeoMap(d)) = self.dialog.as_mut() else { return };
-        if !d.awaits(generation) {
-            return;
-        }
-        if doc.objects.is_empty() {
-            self.dialog = Some(Dialog::Message(MessageDialog::info(
-                "GeoJSON map",
-                crate::l10n::tr("No GeoJSON found in this file"),
-            )));
-        } else {
+        if d.awaits(generation) {
             d.set_doc(doc);
+        }
+    }
+
+    /// Make the edits the GeoJSON map has made in the editor's text.
+    pub(in crate::app::state) fn apply_geo_edits(&mut self) {
+        let Some(Dialog::GeoMap(d)) = self.dialog.as_mut() else { return };
+        let edits = d.take_edits();
+        if let Some(ed) = self.editor.as_mut() {
+            edits.into_iter().for_each(|e| ed.apply_map_edit(e));
         }
     }
 
@@ -437,6 +548,7 @@ impl AppState {
                     // text. F4 reaches Binary mode from there.
                     if hit.is_none() {
                         open_binary(&mut v, &path.path).await;
+                        open_certs(&mut v, &path.path).await;
                     }
                     // A supported image opens showing the decoded image fullscreen
                     // (it falls back to the raw text/hex view if it can't decode).
@@ -458,7 +570,7 @@ impl AppState {
                     // switches to the bytes.
                     if let Some(av) =
                         load_view_audio(&path.path, &v.name, &self.config, self.audio_out.clone())
-                    .await
+                            .await
                     {
                         v.set_audio(av);
                     }
@@ -713,8 +825,7 @@ impl AppState {
             match res {
                 Ok(()) => {
                     if close_after {
-                        self.editor = None;
-                        self.reload_all().await;
+                        self.close_editor().await;
                     } else if let Some(ed) = self.editor.as_mut() {
                         ed.mark_saved();
                     }
@@ -731,16 +842,14 @@ impl AppState {
         };
         match write_file(&backend, &path, contents.as_bytes()).await {
             Ok(()) => {
+                // Editing a config file (themes.toml, the F2 menu, rc.ext, a
+                // binary template) applies immediately on save.
+                self.reload_config_if_edited(&path);
                 if close_after {
-                    self.record_editor_position();
-                    self.editor = None;
-                    self.reload_all().await;
+                    self.close_editor().await;
                 } else if let Some(ed) = self.editor.as_mut() {
                     ed.mark_saved();
                 }
-                // Editing a config file (themes.toml, the F2 menu, rc.ext)
-                // applies immediately on save.
-                self.reload_config_if_edited(&path);
             }
             // A failed save (e.g. read-only location, permission denied) drops the
             // user into "Save as" prefilled with the path, so they can redirect it.
@@ -882,6 +991,10 @@ impl AppState {
         self.reload_themes_if_edited(path);
         self.reload_usermenu_if_edited(path);
         self.reload_ext_if_edited(path);
+        // A template's header (masks, ID bytes) may have changed.
+        if crate::config::paths::templates_dir().is_some_and(|d| path.path.starts_with(d)) {
+            crate::bt::library::invalidate();
+        }
     }
 
     /// If the file just saved is `themes.toml`, re-read the palettes and
@@ -1005,6 +1118,31 @@ impl AppState {
         else {
             return self.show_error("Put the cursor on a file in both panels to compare");
         };
+        use crate::diff::hex::{HexDiffView, Origin};
+        // Two local files are compared byte by byte, paged from disk, when
+        // either is binary or too large to load as text.
+        if lp.scheme == "file" && rp.scheme == "file" {
+            let paths = [lp.path.clone(), rp.path.clone()];
+            let probe = paths.clone();
+            let binary = tokio::task::spawn_blocking(move || {
+                probe.iter().try_fold(false, |any, p| {
+                    let big = std::fs::metadata(p)?.len() > MAX_VIEW_BYTES as u64;
+                    Ok::<_, std::io::Error>(any || big || crate::diff::hex::file_is_binary(p)?)
+                })
+            })
+            .await;
+            match binary {
+                Ok(Ok(true)) => {
+                    let [a, b] = paths;
+                    return match HexDiffView::open([ln, rn], [Origin::File(a), Origin::File(b)]) {
+                        Ok(v) => self.hexdiff = Some(Box::new(v)),
+                        Err(e) => self.show_error(format!("Cannot compare: {e}")),
+                    };
+                }
+                Ok(Err(e)) => return self.show_error(format!("Cannot compare: {e}")),
+                Ok(Ok(false)) | Err(_) => {}
+            }
+        }
         let lback = self.panels[0].backend.clone();
         let rback = self.panels[1].backend.clone();
         let ldata = match load_file(&lback, &lp).await {
@@ -1015,6 +1153,18 @@ impl AppState {
             Ok(d) => d,
             Err(e) => return self.show_error(format!("Cannot read {rn}: {e}")),
         };
+        // Binary files read from elsewhere are compared in memory — as long as
+        // they were read whole.
+        if crate::diff::hex::is_binary(&ldata) || crate::diff::hex::is_binary(&rdata) {
+            if ldata.len() > MAX_VIEW_BYTES || rdata.len() > MAX_VIEW_BYTES {
+                return self.show_error("These files are too large to compare here: copy them to a local directory first");
+            }
+            let origins = [Origin::Mem(ldata.into()), Origin::Mem(rdata.into())];
+            return match HexDiffView::open([ln, rn], origins) {
+                Ok(v) => self.hexdiff = Some(Box::new(v)),
+                Err(e) => self.show_error(format!("Cannot compare: {e}")),
+            };
+        }
         self.diffview = Some(DiffView::new(ln, lp, &ldata, rn, rp, &rdata));
     }
 

@@ -1,0 +1,220 @@
+//------------------------------------------------
+//--- 010 Editor v13.0beta1 Binary Template
+//
+//      File: Es65_floppy.bt
+//   Authors: Robert Offner MSc.
+//   Version: 0.1
+//   Purpose: Parses floppy images for an old (and quite obscure) es65 Computer.
+//            see my bitbucket repository: https://bitbucket.org/100prozent/es65/src/master/
+//            you can find extensive documentation there, including pictures and schematics.  
+//  Category: Drives
+// File Mask: *.img
+//  ID Bytes: [+8] E5 E5 E5 E5 E5 E5 E5 E5
+//   History: 
+//   0.1   2022-08-31 R. Offner: Initial release.
+// COPYRIGHT NOTE:
+// a lot of the code has been taken from the Drive.bt Template
+//------------------------------------------------
+
+LittleEndian();
+
+#define MAP_START 0x70
+
+// Forward definition;
+struct ES65_DIRECTORY;
+struct ES65_BOOTSECTOR; // boot sector supporting FAT12 + FAT16 + FAT32
+
+typedef enum <ubyte> {
+    NotUsed=0,
+    SYSTEM=1, 
+    DIRECTORY=2,
+    FILE_ID03,  // File # 01
+    FILE_ID04,  // File # 02
+    FILE_ID05,  // File # 03
+    FILE_ID06,  // File # 04
+    FILE_ID07,  // File # 05
+    FILE_ID08,  // File # 06
+    FILE_ID09,  // File # 07
+    FILE_ID0A,  // File # 08
+    FILE_ID0B,  // File # 09
+    FILE_ID0C,  // File # 10
+    FILE_ID0D,  // File # 11
+    FILE_ID0E,  // File # 12
+    FILE_ID0F,  // File # 13
+    FILE_ID10,  // File # 14
+    FILE_ID11,  // File # 15
+    FILE_ID12,  // File # 16
+    FILE_ID13,  // File # 17
+    FILE_ID14,  // File # 18
+    FILE_ID15,  // File # 19
+    FILE_ID16,  // File # 20
+    FILE_ID18,  // File # 21
+    FILE_ID19,  // File # 22
+    FILE_ID1A,  // File # 23
+    FILE_ID1B,  // File # 24
+    FILE_ID1C,  // File # 25
+    FILE_ID1D,  // File # 26
+    FILE_ID1E,  // File # 27
+    FILE_ID1F,  // File # 28
+    FILE_ID20,  // File # 29
+    FILE_ID21,  // File # 30
+    FILE_ID22,  // File # 31
+    FILE_ID23,  // File # 32 (only 32 files possible, no subdirectories)
+ }FILE_ID;
+
+typedef struct  {
+    local ubyte i;
+    CHAR    VolumeLabel[8] <fgcolor=cPurple, bgcolor=cWhite,comment="Name for mount command!">;
+    UBYTE   emptyMarker1[8]; // just 8 * e5
+    CHAR    creator[8] <comment="User who created the disk">;
+    UBYTE   creatorID[3]          <format=hex>; // 
+    uint16  ErrorCnt;
+    UBYTE   Sectors[3];     // sectors that are worked on
+    CHAR    lastUserd[8] <comment="last User who worked the disk">;
+    UBYTE   userID3[3];
+    uint16  mounts;
+    UBYTE   emptyMarker2[3]; // just 3 * e5
+    for (i=0; i<32; i++){
+        UBYTE FileStatus:4 <format=hex, comment="one nibble per file!", name="FileStatus">; 
+    }
+    uchar      always_ff[48];
+    FILE_ID sectorTable[0x190] <bgcolor=cRed, comment="This links to the FileID, one byte is one sector", name="SectorTable">; // This shows all the sectors (40*10 or 0x190)
+    //ubyte sectorTable[0x190];
+} ES65_BOOTSECTOR <read=ReadES65_BOOTSECTOR, optimize=false>;
+
+string ReadES65_BOOTSECTOR( ES65_BOOTSECTOR &boot )
+{
+    return boot.VolumeLabel;
+}
+
+typedef struct
+{
+    ES65_BOOTSECTOR boot_sector <bgcolor=cLtPurple>;
+    ES65_DIRECTORY root_dir;
+
+} FAT_DRIVE <open=true, optimize=false>;
+
+// directory entry
+typedef struct // Normal-Short structure
+{
+    char        Filename[32];
+    char        firstUser[8];
+    uchar       fuserID[3];
+    uchar       Version;
+    uchar       dn1[1];          // always 0
+    uchar       FileID <bgcolor=cRed, comment="This links the file with the sector table, must start with 3">;
+    uint16      Sectors <comment="how many sectors used">;
+    //uchar        dn2[1];          // always 0
+    char        lastUser[8];
+    uchar       luserID[3];
+    uchar       always_zero[5];
+} FAT_SHORTENTRY; // <read=ReadFAT_SHORTENTRY>;
+
+string ReadFAT_SHORTENTRY( FAT_SHORTENTRY &f )
+{
+    local string s <hidden=true>;
+    
+        return f.Filename;
+}
+
+struct FAT_FILE_CLUSTER; // Forward definition
+
+local UQUAD XYZZY_End             <hidden=true>; // end of contiguous area
+
+uint16 ES65_GET_NEXT_CLUSTER (UBYTE id, UBYTE start)
+{
+    local ubyte map[400];
+    local uint16 i;
+    local uint16 addr;
+    ReadBytes(map, MAP_START, 400);
+    for(i=start;i<400;i++){
+        //Printf("map[%d]=%02x\n", i, map[i]);
+        if (map[i] == id){
+            addr = i*256;
+           // Printf("off= %d, Addr=%04x \n", i, addr);
+            FSeek(addr);
+            return i;
+        }
+    }
+    return 0; // this works because a "normal" file must start at offset 10!
+}
+
+// FAT Directory Entry Set
+typedef struct
+{
+    // Copy offset info from parent
+    local int16 i <hidden=true>;
+    local int16 j <hidden=true>;
+    local int16 off <hidden=true>;
+    local ubyte id <hidden=true>;
+
+    // Read Long/Short directory entries
+    XYZZY_End = FTell();
+
+    FAT_SHORTENTRY short_entry;
+ 
+   // Check for valid file name
+    if( short_entry.Filename[0] != 0x20)
+    {
+        id = short_entry.FileID;
+        j=400;
+        off = ES65_GET_NEXT_CLUSTER(id, 0);
+        while (j) // should work with "while (1)" but just as a safety limit to 400 iterations
+        {
+            //Printf("Found File with id: %d at %d address: %04x\n", id, off, FTell());
+            FAT_FILE_CLUSTER data;
+            j--;
+            off = ES65_GET_NEXT_CLUSTER(id, off+1);
+            if (off == 0){
+                break;
+            }
+            //FAT_JumpToCluster( Cluster, DriveNum );
+            
+        }
+    } else {
+        //Printf("Empty File!");
+    }
+    FSeek( XYZZY_End + 0x40);
+
+} ES65_DIRECTORY_ENTRY_SET <optimize=false, read=ReadES65_DIRECTORY_ENTRY_SET>;
+
+wstring ReadES65_DIRECTORY_ENTRY_SET( ES65_DIRECTORY_ENTRY_SET &f )
+{
+    return f.short_entry.Filename;
+}
+
+// FAT Cluster of data in a file
+typedef struct ( )
+{
+    UBYTE data[ 256 ]                <format=hex>;
+} FAT_FILE_CLUSTER <size=256, optimize=false>;
+
+typedef struct
+{
+    local int i;
+
+    // Define all file entries
+    for (i=0; i< 32; i++)
+    {
+        ES65_DIRECTORY_ENTRY_SET direntry;
+    }
+} ES65_DIRECTORY <optimize=false>;
+
+UBYTE FileSystemRecognizer()
+{
+    local int64 startPos <hidden=true> = FTell();
+    FAT_DRIVE drive;
+    ES65_BOOTSECTOR fat_boot <hidden=true>;
+    //FSeek(startPos);
+    return 1;
+}
+
+////////////////////////////////////////////////////////////////////////
+// THIS IS THE ACTUAL STARTING POINT OF EXECUTION IN THE TEMPLATE
+////////////////////////////////////////////////////////////////////////
+
+if (FileSystemRecognizer()) {
+    //Printf("DRIVE: Success with partition-free detection (sector size == %d).\r\n", 512);
+    return;
+}
+return;

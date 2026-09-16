@@ -1,0 +1,367 @@
+//------------------------------------------------
+//--- 010 Editor v13.0 Binary Template
+//
+//      File: LithTech_DAT.bt
+//   Authors: anonymous
+//   Version: 0.0.2
+//   Purpose: describes the map file format from the lithtech game engine
+//  Category: Game
+// File Mask: *.dat
+//  ID Bytes: 00 00 00 55
+//   History:
+//   0.0.2  2022-10-08 anonymous: fix: blindObjectData array opimization
+//   0.0.1  2022-10-07 anonymous: initial release
+//------------------------------------------------
+RequiresVersion(10,0);
+
+// ---------- primitives.dat.bt ---------- 
+
+typedef struct {
+    uint16 strLen;
+    if (strLen != 0)
+        char data[strLen];
+} STRING <size=(2 + ReadUShort(startof(this))), optimize=false>;
+
+typedef struct {
+    uint32 flags;
+    uint16 textureIndex;
+    uint16 textureFlags;
+} SURFACE <size=8>;
+
+typedef struct {
+    float x;
+    float y;
+} VEC2 <size=8>;
+
+typedef struct {
+    float x;
+    float y;
+    float z;
+} VEC3 <size=12>;
+
+typedef struct {
+    float r;
+    float g;
+    float b;
+} COLOR <size=12>;
+
+typedef struct {
+    float x;
+    float y;
+    float z;
+    float w;
+} QUATERNION <size=16>;
+
+typedef struct {
+    uint32 t[3];
+    uint32 polyIndex;
+} TRIANGLE <size=16>;
+
+typedef struct {
+    VEC3 normal;
+    float dist;
+} PLANE <size=16>;
+
+typedef struct {
+    VEC3 vPos;
+    VEC2 uv0;
+    VEC2 uv1;
+    int32 color;
+    VEC3 vNormal;
+    VEC3 vTangent;
+    VEC3 vBinormal;
+} VERTEX <size=68>;
+
+typedef struct {
+    PLANE plane;
+    uint32 vertLen;
+    VEC3 vertPos[vertLen];
+} POLYGON <optimize=false, size=SizePOLYGON>;
+
+int SizePOLYGON ( POLYGON &p ) {
+    return 20 + (ReadUInt(startof(p) + 16) * 12);
+}
+
+// ---------- worldtree.dat.bt ---------- 
+
+// World model
+typedef struct {
+    uint32 dummy; // all 0
+    uint32 worldInfoFlags;
+    STRING worldName;
+    uint32 pointsLen;
+    uint32 planesLen;
+    uint32 surfacesLen;
+    uint32 portals; // unused (allways 0)
+    uint32 poliesLen;
+    uint32 leavesLen; // unused (allways 0)
+    uint32 poliesVerticesLen;
+    uint32 visibleListLen; // unused (allways 0)
+    uint32 leafList; // unused (allways 0)
+    uint32 nodesLen;
+
+    VEC3 worldBBoxMin;
+    VEC3 worldBBoxMax;
+    VEC3 worldTranslation;
+
+    uint32 textureNamesSize;
+    uint32 textureNamesLen;
+    struct TEXTURENAMES {
+        string name;
+    } textureNames[textureNamesLen] <optimize=false>;
+
+    // number of verticesIndicies for polies
+    ubyte verticesLen[poliesLen];
+    PLANE planes[planesLen];
+    SURFACE surfaces[surfacesLen];
+    local uint32 i;
+    for (i = 0; i < poliesLen; i++) {
+        struct WMPOLYGON {
+            uint32 surfaceIndex;
+            uint32 planeIndex;
+            uint32 verticesIndicies[verticesLen[i]];
+        } polies;
+    };
+
+    struct WMNODE {
+        uint32 polyIndex;
+        WORD zero; // unused leaves
+        // children?
+        int nodeSidesIndicies[2]; // -1 == NODE_IN, -2 == NODE_OUT
+    } nodes[nodesLen];
+
+    VEC3 points[pointsLen];
+
+    int rootNodeIndex;
+    uint32 sections; // unused (allways zero)
+} WORLDMODEL <optimize=false>;
+
+// world tree
+typedef struct {
+    // tree info
+    VEC3 rootBBoxMin;
+    VEC3 rootBBoxMax;
+    uint32 subNodesLen;
+    uint32 terrainDepth;
+    // tree layout (quadtree children encoded in bits)
+    ubyte worldLayout[(int)(subNodesLen * 0.125 + 1)];
+    // Subworlds/ WorldBSPData
+    uint32 worldModelsLen;
+    WORLDMODEL worldModels[worldModelsLen];
+} WORLDTREE <optimize=false>;
+
+// ---------- worldobject.dat.bt ---------- 
+
+typedef struct {
+    STRING name;
+    ubyte dataTypFlag;
+    DWORD propertyFlags; // Probably grouping of properties or some other flags
+    uint16 dataSize;
+    switch ( dataTypFlag ) {
+        case 0x00 : STRING data; break; // String
+        case 0x01 : VEC3 data; break; // VEC3 float (position)
+        case 0x02 : COLOR data; break; // RGB Color in float? :D
+        case 0x03 : float data; break; // float
+        case 0x05 : ubyte data; break;  // Boolean
+        case 0x06 : long data; break; // long
+        case 0x07 : QUATERNION data; break; // VEC4 float (rotation)
+        default : byte data[dataSize];
+    }
+} PROPERTY <optimize=false>;
+
+typedef struct {
+    uint16 objectSize;
+    STRING objectTyp;
+    uint32 propertiesLen;
+    if (propertiesLen != 0)
+        PROPERTY properties[propertiesLen];
+} WORLDOBJECT <size=(2 + ReadUShort(startof(this))), optimize=false>;
+
+// ---------- lightgrid.dat.bt ---------- 
+
+typedef struct {
+    VEC3 lookupStart;
+    VEC3 blockSize;
+    uint32 lookupSize[3];
+    uint32 lgDataLen;
+    ubyte lgData[lgDataLen]; // RLE compressed data
+} LIGHTGRID <optimize=false>;
+
+// ---------- renderdata.dat.bt ---------- 
+
+typedef struct {
+    ubyte len;
+    VEC3 data[len];
+} VERTICESPOS <size=(1 + ReadUByte(startof(this)) * 12), optimize=false>;
+
+typedef struct {
+    VERTICESPOS verticesPos;
+    PLANE plane;
+} SKYPORTAL <size=(17 + ReadUByte(startof(this)) * 12), optimize=false>;
+
+typedef struct {
+    VERTICESPOS vericesPos;
+    PLANE plane;
+    uint32 other;
+} OCCLUDER <size=(21 + ReadUByte(startof(this)) * 12), optimize=false>;
+
+typedef struct {
+    STRING textureName[2];
+    ubyte shaderCode;
+    uint32 triangleCount;
+    STRING textureEffect;
+    uint32 lightMapWidth;
+    uint32 lightMapHeight;
+    uint32 lightMapSize;
+    if (lightMapSize != 0)
+        ubyte lightMapData[lightMapSize]; // compressed
+} SECTION <optimize=false>;
+
+typedef struct (uint32 verticesLen) {
+    STRING name;
+    VEC3 vColor;
+
+    // zero compressed vertexIntensities
+    // verticiesLen needed for decompressing
+    uint32 nIntensitySize;
+    ubyte zeroCompressedIntensityData[nIntensitySize];
+
+    // section lightmap fix-ups
+    uint32 sectionLMLen;
+    struct SECTIONLM {
+        uint32 subLMLen;
+        struct SUBLM {
+            uint32 left;
+            uint32 top;
+            uint32 width;
+            uint32 height;
+            // RLE encoded data ubyte|ubyte|ubyte 0xFF|runCount|curData
+            uint32 dataLen;
+            ubyte data[dataLen];
+        } sublm[subLMLen] <optimize=false>;
+    } sectionlm[sectionLMLen] <optimize=false>;
+} LIGHTGROUP <optimize=false>;
+
+typedef struct {
+    VEC3 vCenter;
+    VEC3 vHalfDims;
+
+    uint32 sectionLen;
+    if (sectionLen != 0)
+        SECTION section[sectionLen];
+    uint32 verticesLen;
+    if (verticesLen != 0)
+        VERTEX vertices[verticesLen];
+    // Triangles are sorted by section
+    uint32 triangleLen;
+    if (triangleLen != 0)
+        TRIANGLE triangle[triangleLen];
+    uint32 skyPortalLen;
+    if (skyPortalLen != 0)
+        SKYPORTAL skyportal[skyPortalLen];
+    uint32 occluderLen;
+    if (occluderLen != 0)
+        OCCLUDER occluder[occluderLen];
+    // TODO not yet tested for correctness
+    uint32 lightGroupLen;
+    if (lightGroupLen != 0)
+        LIGHTGROUP lightgroups(verticesLen)[lightGroupLen];
+        
+    ubyte childFlags; // 0b(---- --11) last two digits show if children exist
+    uint32 childNodeIndicies[2];
+} RENDERNODE <optimize=false>;
+
+typedef struct {
+    STRING name;
+    uint32 nodesLen;
+    if (nodesLen != 0)
+        RENDERNODE a[nodesLen];
+    uint32 noChildFlag; // allways 0
+} WMRENDERNODE <optimize=false>;
+
+typedef struct {
+    STRING name;
+    VEC3 color;
+    // poly data is saved as part of the rendering data
+    VEC3 vOffset;
+    VEC3 vSize;
+    ubyte data[vSize.x * vSize.y * vSize.z];
+} WORLDLIGHTGROUP <optimize=false>;
+
+typedef struct {
+    // main world
+    uint32 renderTreeNodesLen;
+    if (renderTreeNodesLen != 0)
+        RENDERNODE renderNode[renderTreeNodesLen];
+
+    // world models (adjusted for the physics and vis WM slots)
+    uint32 worldModelNodesLen;
+    if (worldModelNodesLen != 0)
+        WMRENDERNODE worldModelRenderNodes[worldModelNodesLen];
+
+    uint32 lightGroupsLen;
+    if (lightGroupsLen != 0)
+        WORLDLIGHTGROUP lightGroups[lightGroupslen];
+} RENDERDATA <optimize=false>;
+
+// ---------- lithtech.dat.bt ---------- 
+
+struct HEADER {
+    uint32 fileVersion; // expected 85
+    DWORD objectDataPos;
+    DWORD blindObjectDataPos;
+    DWORD lightgridPos;
+    DWORD physicsDataPos;
+    DWORD particleBlockerDataPos;
+    DWORD renderDataPos;
+    uint32 packerType;
+    uint32 packerVersion;
+    uint32 future[6];
+} header <size=60>;
+
+struct WORLD {
+    uint32 worldInfoStrLen;
+    char worldInfoStr[worldInfoStrLen];
+    VEC3 worldExtentsMin;
+    VEC3 worldExtentsMax;
+    VEC3 worldOffset;
+
+    WORLDTREE worldTree;
+
+    // skip to objectData
+    FSeek( header.objectDataPos );
+    uint32 worldObjectsLen;
+    if (worldObjectsLen != 0)
+        WORLDOBJECT worldObjects[worldObjectsLen];
+
+    // skip to blindObjectData
+    FSeek( header.blindObjectDataPos );
+    uint32 blindObjectDataSize;
+    if (blindObjectDataSize != 0)
+        struct BLINDOBJECTDATA {
+            uint32 len;
+            uint32 dataID;
+            BYTE data[len];
+        } blindObjectData[blindObjectDataLen] <optimize=false>;
+
+    // skip to lightgrid
+    FSeek( header.lightgridPos );
+    LIGHTGRID lightGrid;
+
+    // skip to physicsData
+    FSeek( header.physicsDataPos );
+    uint32 physicsDataLen;
+    POLYGON polies[physicsDataLen];
+    uint32 zero; // trailer for future expansion
+
+    // skip to particleBlockerData
+    FSeek( header.particleBlockerDataPos );
+    uint32 particleBlockerDataLen;
+    if (particleBlockerDataLen != 0)
+        POLYGON particleBlocker[particleBlockerDataLen];
+    uint32 zero; // trailer for future expansion
+
+    // skip to renderdata
+    FSeek( header.renderDataPos );
+    RENDERDATA renderData;
+} world;

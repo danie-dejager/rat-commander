@@ -101,6 +101,7 @@ impl AppState {
             cmd("&Reverse order", MenuAction::ToggleReverse(side)),
             cmd("SFT&P connection...", MenuAction::Connect(side, Protocol::Sftp)),
             cmd("F&TP connection...", MenuAction::Connect(side, Protocol::Ftp)),
+            cmd("FTPS c&onnection...", MenuAction::Connect(side, Protocol::Ftps)),
             cmd("S&CP connection...", MenuAction::Connect(side, Protocol::Scp)),
             cmd("&Quit", MenuAction::Quit),
         ]);
@@ -273,6 +274,16 @@ impl AppState {
                 format!("{} {}", entry.protocol.to_uppercase(), entry.label()),
                 PaletteCategory::Connection,
                 PaletteAction::ConnectRemote(side, entry.clone()),
+            ));
+        }
+
+        // -- The hosts ~/.ssh/config names: an SFTP connection form for each --
+        let ssh_config = crate::vfs::remote::sshconfig::SshConfig::load_user();
+        for (entry, label) in crate::ui::dialog::ssh_config_entries(&ssh_config, Protocol::Sftp) {
+            entries.push(PaletteEntry::new(
+                format!("{} {label}", crate::l10n::tr("SSH host")),
+                PaletteCategory::Connection,
+                PaletteAction::ConnectRemote(side, entry),
             ));
         }
 

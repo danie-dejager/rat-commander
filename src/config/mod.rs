@@ -304,6 +304,10 @@ pub struct EditorOptions {
     pub persistent_selection: bool,
     /// A run of typing undoes in one step instead of character by character.
     pub group_undo: bool,
+    /// The hex editor shows its data inspector (F8).
+    pub hex_inspector: bool,
+    /// The data inspector reads the bytes big-endian.
+    pub hex_inspector_big_endian: bool,
 }
 
 impl Default for EditorOptions {
@@ -325,6 +329,8 @@ impl Default for EditorOptions {
             cursor_after_inserted_block: true,
             persistent_selection: true,
             group_undo: false,
+            hex_inspector: false,
+            hex_inspector_big_endian: false,
         }
     }
 }

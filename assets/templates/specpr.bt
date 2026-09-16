@@ -1,0 +1,91 @@
+//------------------------------------------------
+//--- 010 Editor v16.0 Binary Template
+//
+//      File: specpr.bt
+//   Authors: Alexander Salas Bastidas <a.salas@ieee.org>
+//   Version: 1.0
+//   Purpose: SPECPR spectroscopy data format for spectrum processing
+//  Category: Scientific
+// File Mask: *.spec
+//  ID Bytes: 
+//   History: 
+//   1.0   2025-08-19 Alexander Salas Bastidas : Initial implementation of SPECtrum Processing Routines Data Format with fixed 1536-byte records, IEEE format real numbers, and support for spectral data analysis including astronomical and geological applications.
+//------------------------------------------------
+
+BigEndian();
+
+typedef struct {
+    uint32 reserved : 26;
+    uint32 isctb_type : 1;     // Civil vs Universal time for CTB
+    uint32 iscta_type : 1;     // Civil vs Universal time for CTA  
+    uint32 coordinate_mode : 1; // RA/Dec vs Long/Lat flag
+    uint32 errors : 1;         // Error bar data flag
+    uint32 text : 1;           // Data vs ASCII text flag
+    uint32 continuation : 1;   // First record vs continuation flag
+} ICFLAG;
+
+typedef struct {
+    char idsp[8];      // Spectrum ID
+    char ititle[40];   // Spectrum title
+    char ihistory[60]; // History information
+    
+    char mhist[296][4]; // History array
+    
+    uint32 nruns;      // Number of runs
+    uint32 siangl;     // Starting angle
+    uint32 soutgl;     // Stopping angle  
+    uint32 sianci;     // Starting incident angle
+    uint32 soutci;     // Stopping incident angle
+    uint32 sbandl;     // Starting band number
+    uint32 soutbl;     // Stopping band number
+    uint32 ibeam;      // Beam number
+    uint32 diameter;   // Sample diameter
+    uint32 phase;      // Phase angle
+    uint32 temperature; // Temperature
+    uint32 position;   // Position
+    uint32 thick;      // Thickness
+    uint32 liter;      // Liter designation
+    uint32 pos_x;      // X position
+    uint32 pos_y;      // Y position
+    uint32 comp;       // Composition type
+    uint32 rock_type;  // Rock type
+    uint32 class_num;  // Class number
+    uint32 subclass;   // Subclass number
+    uint32 particle_size; // Particle size
+    uint32 sample_num; // Sample number
+    uint32 grain_size; // Grain size
+    uint32 rawdn[2];   // Raw DN values
+    uint32 offset[2];  // Offset values
+    uint32 mult[2];    // Multiplier values
+    
+    ICFLAG icflag;     // Bit flags
+    
+    uint32 wavel[2];   // Wavelength range
+    uint32 resol[2];   // Resolution values
+    uint32 scale[2];   // Scale factors
+    uint32 maxchn;     // Maximum channel number
+    uint32 ier;        // Error flag
+    uint32 units;      // Units flag
+    uint32 time;       // Time value
+    uint32 cta;        // Civil time A
+    uint32 ctb;        // Civil time B
+    uint32 ira[3];     // Right ascension or longitude
+    uint32 idec[3];    // Declination or latitude
+    uint32 crval1;     // Reference value 1
+    uint32 crval2;     // Reference value 2
+    uint32 crpix1;     // Reference pixel 1  
+    uint32 crpix2;     // Reference pixel 2
+    uint32 cdelt1;     // Coordinate increment 1
+    uint32 cdelt2;     // Coordinate increment 2
+    uint32 crota2;     // Rotation angle
+    
+    float data[256];   // Spectral data or text
+} SPECPR_RECORD;
+
+// Main structure  
+struct SPECPR_FILE {
+    local int record_size = 1536;
+    local int num_records = FileSize() / record_size;
+    
+    SPECPR_RECORD records[num_records] <optimize=false>;
+} specpr_file;

@@ -9,15 +9,23 @@
 //!
 //! Nothing pops up over the map: a graphics terminal draws the image above any
 //! text, so a popup there would be hidden under it.
+//!
+//! **Edit features** turns the map into an editor of the GeoJSON ([`edit`]):
+//! a row of tools appears over the properties, and every change is made to the
+//! editor's text as it happens.
+
+mod edit;
 
 use super::DialogResult;
 use super::Submit;
 use super::widgets::*;
 use crate::geo::draw::{self, Scene};
+use crate::geo::edit::TextEdit;
 use crate::geo::geojson::{Bounds, GeoDoc};
 use crate::geo::palette::{CellPalette, MapPalette};
 use crate::geo::view::MapView;
 use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use ropey::Rope;
 use std::hash::{Hash, Hasher};
 
 /// Widest pixel map built, as for the model viewer: every pan redraws it, and
@@ -66,15 +74,36 @@ pub struct GeoMapDialog {
     list_rect: Rect,
     list_top: usize,
     goto_rect: Rect,
+    edit_rect: Rect,
     close_rect: Rect,
     /// The map's canvas size and its size per cell.
     canvas: (u32, u32),
+    /// The editor's text as it stands: an edit made on the map is made to it
+    /// as well as to the editor's.
+    text: Rope,
+    /// Bumped by every change to the document, for the graphics cache.
+    revision: u64,
+    /// What editing is doing, while it is on.
+    editing: Option<Box<edit::Editing>>,
+    /// The edits made on the map, to undo and redo. They outlast turning
+    /// editing off and on again.
+    history: edit::History,
+    /// Edits for the app to make in the editor, oldest first.
+    outbox: Vec<TextEdit>,
+    /// The tool row's entries from the last frame: where each is, and the key
+    /// it stands for.
+    tools: Vec<(Rect, KeyEvent)>,
 }
 
 impl GeoMapDialog {
-    /// The dialog over the file `name`, while the document with `generation`
-    /// is read.
-    pub fn loading(name: impl Into<String>, generation: u64, cursor_byte: usize) -> Self {
+    /// The dialog over the file `name`, whose text is `text`, while the
+    /// document with `generation` is read from it.
+    pub fn loading(
+        name: impl Into<String>,
+        generation: u64,
+        cursor_byte: usize,
+        text: Rope,
+    ) -> Self {
         GeoMapDialog {
             name: name.into(),
             state: State::Loading(generation),
@@ -90,8 +119,15 @@ impl GeoMapDialog {
             list_rect: Rect::default(),
             list_top: 0,
             goto_rect: Rect::default(),
+            edit_rect: Rect::default(),
             close_rect: Rect::default(),
             canvas: (0, 0),
+            text,
+            revision: 0,
+            editing: None,
+            history: edit::History::default(),
+            outbox: Vec::new(),
+            tools: Vec::new(),
         }
     }
 
@@ -101,8 +137,12 @@ impl GeoMapDialog {
     }
 
     /// The document has been read: show it, on the object the editor's cursor
-    /// is in when there is one.
+    /// is in when there is one. With nothing in it yet, editing starts, for
+    /// the first feature to be drawn.
     pub fn set_doc(&mut self, doc: GeoDoc) {
+        if doc.objects.is_empty() {
+            self.editing = Some(Box::default());
+        }
         let generation = match self.state {
             State::Loading(g) => g,
             State::Ready { generation, .. } => generation,
@@ -127,9 +167,16 @@ impl GeoMapDialog {
         }
     }
 
-    /// Whether a drag is panning the map, so the app folds its motion events.
+    /// Whether a drag is panning the map or moving a position on it, so the
+    /// app folds its motion events.
     pub fn panning(&self) -> bool {
-        self.drag.is_some()
+        self.drag.is_some() || self.editing.as_ref().is_some_and(|e| e.grab.is_some())
+    }
+
+    /// The edits made on the map since last asked, for the app to make in the
+    /// editor.
+    pub fn take_edits(&mut self) -> Vec<TextEdit> {
+        std::mem::take(&mut self.outbox)
     }
 
     /// What the view should frame: the picked feature, the chosen object, or
@@ -251,6 +298,16 @@ impl GeoMapDialog {
     }
 
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
+        if self.doc().is_some() {
+            if self.editing.is_some() {
+                if let Some(r) = self.edit_key(key) {
+                    return r;
+                }
+            } else if key.code == KeyCode::Char('e') {
+                self.toggle_editing();
+                return DialogResult::None;
+            }
+        }
         let (w, h) = self.canvas;
         let shift = key.modifiers.contains(KeyModifiers::SHIFT);
         match key.code {
@@ -303,8 +360,32 @@ impl GeoMapDialog {
 
     /// Every mouse event while the dialog is up: drag to pan, the wheel to
     /// zoom about the pointer, a click to pick a feature, a list entry or a
-    /// button.
+    /// button — or, while editing, to change the GeoJSON.
     pub(crate) fn handle_mouse(&mut self, ev: MouseEvent) -> DialogResult {
+        let r = self.mouse(ev);
+        let m = self.map_rect;
+        let (col, row) = (ev.column, ev.row);
+        let (w, h) = self.canvas;
+        if m.width > 0 && col >= m.x && col < m.x + m.width && row >= m.y && row < m.y + m.height {
+            let (x, y) = self.canvas_at(col, row);
+            if w > 0 {
+                self.pointer = Some(self.view.project(w, h).lonlat(x, y));
+            }
+        }
+        r
+    }
+
+    /// The canvas position under cell (`col`, `row`): the middle of the cell.
+    fn canvas_at(&self, col: u16, row: u16) -> (f64, f64) {
+        let (m, (w, h)) = (self.map_rect, self.canvas);
+        let x =
+            (f64::from(col.saturating_sub(m.x)) + 0.5) * f64::from(w) / f64::from(m.width.max(1));
+        let y =
+            (f64::from(row.saturating_sub(m.y)) + 0.5) * f64::from(h) / f64::from(m.height.max(1));
+        (x, y)
+    }
+
+    fn mouse(&mut self, ev: MouseEvent) -> DialogResult {
         let (col, row) = (ev.column, ev.row);
         let inside = |r: Rect| {
             r.width > 0 && col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height
@@ -320,13 +401,23 @@ impl GeoMapDialog {
                 / f64::from(m.height.max(1));
             (x, y)
         };
+        if let Some(r) = self.edit_mouse(ev, in_map) {
+            return r;
+        }
         match ev.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 if inside(self.goto_rect) {
                     return self.go_to();
                 }
+                if inside(self.edit_rect) && self.doc().is_some() {
+                    self.toggle_editing();
+                    return DialogResult::None;
+                }
                 if inside(self.close_rect) {
                     return DialogResult::Cancel;
+                }
+                if let Some(&(_, key)) = self.tools.iter().find(|(r, _)| inside(*r)) {
+                    return self.handle_key(key);
                 }
                 if inside(self.list_rect) {
                     let entry = self.list_top + (row - self.list_rect.y) as usize;
@@ -359,8 +450,13 @@ impl GeoMapDialog {
                     && let Some(doc) = self.doc()
                 {
                     let (x, y) = at(self);
-                    let scene =
-                        Scene { view: self.view, doc, object: self.object, selected: self.feature };
+                    let scene = Scene {
+                        view: self.view,
+                        doc,
+                        object: self.object,
+                        selected: self.feature,
+                        overlay: None,
+                    };
                     // Within about a cell of the pointer.
                     let reach = (f64::from(w) / f64::from(self.map_rect.width.max(1))) as f32 * 1.5;
                     self.feature = draw::hit(&scene, w, h, x as f32, y as f32, reach);
@@ -381,10 +477,6 @@ impl GeoMapDialog {
                 };
             }
             _ => {}
-        }
-        if in_map && w > 0 {
-            let (x, y) = at(self);
-            self.pointer = Some(self.view.project(w, h).lonlat(x, y));
         }
         DialogResult::None
     }
@@ -410,10 +502,13 @@ impl GeoMapDialog {
         let info = Rect { height: 1, ..inner };
         let buttons = Rect { y: inner.y + inner.height - 1, height: 1, ..inner };
         let props = Rect { y: buttons.y - 1, height: 1, ..inner };
+        // Editing puts its tools on a row of their own, when there is room.
+        let tool_row = self.editing.is_some() && inner.height >= 7;
+        let tools = Rect { y: props.y.saturating_sub(1), height: 1, ..inner };
         // Sixel can put an image a row lower than asked; the spacer keeps it
         // off the properties row.
         let low = gfx.as_ref().is_some_and(|g| g.available() && g.may_land_low());
-        let body_h = inner.height - 3 - u16::from(low);
+        let body_h = inner.height - 3 - u16::from(low) - u16::from(tool_row);
         let body = Rect { y: inner.y + 1, height: body_h, ..inner };
 
         let list_w = if self.list_shown() { LIST_WIDTH.min(inner.width / 3) } else { 0 };
@@ -436,6 +531,7 @@ impl GeoMapDialog {
         if self.fit_pending && self.doc().is_some() {
             self.fit();
         }
+        let overlay = self.overlay();
 
         match &self.state {
             State::Loading(_) => {
@@ -447,8 +543,13 @@ impl GeoMapDialog {
                 );
             }
             State::Ready { doc, generation } => {
-                let scene =
-                    Scene { view: self.view, doc, object: self.object, selected: self.feature };
+                let scene = Scene {
+                    view: self.view,
+                    doc,
+                    object: self.object,
+                    selected: self.feature,
+                    overlay: overlay.as_ref(),
+                };
                 match gfx.as_deref_mut() {
                     Some(g) if graphics => {
                         let pal = MapPalette::from_theme(theme);
@@ -458,6 +559,7 @@ impl GeoMapDialog {
                         let mut hasher = std::collections::hash_map::DefaultHasher::new();
                         (self.view.sig(), cw, ch, pal, self.object, self.feature, generation)
                             .hash(&mut hasher);
+                        (self.revision, overlay.as_ref().map(draw::Overlay::sig)).hash(&mut hasher);
                         label_px.to_bits().hash(&mut hasher);
                         let sig = hasher.finish();
                         g.draw_cached_scaled(f, self.map_rect, Slot::GeoMap, sig, || {
@@ -479,7 +581,15 @@ impl GeoMapDialog {
         if list_w > 0 {
             self.render_list(f, theme);
         }
-        self.render_props(f, props, theme);
+        self.tools.clear();
+        if tool_row {
+            self.render_tools(f, tools, theme);
+        }
+        if self.editing.is_some() {
+            self.render_edit_row(f, props, theme);
+        } else {
+            self.render_props(f, props, theme);
+        }
         if low {
             f.render_widget(
                 Paragraph::new("").style(base),
@@ -487,23 +597,30 @@ impl GeoMapDialog {
             );
         }
 
-        // Go to and Close.
-        let labels = [crate::l10n::trd("Go to"), crate::l10n::trd("Close")];
-        let bw = labels
+        // Go to, Edit features (Stop editing while it is on) and Close.
+        let editing = self.editing.is_some();
+        let labels = [
+            crate::l10n::trd("Go to"),
+            crate::l10n::trd(if editing { "Stop editing" } else { "Edit features" }),
+            crate::l10n::trd("Close"),
+        ];
+        let widths: Vec<u16> = labels
             .iter()
             .map(|l| unicode_width::UnicodeWidthStr::width(l.as_str()) as u16 + 6)
-            .max()
-            .unwrap_or(10);
-        let total = bw * 2 + 2;
-        let x0 = buttons.x + buttons.width.saturating_sub(total) / 2;
-        self.goto_rect = Rect { x: x0, width: bw.min(buttons.width), ..buttons };
-        self.close_rect =
-            Rect { x: x0 + bw + 2, width: bw.min(buttons.width.saturating_sub(bw + 2)), ..buttons };
-        let graphical = all_renderable(&[labels[0].as_str(), labels[1].as_str()]);
-        let mut drawn = graphical;
-        for (i, (r, label)) in
-            [(self.goto_rect, &labels[0]), (self.close_rect, &labels[1])].into_iter().enumerate()
-        {
+            .collect();
+        let total = widths.iter().sum::<u16>() + 4;
+        let mut x = buttons.x + buttons.width.saturating_sub(total) / 2;
+        let mut rects = [Rect::default(); 3];
+        for (r, &bw) in rects.iter_mut().zip(&widths) {
+            let right = buttons.x + buttons.width;
+            *r = Rect { x: x.min(right), width: bw.min(right.saturating_sub(x)), ..buttons };
+            x += bw + 2;
+        }
+        [self.goto_rect, self.edit_rect, self.close_rect] = rects;
+        let focused = |i: usize| if editing { i == 1 } else { i == 0 };
+        let mut drawn = total <= buttons.width
+            && all_renderable(&[labels[0].as_str(), labels[1].as_str(), labels[2].as_str()]);
+        for (i, (r, label)) in rects.into_iter().zip(&labels).enumerate() {
             if drawn {
                 drawn = gfx_button(
                     f,
@@ -511,17 +628,33 @@ impl GeoMapDialog {
                     Slot::Button(i as u16),
                     r,
                     label,
-                    i == 0,
+                    focused(i),
                     theme,
                 );
             }
         }
         if !drawn {
-            let line = Line::from(vec![
-                button(&format!("[ {} ]", labels[0]), true, theme),
-                Span::styled("  ", base),
-                button(&format!("[ {} ]", labels[1]), false, theme),
-            ]);
+            let mut spans = Vec::new();
+            for (i, label) in labels.iter().enumerate() {
+                if i > 0 {
+                    spans.push(Span::styled("  ", base));
+                }
+                spans.push(button(&format!("[ {label} ]"), focused(i), theme));
+            }
+            let line = Line::from(spans);
+            let used = unicode_width::UnicodeWidthStr::width(line.to_string().as_str()) as u16;
+            let x0 = buttons.x + buttons.width.saturating_sub(used) / 2;
+            // The text buttons are narrower than the pictures: hit-test them
+            // where they are.
+            let mut at = x0;
+            let mut hits = [Rect::default(); 3];
+            for (i, label) in labels.iter().enumerate() {
+                let bw =
+                    unicode_width::UnicodeWidthStr::width(format!("[ {label} ]").as_str()) as u16;
+                hits[i] = Rect { x: at, width: bw, ..buttons };
+                at += bw + 2;
+            }
+            [self.goto_rect, self.edit_rect, self.close_rect] = hits;
             f.render_widget(
                 Paragraph::new(line).style(base).alignment(ratatui::layout::Alignment::Center),
                 buttons,
@@ -534,7 +667,15 @@ impl GeoMapDialog {
         let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
         let dim = base.fg(theme.panel_border);
         let mut spans = vec![Span::styled(" ", base)];
-        if let Some(doc) = self.doc() {
+        if let Some(doc) = self.doc().filter(|d| d.objects.is_empty()) {
+            spans.push(Span::styled(crate::l10n::trd("No GeoJSON found in this file"), dim));
+            if doc.errors > 0 {
+                spans.push(Span::styled(
+                    format!("  {} {}", doc.errors, crate::l10n::trd("syntax errors")),
+                    base.fg(theme.error_fg),
+                ));
+            }
+        } else if let Some(doc) = self.doc() {
             let (what, count) = match self.object.and_then(|o| doc.objects.get(o)) {
                 Some(o) => (format!("{}  {}", o.path, o.kind), o.features.len()),
                 None => (
@@ -556,6 +697,10 @@ impl GeoMapDialog {
                     base.fg(theme.error_fg),
                 ));
             }
+        }
+        // Where a feature being drawn will go.
+        if let Some(target) = self.draw_target() {
+            spans.push(Span::styled(format!("  → {target}"), base.fg(theme.hotkey_fg)));
         }
         let used: usize =
             spans.iter().map(|s| unicode_width::UnicodeWidthStr::width(s.content.as_ref())).sum();
@@ -674,13 +819,13 @@ mod tests {
     }
 
     fn ready(cursor: usize) -> GeoMapDialog {
-        let mut d = GeoMapDialog::loading("places.json", 7, cursor);
+        let mut d = GeoMapDialog::loading("places.json", 7, cursor, Rope::from_str(PLACES));
         assert!(d.awaits(7) && !d.awaits(8));
         d.set_doc(doc());
         d
     }
 
-    fn draw(d: &mut GeoMapDialog, w: u16, h: u16) -> Vec<String> {
+    pub(super) fn draw(d: &mut GeoMapDialog, w: u16, h: u16) -> Vec<String> {
         let theme = Theme::mc();
         let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
         t.draw(|f| d.render(f, f.area(), &theme, None)).unwrap();
@@ -688,11 +833,16 @@ mod tests {
         (0..h).map(|y| (0..w).map(|x| b[(x, y)].symbol().to_string()).collect()).collect()
     }
 
-    fn key(d: &mut GeoMapDialog, code: KeyCode) -> DialogResult {
+    pub(super) fn key(d: &mut GeoMapDialog, code: KeyCode) -> DialogResult {
         d.handle_key(KeyEvent::new(code, KeyModifiers::NONE))
     }
 
-    fn mouse(d: &mut GeoMapDialog, kind: MouseEventKind, col: u16, row: u16) -> DialogResult {
+    pub(super) fn mouse(
+        d: &mut GeoMapDialog,
+        kind: MouseEventKind,
+        col: u16,
+        row: u16,
+    ) -> DialogResult {
         d.handle_mouse(MouseEvent { kind, column: col, row, modifiers: KeyModifiers::NONE })
     }
 
@@ -781,7 +931,7 @@ mod tests {
 
     #[test]
     fn it_draws_at_any_size_and_while_loading() {
-        let mut loading = GeoMapDialog::loading("x.json", 1, 0);
+        let mut loading = GeoMapDialog::loading("x.json", 1, 0, Rope::new());
         let rows = draw(&mut loading, 60, 20);
         assert!(rows.iter().any(|r| r.contains("Reading")));
         for (w, h) in [(10, 4), (24, 8), (40, 12), (160, 50)] {

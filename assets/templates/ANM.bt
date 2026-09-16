@@ -1,0 +1,254 @@
+//------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+//
+//      File: ANM.bt
+//   Authors: DaniilSV
+//   Version: 1.0
+//   Purpose: Parse 3d animation asset from League Of Legends.
+//  Category: Game
+// File Mask: *.anm
+//  ID Bytes: 72 33 64 32 61 6E 6D 64
+//   History: 
+//      1.0   2024-06-15 DaniilSV: initial release
+//------------------------------------------------
+
+// Basic types
+struct Vector3
+{
+    float x;
+    float y;
+    float z;    
+};
+
+struct Vector4
+{
+    float x;
+    float y;
+    float z; 
+    float w;   
+};
+
+// File 
+typedef struct
+{
+    char data[6];
+} QuantizedQuaternion <read=readQuaternion>;
+
+struct Joint
+{
+    char hash[4];
+};
+    
+struct ErrorMetric
+{
+    float errorMargin;
+    float discontinuityThreshold;
+};
+
+string readQuaternion(QuantizedQuaternion &v) {
+    local const double SQRT_2 = 1.41421356237;
+    local const double ONE_OVER_SQRT_2 = 0.70710678118;
+    local const string format = "x: %f, y: %f, z: %f, w: %f";
+    
+    local uint64 bits = (ulong)(v.data[0]) | (ulong)v.data[1] << 16 | (ulong)v.data[2] << 32;
+    local ushort maxIndex = (ushort)(bits >> 45 & 0x0003u);
+    local ushort v_a = (ushort)(bits >> 30 & 0x7FFFu);
+    local ushort v_b = (ushort)(bits >> 15 & 0x7FFFu);
+    local ushort v_c = (ushort)(bits & 0x7FFFu);
+
+    local float a = (float)(v_a / 32767.0 * SQRT_2 - ONE_OVER_SQRT_2);
+    local float b = (float)(v_b / 32767.0 * SQRT_2 - ONE_OVER_SQRT_2);
+    local float c = (float)(v_c / 32767.0 * SQRT_2 - ONE_OVER_SQRT_2);
+    
+    float sub = Max(0, 1 - (a * a + b * b + c * c));
+    float d = Sqrt(sub);
+            
+    
+    local string res;
+    
+    switch (maxIndex)
+    {
+        case  0:
+            SPrintf(res, format, d, a, b, c);
+            break;
+        case 1:
+            SPrintf(res, format, a, d, b, c);
+            break;
+        case 2:
+            SPrintf(res, format, a, b, d, c);
+            break;
+        default:
+            SPrintf(res, format, a, b, c, d);
+            break;
+    }
+            
+    return res;
+};
+
+struct DecompressedAsset
+{
+    uint32 version;
+
+    switch (version)
+    {
+        case 5:
+        case 4:
+            uint32 dataSize;
+            uint32 contentVersion;
+            uint32 contentRevision;
+            uint32 flags <format=binary>;
+            
+            uint32 jointsCount;
+            uint32 framesCount;
+            float frameDuration;
+            
+            uint32 jointNameHashesOffset;
+            uint32 assetNameHashOffset;
+            uint32 timeOffset;
+            uint32 transformBankOffset;
+            uint32 rotationBankOffset;
+            uint32 framesOffset;
+            
+            local uint32 transformCount = (rotationBankOffset - transformBankOffset) / 12; // small workaround to get transforms count
+            local uint32 quatCount = (jointNameHashesOffset - rotationBankOffset) / 6;
+            
+            FSeek(jointNameHashesOffset + 12);
+            Joint joints[jointsCount] <bgcolor = 0x0000FF, optimize=false >;
+            
+            FSeek(transformBankOffset + 12);
+            Vector3 transforms[transformCount] <optimize=false, bgcolor=0xFFFFFF>;
+            
+            FSeek(rotationBankOffset + 12);
+            if (version == 5)
+            {
+                QuantizedQuaternion rotations[quatCount] <optimize=false, bgcolor=0xFF00FF>;
+            } else if (version == 4 )
+            {
+                Vector4 rotations[quatCount] <optimize=false, bgcolor=0xFF00FF>;
+            }
+            
+            
+            FSeek(framesOffset + 12);
+            struct AnimationFrame
+            {
+                struct AnimationJoint
+                {
+                    ushort translationIndex;
+                    ushort scaleIndex;
+                    ushort rotationIndex;
+                    
+                } joints[jointsCount] <optimize=false>;
+            
+            } frames[framesCount] <optimize=false, bgcolor=0xFFFF00>;
+            
+            break;
+        default:
+            Assert(0, "Unknown asset version");
+    }
+};
+
+struct CompressedAsset
+{
+    uint32 version;
+    
+    switch (version)
+    {
+        case 1:
+            uint32 dataSize;
+            char formatToken[4];
+            Assert(formatToken == "canm", "Content has broken token");
+            uint32 flags <format=binary, read=readCompressedAssetFlags>;
+            
+            uint32 jointsCount;
+            uint32 frameCount;
+            uint32 jumpCacheCount;
+            
+            float duration;
+            float fps;
+            
+            ErrorMetric rotationErrorMetric;
+            ErrorMetric translationErrorMetric;
+            ErrorMetric scaleErrorMetric;
+            
+            Vector3 translationMin;
+            Vector3 translationMax;
+            
+            Vector3 scaleMin;
+            Vector3 scaleMax;
+            
+            uint32 framesOffset;
+            uint32 jumpCachesOffset;
+            uint32 jointNameHashesOffset;
+            
+            FSeek(jointNameHashesOffset + 12);
+            Joint joints[jointsCount] <bgcolor = 0x0000FF, optimize=false >;
+            
+            FSeek(framesOffset + 12);
+            struct CompressedFrame
+            {
+                ushort time;
+                ushort flags <format=binary>;
+                ushort data[3];    
+            } frames[frameCount] <bgcolor=0x0000FF, read=readCompressedFrame>;
+            
+            local int jumpFrameSize = frameCount < 0x10001 ? 24 : 48;
+            
+            FSeek(jumpCachesOffset + 12);
+
+            break;
+        default:
+            Assert(0, "Unknown compressed data version");
+    }
+    
+};
+
+string readCompressedFrame(CompressedFrame &object) {
+    local string res;
+    local string transform;
+    
+    switch (object.flags >> 14)
+    {
+        case 0:
+           transform = "Rotation";
+           break;
+        case 1:
+            transform = "Translation";
+           break;
+        case 2:
+            transform = "Scale";
+           break;
+        default:
+            transform = "Unk";
+            break;
+    }
+    
+    SPrintf(res, "Joint: %d Transform: %s", object.flags & 0x3FFF, transform);
+    return res;    
+};
+
+string readCompressedAssetFlags(uint32 &flags) {
+    local string res;
+    SPrintf(res, "unk1: %d, unk2: %d, Parametrization: %d", flags & 0 != 0, flags & 1 != 0, flags & 2 != 0);
+    return res;    
+};
+
+struct File
+{
+    char magic[4];
+    Assert(magic == "r3d2", "File is corrupted");
+    
+    char asset_magic[4];
+    
+    switch (asset_magic)
+    {
+        case "anmd":
+            DecompressedAsset Asset <bgcolor=0xFF0000>;
+            break;
+        case "canm":
+            CompressedAsset Asset <bgcolor=0xFF0000>;
+            break;
+        default:
+            Assert(0, "Unknwon asset magic");
+    }
+} file;
+

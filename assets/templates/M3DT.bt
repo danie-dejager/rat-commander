@@ -1,0 +1,563 @@
+//------------------------------------------------------------------------------------------------------------------
+//--- 010 Editor v14.0 Template File
+//
+// File:	  M3DT.bt
+// Author:	  Alastor Strix'Efuartus + RE team behind M3 wiki data
+// Purpose:   Parses a Blizzard M3(.m3)
+// Version:   1.0.0
+// Category:  Game
+// File Mask: *.m3
+// ID Bytes:  4D 33 44 54 // M3DT
+//	 History: World of Warcraft has been using M2 files since its release in 2004 but now there are first sights of M3 files it seems that a transition to a new file format will happen
+//	 1.0.0 2024-07-11 Alastor: The basic structure created from known information about the format as there are only a few examples of the file to check there are undocumented and unused chunks right now this template will have to get updated over time
+//------------------------------------------------------------------------------------------------------------------
+
+RequiresVersion(13);
+/*
+local float f_MAX_SHORT = 32767; local float f_One = 1.0;
+float stf(unsigned short Short) { return (Short / f_MAX_SHORT ) - f_One; };  // float to short
+unsigned short fts(float Float) { return (Float + f_One) * f_MAX_SHORT; };	 // short to float
+*/
+
+// VERTEX BUFFERS  ---------------------------------------------------------------------------
+// 1F32 Single float32 value--------------------------------------------------------------------
+
+typedef struct{
+  float x;
+} VB_1F32<read=VB_1F32Read, write=VB_1F32Write, optimize=false>;
+
+string VB_1F32Read (VB_1F32& rec) {
+  string a;
+  SPrintf (a, "(%f %f)\n", rec.x, rec.y);
+  return a;
+};
+
+void VB_1F32Write (VB_1F32& rec, string s) {
+  SScanf (s, "(%f %f)", rec.x, rec.y);
+};
+
+// 2F32 Two float32 values--------------------------------------------------------------------
+
+typedef struct{
+  float x;
+  float y;
+} VB_2F32<read=VB_2F32Read, write=VB_2F32Write, optimize=false>;
+
+string VB_2F32Read (VB_2F32& rec) {
+  string a;
+  SPrintf (a, "(%f %f)\n", rec.x, rec.y);
+  return a;
+};
+
+void VB_2F32Write (VB_2F32& rec, string s) {
+  SScanf (s, "(%f %f)", rec.x, rec.y);
+};
+
+// 3F32 Three float32 values--------------------------------------------------------------------
+
+typedef struct{
+  float x;
+  float y;
+  float z;
+} VB_3F32<read=VB_3F32Read, write=VB_3F32Write, optimize=false>;
+
+string VB_3F32Read (VB_3F32& rec) {
+  string a;
+  SPrintf (a, "(%f %f %f)\n", rec.x, rec.y, rec.z);
+  return a;
+};
+
+void VB_3F32Write (VB_3F32& rec, string s) {
+  SScanf (s, "(%f %f %f)", rec.x, rec.y, rec.z);
+};
+
+// 4F32 Four float32 values--------------------------------------------------------------------
+
+typedef struct{
+  float x;
+  float y;
+  float z;
+  float w;
+} VB_4F32<read=VB_4F32Read, write=VB_4F32Write, optimize=false>;
+
+string VB_4F32Read (VB_4F32& rec) {
+  string a;
+  SPrintf (a, "(%f %f %f %f)\n", rec.x, rec.y, rec.z, rec.w);
+  return a;
+};
+
+void VB_4F32Write (VB_4F32& rec, string s) {
+  SScanf (s, "(%f %f %f %f)", rec.x, rec.y, rec.z, rec.w);
+};
+
+// 1F16 Two float16 values. Or Half Floats--------------------------------------------------------------------
+
+typedef struct{
+  ushort x;
+} VB_1F16<read=VB_1F16Read, write=VB_1F16Write, optimize=false>;
+
+string VB_1F16Read (VB_1F16& rec) {
+  string a;
+  SPrintf (a, "(%d)\n", rec.x);
+  return a;
+};
+
+void VB_1F16Write (VB_1F16& rec, string s) {
+  SScanf (s, "(%d)", rec.x);
+};
+
+// 2F16 Two float16 values. Or Half Floats--------------------------------------------------------------------
+
+typedef struct{
+  ushort x;
+  ushort y;
+} VB_2F16<read=VB_2F16Read, write=VB_2F16Write, optimize=false>;
+
+string VB_2F16Read (VB_2F16& rec) {
+  string a;
+  SPrintf (a, "(%d %d)\n", rec.x, rec.y);
+  return a;
+};
+
+void VB_2F16Write (VB_2F16& rec, string s) {
+  SScanf (s, "(%d %d)", rec.x, rec.y);
+};
+
+// 4F16 Two float16 values. Or Half Floats--------------------------------------------------------------------
+
+typedef struct{
+  float x;
+  float y;
+  float z;
+  float w;
+} VB_4F16<read=VB_4F16Read, write=VB_4F16Write, optimize=false>;
+
+string VB_4F16Read (VB_4F16& rec) {
+  string a;
+  SPrintf (a, "(%d %d %d %d)\n", rec.x, rec.y, rec.z, rec.w);
+  return a;
+};
+
+void VB_4F16Write (VB_4F16& rec, string s) {
+  SScanf (s, "(%d %d %d %d)", rec.x, rec.y, rec.z, rec.w);
+};
+
+// U10N 3 normalized float values stored in 10 bits each. With 2 bits padding.-------------------------------------------------------------
+
+typedef struct{  // TODO
+  uint x : 10;   // Normalize to float by dividing by 1023.0f
+  uint y : 10;   // Normalize to float by dividing by 1023.0f
+  uint z : 10;   // Normalize to float by dividing by 1023.0f
+  uint padding : 2;
+} VB_U10N<read=VB_U10NRead, write=VB_U10NWrite, optimize=false>;
+
+string VB_U10NRead (VB_U10N& rec) {
+  string a;
+  SPrintf (a, "(%d %d %d)\n", rec.x / 1023, rec.y / 1023, rec.z / 1023);
+  return a;
+};
+
+void VB_U10NWrite (VB_U10N& rec, string s) {
+  SScanf (s, "(%d %d %d)", rec.x, rec.y, rec.z);
+};
+
+// 1U32 A single uint32 value..-------------------------------------------------------------
+
+typedef struct{  
+  uint x;
+} VB_1U32<read=VB_1U32Read, write=VB_1U32Write, optimize=false>;
+
+string VB_1U32Read (VB_1U32& rec) {
+  string a;
+  SPrintf (a, "(%d)\n", rec.x);
+  return a;
+};
+
+void VB_1U32Write (VB_1U32& rec, string s) {
+  SScanf (s, "(%d)", rec.x);
+};
+
+// 1U16 A single uint16 value.-------------------------------------------------------------
+
+typedef struct{  
+  ushort x;
+} VB_1U16<read=VB_1U16Read, write=VB_1U16Write, optimize=false>;
+
+string VB_1U16Read (VB_1U16& rec) {
+  string a;
+  SPrintf (a, "(%d)\n", rec.x);
+  return a;
+};
+
+void VB_1U16Write (VB_1U16& rec, string s) {
+  SScanf (s, "(%d)", rec.x);
+};
+
+// 4U16 Four uint16 values.-------------------------------------------------------------
+
+typedef struct{  
+  ushort x;
+  ushort y;
+  ushort z;
+  ushort i;
+} VB_4U16<read=VB_4U16Read, write=VB_4U16Write, optimize=false>;
+
+string VB_4U16Read (VB_4U16& rec) {
+  string a;
+  SPrintf (a, "(%d %d %d %d)\n", rec.x, rec.y, rec.z, rec.w);
+  return a;
+};
+
+void VB_4U16Write (VB_4U16& rec, string s) {
+  SScanf (s, "(%d %d %d %d)", rec.x, rec.y, rec.z, rec.w);
+};
+
+// 4U08 Four uint8 values-----------------------------------------------------------
+
+typedef struct{  
+  byte x;
+  byte y;
+  byte z;
+  byte i;
+} VB_4U08<read=VB_4U08Read, write=VB_4U08Write, optimize=false>;
+
+string VB_4U08Read (VB_4U08& rec) {
+  string a;
+  SPrintf (a, "(%d %d %d %d)\n", rec.x, rec.y, rec.z, rec.w);
+  return a;
+};
+
+void VB_4U08Write (VB_4U08& rec, string s) {
+  SScanf (s, "(%d %d %d %d)", rec.x, rec.y, rec.z, rec.w);
+};
+
+// 4U8N Four normalized float values stored as uint8 values.----------------------------------------------------
+
+typedef struct{  
+  byte x; // Normalize to float by dividing by 255.0f
+  byte y; // Normalize to float by dividing by 255.0f
+  byte z; // Normalize to float by dividing by 255.0f
+  byte i; // Normalize to float by dividing by 255.0f
+} VB_4U8N<read=VB_4U8NRead, write=VB_4U8NWrite, optimize=false>;
+
+string VB_4U8NRead (VB_4U8N& rec) {
+  string a;
+  SPrintf (a, "(%d %d %d %d)\n", rec.x / 255, rec.y / 255, rec.z / 255, rec.w / 255);
+  return a;
+};
+
+void VB_4U8NWrite (VB_4U8N& rec, string s) {
+  SScanf (s, "(%d %d %d %d)", rec.x, rec.y, rec.z, rec.w);
+};
+
+//------------------------------------------------------------------------
+
+typedef struct{
+	VB_3F32 BoundingBoxMin;
+	VB_3F32 BoundingBoxMax;
+	float	BoundingBoxRadius;
+	VB_3F32 CollisionBoxMin;
+	VB_3F32 CollisionBoxMax;
+	float	CollisionBoxRadius;
+}TheFloats;
+
+typedef struct{
+    uint Unk0;
+    uint Unk1;
+    uint Unk2;
+    uint indicesIndex;  // The index at which this geoset's indices start (in the LODS chunk).
+    uint indicesCount;  // Number of indices in the geoset.
+    uint Unk3;
+    uint Unk4;
+    uint Unk5;
+    uint Unk6;
+}TheGeoset;
+
+typedef struct{
+    uint vertexCount;
+    uint indexCount;
+}TheLOD; // Level of detail pair. Size is 8 bytes
+
+typedef struct{
+    ushort Unk1;
+    ushort Unk2;
+    ushort GeosetIndex;   // ??? Just a guess
+    ushort MaterialIndex; // ??? Just a guess
+}TheBatch; // Render batch. Size is 8 bytes
+
+//------------------------------------------------------------------------
+
+typedef struct{ // Header - 0x68 lenght
+    CHAR M3DT_Magic[4];
+    uint ChunkSize<format=hex>;
+    uint PropertyA;
+    uint PropertyB;
+    uint Unk0;
+    uint Unk1;
+    uint Unk2;
+    uint Unk3;
+    uint Unk4;
+    uint Unk5;
+    uint Unk6;
+    TheFloats ModelBox;
+    uint Unk7;
+}M3DT_C; // Header for the m3 object
+
+typedef struct{
+    CHAR MES3_Magic[4];
+    uint ChunkSize<format=hex>;
+    uint PropertyA;
+    uint PropertyB;
+    FindM3Chunk("M3VR", 0x0);
+    FindM3Chunk("VPOS", 0x0);
+    FindM3Chunk("VNML", 0x0);
+    FindM3Chunk("VUV0", 0x0);
+    FindM3Chunk("VUV1", 0x0);
+    FindM3Chunk("VUV2", 0x0);
+    FindM3Chunk("VUV3", 0x0);
+    FindM3Chunk("VUV4", 0x0);
+    FindM3Chunk("VUV5", 0x0);
+    FindM3Chunk("VTAN", 0x0);    
+    FindM3Chunk("VSTR", 0x0);
+    FindM3Chunk("VINX", 0x0);
+    FindM3Chunk("VGEO", 0x0);
+    FindM3Chunk("LODS", 0x0);
+    FindM3Chunk("RBAT", 0x0);
+    FindM3Chunk("VWTS", 0x0);
+    FindM3Chunk("VIBP", 0x0);
+    FindM3Chunk("VCL0", 0x0);
+    FindM3Chunk("VCL1", 0x0);
+}MES3_C; // Mesh data
+
+typedef struct{
+    CHAR M3VR_Magic[4];
+    uint ChunkSize<format=hex>;
+    uint Version;
+    uint padding;
+}M3VR_C; // Mesh version
+
+typedef struct{
+    CHAR VPOS_Magic[4];
+    uint ChunkSize<format=hex>;
+    CHAR Format[4];
+    uint padding;
+    ReadVertexBuffer(Format, ChunkSize);
+}VPOS_C; // Vertex positions
+
+typedef struct{
+    CHAR VNML_Magic[4];
+    uint ChunkSize<format=hex>;
+    CHAR Format[4];
+    uint padding;
+    ReadVertexBuffer(Format, ChunkSize);
+}VNML_C; // Vertex normals
+
+typedef struct{
+    CHAR VUVX_Magic[4];
+    uint ChunkSize<format=hex>;
+    CHAR Format[4];
+    uint padding;
+    ReadVertexBuffer(Format, ChunkSize);
+}VUVX_C; // Vertex UV set 1-5
+
+typedef struct{
+    CHAR VTAN_Magic[4];
+    uint ChunkSize<format=hex>;
+    CHAR Format[4];
+    uint padding;
+    ReadVertexBuffer(Format, ChunkSize);
+}VTAN_C; // Vertex tangents.
+
+typedef struct{
+    CHAR VSTR_Magic[4];
+    uint ChunkSize<format=hex>;
+    uint64 padding;
+    CHAR MaterialString[ChunkSize];
+}VSTR_C; // Material String?.
+
+typedef struct{
+    CHAR VINX_Magic[4];
+    uint ChunkSize<format=hex>;
+    CHAR Format[4];
+    uint padding;
+    ReadVertexBuffer(Format, ChunkSize);
+}VINX_C; // Vertex indices.
+
+typedef struct{
+    CHAR VGEO_Magic[4];
+    uint ChunkSize<format=hex>;
+    TheGeoset Geoset[(ChunkSize/36)];
+}VGEO_C; // Geoset data.
+
+typedef struct{
+    CHAR LODS_Magic[4];
+    uint ChunkSize<format=hex>;
+    uint LodCount;      // Property field indicating the number of LODs.
+    uint GeotsetsPerLod;  // Property field indicating the number of Geoset's in each LOD.
+    TheLOD LOD[(ChunkSize/8)]; 
+}LODS_C; // Level of detail data.
+
+typedef struct{
+    CHAR RBAT_Magic[4];
+    uint ChunkSize<format=hex>;
+    uint BatchCount;
+    uint padding;
+    TheBatch Batch[(ChunkSize/8)];
+}RBAT_C; // Render Batches
+
+typedef struct{
+    CHAR VWTS_Magic[4];
+    uint ChunkSize<format=hex>;
+    CHAR Format[4];
+    uint padding;
+    ReadVertexBuffer(Format, ChunkSize);
+}VWTS_C; // Vertex bone weights
+
+typedef struct{
+    CHAR VIBP_Magic[4];
+    uint ChunkSize<format=hex>;
+    CHAR Format[4];
+    uint padding;
+    ReadVertexBuffer(Format, ChunkSize);
+}VIBP_C; // Vertex bone inverse bind poses
+
+typedef struct{
+    CHAR VCLX_Magic[4];
+    uint ChunkSize<format=hex>;
+    CHAR Format[4];
+    uint padding;
+    ReadVertexBuffer(Format, ChunkSize);
+}VCLX_C; // Vertex color set 1-2
+
+typedef struct{
+    CHAR M3CL_Magic[4];
+    uint ChunkSize<format=hex>;
+    uint PropertyA;
+    uint PropertyB;
+    FindM3Chunk("CPOS", 0x0);    
+    FindM3Chunk("CNML", 0x0);    
+    FindM3Chunk("CINX", 0x0);    
+}M3CL_C; // Collision mesh data
+
+typedef struct{
+    CHAR CPOS_Magic[4];
+    uint ChunkSize<format=hex>;
+    VB_3F32 _3F32[(ChunkSize/12)];
+}CPOS_C; // Collision mesh vertex positions
+
+typedef struct{
+    CHAR CNML_Magic[4];
+    uint ChunkSize<format=hex>;
+    VB_3F32 _3F32[(ChunkSize/12)];
+}CNML_C; // Collision mesh vertex normals
+
+typedef struct{
+    CHAR CINX_Magic[4];
+    uint ChunkSize<format=hex>;
+    VB_1F16 _1F16[(ChunkSize/2)];
+}CINX_C; // Collision mesh vertex indices
+
+typedef struct {
+    uint32 filedataID;   // Unk FileDataID 5614494 (not currently present in the client)
+    byte md5Hash[16];    // MD5hash of the instance name? Used to reference the instance in the material file.
+    uint32 unknowns[17]; // Unknown data.
+}TheInstance;
+
+typedef struct{
+    local long CurrentPos = FTell();
+    CHAR M3SI_Magic[4];
+    uint ChunkSize<format=hex>;
+    uint PropertyA;
+    uint PropertyB;
+    struct{
+        local long ChunkOfs = FTell();
+        CHAR M3IS_Magic[4];
+        uint Version;
+        uint Unk1;
+        uint Unk2;
+        uint nInstance;
+        uint OfsInstance<format=hex>;
+        FSeek(ChunkOfs + 4 * OfsInstance);
+        TheInstance Instace[nInstance];
+    }M3IS_C;
+    FSeek(CurrentPos + ChunkSize + 16);
+}M3SI_C; // Instances
+
+typedef struct{
+    CHAR M3ST_Magic[4];
+    uint ChunkSize<format=hex>;
+    uint PropertyA;
+    uint PropertyB;
+}M3ST_C; // String Table
+
+typedef struct{
+    CHAR M3VS_Magic[4];
+    uint ChunkSize<format=hex>;
+    uint PropertyA;
+    uint PropertyB;
+}M3VS_C; // Unk
+
+void ReadVertexBuffer(char VB_Format[4], int VB_Size){
+	switch (VB_Format) {
+		case "1F32": VB_1F32 _1F32[(VB_Size/4)] <comment="1F32">; break;
+		case "2F32": VB_2F32 _2F32[(VB_Size/8)] <comment="2F32">; break;
+		case "3F32": VB_3F32 _3F32[(VB_Size/12)]<comment="3F32">; break;
+		case "4F32": VB_4F32 _4F32[(VB_Size/16)]<comment="4F32">; break;
+		case "2F16": VB_2F16 _2F16[(VB_Size/4)] <comment="2F16">; break;
+		case "4F16": VB_4F16 _3F32[(VB_Size/8)] <comment="4F16">; break;
+		case "U10N": VB_U10N _U10N[(VB_Size/4)] <comment="U10N">; break;
+		case "1U32": VB_1U32 _1U32[(VB_Size/4)] <comment="1U32">; break;
+		case "1U16": VB_1U16 _1U16[(VB_Size/2)] <comment="1U16">; break;
+		case "4U16": VB_4U16 _4U16[(VB_Size/8)] <comment="4U16">; break;
+		case "4U08": VB_4U08 _4U08[(VB_Size/4)] <comment="4U08">; break;
+		case "4U8N": VB_4U8N _4U8N[(VB_Size/4)] <comment="4U8N">; break;
+	};
+	//Printf("VertexBuffer: '%s' Start: %d End: %d\n", ChunkName, pos, FTell() );
+};
+
+void FindM3Chunk(string ChunkName, int64 Local_Offset ){
+	local int64 pos = FindFirst(ChunkName, true, false, 0, 0.0, 1, (Local_Offset) );
+	if(pos != -1) {
+		FSeek(pos);
+		switch (ChunkName) {
+			case "M3DT": M3DT_C M3DT<comment="Header">; break;
+			case "MES3": MES3_C MES3<comment="Mesh">; break;
+			case "M3VR": M3VR_C M3VR<comment="Version">; break;
+			case "VPOS": VPOS_C VPOS<comment="Vertices">; break;
+			case "VNML": VNML_C VNML<comment="VertexNormals">; break;
+			case "VUV0": VUVX_C VUV0<comment="UV Map[0]">; break;
+			case "VUV1": VUVX_C VUV1<comment="UV Map[1]">; break;
+			case "VUV2": VUVX_C VUV2<comment="UV Map[2]">; break;
+			case "VUV3": VUVX_C VUV3<comment="UV Map[3]">; break;
+			case "VUV4": VUVX_C VUV4<comment="UV Map[4]">; break;
+			case "VUV5": VUVX_C VUV5<comment="UV Map[5]">; break;
+			case "VTAN": VTAN_C VTAN<comment="VertexTangents">; break;
+			case "VSTR": VSTR_C VSTR<comment="MaterialString">; break;
+			case "VINX": VINX_C VINX<comment="VertexIndices">; break;
+			case "VGEO": VGEO_C VGEO<comment="GeosetData">; break;
+			case "LODS": LODS_C LODS<comment="Lods">; break;
+			case "RBAT": RBAT_C RBAT<comment="RenderBatches">; break;
+			case "VWTS": VWTS_C VWTS<comment="VertexBoneWeight">; break;
+			case "VIBP": VIBP_C VIBP<comment="VertexBoneInverseBindingPose">; break;
+			case "VCL0": VCLX_C VCL0<comment="VertexColor0">; break;
+			case "VCL1": VCLX_C VCL1<comment="VertexColor1">; break;
+			case "M3CL": M3CL_C M3CL<comment="CollisionMesh">; break;
+			case "CPOS": CPOS_C CPOS<comment="CollisionMeshVertexPositions">; break;
+			case "CNML": CNML_C CNML<comment="CollisionMeshVertexNormals">; break;
+			case "CINX": CINX_C CINX<comment="CollisionMeshVertexIndices">; break;
+			case "M3SI": M3SI_C M3SI<comment="Instances">; break;
+			case "M3ST": M3ST_C M3ST<comment="StringTable">; break;
+			case "M3VS": M3VS_C M3VS<comment="Unk">; break;
+		};
+		Printf("Chunk: '%s' Start: %d End: %d\n", ChunkName, pos, FTell() );
+	};
+};
+
+struct{
+    FindM3Chunk("M3DT", 0x0);
+    FindM3Chunk("MES3", 0x0);
+    FindM3Chunk("M3CL", 0x0);
+    FindM3Chunk("M3SI", 0x0);
+    FindM3Chunk("M3ST", 0x0);
+    FindM3Chunk("M3VS", 0x0);
+}M3_File;

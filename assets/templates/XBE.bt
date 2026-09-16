@@ -1,0 +1,318 @@
+//----------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+//
+//      File: XBE.bt
+//   Authors: Hyper (linktr.ee/hyperbx)
+//   Version: 1.0.0
+//   Purpose: Parse Xbox executable files.
+//  Category: Executable
+// File Mask: *.xbe
+//  ID Bytes: 58 42 45 48 // XBEH
+//   History: 
+//   1.0.0   2024-01-22 Hyper: Initial release.
+//
+// References:
+// - https://www.caustik.com/cxbx/download/xbe.htm
+//----------------------------------------------------
+RequiresVersion(12.0);
+
+local int _primaryHeaderColour = cLtRed;
+local int _secondaryHeaderColour = cYellow;
+local int _securityInfoColour = cGreen;
+local int _stringColour = cPurple;
+local int _imageDataColour = cLtBlue;
+local int _unknownDataColour = cRed;
+
+local uint _baseAddress;
+local uint _imageSize;
+
+LittleEndian();
+
+uint HexStringToDecimalU32(string in_hexString)
+{
+    local byte isHexString = false;
+    local int len = Strlen(in_hexString);
+    
+    local int i;
+    for (i = 0; i < len; i++)
+    {
+        if (IsCharAlpha(in_hexString[i]))
+            isHexString = true;
+    }
+    
+    if (!isHexString)
+        return Atoi(in_hexString);
+        
+    // Omit 'h' suffix, if present.
+    if (in_hexString[len - 1] == 'h')
+        in_hexString = StrDel(in_hexString, len - 1, 1);
+        
+    len = Strlen(in_hexString);
+    
+    local char hexChars[256];
+    
+    // Create numeric chars.
+    for (i = 0; i < 10; i++)
+        hexChars['0' + i] = i;
+        
+    // Create alpha chars.
+    for (i = 0; i < 6; i++)
+        hexChars['A' + i] = hexChars['a' + i] = 10 + i;
+
+    local uint result;
+    local int whiteSpaceCharsSkipped;
+    for (i = len - 1; i >= 0; i--)
+    {
+        // Skip "0x".
+        if (in_hexString[i] == 'x')
+            break;
+            
+        // Skip whitespace chars.
+        if (in_hexString[i] == ' ')
+        {
+            whiteSpaceCharsSkipped++;
+            continue;   
+        }
+
+        result += hexChars[in_hexString[i]] * Pow(16, len - (i + whiteSpaceCharsSkipped) - 1);
+    }
+    
+    return result;
+}
+
+string ReadXorAddressCommon(uint& in_rXorValue, uint in_xorKey, uint in_altXorKey)
+{
+    local string result;
+    local uint xor = in_rXorValue ^ in_altXorKey;
+    
+    if (xor > _imageSize)
+        xor = in_rXorValue ^ in_xorKey;
+        
+    SPrintf(result, "%Xh", xor);
+        
+    return result;
+}
+
+void WriteXorAddressCommon(uint& in_rXorValue, string in_str, uint in_xorKey, uint in_altXorKey)
+{
+    local int executableType = InputRadioButtonBox("XBE", "Executable Type:", 0, "Retail", "Debug");
+    local uint input = HexStringToDecimalU32(in_str);
+    
+    if (executableType == -1)
+        return;
+    
+    if (executableType == 0)
+        in_rXorValue = input ^ in_xorKey;
+    
+    in_rXorValue = input ^ in_altXorKey;
+}
+
+enum<uint> EXbeEntryPointXorKey
+{
+    XBE_ENTRYPOINT_XOR_KEY_RETAIL = 0xA8FC57AB,
+    XBE_ENTRYPOINT_XOR_KEY_DEBUG  = 0x94859D4B
+};
+
+enum<uint> EXbeKernelImageThunkXorKey
+{
+    XBE_KERNEL_IMAGE_THUNK_XOR_KEY_RETAIL = 0x5B6D40B6,
+    XBE_KERNEL_IMAGE_THUNK_XOR_KEY_DEBUG  = 0xEFB1F152
+};
+
+void WriteEntryPointPtr(uint& in_rEntryPoint, string in_str)
+{
+    WriteXorAddressCommon(in_rEntryPoint, in_str,
+        XBE_ENTRYPOINT_XOR_KEY_RETAIL, XBE_ENTRYPOINT_XOR_KEY_DEBUG);
+}
+
+void WriteKernelImageThunksPtr(uint& in_rKernelImageThunksPtr, string in_str)
+{
+    WriteXorAddressCommon(in_rKernelImageThunksPtr, in_str,
+        XBE_KERNEL_IMAGE_THUNK_XOR_KEY_RETAIL, XBE_KERNEL_IMAGE_THUNK_XOR_KEY_DEBUG);
+}
+
+uint Offset(uint in_virtualAddr)
+{
+    return in_virtualAddr - _baseAddress;
+}
+
+struct XbeHeader
+{
+    SetBackColor(_primaryHeaderColour);
+    
+    char Signature[4]<format=hex, open=suppress>;
+    
+    SetBackColor(_securityInfoColour);
+    ubyte DigitalSignature[0x100]<format=hex, open=suppress>;
+    SetBackColor(_primaryHeaderColour);
+    
+    uint BaseAddress<format=hex>; _baseAddress = BaseAddress;
+    uint HeadersSize;
+    uint ImageSize; _imageSize = ImageSize;
+    uint ImageHeaderSize;
+    time_t Timestamp;
+    uint pCertificate<format=hex>;
+    uint SectionHeaderCount;
+    uint pSectionHeaders<format=hex>;
+    
+    enum<uint> EXbeInitialisationFlags
+    {
+        XBE_INIT_MOUNT_UTILITY_DRIVE  = 0x00000001,
+        XBE_INIT_FORMAT_UTILITY_DRIVE = 0x00000002,
+        XBE_INIT_LIMIT_64MB           = 0x00000004,
+        XBE_INIT_DONT_SETUP_HARD_DISK = 0x00000008    
+    }
+    InitialisationFlags;
+    
+    uint pEntryPoint<read=ReadXorAddressCommon(this, XBE_ENTRYPOINT_XOR_KEY_RETAIL, XBE_ENTRYPOINT_XOR_KEY_DEBUG),
+                     write=WriteEntryPointPtr>;
+                     
+    uint pTlsTable<format=hex>;
+    uint StackSize;
+    uint PEHeapReserve;
+    uint PEHeapCommit;
+    uint PEBaseAddress<format=hex>;
+    uint PEImageSize;
+    uint PEChecksum<format=hex>;
+    time_t PETimestamp;
+    uint pDebugPath<format=hex>;
+    uint pDebugName<format=hex>;
+    uint pDebugNameW<format=hex>;
+    
+    uint pKernelImageThunks<read=ReadXorAddressCommon(this, XBE_KERNEL_IMAGE_THUNK_XOR_KEY_RETAIL, XBE_KERNEL_IMAGE_THUNK_XOR_KEY_DEBUG),
+                            write=WriteKernelImageThunksPtr>;
+                                
+    uint pNonKernelImportDirectory<format=hex>;
+    uint LibraryVersionCount;
+    uint pLibraryVersions<format=hex>;
+    uint pKernelLibraryVersion<format=hex>;
+    uint pXAPILibraryVersion<format=hex>;
+    uint pLogoBitmap<format=hex>;
+    uint LogoBitmapSize;
+    
+    SetBackColor(_unknownDataColour); uint Unknown[2]<hidden=true>;
+}
+Header;
+
+struct XbeTitleID
+{
+    ushort ID;
+    char B;
+    char A;
+};
+
+FSeek(Offset(Header.pCertificate)); struct XbeCertificate
+{
+    SetBackColor(_securityInfoColour);
+    
+    uint Size<hidden=true>;
+    time_t Timestamp;
+    XbeTitleID TitleID;
+    
+    SetBackColor(_stringColour);
+    wchar_t Name[40]<open=suppress>;
+    SetBackColor(_securityInfoColour);
+    
+    XbeTitleID AlternateTitleIDs[16]<open=suppress>;
+    
+    enum<uint> XbeMediaTypes
+    {
+        XBE_MEDIA_HARD_DISK           = 0x00000001,
+        XBE_MEDIA_DVD_X2              = 0x00000002,
+        XBE_MEDIA_DVD_CD              = 0x00000004,
+        XBE_MEDIA_CD                  = 0x00000008,
+        XBE_MEDIA_DVD_5_RO            = 0x00000010,
+        XBE_MEDIA_DVD_9_RO            = 0x00000020,
+        XBE_MEDIA_DVD_5_RW            = 0x00000040,
+        XBE_MEDIA_DVD_9_RW            = 0x00000080,
+        XBE_MEDIA_DONGLE              = 0x00000100,
+        XBE_MEDIA_MEDIA_BOARD         = 0x00000200,
+        XBE_MEDIA_NONSECURE_HARD_DISK = 0x40000000,
+        XBE_MEDIA_NONSECURE_MODE      = 0x80000000,
+        XBE_MEDIA_MEDIA_MASK          = 0x00FFFFFF
+    }
+    AllowedMediaTypes<format=hex>;
+    
+    enum<uint> XbeRegionCode
+    {
+        XBE_REGION_NORTH_AMERICA = 0x00000001,
+        XBE_REGION_JAPAN         = 0x00000002,
+        XBE_REGION_RESTOFWORLD   = 0x00000004,
+        XBE_REGION_MANUFACTURING = 0x80000000
+    }
+    RegionCode<format=hex>;
+    
+    uint Ratings<format=hex>;
+    uint DiscNumber;
+    uint CertificateVersion;
+    ubyte LanKey[16];
+    
+    struct XbeCertificateSignatureKey
+    {
+        ubyte Key[16]<format=hex, open=suppress>;
+    }
+    SignatureKey;
+    
+    XbeCertificateSignatureKey AlternateSignatureKeys[16]<open=suppress>;
+}
+Certificate;
+
+FSeek(Offset(Header.pSectionHeaders)); struct XbeSectionHeader
+{
+    SetBackColor(_secondaryHeaderColour);
+    
+    enum<uint> XbeSectionFlags
+    {
+        XBE_SECTION_WRITABLE            = 0x00000001,
+        XBE_SECTION_PRELOAD             = 0x00000002,
+        XBE_SECTION_EXECUTABLE          = 0x00000004,
+        XBE_SECTION_INSERTED_FILE       = 0x00000008,
+        XBE_SECTION_HEAD_PAGE_READ_ONLY = 0x00000010,
+        XBE_SECTION_TAIL_PAGE_READ_ONLY = 0x00000020    
+    }
+    Flags<format=hex>;
+    
+    uint BaseAddressVirtual<format=hex>;
+    uint SizeVirtual;
+    uint BaseAddressPhysical<format=hex>;
+    uint SizePhysical;
+    uint pSectionName<format=hex>;
+    uint SectionNameReferenceCount;
+    uint pHeadSharedPageRecount<format=hex>;
+    uint pTailSharedPageRecount<format=hex>;
+    ubyte SHA1Digest[20]<format=hex, open=suppress>;
+    
+    local ulong p = FTell();
+    SetBackColor(_stringColour);
+    FSeek(Offset(pSectionName)); string Name;
+    FSeek(p);
+}
+Sections[Header.SectionHeaderCount]<optimize=false>;
+
+SetBackColor(_stringColour);
+FSeek(Offset(Header.pDebugPath));  string DebugPath;
+FSeek(Offset(Header.pDebugName));  string DebugName;
+FSeek(Offset(Header.pDebugNameW)); wstring DebugNameW;
+
+FSeek(Offset(Header.pLibraryVersions)); struct XbeLibraryVersion
+{
+    SetBackColor(_stringColour);
+    char Name[8]<open=suppress>;
+    SetBackColor(_secondaryHeaderColour);
+    
+    ushort MajorVersion;
+    ushort MinorVersion;
+    ushort Build;
+    
+    enum<ushort> XbeLibraryFlags
+    {
+        XBE_LIBRARY_APPROVED = 0x6000,
+        XBE_LIBRARY_DEBUG    = 0x8000,
+        XBE_LIBRARY_QFE      = 0x1FFF
+    }
+    Flags<format=hex>;
+}
+LibraryVersions[Header.LibraryVersionCount]<optimize=false>;
+
+SetBackColor(_imageDataColour);
+FSeek(Offset(Header.pLogoBitmap)); ubyte LogoBitmap[Header.LogoBitmapSize]<format=hex, open=suppress>;

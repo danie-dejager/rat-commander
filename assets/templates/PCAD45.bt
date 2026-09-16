@@ -1,0 +1,455 @@
+//-------------------------------------------------------------------------------------------------
+//--- 010 Editor v13.0 Binary Template
+//
+//      File: PCAD45.bt
+//    Author: RomanRom2
+//    E-mail: RomanRom2@gmail.com
+//   Version: 1.0
+//   Purpose: Parse P-CAD 2.0-4.5 database PCB, PRT, SCH, SYM files
+//  Category: CAD
+// File Mask: *.pcb, *.prt, *.sch, *.sym
+//  ID Bytes: 50 65 72 73 6F 6E 61 6C 20 43 41 44 20 53 79 73 74 65 6D 73 2C 20 49 6E 63 2E // Personal CAD Systems, Inc.
+//   History: 
+//   1.0   2023-10-07 RomanRom2: Initial release
+// References:
+//   https://reverse.sprinter.ru/pcad45
+//
+// Спасибо тому доброму человеку, который в далеком 1988 году создал и/или перевел
+// документ "Структура базы данных системы p-cad 2.0" DBK редакция от 09.03.88 
+//
+// Огромное спасибо Juriy Lesnikh, который сквозь года донес этот документ
+// до сегодняшних дней, благодаря чему у нас всех теперь есть возможность
+// получить доступ до исходных проектов в формате P-CAD v4.5, изучать их,
+// делать утилиты, обработчики, прямые конверторы, просмотрщики и т.п. 
+// и не делать больше из этого тайны мадридского двора :)
+//-------------------------------------------------------------------------------------------------
+
+enum <byte> byte_YesNo {No_,Yes_};
+enum <short> short_YesNo {No,Yes};
+
+typedef byte bit;         
+
+
+
+
+// Заголовок (HEADER)
+// ================================================================================================
+typedef enum <short> {
+    DETL            = 1D6h,
+    SYMB            = 0D7h,
+} TWorkMode;
+
+typedef enum <short> {
+    Solid           = 0,
+    Dashed          = 1,
+    Dotted          = 2,
+} TLineStyle;
+
+typedef enum <short> {
+    Ortho90         = 0,
+    Any             = 1,
+    Ortho45         = 2,
+} TOrthoStyle;
+
+typedef enum <short> {
+    SCH             = 0Ah,
+    PCB             = 14h,
+} TBDType;
+
+typedef enum <short> {
+    Top             = 1,
+    Bottom          = 2,
+    VCenter         = 3,
+} TTextVAlign;
+
+typedef enum <short> {
+    HCenter         = 3,
+    Left            = 4,
+    Right           = 5,
+} TTextHAlign;
+
+typedef enum <short> {
+    R_0             = 0,
+    R_90            = 1,
+    R_180           = 2,
+    R_270           = 3,
+} TRotate;
+
+typedef struct {
+    TWorkMode       r       <comment = "Work Mode">;        // режим работы на момент сохранения БД: 1D6h - DETL, 0D7h - SYMB
+    short           a       <comment = "Active Layer">;     // номер активного слоя в LATAB
+    short           l;                                      // число (пользовательских) слоев в LATAB
+    TLineStyle      lty     <comment = "Line Style">;       // тип линий: 0 - непрерывная, 1 - пунктирная, 2 - штриховая
+    TOrthoStyle     lfo     <comment = "Route Angle">;      // режим формирования линий: 0 - ортогональный, 1 - неортогональный, 2 - кратно 45 градусам
+    short           lwd     <comment = "Line Size">;        // ширина линии
+    short           sx      <comment = "Grid Step X">;      // шаг координатной сетки по X и Y
+    short           sy      <comment = "Grid Step Y">;
+    short           unk1;                                   // 10
+    short           unk2;                                   // 10
+    short_YesNo     gds     <comment = "Grid Enabled">;     // состояние сетки: 0 - выключена, 1 - включена
+    short_YesNo     mds     <comment = "Snap to Grid">;     // перемещ. курсора: 0 - плавное, 1 - дискретное (snap to grid)
+    short           xm;                                     // координаты курсора на момент сохранения БД
+    short           ym;
+    short           unk4;                                   // 1C4h
+    short           unk5;                                   // 172h
+    short           unk6;                                   // 0
+    short           cc;                                     // единица измерения дискрета БД
+    short           unk7;                                   // 2
+    short           unk8;                                   // 0
+    short           zf      <comment = "Zoom Factor">;      // ZOOM фактор: >0 - ZOUT, <0 - ZIN, 1 - нет ZOOM
+    short           xs      <comment = "Screen Center">;    // координаты центра экрана на момент сохранения
+    short           ys;
+    short           unk9;
+    short           unk10;                                  // 1
+    TBDType         db      <comment = "DB Type", bgcolor=cRed>; // тип базы данных: 0Ah - БД схемы, 14h - БД платы
+    short           nlc     <comment = "Net Fixed">;        // защита списка соединений: 09h - открыт, 00h - защищен
+    short           th      <comment = "Text Height">;      // высота текста
+    TTextVAlign     tjy     <comment = "Text vAlign">;      // привязка текста по Y: 1 - верх, 2 - низ, 3 - центр
+    TTextHAlign     tjx     <comment = "Text hAlign">;      // привязка строки по X: 4 - левый край, 3 - центр, 5 - правый край 
+    TRotate         tr      <comment = "Text Rotate">;      // ориентация строки текста: 0-0, 1-90, 2-280, 3-270
+    short_YesNo     tm      <comment = "Text Mirrored">;    // зеркальность текста: 0 - нет зеркального отображения, 1 - есть
+} TConfig;
+
+typedef struct {
+    char            str1[80];
+    char            str2[80];
+    char            str3[80];
+    char            str4[80];
+
+    short           ver1 <format=decimal, bgcolor=cRed>;    // версия и редакция БД
+    short           ver2;
+    short           e_count_2;
+    short           n_count_2;
+    short           k_count_2;
+    short           v_count_2;
+    short           v_count2_2;
+    short           v_count3_2;
+    short           c_count_2;
+    short           c_count2_2;
+    short           c_count3_2;
+    short           unk12;
+    short           unk13;
+    short           unk14;
+    short           e_count <bgcolor=cLtYellow>;            // число записей в таблице элементов
+    short           k_count <bgcolor=cGray>;                // число записей в таблице конструктивов
+    short           v_count <bgcolor=cGreen>;               // число записей в каталоге описания
+    short           v_count2;
+    short           n_count <bgcolor=cBlue>;                // число записей в таблице цепей
+    short           c_count <bgcolor=cWhite>;               // число записей в таблице контактов
+    short           c_count2;
+    short           emax_count;                             // макс.число записей в таблице элементов
+    short           kmax_count;                             // макс.число записей в таблице конструктивов
+    short           nmax_count;                             // макс.число записей в таблице цепей
+    short           cmax_count;                             // макс.число записей в таблице контактов
+    short           cmxr_count;                             // макс.число записей в буфере таблицы контактов
+    short           vmax_count;                             // макс.число записей в каталоге описания
+    short           vmxr_count;                             // макс.число записей в буфере каталога описания
+    short           wmax_count;                             // максим. число записей в буфере описания
+    short           unk30;                                  // 1
+    short           unk31;                                  // 1
+    short           unk32;                                  // 1
+
+    TConfig         cnf;                                    // Параметры графического редактора на момент сохранения БД
+
+    short           unk33;
+    short           unk34;
+    short           unk35;
+    short           unk36;
+    short           unk37;
+    short           unk38;
+    short           unk39;
+    short           unk40;
+    short           unk41;
+    short           unk42;
+    short           unk43;
+    short           unk44;
+    short           unk45;
+
+    struct twin {                                           // девять сохраненных окон изображения
+        short       xl;                                     // (нижний левый, правый верхний угол окна),
+        short       yl;                                     // нули, если окно не определено
+        short       xh;
+        short       yh;
+    } win[9];
+    short           xl_map;                                 // поле для сохранения десятого окна изображения (MAP)
+    short           yl_map;
+    short           xh_map;
+    short           yh_map;
+
+    short_YesNo     rtn     <comment = "Show Nets">;        // отображение соединений: 0 - выключено, 1 - включено
+    short           pit;                                    // номер типа площадки
+    short           apr;                                    // номер маски фотоплоттера
+
+    short           hdr_unk[57];
+} THeader;
+
+THeader hdr;
+
+
+
+
+// Таблица слоев (LATAB)
+// ================================================================================================
+typedef enum <byte> { 
+    BLACK           = 0,
+    BLUE            = 1,
+    GREEN           = 2,
+    CYAN            = 3,
+    RED             = 4,
+    MAGENTA         = 5,
+    YELLOW          = 6,
+    WHITE           = 7,
+    GRAY            = 8,
+    LBLUE           = 9,
+    LGREEN          = 10,
+    LCYAN           = 11,
+    LRED            = 12,
+    LMAGENTA        = 13,
+    LYELLOW         = 14,
+    LWHITE          = 15,
+} TColor;
+
+typedef enum <byte> {
+    OFF             = 0,
+    ON              = 1,
+    ABL             = 2,
+} TStat;
+
+SetBackColor( cLtPurple );
+struct LATAB {
+    char            name1[6];   // имя слоя
+    byte            unk1;
+    TColor          color;      // цвет слоя (1 · 15)
+    byte            unk3;
+    TStat           status;     // статус слоя
+    byte            unk5;
+    byte            unk6;
+} layers[127];
+
+
+
+
+// Таблица элементов (ELTAB)
+// ================================================================================================
+typedef struct {
+    short           raw <format=binary>;    
+    FSkip (-2);                     
+    BitfieldLeftToRight();
+    bit             bitF: 1 <hidden=true>;
+    bit             bitE: 1 <hidden=true>;
+    bit             bitD: 1 <hidden=true>;
+    bit             bitC: 1 <hidden=true>;
+    byte_YesNo      Enabled: 1;
+    byte_YesNo      Mirrored: 1;
+    ubyte           Orientation: 2; // 00h - 0, 01h - 90, 02h - 180, 03h - 270
+    byte_YesNo      Invisible: 1;
+    bit             bit6: 1 <hidden=true>;
+    bit             bit5: 1 <hidden=true>;
+    bit             bit4: 1 <hidden=true>;
+    bit             bit3: 1 <hidden=true>;
+    bit             bit2: 1 <hidden=true>;
+    bit             bit1: 1 <hidden=true>;
+    bit             bit0: 1 <hidden=true>;
+} TElConfig;
+
+SetBackColor( cLtYellow );
+struct TELTAB {
+    short           name;       // номер записи VACAT - обозначение элемента, нет обозначения - 0FFFFh
+    short           konst;      // номер записи KOTAB - конструктив элемента
+    short           xl;         // координаты нижнего левого и верхнего правого угла охватывающего прямоугольника (оболочка элемента)
+    short           yl;
+    short           xh;
+    short           yh;
+    TElConfig       or;         // параметры размещения
+    short           cont;       // номер записи COTAB - первый контакт элемента; нет контактов - 0FFFFh
+    short           attr;       // номер записи VACAT - атрибуты элемента; нет атрибутов - 0FFFFh
+    if (hdr.ver1 == 104) {
+        short       num;        // new at 4.5, относительный номер записи
+    }
+} ELTAB[hdr.e_count] <optimize=true>; 
+
+
+
+
+// Таблица конструктивов (KOTAB)
+// ================================================================================================
+typedef enum <short> { 
+    StackNotUsedPad = 255,      // поле или стек незадействованной площадки
+    StackUsedPad    = 256,      // стек задействованной площадки
+    DD              = 10000,    // микросхемы
+    R               = 11100,    // резисторы
+    C               = 11200,    // конденсаторы
+    L               = 11300,    // индуктивности
+    VT              = 11400,    // транзисторы
+    OTHER           = 11000,    // остальные дискретные элементы
+    X               = 12000,    // разъемы
+    UNK             = 13000,    // прочие
+} TKoType;
+
+typedef struct {
+    short           raw <format=binary>;    
+    FSkip (-2);                     
+    BitfieldLeftToRight();
+    bit             bitF: 1 <hidden=true>;
+    bit             bitE: 1 <hidden=true>;
+    bit             bitD: 1 <hidden=true>;
+    bit             bitC: 1 <hidden=true>;
+    bit             bitB: 1 <hidden=true>;
+    bit             bitA: 1 <hidden=true>;
+    bit             bit9: 1 <hidden=true>;
+    bit             bit8: 1 <hidden=true>;
+    bit             bit7: 1 <hidden=true>;
+    bit             bit6: 1 <hidden=true>;
+    bit             bit5: 1 <hidden=true>;
+    bit             bit4: 1 <hidden=true>;
+    bit             bit3: 1 <hidden=true>;
+    bit             bit2: 1 <hidden=true>;
+    byte_YesNo      BackSide: 1;
+    byte_YesNo      SMD: 1;
+} TKoConfig;
+
+SetBackColor( cGray );
+struct TKOTAB {
+    TKoType         type;       // тип конструктива
+    short           unk100_1;   // вероятно масштабные множители размеров конструктива по осям X и Y (1:1)
+    short           unk100_2;
+    TKoConfig       or;         // параметры конструктива
+    short           load;       // номер записи VACAT - файл загрузки конструктива; нет - 0FFFFh
+    short           defin;      // номер записи VACAT - описание конструктива (графика, технология и т.п.);  нет - 0FFFFh
+    short           logic;      // номер записи VACAT - внутренняя логическая структура; нет - 0FFFFh
+    short           xb;         // координаты базовой точки конструктива; для конструктива платы - нулевая точка сверления
+    short           yb;
+    if (hdr.ver1 == 104) {
+        short       num;        // new at 4.5, относительный номер записи
+    }
+} KOTAB[hdr.k_count] <optimize=true>; 
+
+
+
+
+// Каталог описания (VACAT)
+// ================================================================================================
+SetBackColor( cGreen );
+struct TVACAT {
+    short           base;
+    short           unk1;
+    short           pos;        // номер записи WARID начала фрагмента описания
+    byte            lay;        // слой информации описания
+                                // пользовательские слои с 0 по 99,
+                                // системные слои: 126 - всегда выключен, 127 - всегда включен
+    byte            typ;        // тип записи (таблица->поле, режим):
+                                // 06h - атрибут элемента      (ELTAB->attr,  DETL)
+                                // 09h - описание конструктива (KOTAB->defin, SYMB)
+                                // 0Ah - описание платы/схемы  (KOTAB->defin, DETL)
+                                // 0Bh - топология цепи        (NETAB->cat,   DETL)
+                                // 0Ch - файл загрузки констр. (KOTAB->load,  DETL)
+                                // 10h - обозначение элемента  (ELTAB->name,  DETL)
+                                // 11h - логическая структура  (KOTAB->logic, SYMB)
+                                // 12h - описание стека площ.  (KOTAB->defin, SYMB)
+    short           fragm;      // число  фрагментов  описания, относящихся к текущей записи VACAT
+    short           nrec;       // номер записи ELTAB/NETAB/KOTAB, которая  ссылается  на  текущую запись VACAT
+    short           mext;       // номер записи VACAT, продолжающей текущую, 0FFFFh - нет продолжения
+    short           num;        // порядковый номер записи
+} VACAT[hdr.v_count]; 
+
+
+
+
+// Таблица цепей (NETAB)
+// ================================================================================================
+typedef struct {
+    short           raw <format=binary>;    
+    FSkip (-2);                     
+    BitfieldLeftToRight();
+    bit             bitF: 1 <hidden=true>;
+    bit             bitE: 1 <hidden=true>;
+    bit             bitD: 1 <hidden=true>;
+    bit             bitC: 1 <hidden=true>;
+    bit             bitB: 1 <hidden=true>;
+    bit             bitA: 1 <hidden=true>;
+    bit             bit9: 1 <hidden=true>;
+    bit             bit8: 1 <hidden=true>;
+    bit             bit7: 1 <hidden=true>;
+    bit             bit6: 1 <hidden=true>;
+    bit             bit5: 1 <hidden=true>;
+    bit             bit4: 1 <hidden=true>;
+    bit             bit3: 1 <hidden=true>;
+    bit             bit2: 1 <hidden=true>;
+    byte_YesNo      Global: 1;
+    bit             bit0: 1 <hidden=true>;
+} TNetFlags;
+
+SetBackColor( cBlue );
+struct TNETAB {
+    char            name[8];    // имя цепи, неименованные цепи содержат NULL в первом байте имени
+    TNetFlags       glob;       // параметры цепи
+    short           cat;        // номер записи VACAT - описание топологии цепи: трассы, переходы
+    short           cnt;        // номер записи COTAB - первый контакт цепи, 0FFFFh - контакты к данной цепи не подключены
+    short           xl;         // координаты нижнего левого и верхнего правого углов прямоугольника,
+    short           xy;         // охватывающего площадки и трассы цепи
+    short           xh;
+    short           yh;
+    short           unk_ffff;
+    if (hdr.ver1 == 104) {
+        short       num;        // new at 4.5, относительный номер записи
+    }
+} NETAB[hdr.n_count] <optimize=true>; 
+
+
+
+
+// Таблица контактов (COTAB)
+// ================================================================================================
+typedef enum <byte> {
+    NotConnected    = 0,        // без подключения к цепи
+    Connected       = 1,        // подключен к цепи
+    Routed          = 2,        // трасса подведена
+} TConnectionCode;
+
+typedef struct {
+    BigEndian();                    
+    byte            raw <format=binary>;    
+    LittleEndian();                 
+    FSkip (-1);                     
+    BitfieldLeftToRight();
+    ubyte           PadType: 6; // тип контактной площадки
+    ubyte           PinType: 2; // тип вывода логического элемента
+} TCoTabType;
+
+SetBackColor( cWhite );
+struct TCOTAB {
+    char            name[8];    // имя контакта
+    short           dx;         // координаты контакта на оболочке элемента
+    short           dy;
+    TConnectionCode tr;         // код подключения
+    byte            unk_1;
+    TCoTabType      tor;        // тип контакта
+    byte            lay;        // слой размещения контакта
+    short           equ;        // номер логической эквивалентности (для операций перестановок)
+    short           net;        // номер записи NETAB, цепь подключения контакта, 0FFFFh - контакт  не  подключен к цепи
+    short           con;        // номер записи COTAB - следующий контакт цепи, последний контакт цепи или незадействованный контакт - 0FFFFh
+    short           elm;        // номер записи ELTAB - элемент контакта
+    short           next;       // номер записи COTAB - следующий контакт элемента, 0FFFFh - последний контакт элемента
+    short           unk_ffff;
+    short           num;        // относительный номер записи
+} COTAB[hdr.c_count] <optimize=true>; 
+
+
+
+
+// WARID
+// ================================================================================================
+SetBackColor( cGray );
+local int64 warid_size, warid_count;
+warid_size = FileSize() - FTell();
+warid_count = warid_size / 4;
+
+typedef struct  {
+    byte            A;
+    byte            C;
+    byte            D;
+    byte            E;
+} TWARID;
+
+TWARID  WARID[warid_count];
+

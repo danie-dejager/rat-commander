@@ -5,11 +5,14 @@
 //! async file save when the editor asks for it.
 
 pub mod buffer;
+mod check;
 pub mod hex;
-mod jsoncheck;
+mod inspector;
+mod jsontools;
 pub mod menu;
 pub mod render;
 mod sheet;
+mod template;
 
 use crate::config::{EditorOptions, WrapMode};
 use crate::vfs::VfsPath;
@@ -58,6 +61,18 @@ pub enum EditorSignal {
     RefreshScreen,
     /// Draw the buffer's GeoJSON on a map (Alt-M).
     OpenGeoMap,
+    /// Pick the binary template for the hex view (F5).
+    OpenTemplatePicker,
+    /// Open this binary template in a text editor, at a line if given, coming
+    /// back to this hex editor when that one closes.
+    EditTemplate {
+        path: std::path::PathBuf,
+        line: Option<usize>,
+    },
+    /// Ask for a name and start a new binary template for this file.
+    NewTemplate,
+    /// Show this text: the JWT at the cursor, decoded.
+    ShowJwt(String),
 }
 
 /// Which of the editor's file actions a browser was opened for.
@@ -158,8 +173,14 @@ pub struct EditorState {
     /// The spreadsheet grid over a CSV or TSV file (Alt-G switches it with the
     /// text), when the file is one — or when it was asked for.
     sheet: Option<sheet::SheetGrid>,
-    /// The live syntax check of a JSON file.
-    json: Option<jsoncheck::JsonCheck>,
+    /// The live syntax check of a JSON, TOML, YAML or XML file.
+    check: Option<check::SyntaxCheck>,
+    /// The binary template run over the file in hex mode, and its panel.
+    tpl: Option<template::TemplateState>,
+    /// The template panel's rect, recorded by the renderer for the mouse.
+    tpl_area: Rect,
+    /// The data inspector beside the bytes in hex mode (F8).
+    insp: inspector::InspectorState,
 }
 
 /// Above this size a file is opened straight into hex mode (text mode loads the
@@ -181,8 +202,17 @@ pub const EDITOR_HELP: &[(&str, &str)] = &[
     ("Shift-F9", "Toggle word wrap"),
     ("Ctrl-F9", "Toggle hex editor"),
     ("Alt-G", "Spreadsheet grid / text (CSV, TSV)"),
-    ("Alt-E / Alt-Shift-E", "Next / previous JSON syntax error"),
-    ("Alt-M", "Show the GeoJSON in the file on a map"),
+    ("Alt-E / Alt-Shift-E", "Next / previous syntax error (JSON, TOML, YAML, XML)"),
+    ("Alt-F", "Pretty-print JSON (Format → JSON: minify, sort keys)"),
+    ("Alt-M", "Show and edit the GeoJSON in the file on a map"),
+    ("Hex: F5 / Shift-F5", "Choose / rerun the binary template"),
+    ("Hex: F6", "Template variable at the cursor / back to the bytes"),
+    ("Hex: F8", "Data inspector: the bytes at the cursor as numbers, text, dates"),
+    ("Hex: Tab / Shift-Tab", "Hex / ASCII column / inspector / template tree"),
+    ("Hex: F3", "Template output / variables"),
+    ("Inspector: Enter / b", "Edit the value / switch the byte order"),
+    ("Tree: Enter / ← →", "Edit the value or open / close, parent"),
+    ("Tree: + - *", "Open, close, open everything below"),
     ("Grid: Enter / F3", "Edit the cell / header row on or off"),
     ("Grid: F5 F6 / F8", "Insert row, column / delete row (Shift: column)"),
     ("F10 / Esc", "Quit (prompts if modified)"),
@@ -241,7 +271,10 @@ impl EditorState {
             bookmarks: std::collections::HashSet::new(),
             hl_dark: false,
             sheet: None,
-            json: None,
+            check: None,
+            tpl: None,
+            tpl_area: Rect::default(),
+            insp: inspector::InspectorState::default(),
         };
         ed.detect_kind();
         ed
@@ -321,7 +354,7 @@ impl EditorState {
         let shift = self.hint_mods.contains(KeyModifiers::SHIFT);
         let ctrl = self.hint_mods.contains(KeyModifiers::CONTROL);
         let src = if self.hex.is_some() {
-            crate::ui::fkeys::HEX_LABELS
+            self.hex_fkey_labels()
         } else if self.sheet_active() {
             let mut labels = crate::ui::fkeys::SHEET_LABELS;
             if shift || ctrl {
@@ -403,6 +436,7 @@ impl EditorState {
         let hex = hex::HexEditor::open(&path.path)?;
         let mut s = Self::new(name, path, "");
         s.hex = Some(hex);
+        s.start_templates();
         Ok(s)
     }
 
@@ -484,6 +518,45 @@ impl EditorState {
     /// The cursor as a byte offset into the text.
     pub fn cursor_byte(&self) -> usize {
         self.buf.snapshot().char_to_byte(self.cursor.min(self.buf.len_chars()))
+    }
+
+    /// Make an edit of the GeoJSON map's: a replacement as an undo step of its
+    /// own, or an undo or redo of one. The cursor stays on the text it was on.
+    pub fn apply_map_edit(&mut self, edit: crate::geo::edit::TextEdit) {
+        use crate::geo::edit::TextEdit;
+        let (start, end, len) = match &edit {
+            TextEdit::Replace { start, end, text } => (*start, *end, text.len()),
+            TextEdit::Undo { start, end, len } | TextEdit::Redo { start, end, len } => {
+                (*start, *end, *len)
+            }
+        };
+        let (s, e) = (self.buf.byte_to_char(start), self.buf.byte_to_char(end));
+        match edit {
+            TextEdit::Replace { text, .. } => {
+                self.buf.break_undo_group();
+                self.buf.replace_range(s, e, &text);
+                self.buf.break_undo_group();
+            }
+            TextEdit::Undo { .. } => {
+                if self.buf.undo().is_none() {
+                    return;
+                }
+            }
+            TextEdit::Redo { .. } => {
+                if self.buf.redo().is_none() {
+                    return;
+                }
+            }
+        }
+        let new_end = self.buf.byte_to_char(start + len);
+        self.cursor = if self.cursor >= e { self.cursor - e + new_end } else { self.cursor.min(s) };
+        self.dirty = true;
+        self.goal_col = None;
+        self.clear_marks();
+        let line = self.buf.char_to_line(s);
+        if let Some(hl) = self.hl.as_mut() {
+            hl.invalidate(line);
+        }
     }
 
     /// Put the cursor at byte offset `byte` of the text, centred on screen.
@@ -689,7 +762,13 @@ impl EditorState {
         } else {
             menu::MenuMode::Text
         };
-        self.menu = Some(menu::editor_menu(active, mode, self.json_checked()));
+        self.menu = Some(menu::editor_menu(
+            active,
+            mode,
+            self.checked(),
+            self.template_panel(),
+            self.is_json(),
+        ));
     }
 
     /// Whether the F9 menu is currently open (the renderer draws it over the
@@ -777,8 +856,8 @@ impl EditorState {
             A::BookmarkNext => self.bookmark_jump(true),
             A::BookmarkPrev => self.bookmark_jump(false),
             A::BookmarkFlush => self.bookmark_flush(),
-            A::NextError => self.jump_json_error(true),
-            A::PrevError => self.jump_json_error(false),
+            A::NextError => self.jump_error(true),
+            A::PrevError => self.jump_error(false),
 
             // -- Command --
             A::GotoLine => return EditorSignal::OpenGotoLine,
@@ -786,9 +865,45 @@ impl EditorState {
             A::ToggleSyntax => self.toggle_syntax(),
             A::ToggleWrap => self.toggle_wrap(),
             A::ToggleHex => self.toggle_hex(),
+            A::ToggleInspector => self.toggle_inspector(),
             A::ToggleSheet => self.toggle_sheet(),
             A::RefreshScreen => return EditorSignal::RefreshScreen,
             A::GeoMap => return EditorSignal::OpenGeoMap,
+            A::DecodeJwt => {
+                let (line, col) = self.cursor_line_col();
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs() as i64);
+                match crate::certs::jwt::token_at(&self.buf.line_text(line), col) {
+                    None => self.status = "No JWT at the cursor".to_string(),
+                    Some(token) => match crate::certs::jwt::decode(&token, now) {
+                        Ok(text) => return EditorSignal::ShowJwt(text),
+                        Err(e) => self.status = format!("Not a JWT: {e}"),
+                    },
+                }
+            }
+            A::TemplateMenu | A::JsonMenu => {}
+            A::JsonPretty => self.json_tool(crate::json::format::Tool::Pretty),
+            A::JsonMinify => self.json_tool(crate::json::format::Tool::Minify),
+            A::JsonSortKeys => self.json_tool(crate::json::format::Tool::SortKeys),
+            A::ChooseTemplate => return EditorSignal::OpenTemplatePicker,
+            A::RerunTemplate => {
+                if let Some(t) = self.tpl.as_mut()
+                    && matches!(t.choice, template::TemplateChoice::Off)
+                {
+                    t.choice = template::TemplateChoice::Auto;
+                }
+                self.run_template();
+            }
+            A::JumpToVariable => self.jump_to_template_variable(),
+            A::EditTemplate => match self.active_template().and_then(|i| i.path) {
+                Some(path) => {
+                    return EditorSignal::EditTemplate { path, line: self.template_error_line() };
+                }
+                None => self.status = "No template file to edit".to_string(),
+            },
+            A::NewTemplate => return EditorSignal::NewTemplate,
+            A::CloseTemplate => self.set_template(None),
 
             // -- Format --
             A::InsertDateTime => self.insert_date_time(),
@@ -819,6 +934,10 @@ impl EditorState {
         }
         self.buf.set_group_undo(opts.group_undo);
         self.hl_dark = dark;
+        if self.insp.shown != opts.hex_inspector {
+            self.toggle_inspector();
+        }
+        self.insp.big_endian = opts.hex_inspector_big_endian;
         self.opts = opts;
         // Idempotent, so this is also how a freshly opened editor gets its
         // highlighter: build one if it should have one, drop it if not.
@@ -1191,8 +1310,19 @@ impl EditorState {
             self.enable_syntax(self.hl_dark);
         }
         self.sheet = None;
-        self.json = None;
+        self.check = None;
+        // File → Open from hex mode opens the new file as text.
+        self.hex = None;
+        self.stop_templates();
         self.detect_kind();
+    }
+
+    /// The first bytes of the file in hex mode, for matching templates.
+    pub fn file_head(&mut self) -> Vec<u8> {
+        match self.hex.as_mut() {
+            Some(h) => h.window(0, crate::bt::header::ID_WINDOW),
+            None => Vec::new(),
+        }
     }
 
     fn mark_all(&mut self) {
@@ -1252,8 +1382,9 @@ impl EditorState {
             && row == self.footer_area.y
             && self.status.is_empty()
         {
+            let hex_labels = self.hex_fkey_labels();
             let labels: &[&str] = if self.is_hex() {
-                &crate::ui::fkeys::HEX_LABELS
+                &hex_labels
             } else if self.sheet_active() {
                 &crate::ui::fkeys::SHEET_LABELS
             } else {
@@ -1320,6 +1451,13 @@ impl EditorState {
     /// Mouse handling in hex mode: the wheel scrolls and a click places the byte
     /// cursor on the clicked hex/ASCII cell.
     fn handle_hex_mouse(&mut self, ev: MouseEvent) -> EditorSignal {
+        // Both see every event: a click in one panel takes the keys from the
+        // other.
+        let in_tree = self.template_mouse(ev);
+        let in_inspector = self.inspector_mouse(ev);
+        if in_tree || in_inspector {
+            return EditorSignal::Stay;
+        }
         match ev.kind {
             MouseEventKind::ScrollUp => {
                 if let Some(h) = self.hex.as_mut() {
@@ -1378,36 +1516,17 @@ impl EditorState {
         Some(self.line_start_char(line) + col_in)
     }
 
-    /// Map a screen point in hex mode to `(byte offset, ascii_pane)`, mirroring
-    /// the column layout in `render_hex` (offset col + hex cells at x=10, ASCII
-    /// at x=60). `None` when the click misses a real byte.
+    /// Map a screen point in hex mode to `(byte offset, ascii_pane)`, by the
+    /// layout `render_hex` draws ([`hex::HexGeom`]). `None` when the click
+    /// misses a real byte.
     fn hex_cell_at(&self, col: u16, row: u16) -> Option<(u64, bool)> {
         let a = self.text_area;
         let h = self.hex.as_ref()?;
-        if row < a.y || row >= a.y + a.height || col < a.x {
+        if row < a.y || row >= a.y + a.height || col < a.x || col >= a.x + a.width {
             return None;
         }
-        let bpr = hex::BYTES_PER_ROW as usize;
-        let base = h.top + (row - a.y) as u64 * hex::BYTES_PER_ROW;
-        let x = (col - a.x) as usize;
-        let (j, ascii) = if x >= 60 && x < 60 + bpr {
-            (x - 60, true)
-        } else if x >= 10 {
-            // Hex cells: cell j starts at 10 + 3*j (+1 once past the 8-byte gap).
-            let rel = x - 10;
-            let mut hit = None;
-            for j in 0..bpr {
-                let start = 3 * j + usize::from(j >= 8);
-                if rel >= start && rel < start + 2 {
-                    hit = Some(j);
-                    break;
-                }
-            }
-            (hit?, false)
-        } else {
-            return None;
-        };
-        let off = base + j as u64;
+        let (j, ascii) = hex::HexGeom::for_len(h.len).cell_at(col - a.x)?;
+        let off = h.top + (row - a.y) as u64 * hex::BYTES_PER_ROW + j as u64;
         (off < h.len).then_some((off, ascii))
     }
 
@@ -1459,8 +1578,11 @@ impl EditorState {
             KeyCode::Char('o') if alt => self.bookmark_flush(),
             KeyCode::Char('g') if alt => self.toggle_sheet(),
             KeyCode::Char('m') if alt => return EditorSignal::OpenGeoMap,
-            KeyCode::Char('e') if alt && !shift => self.jump_json_error(true),
-            KeyCode::Char('e' | 'E') if alt => self.jump_json_error(false),
+            KeyCode::Char('f') if alt && !shift => {
+                self.json_tool(crate::json::format::Tool::Pretty)
+            }
+            KeyCode::Char('e') if alt && !shift => self.jump_error(true),
+            KeyCode::Char('e' | 'E') if alt => self.jump_error(false),
 
             KeyCode::Up => {
                 self.pre_move(shift);
@@ -1622,6 +1744,7 @@ impl EditorState {
             let reload = h.saved_any;
             let path = self.path.path.clone();
             self.hex = None;
+            self.stop_templates();
             // Re-read the file so the text view reflects any saved hex edits.
             if reload && let Ok(data) = std::fs::read(&path) {
                 self.buf = EditorBuffer::from_str(&String::from_utf8_lossy(&data));
@@ -1650,6 +1773,7 @@ impl EditorState {
                 Ok(h) => {
                     let ro = h.readonly;
                     self.hex = Some(h);
+                    self.start_templates();
                     // No persistent banner; only note the read-only case.
                     if ro {
                         self.status = "read-only file".to_string();
@@ -1664,6 +1788,15 @@ impl EditorState {
     fn handle_hex_key(&mut self, key: KeyEvent) -> EditorSignal {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let alt = key.modifiers.contains(KeyModifiers::ALT);
+        if let Some(signal) = self.inspector_key(key) {
+            return signal;
+        }
+        if let Some(signal) = self.template_tree_key(key) {
+            return signal;
+        }
+        if let Some(signal) = self.template_hex_key(key) {
+            return signal;
+        }
         match key.code {
             KeyCode::F(10) | KeyCode::Esc => {
                 return if self.dirty { EditorSignal::ConfirmQuit } else { EditorSignal::Close };
@@ -1690,7 +1823,6 @@ impl EditorState {
                 KeyCode::End => h.row_end(),
                 KeyCode::PageUp => h.move_rows(-(rows - 1).max(1)),
                 KeyCode::PageDown => h.move_rows((rows - 1).max(1)),
-                KeyCode::Tab => h.toggle_pane(),
                 KeyCode::Backspace => h.move_by(-1),
                 // Only a plainly typed character edits a byte: a Ctrl/Alt
                 // shortcut that hex mode has no answer for must be ignored, not
@@ -2404,6 +2536,24 @@ mod tests {
         let p = std::env::temp_dir().join(format!("rc_edhex_{}_{nanos}", std::process::id()));
         std::fs::write(&p, bytes).unwrap();
         p
+    }
+
+    #[test]
+    fn the_jwt_under_the_cursor_decodes_into_a_dialog() {
+        let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+        let mut e = EditorState::new(
+            "req.http".into(),
+            VfsPath::local_cwd(),
+            &format!("GET /\nAuthorization: Bearer {token}\n"),
+        );
+        e.cursor = e.buf.line_to_char(1) + 30;
+        match e.run_menu_action(EditorAction::DecodeJwt) {
+            EditorSignal::ShowJwt(text) => assert!(text.contains("John Doe"), "{text}"),
+            _ => panic!("no JWT decoded"),
+        }
+        e.cursor = 1;
+        assert!(matches!(e.run_menu_action(EditorAction::DecodeJwt), EditorSignal::Stay));
+        assert_eq!(e.status, "No JWT at the cursor");
     }
 
     #[test]

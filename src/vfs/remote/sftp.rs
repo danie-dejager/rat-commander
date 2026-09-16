@@ -1,6 +1,6 @@
 //! SFTP backend over russh + russh-sftp.
 
-use super::{Connection, RemoteCreds, SshHandle, ssh_connect};
+use super::{Connection, RemoteCreds, SshSession, ssh_connect};
 use crate::util::{Error, Result};
 use crate::vfs::{BoxRead, BoxWrite, Capabilities, Vfs, VfsEntry, VfsKind, VfsPath, WriteMeta};
 use russh_sftp::client::SftpSession;
@@ -10,7 +10,7 @@ use std::time::{Duration, UNIX_EPOCH};
 pub struct SftpFs {
     /// Kept alive so the SSH connection task keeps running; also used to open an
     /// interactive shell channel (`Ctrl-O` on an SFTP panel).
-    handle: SshHandle,
+    handle: SshSession,
     sftp: SftpSession,
 }
 
@@ -34,7 +34,7 @@ pub async fn connect(creds: &RemoteCreds) -> Result<Connection> {
     } else {
         creds.path.clone()
     };
-    let label = format!("sftp://{}@{}", creds.user, creds.host);
+    let label = format!("sftp://{}@{}", handle.user, creds.host);
     Ok(Connection { backend: std::sync::Arc::new(SftpFs { handle, sftp }), root, label })
 }
 

@@ -1,0 +1,1021 @@
+//------------------------------------------------
+//--- 010 Editor v13.0.1 Binary Template
+//
+//      File: BTCBlock.bt
+//   Authors: Larry Friedman
+//     Email: lfriedman45@gmail.com
+//   Version: 1.5
+//   Purpose: Decode Bitcoin Core block
+//  Category: Misc
+// File Mask: *.dat
+//  ID Bytes: F9 BE B4 D9  // Bitcoin Core Magic bytes
+//   History:  
+//   1.5   2023-02-23  L. Friedman: Fix bug: Undefined variable exposed if EXTENDED_VERSION_2 not defined.
+//   1.4   2023-02-20  L. Friedman: Fix bug: multiple Stack item objects not processed; limit parse recursion. 
+//   1.3   2023-01-02  L. Friedman: Add optional decoding of pushed data and Witness stack items.
+//   1.1   2022-12-15  L. Friedman: Add optional parsing of Script (default: ON).
+//   1.0   2022-12-09  L. Friedman: Initial Release.
+//    
+//------------------------------------------------
+
+// Bitcoin Core blknnnnn.dat files contain varying numbers of Bitcoin blocks comprising
+// the Bitcoin blockchain. Each block contains Bitcoin transactions. There may be from
+// 1 up to many thousands of transactions in a block. This Template decodes a block into
+// its component objects. It should work on any Bitcoin node implementation that uses the
+// Bitcoin Core format for blockchain data.
+
+
+/************************************  PARSING AND DECODING  ******************************/
+// Parsing Script and decoding other objects requires a lot of processing. The extent of 
+// processing is optional and controlled by '#define' statements below.
+//
+// Template version 1.1 parses Bitcoin Script found in ScriptSig (if present) and ScriptPubKey
+// fields.
+//
+// Template version 1.3  examines data that are pushed looking for either objects (such as
+// keys or signatures) or Script. In this process it is possible that pushed data will be
+// misinterpreted as Script when in fact it is not. There is no semantic knowledge in the
+// parsing so this error can happen. But the error is rare and usually pretty obvious upon 
+// examination. 
+//
+// Template version 1.4 limits recursive parsing of pushed data. Fixes bug: multiple objects
+// in Witness Stack items were not processed causing eventual crash.
+
+
+#define EXTENDED_VERSION_1
+// This '#define' enables parsing Bitcoin Script found in ScriptSigs and ScriptPubKeys 
+// for display in the Template Results window.
+//
+// Remove or corrupt the '#define' to inhibit parsing and decoding. Inhibiting this in 
+// effect reverts this Template to version 1.0. This will speed up processing significantly.
+
+
+#define EXTENDED_VERSION_2
+// This '#define' enables decoding of pushed data and Witness stack items neither of which
+// are necessarily Script. Requires EXTENDED_VERSION_1.
+//
+// Remove or corrupt the '#define' to inhibit pushed data and Witness stack item decoding
+// leaving only parsing of Script. This will speed up processing.
+
+
+/******************************************************************************************/
+
+#define CHOOSE_BTC_BLOCK
+// This '#define' causes the code to prompt for a specific block number in the file
+// for display. NOTE: This is NOT the Bitcoin block number (height). It is the block 
+// number relative to the number of blocks in the specific Bitcoin Core data file. 
+// Remove or corrupt the '#define' to default to block 0.
+
+#define USE_0X_HEX_FORMAT
+// The values displayed in hex vs. decimal are those whose displayed format makes
+// certain Bitcoin entities more meaningful. Author prefers displaying hex values 
+// with the "0x" prefix rather than the "h" suffix. Remove or corrupt to use the 
+// "h" suffix formatting for the hex values treated uniquely.
+
+
+#ifdef USE_0X_HEX_FORMAT
+local string Fmtstr = "0x%X";
+#else
+local string Fmtstr = "%xh";
+#endif
+
+typedef uchar btcUchar<read=btcU8>;
+string btcU8 (uchar n) {
+  return Str(Fmtstr, n);
+}
+
+typedef uint16 btcUint16<read=btcU16>;
+string btcU16 (uint16 n) {
+  return Str(Fmtstr, n);
+}
+
+typedef uint32 btcUint32<read=btcU32>;
+string btcU32 (uint32 n) {
+  return Str(Fmtstr, n);
+}
+
+
+typedef uint32  BTCLEN;
+
+
+/*********************************  PARSING AND DECODING SUPPORT **************************/
+#ifdef EXTENDED_VERSION_1
+
+#ifdef EXTENDED_VERSION_2
+// Very likely that pushed data beyond one level of parsing isn't really Script even though it 
+// may consist of legal opcodes by chance. Particularly true of very short pushed items. 
+// Impose a recursion limit.
+local uchar PRLEVEL = 0;     // Current run time pushed data parse recursion level
+local uchar PRLIMIT = 1;     // Limit decode recursion.
+
+local uchar ISOP_RETURN;
+#endif
+
+// Some easy to identify objects that can be found in data pushed in Script    
+// or as Witness Stack items.
+local enum <uchar> DATAOBJECT 
+      {
+        doDERSig, // DER style signature 
+        doSSig,   // Probably a Schnorr signature
+        doMofN,   // 'm of n' multisignature object
+        doHASH20, // Data of length 20 assumed to be a hash, not Script.
+        doHASH32, // Data of length 32 assumed to be a hash, not Script. 
+        doCPK,    // Compressed public key
+        doUPK,    // Uncompressed public key
+        do1BYTE,  // Special case for a single byte Witness Stack item
+        doIDK     // No recognized object found (I Don't Know)
+      };
+
+// Parse/decode context. 
+local enum <uchar> CONTEXT  
+      {
+        cSCRIPTSIG,        // ScriptSig 
+        cSCRIPTPK,         // ScriptPubKey
+        cWITNESS,          // Witness. Parse without moving file pointer. Might not be Script.
+        cVIRTUAL=cWITNESS, // Synonym for cWITNESS. For coding clarity when probing pushed data. 
+        cREPARSE           // Used after virtual parse success to parse known good syntax.
+      };
+
+// Support for parsing and displaying Script opcodes and Sighash flags 
+local uchar opcTableSize     = 75;
+local uchar sighashTableSize = 12;
+
+typedef struct IDStruct {
+  uint16 id;
+  char   String[];
+} ;
+
+local IDStruct sighashflag[sighashTableSize];
+
+   // Search function depends on increasing order of id.
+   sighashflag[0].id  =   1; sighashflag[0].String  = "SIGHASH_ALL";
+   sighashflag[1].id  =   2; sighashflag[1].String  = "SIGHASH_NONE";
+   sighashflag[2].id  =   3; sighashflag[2].String  = "SIGHASH_SINGLE";
+   sighashflag[3].id  =  65; sighashflag[3].String  = "SIGHASH_ALL";
+   sighashflag[4].id  =  66; sighashflag[4].String  = "SIGHASH_NONE";
+   sighashflag[5].id  =  67; sighashflag[5].String  = "SIGHASH_SINGLE";
+   sighashflag[6].id  = 129; sighashflag[6].String  = "SIGHASH_ALL/ANY1PAY";
+   sighashflag[7].id  = 130; sighashflag[7].String  = "SIGHASH_NONE/ANY1PAY";
+   sighashflag[8].id  = 131; sighashflag[8].String  = "SIGHASH_SINGLE/ANY1PAY";
+   sighashflag[9].id  = 193; sighashflag[9].String  = "SIGHASH_ALL/ANY1PAY";
+   sighashflag[10].id = 194; sighashflag[10].String = "SIGHASH_NONE/ANY1PAY";
+   sighashflag[11].id = 195; sighashflag[11].String = "SIGHASH_SINGLE/ANY1PAY";
+
+
+local IDStruct opcode[opcTableSize];
+
+   // Search function depends on increasing order of id.
+   opcode[0].id  =   0; opcode[0].String  = "OP_0  ";
+   opcode[1].id  =  76; opcode[1].String  = "OP_PUSHDATA1  ";
+   opcode[2].id  =  77; opcode[2].String  = "OP_PUSHDATA2  ";
+   opcode[3].id  =  78; opcode[3].String  = "OP_PUSHDATA4  ";
+   opcode[4].id  =  79; opcode[4].String  = "OP_1NEGATE  ";
+   opcode[5].id  =  97; opcode[5].String  = "OP_NOP  ";
+   opcode[6].id  =  99; opcode[6].String  = "OP_IF  ";
+   opcode[7].id  = 100; opcode[7].String  = "OP_NOTIF  ";
+   opcode[8].id  = 103; opcode[8].String  = "OP_ELSE  ";
+   opcode[9].id  = 104; opcode[9].String  = "OP_ENDIF  ";
+   opcode[10].id = 105; opcode[10].String = "OP_VERIFY  ";
+   opcode[11].id = 106; opcode[11].String = "OP_RETURN  ";
+   opcode[12].id = 107; opcode[12].String = "OP_TOTALSTACK  ";
+   opcode[13].id = 108; opcode[13].String = "OP_FROMALTSTACK  ";
+   opcode[14].id = 109; opcode[14].String = "OP_2DROP  ";
+   opcode[15].id = 110; opcode[15].String = "OP_2DUP  ";
+   opcode[16].id = 111; opcode[16].String = "OP_3DUP  ";
+   opcode[17].id = 112; opcode[17].String = "OP_2OVER  ";
+   opcode[18].id = 113; opcode[18].String = "OP_2ROT  ";
+   opcode[19].id = 114; opcode[19].String = "OP_2SWAP  ";
+   opcode[20].id = 115; opcode[20].String = "OP_IFDUP  ";
+   opcode[21].id = 116; opcode[21].String = "OP_DEPTH  ";
+   opcode[22].id = 117; opcode[22].String = "OP_DROP  ";
+   opcode[23].id = 118; opcode[23].String = "OP_DUP  ";
+   opcode[24].id = 119; opcode[24].String = "OP_NIP  ";
+   opcode[25].id = 120; opcode[25].String = "OP_OVER  ";
+   opcode[26].id = 121; opcode[26].String = "OP_PICK  ";
+   opcode[27].id = 122; opcode[27].String = "OP_ROLL  ";
+   opcode[28].id = 123; opcode[28].String = "OP_ROT  ";
+   opcode[29].id = 124; opcode[29].String = "OP_SWAP  ";
+   opcode[30].id = 125; opcode[30].String = "OP_TUCK  ";
+   opcode[31].id = 130; opcode[31].String = "OP_SIZE  ";
+   opcode[32].id = 135; opcode[32].String = "OP_EQUAL  ";
+   opcode[33].id = 136; opcode[33].String = "OP_EQUALVERIFY  ";
+   opcode[34].id = 139; opcode[34].String = "OP_1ADD  ";
+   opcode[35].id = 140; opcode[35].String = "OP_1SUB  ";
+   opcode[36].id = 143; opcode[36].String = "OP_NEGATE  ";
+   opcode[37].id = 144; opcode[37].String = "OP_ABS  ";
+   opcode[38].id = 145; opcode[38].String = "OP_NOT  ";
+   opcode[39].id = 146; opcode[39].String = "OP_0NOTEQUAL  ";
+   opcode[40].id = 147; opcode[40].String = "OP_ADD  ";
+   opcode[41].id = 148; opcode[41].String = "OP_SUB  ";
+   opcode[42].id = 154; opcode[42].String = "OP_BOOLAND  ";
+   opcode[43].id = 155; opcode[43].String = "OP_BOOLOR  ";
+   opcode[44].id = 156; opcode[44].String = "OP_NUMEQUAL  ";
+   opcode[45].id = 157; opcode[45].String = "OP_NUMEQUALVERIFY  ";
+   opcode[46].id = 158; opcode[46].String = "OP_NUMNOTEQUAL  "; 
+   opcode[47].id = 159; opcode[47].String = "OP_LESSTHAN  ";   
+   opcode[48].id = 160; opcode[48].String = "OP_GREATERTHAN  "; 
+   opcode[49].id = 161; opcode[49].String = "OP_LESSTHANOREQUAL  "; 
+   opcode[50].id = 162; opcode[50].String = "OP_GREATERTHANOREQUAL  "; 
+   opcode[51].id = 163; opcode[51].String = "OP_MIN  ";  
+   opcode[52].id = 164; opcode[52].String = "OP_MAX  "; 
+   opcode[53].id = 165; opcode[53].String = "OP_WITHIN  "; 
+   opcode[54].id = 166; opcode[54].String = "OP_RIPEMD  "; 
+   opcode[55].id = 167; opcode[55].String = "OP_SHA1  ";  
+   opcode[56].id = 168; opcode[56].String = "OP_SHA256  ";  
+   opcode[57].id = 169; opcode[57].String = "OP_HASH160  ";
+   opcode[58].id = 170; opcode[58].String = "OP_HASH256  ";
+   opcode[59].id = 171; opcode[59].String = "OP_CODESEPARATOR  ";
+   opcode[60].id = 172; opcode[60].String = "OP_CHECKSIG  ";
+   opcode[61].id = 173; opcode[61].String = "OP_CHKSIGVERIFY  ";
+   opcode[62].id = 174; opcode[62].String = "OP_CHECKMULTISIG  ";
+   opcode[63].id = 175; opcode[63].String = "OP_CHECKMULTISIGVERIFY  ";
+   opcode[64].id = 176; opcode[64].String = "OP_NOP1  ";
+   opcode[65].id = 177; opcode[65].String = "OP_CHECKLOCKTIMEVERIFY  ";
+   opcode[66].id = 178; opcode[66].String = "OP_CHECKSEQUENCEVERIFY  ";
+   opcode[67].id = 179; opcode[67].String = "OP_NOP4  ";
+   opcode[68].id = 180; opcode[68].String = "OP_NOP5  ";
+   opcode[69].id = 181; opcode[69].String = "OP_NOP6  ";
+   opcode[70].id = 182; opcode[70].String = "OP_NOP7  ";
+   opcode[71].id = 183; opcode[71].String = "OP_NOP8  ";
+   opcode[72].id = 184; opcode[72].String = "OP_NOP9  ";
+   opcode[73].id = 185; opcode[73].String = "OP_NOP10  ";
+   opcode[74].id = 186; opcode[74].String = "OP_CHECKSIGADD  ";
+
+// Support for special treatment of OP_PUSHDATAx and OP_RETURN opcode bytes.
+#define idPD1      76
+#define idPD2      77
+#define idPD4      78
+#define idRET     106
+
+// Support structure for displaying specific names mapped to opcode and SIGHASH bytes.
+typedef struct (IDStruct &which) {
+  local string name = which.String;
+  uchar dummy;
+} IDSTRING <name=(name)>;
+
+
+// Support for a range of opcodes that push data and are not mapped directly to name array
+typedef struct (BTCLEN psize) {
+  local BTCLEN lpsize = psize;
+  btcUchar     pdata[psize];
+} PDARRAY<read=(lpsize)>;
+
+// Support for OP_1-OP_16 single opcodes not mapped to name array
+typedef struct (uchar size) {
+  local uchar sz = size-80;
+  uchar sdata;
+} OP1_16<name=Str("OP_%d", sz)>;
+
+// Support for naming OP_1-OP_16 for "m of n" multisig
+typedef struct (string  mn, uchar size) {
+  local uchar sz = size-80;
+  local string lmn = mn;
+  uchar sdata;
+} SMN<name=Str("%s (OP_%d)", lmn, sz)>;
+
+
+// This structure activates Script parsing on the data of length 'len' beginning at 
+// the current file position. It assumes the content is legal Script for non-Witness
+// context. It's OK to fail in Witness context since Witness is not necessarily Script.
+typedef struct (BTCLEN len, CONTEXT context, string name) {
+  local BTCLEN  blen   = len; 
+  local CONTEXT ctxt   = context;
+  local uint32  origin = FTell();
+  local string  myname = name;
+  local uint16  badcode;
+
+  if ((badcode=parseScript(blen, ctxt))) {
+    // This should never happen for ScriptSig or ScriptPubKey parse attempts.
+    if (ctxt != cWITNESS) {
+      if (badcode < 256) {
+        // ScriptSig or ScriptPubKey parse failed because of bad opcode. Exit out.
+        Printf(
+          "***\nScript parse: Bad opcode %d (0x%X) Block %d TxNum %d context %s in %s\n***\n", 
+          badcode, badcode, BlkInFile, TxNum, EnumToString(ctxt), FileNameGetBase(GetFileName())
+        );
+        MessageBox (idOk, 
+          "Script parse", "***\nScript parse: Bad opcode %d (0x%X) Block %d TxNum %d context %s in %s\n***\n", 
+          badcode, badcode, BlkInFile, TxNum, EnumToString(ctxt), FileNameGetBase(GetFileName())
+        );
+      } else {
+        // ScriptSig or ScriptPubKey parse failed because too many bytes processed. Exit out.
+        badcode = badcode - 255 + blen;
+        Printf(
+          "***\nScript parse: Parse length (%d) exceeded (%d) Block %d TxNum %d context %s in %s\n***\n", 
+          blen, badcode, BlkInFile, TxNum, EnumToString(ctxt), FileNameGetBase(GetFileName())
+        );
+        MessageBox (idOk, 
+          "Script parse", "***\nScript parse: Parse length (%d) exceeded (%d) Block %d TxNum %d context %s in %s\n***\n", 
+         blen, badcode, BlkInFile, TxNum, EnumToString(ctxt), FileNameGetBase(GetFileName())
+        );
+      }
+      Exit(-2);
+    } else {
+      // Failed parse of Witness Stack item. This is normal. Overlay item with generic label.
+      FSeek(origin);
+      btcUchar stackItem[blen];
+    }
+  } else {
+    if (ctxt == cWITNESS) {
+      // Virtual parse in Witness context succeeded. Parse again this time enabling overlay. Parse
+      // will succeed. This happens consistently but not frequently.
+      parseScript (blen, cREPARSE);
+    }
+  }
+} PARSE<name=myname>;
+
+// Function to find the opcode in the name array
+uchar findOpCode(uchar target) {
+  local uchar i;
+  for (i=0; i < opcTableSize; i++) {
+    if (opcode[i].id < target) {  // opcodes arranged in increaasing value
+      continue;
+    }
+    if (opcode[i].id == target) {
+      return i+1;  // return an incremented version so '0' can be failure.
+    } else  {
+      return 0;
+    }
+  } 
+  return 0;
+}
+
+// Function to find the sighash flag in tne name array
+uchar findSighashFlag(uchar target) {
+  local uchar i;
+  for (i=0; i < sighashTableSize; i++) {
+    if (sighashflag[i].id < target) {  // codes arranged in increaasing value
+      continue;
+    }
+    if (sighashflag[i].id == target) {
+      return i+1;  // return an incremented version so '0' can be failure.
+    } else  {
+      return 0;
+    }
+  } 
+  return 0;
+}
+
+
+// Parse the Script. ScriptSig (if it exists) and ScriptPubKey are always Script
+// so the parsing should always succeed unless a new opcode has been introduced and
+// not yet included in the opcode table. Returns 0 if sucessful. Otherwise returns 
+// either value not found in the name table or length discrepancy for failed parse.
+//
+// If the context is Witness the parse may fail so parse without overlaying the
+// file. If the parse succeeds this function will be recalled with context  
+// allowing the overlay, as the parse will succeed. 
+
+uint16 parseScript (BTCLEN len, CONTEXT context) {
+  local uchar  opcidx, curbyte;
+  local uint16 retval = 0;
+  local uint32 cnt, curpos = 0;
+  local BTCLEN blen;
+  
+#ifdef EXTENDED_VERSION_2
+  ISOP_RETURN = 0;
+#endif
+
+  while (curpos<len) {
+    if (context == cVIRTUAL) {
+      curbyte = ReadUByte(FTell()+curpos);
+    } else {
+      curbyte = ReadUByte(FTell());
+    }
+    curpos++;
+
+    // Check for special cases first.
+    if (curbyte > 0 && curbyte < 76) {
+      // OP_PUSH. Byte value is the number of bytes to be pushed
+      if (context != cVIRTUAL) {
+        uchar op_push<name="OP_PUSH  ">;
+        blen = curbyte;
+        // Try and identify a primitive in the pushed data
+        curpos += decodePushed(blen, context);    // Skip processed bytes
+      } else {
+        curpos += curbyte;         // Skip processed bytes
+      }
+
+    } else if (curbyte == idPD1) {
+      // PUSHDATA1. Next byte is the number of bytes to be pushed.
+      if (context != cVIRTUAL) {
+        opcidx = findOpCode(idPD1);
+        IDSTRING dummy(opcode[--opcidx]);
+        uchar PD1_size;
+        blen = PD1_size;
+        // Try and identify a primitive in the pushed data
+        curpos += decodePushed(blen, context) + 1;    // Skip processed bytes and length hint
+      } else {
+        curpos += ReadUByte(FTell()+1) + 1;    // Skip processed bytes and length hint
+      }
+
+
+    } else if (curbyte == idPD2) {
+      // PUSHDATA2. Next uint16 is the number of bytes to be pushed.
+      if (context != cVIRTUAL) {
+        opcidx = findOpCode(idPD2);
+        IDSTRING dummy(opcode[--opcidx]);
+        uint16 PD2_size;
+        blen = PD2_size;
+        // Try and identify a primitive in the pushed data
+        curpos += decodePushed(blen, context) + 2;    // Skip processed bytes and length hint
+      } else {
+        curpos += ReadUShort(FTell()+1) + 2;   // Skip processed bytes and length hint
+      }
+
+    } else if (curbyte == idPD4) {
+      // PUSHDATA4. Next uint32 is the number of bytes to be pushed.
+      if (context != cVIRTUAL) {
+        opcidx = findOpCode(idPD4);
+        IDSTRING dummy(opcode[--opcidx]);
+        uint32 PD4_size;
+        blen = PD4_size;
+        // Try and identify a primitive in the pushed data
+        curpos += decodePushed(blen, context) + 4;      // Skip processed bytes and length hint
+      } else {
+        curpos += ReadUInt(FTell()+1) + 4;     // Skip processed bytes and length hint
+      }
+
+    } else if (curbyte > 80  &&  curbyte < 97) {
+      // OP_1-OP_16 singular opcode. Check for 'm of n' multisig
+      if (context != cWITNESS) {
+        if (!(cnt=isMofN())) {
+          OP1_16 dummy(curbyte);
+        } 
+        else {
+          curpos += cnt - 1;   // '-1' otherwise the opcode byte is double counted
+        }
+      } 
+
+    } else {
+      // Not a special case. Look up opcode in name table.
+      opcidx = findOpCode(curbyte);
+      if (context != cWITNESS) {
+        if (opcidx) {
+#ifdef EXTENDED_VERSION_2
+          if ((curbyte == idRET) && (curpos == 1))  ISOP_RETURN = 1; // Save OP_RETURN context
+#endif
+          IDSTRING dummy(opcode[--opcidx]);
+        } else {
+          // Uh oh. Template will eventually fail. Display bad byte.
+          btcUchar OP_IDK<fgcolor=cRed>;
+          retval = curbyte;
+          break;
+        }
+      } else {
+        if (!opcidx) {
+          // Failed parse in Witness context. This is expected and is OK.
+          retval = curbyte;
+          break;
+        }
+      }
+    }
+    if (curpos > len) {
+      // 'curpos' can end up > 'len' when parsing a non-Script Stack item incorrectly deemed  
+      // Script. Add offset to discrepancy to distinguish from bad opcode value. 
+      retval = (curpos - len) + 255;
+      break;
+    }
+  }
+  // Reset ISOP_RETURN again here. For Witness stack items, instead of going through this routine  
+  // there is a direct path to 'decodePushed()' where it is used. Resetting at the top of this 
+  // routine isn't sufficient because it can remain set from the previous Output context and 
+  // then get used in the succeeding Witness context without getting reset.
+#ifdef EXTENDED_VERSION_2
+  ISOP_RETURN = 0;
+#endif
+  return retval;
+}
+
+BTCLEN decodePushed (BTCLEN len, CONTEXT context) {
+#ifdef EXTENDED_VERSION_2
+  if (PRLEVEL == PRLIMIT) {
+    PDARRAY pushed_data(len);
+    return len;
+  }
+  local BTCLEN cnt, retval = len;
+
+  PRLEVEL++;
+  local uchar validSatContext = (context == cSCRIPTPK) && (PRLEVEL == 1);
+  if (validSatContext && ((getSatoshi(parentof(this))) == 0)) {
+    // No Satoshis output. Call out as a special case. Content arbitrary.
+    PDARRAY NoSats_data(len);
+    retval = len;
+  } else if (ISOP_RETURN) {
+    if (validSatContext && ((getSatoshi(parentof(this))) != 0)) {
+      PDARRAY OpReturn_LostSats_data(len);
+    } else {
+      PDARRAY OpReturn_data(len);
+    }
+    retval = len;
+  } else if (!(cnt=identObject(len, context))) {
+    // No primitive. Try parsing unless this is already-pushed data.
+    if ((PRLEVEL < 2) && !parseScript(len, cVIRTUAL)) {
+      if (context != cWITNESS) {
+        PARSE decode (len, context, "Pushed data Script");
+      } else {
+        PARSE decode (len, cREPARSE, "Stack item Script");
+      }
+    } else {
+      PDARRAY pushed_data(len);
+    }
+  } else {
+    retval = cnt;
+  }
+
+  PRLEVEL--;
+  return retval;
+#else 
+  if (context == cWITNESS) {
+    PDARRAY stack_item(len);
+  } else {
+    PDARRAY pushed_data(len);
+  }
+  return len;
+#endif
+}
+// Support for decoding pushed or Stack item data. This code probes data that may 
+// not be Script looking for identifiable constructs such as signatures or public keys. 
+
+// Structure for DER signature. Data previously vetted.
+typedef struct {
+  local uchar sigflag;
+
+  btcUchar DER;
+  uchar strlen<name="structure length">;
+  uchar intmark<name="integer marker">;
+  uchar rlen<name="r length">;
+  btcUchar r[rlen];
+  uchar intmark1<name="integer marker">;
+  uchar slen<name="s length">;
+  btcUchar s[slen];
+  sigflag = findSighashFlag(ReadUByte());
+  IDSTRING dummy(sighashflag[--sigflag]);
+} DERSignature<name="DER Signature  ">;
+
+
+// Structure for "m of n" multisig script. Data previously vetted.
+typedef struct mofn (uchar nsigs, uchar inm, uchar inn) { 
+  local uchar sigcnt = nsigs;
+  local uchar linm   = inm; 
+  local uchar linn   = inn;
+  local uchar chksig;
+
+  SMN dummym("m", linm);
+  while (sigcnt--) {
+    uchar keylen<name="Key length">;
+    if (keylen == 33) {
+      PDARRAY dummy(keylen)<name="Compressed key  ", read="">;
+    } else {
+      PDARRAY dummy(keylen)<name="Uncompressed key  ", read="">;
+    }
+  }
+  SMN dummyn("n", linn);
+  chksig = findOpCode(ReadUByte());
+  IDSTRING dummy(opcode[--chksig]);
+} MofNMulti<name="m of n multisig">;
+
+
+// Function probing for DER signature.
+// will be overlayed.
+uchar isDERSignature(BTCLEN len) {
+  local BTCLEN curpos = FTell();
+  local BTCLEN curval, bytecount = 0;
+
+  if (ReadUByte(curpos+bytecount++) != 0x30) {  // Is DER hint there?
+    return 0;
+  }
+
+  curval = ReadUByte(curpos+bytecount); // structure length?
+  if ((curval+bytecount++) > len) {
+    return 0;
+  }
+  if (ReadUByte(curpos+bytecount) != 2)  {    // Integer marker?
+    return 0;
+  }
+  if ((curval+bytecount++) > len) {
+    return 0;
+  }
+  curval = ReadUByte(curpos+bytecount); // r length?
+  if ((curval+bytecount++) > len) {
+    return 0;
+  }
+  bytecount += curval;   // skip 'r'
+
+  if (ReadUByte(curpos+bytecount) != 2)  {    // Integer marker?
+    return 0;
+  }
+  if ((curval+bytecount++) > len) {
+    return 0;
+  }
+  curval = ReadUByte(curpos+bytecount); // s length?
+  if ((curval+bytecount++) > len) {
+    return 0;
+  }
+  bytecount += curval+1;   // skip 's' and SIGHASH
+  if (bytecount == len) {
+    // Looks like a DER signature, Return number of bytes processed.
+    return len;
+  }
+  return 0;
+}
+
+// Function probing for "m of n" multisignature content. If successful the "m of n" structure
+// will be overlayed here.
+BTCLEN isMofN () {
+  local BTCLEN origin, curpos = FTell();
+  local uchar chk, len, m, n, nsig, nbyte, done = 0;  
+  origin = curpos;
+  m = ReadUByte(curpos++);
+  if (m < 81 || m > 96) return 0;
+  while (!done) {
+    len   = ReadUByte(curpos++);
+    nbyte = ReadUByte(curpos);
+    if ((len == 33 && ((nbyte == 2) || (nbyte == 3))) ||
+        (len == 65 && nbyte == 4)) {
+      nsig++;
+      curpos += len;
+    } else {
+      curpos--;
+      done = 1;
+    } 
+  }
+  if (!nsig) return 0;
+  n = ReadUByte(curpos++);
+  if (n < 81 || n > 96 || (n < m)) return 0;
+  chk = ReadUByte(curpos);
+  if (chk != 0xae && chk != 0xaf && chk != 0xba) return 0;
+
+  // It's a valid 'm of n' multisig. Invoke structure here because all  
+  // the values needed for proper overlay have been discovered here locally.
+  MofNMulti multisig(nsig, m, n);
+  return (FTell()-origin);  // Return number of bytes processed.
+}
+
+// Compressed public key?
+BTCLEN isCPK (BTCLEN len) {
+  local uchar curbyte=ReadUByte(FTell());
+
+  if (len == 33 && ((curbyte == 2) || (curbyte == 3))) {
+    return len;     // Return number of bytes processed.
+  }
+  return 0;
+}
+
+// Uncompressed public key?
+BTCLEN isUPK (BTCLEN len) {
+  if (len == 65 && (ReadUByte(FTell()) == 4)) {
+    return len;   // Return number of bytes processed.
+  }
+  return 0;
+}
+
+// Schnorr signature? Overlay if valid.
+BTCLEN isSSig (BTCLEN len) {
+  local uchar idx;
+
+  if (len == 64) {
+    btcUchar SchnorrSig[64];
+    return len;
+  }
+  if (len != 65) return 0;
+
+  //  Check for valid SIGHASH flag at offset 64 (byte 65)
+  if (!(idx=findSighashFlag(ReadUByte(FTell()+64)))) {
+    return 0;
+  }
+
+  btcUchar SchnorrSig[64];
+  IDSTRING dummy(sighashflag[--idx]);
+  return len;
+}
+
+// Probe for individual data objects. Either Witness stack items or data pushed in
+// ScriptSig or ScriptPubKey scripts.
+DATAOBJECT getDataObject (BTCLEN len, CONTEXT context) {
+  if (len == 20) return doHASH20;
+  if (len == 32) return doHASH32;
+  if (len == 1 && context == cWITNESS) return do1BYTE;
+  if (isCPK(len)) return doCPK;
+  if (isUPK(len)) return doUPK;
+  if (isDERSignature(len)) return doDERSig;
+  if (isMofN()) return doMofN;
+  // Schnorr signatures only valid for Witness context
+  if (context == cWITNESS && isSSig(len)) return doSSig;
+  return doIDK;
+}
+
+// See if a known object in a Witness Stack item or pushed data can be identified. 
+// If so act accordingly. Returns the number of bytes processed.
+uint32 identObject (BTCLEN len, CONTEXT context) {
+  local uint32 origin = FTell();
+
+#ifdef EXTENDED_VERSION_2
+  switch (getDataObject(len, context)) {
+    case doIDK:  
+      // I Don't Know
+      break;
+
+    case do1BYTE:
+      // Weird case of a single byte as a Stack item.
+      PDARRAY dummy(len)<name="<data>  ">;
+      break;
+
+    case doSSig:
+      // Data overlayed when discovered 
+      break;
+
+    case doDERSig:  
+      // Overlay DER Signature structure. 
+      DERSignature dummy; 
+      break;
+
+    case doMofN:
+      // Data overlayed when discovered 
+      break;
+
+    case doHASH20: 
+      PDARRAY dummy(len)<name="<hash>  ">;
+      break;
+
+    case doHASH32:  
+      PDARRAY dummy(len)<name="<hash>  ">;
+      break;
+
+    case doCPK:   
+      PDARRAY dummy(len)<name="Compressed key  ">;
+      break;
+
+    case doUPK:   
+      PDARRAY dummy(len)<name="Uncompressed key  ">;
+      break;
+  }
+#endif  
+
+  return FTell() - origin;
+}
+
+// Support for special processing of Coinbase input containing block height. Height
+// processing is awkward because the height info (if present) is a 3 byte le quantity.
+typedef struct bh(uint32 h) {
+  local uint32 height;
+  height = h;
+  btcUchar heightHint;
+  btcUchar Height[3];
+} blkheight<read=(height)>;
+
+void coinbaseInput(uint16 len) {
+  local uint32 height, llen = len;
+
+  if ((llen > 3) && (ReadUByte(FTell()) == 3)) {
+    height = ReadUInt(FTell()+1) & 0xFFFFFF;
+    blkheight dummy(height)<name="Block Height">;
+
+    // Height info will be read again for display as (part of) Coinbase ScriptSig
+    FSeek(FTell()-4);
+  }
+    
+  if (llen) {
+    // Overlay everything includung possibly the initial 4-byte block height token 
+    btcUchar ScriptSig[llen] <optimize=false>;
+  }
+
+  return;
+}
+
+#endif  // EXTENDED_VERSION_1
+
+/******************************* END PARSING AND DECODING SUPPORT **************************/
+
+// To save space Bitcoin encodes many integer values using a variable size scheme.
+typedef struct {
+  if (ReadUByte() < 0xfd) {
+    uchar vi_value;
+  } else {
+    btcUchar vi_hint;
+    if (vi_hint == 0xfd) {
+      uint16  vi_value;
+    } else if (vi_hint == 0xfe) {
+      uint32  vi_value;
+    } else {
+      uint64  vi_value;
+    }
+  }
+  local uint64 size = vi_value;
+} VarInt<read=(size)>;
+
+
+// BLOCK META DATA
+typedef struct {
+  btcUchar Magic[4];
+  uint32   blklen;
+} BTCmeta;
+
+// BLOCK HEADER
+typedef struct {
+  btcUint32 Version;
+  btcUchar  PrevBlkHash[32];
+  btcUchar  MerkleRoot[32];
+  time_t    time;
+  btcUint32 bits;
+  uint32    nonce;
+} BTCheader;
+
+
+// INPUT STRUCTURE
+typedef struct  {
+  btcUchar UTXO[32];      // ID (hash) of transaction output being spent
+  uint32   index;         // Index in UTXO of output being spent
+  VarInt   SSLen;         // ScriptSig length. Could be 0 if it's a SegWit transaction.
+  
+  if (SSLen.vi_value) {  // Do this test to suppress Warnings in Output window.
+#ifdef EXTENDED_VERSION_1
+    if (!TxNum) {
+      // Coinbase Input treated differntly...it may contain block height info.
+      coinbaseInput(SSLen.vi_value);
+    } else {
+      PARSE ss (SSLen.vi_value, cSCRIPTSIG, "ScriptSig");    
+    }
+#else
+    btcUchar ScriptSig[SSLen.vi_value] <optimize=false>;
+#endif
+  }
+  btcUint32  nSequence;
+} BTCInput;
+
+
+// OUTPUT STRUCTURE 
+typedef struct {
+  uint64  Satoshi;   // Amount in Satoshis (100,000,000 Satoshis per Bitcoin)
+  VarInt  SPKLen;    // ScriptPubKey length.
+#ifdef EXTENDED_VERSION_1
+  PARSE spk (SPKLen.vi_value, cSCRIPTPK, "ScriptPubKey");
+#else
+  btcUchar ScriptPubKey[SPKLen.vi_value] <optimize=false>;
+#endif
+} BTCOutput;
+
+uint64 getSatoshi (BTCOutput &output) {
+  return output.Satoshi;
+}
+
+// Witness support for SegWit transactions. There will be a Witness for each input. 
+// Each Witness may have multiple Stack items with varying lengths including 0. Stack
+// items can be but are not guaranteed to be Script so they aren't parsed until after
+// attempting to identify individual objects such as signatures or keys. If a parse
+// fails the item is labeled generically. A Stack item can have multiple components
+// though that is rare.
+
+// WITNESS STACK ITEM STRUCTURE
+typedef struct {
+  VarInt  StkItemLen;          // Witness stack items can be 0 length
+  
+  if (StkItemLen.vi_value)  {  // Do this test to suppress Warnings in Output window.
+#ifdef EXTENDED_VERSION_1
+    local BTCLEN slen = StkItemLen.vi_value;
+    // Process all objects contained in thsi Stack item (usually just 1)
+    while (slen) {
+      slen = slen - decodePushed(slen, cWITNESS);
+      // 'slen' is unsigned. Processing too many bytes results in a huge positive number.
+      if (slen > StkItemLen.vi_value) {
+        Printf ("Multi-object Stack item failure  TxNum %d\n", TxNum);
+        MessageBox (idOk, "Error", "Multi-object Stack item failure  TxNum %d", TxNum);
+        Exit (-3);
+      }
+    }
+#else
+    // Parsing and decoding not enabled.
+    btcUchar stack_item[StkItemLen.vi_value] <optimize=false>;
+#endif
+  }
+} BTCWitStkItem;
+
+
+// WITNESS STRUCTURE
+typedef struct {
+  VarInt  nStkItems;  // Number of Stack items can be 0 if the correponding ScriptSig is non-zero length.
+  
+  if (nStkItems.vi_value) { // Do this test to suppress Warnings in Output window.
+    BTCWitStkItem stkItems[nStkItems.vi_value]<optimize=false>;
+  }
+} BTCWitness;
+
+
+
+/********************************************/
+// BITCOIN TRANSACTION STRUCTURE 
+/********************************************/
+typedef struct {
+  btcUint32 Version;
+
+  // Check for a SegWit transaction.
+  if (ReadUByte() == 0) {
+    // SegWit
+    uchar marker;
+    uchar flag;
+  }
+
+  VarInt   nInput;  
+  BTCInput Inputs[nInput.vi_value] <optimize=false>;
+
+  VarInt    nOutput;
+  BTCOutput Outputs[nOutput.vi_value] <optimize=false>;
+
+  if (exists (marker)) {
+    // SegWit. Witness data present. There is a Witness for each input.
+    BTCWitness Witness[nInput.vi_value] <optimize=false>;
+  }
+
+  uint32 nLockTime;
+#ifdef EXTENDED_VERSION_1
+  ++TxNum;
+#endif
+} Tx;
+
+
+/********************************************/
+//  BITCOIN BLOCK STRUCTURE 
+/********************************************/
+typedef struct btcblk (uint32 which) {
+#ifdef EXTENDED_VERSION_1
+  local uint16 TxNum = 0;
+#endif
+  local string blocknum = Str("Block %d in %s", which, FileNameGetBase(GetFileName()));
+
+  BTCmeta   Metadata;
+  BTCheader Header;
+  VarInt    TxCount;
+  Tx        Transactions[TxCount.vi_value] <optimize=false>;
+} BTCBLOCK<name=blocknum>;
+
+
+local uint32 BTCMagic = 0xD9B4BEF9;
+
+
+#ifdef CHOOSE_BTC_BLOCK
+
+// Function to count the number of blocks in this file.
+uint32 getNumBlocks() {
+  local uint32 count = 0;
+  FSeek(0);
+  while (!FEof()) 
+  {
+    if (ReadUInt() != BTCMagic) {
+      btcUchar badMagic[4]<fgcolor=cRed>;
+      MessageBox (idOk, "Error", "Bad Magic at %d (0x%X) block %d. Done.", 
+        FTell()-4, FTell()-4, count);
+      return 0;
+    }
+    count += 1;
+    FSkip(ReadUInt(FTell()+4)+8);
+  }
+  return count;
+}
+
+// Support for walking the file to find target block.. 
+local uint32 bcount;     // The number of blocks in the file
+local uint32 targetb;    // Target block number chosen
+
+if ((bcount = getNumBlocks()) == 0) {
+  return;
+}
+--bcount;  // Block numbers 0-based.
+
+// Offer the choice of the block to display.
+if (
+     ((targetb=InputNumber("Display Block",Str("Block to display (0-%d)",bcount),"0")) == BAD_VALUE) 
+     ||
+     (targetb > bcount) 
+   ) 
+     {
+       MessageBox(idOk, "Error", "No valid block number provided. Done.");
+       return -1;
+     }
+
+local uint32 BlkInFile = targetb;
+
+// Anchor at the chosen block.
+FSeek(0);
+while (targetb--) {
+  FSkip(ReadUInt(FTell()+4)+8);
+}
+
+#else  // end of CHOOSE_BTC_BLOCK
+
+FSeek(0);
+local uint32 BlkInFile = 0;
+
+// Check for bad Magic at start of file.
+if (ReadUInt() != BTCMagic) {
+  btcUchar badMagic[4]<fgcolor=cRed>;
+  MessageBox (idOk, "Error", "Bad file. No initial Magic (0xF9 0xBE 0xB4 0xD9).");
+  return -1;
+} 
+
+#endif
+
+// Instantiate the block.
+BTCBLOCK Block (BlkInFile);
+
+
+  

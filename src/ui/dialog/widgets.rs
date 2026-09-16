@@ -75,7 +75,11 @@ pub(crate) fn edit_text_marked(
 
 /// Draw a drop shadow for a dialog box: a dim band one cell below and to the
 /// right of `rect`. Out-of-screen cells are clipped by the renderer.
+///
+/// Every dialog box starts here, so this is also where `rect` is claimed as one
+/// dialog surface, for its background gradient to span the whole box.
 pub(crate) fn draw_shadow(f: &mut Frame, rect: Rect, _theme: &Theme) {
+    crate::ui::gradient::mark_surface(crate::ui::theme::GradRole::DialogBg, rect);
     let shadow = Style::default().bg(ratatui::style::Color::Rgb(8, 8, 12));
     // Bottom edge (offset right by 1 so it sits under the box).
     let bottom = Rect { x: rect.x + 1, y: rect.y + rect.height, width: rect.width, height: 1 };

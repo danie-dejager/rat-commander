@@ -1,0 +1,100 @@
+//------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+//
+//      File: ANIM.bt
+//   Authors: xXCooBloyXx, pavidloq (Fred-31)
+//   Version: 0.3.0
+//   Purpose: Parse .anim files (3D animation) from Gameloft games.
+//  Category: Game
+// File Mask: *.anim
+//  ID Bytes: 
+//   History: 
+//   0.3.0 2024-07-25 pavidloq: Finished.
+//	 0.2.0 2023-11-14 xXCooBloyXx: Updated.
+//	 0.1.0 2023-11-05 xXCooBloyXx: Created for tests.
+//------------------------------------------------
+
+
+// Endian
+LittleEndian();
+
+
+// Iterators
+local int i = 0;
+
+
+// String struct
+typedef struct {
+	ushort size;
+	if (size > 0) {
+		char data[size];
+	}
+} String <read=stringRead>;
+
+string stringRead(String &v) {
+	if (v.size > 0) {
+		return v.data;
+	} else {
+		return "";
+	}
+};
+
+
+// Compressed data struct
+typedef enum <ubyte> {
+    LZ4 = 1,
+    ZSTD = 2
+} CompressionMethod;
+
+
+typedef struct {
+    CompressionMethod compressionMethod; // LZ4 and ZSTD
+   
+    uint compressedSize;
+    uint decompressedSize;
+
+    ubyte compressedData[compressedSize];
+} CompressedData;
+
+
+// Nodes
+typedef struct {
+	String name;
+	ubyte nodeType;
+} Node;
+
+
+typedef struct {
+    ushort nodesCount;
+    for (i = 0; i < nodesCount; i++)
+        Node node;
+} Nodes;
+
+
+// Materials
+typedef struct {
+	String name;
+	ushort texturesCount;
+} Material;
+
+
+typedef struct {
+    ushort materialsCount;
+    for (i = 0; i < materialsCount; i++)
+        Material material;
+} Materials;
+
+
+// Entry point
+struct FILE
+{
+	uint framesPerSecond;
+    
+    Nodes nodes;
+    
+    Materials materials;
+    
+	ubyte unknownFlags;
+    
+	CompressedData compressedData;
+} file;

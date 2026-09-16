@@ -1,0 +1,92 @@
+//------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+//
+//   File: DTB.bt
+//   Authors: marv7000
+//   Version: 2.0
+//   Purpose: OpenFirmware device tree blob
+//  Category: Operating System
+// File Mask: *
+//  ID Bytes: D0 0D FE ED
+//   History:
+//   2.0   2024-11-17 marv7000: Complete rewrite.
+//   1.0   2023-01-05 feicong: first version.
+//------------------------------------------------
+
+// All data types are big endian.
+BigEndian();
+
+struct fdt_header {
+    uint32 magic <format=hex>;
+    uint32 totalsize;
+    uint32 off_dt_struct;
+    uint32 off_dt_strings;
+    uint32 off_mem_rsvmap;
+    uint32 version;
+    uint32 last_comp_version;
+    uint32 boot_cpuid_phys;
+    uint32 size_dt_strings;
+    uint32 size_dt_struct;
+};
+
+struct fdt_reserve_entry {
+    uint64 address <format=hex>;
+    uint64 size;
+};
+
+struct fdt_prop {
+    uint32 len;
+    uint32 name;
+    if (len != 0) {
+        byte data[len];
+    }
+};
+
+enum <uint32> fdt_node_type {
+    FDT_BEGIN_NODE = 0x00000001,
+    FDT_END_NODE = 0x00000002,
+    FDT_PROP = 0x00000003,
+    FDT_NOP = 0x00000004,
+    FDT_END = 0x00000009,
+};Þ
+
+struct fdt_struct;
+struct fdt_struct {
+	local uint32 token;
+    char name[];
+	while (true) {
+        Align(4);
+		token = ReadUInt();
+		FSkip(sizeof(token));
+		if (token == FDT_BEGIN_NODE)
+            fdt_struct node <read=(Strlen(name) != 0 ? name : "/")>;
+		if (token == FDT_END_NODE || token == FDT_END)
+			return;
+		if (token == FDT_PROP)
+		    fdt_prop property <read=GetPropPath>;
+	}
+};
+
+struct fdt {
+    fdt_header header;
+
+    FSeek(header.off_mem_rsvmap);
+    fdt_reserve_entry reserved_memory[(header.off_dt_struct - header.off_mem_rsvmap) / sizeof(fdt_reserve_entry)] <optimize=false>;
+
+    FSeek(header.off_dt_struct);
+    fdt_struct structure <read=(Strlen(name) != 0 ? name : "/")>;
+} device_tree;
+
+string GetPropPath(fdt_prop& data) {
+    return GetFdtStr(data.name);
+}
+
+string GetFdtStr(uint32& data) {
+    return ReadString(device_tree.header.off_dt_strings + data);
+}
+
+void Align(long a) {
+    local long alignment = a - (FTell() % a);
+    if (alignment != a)
+        FSkip(alignment);
+}

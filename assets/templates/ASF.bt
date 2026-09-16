@@ -1,0 +1,660 @@
+//------------------------------------------------
+//--- 010 Editor v15.0 Binary Template
+//
+//      File: ASF.bt
+//   Authors: scigrapher
+//   Version: 0.7
+//   Purpose: To parse Advanced Systems Format files, which include .asf, .wma, and .wmv
+//  Category: Video
+// File Mask: *.asf,*.wma,*.wmv
+//  ID Bytes: 30 26 B2 75 8E 66 CF 11 A6 D9 00 AA 00 62 CE 6C
+//   History: 
+//   0.7    2024-08-19 scigrapher: First release - Supports most common objects in ASF files
+//------------------------------------------------
+
+/*
+** ASF files are made up of a series of structs of the form (id, size, data), where the id is a
+** GUID defined in the specification, the size is a uint64 value including the object header
+** and the data contents are defined by the id.  The first object is a header, which contains
+** other objects that define file metadata.
+**
+** wma and wmv files are identical to asf files except that, by convention, wmv files contain at
+** least one video stream (and maybe audio streams too), while wma files only have audio.
+** 
+** References:
+**   - https://download.microsoft.com/download/7/9/0/790fecaa-f64a-4a5e-a430-0bccdab3f1b4/ASF_Specification.doc
+**
+** TODO:
+**  - Define specific type for every ASF object type
+**  - Fully define StreamPropertiesObject
+*/
+
+
+// Change this to output each of the objects that are parsed
+#define DEBUG 0
+
+void DebugOut(string s) {
+    if (DEBUG) {
+        Printf("%s", s);
+    }
+}
+
+
+
+// DefineTypedValue defines a field whose type is based on the value of other field(s).
+void DefineTypedValue(uint16 dataType, uint16 length) {
+    switch (dataType) {
+    case 0x0000: // Unicode string
+        wchar_t value[length / 2];
+        break;
+    case 0x0001: // Byte array
+        byte value[length];
+        break;
+    case 0x0002: // bool
+        uint32 value;
+        break;
+    case 0x0003: // DWORD
+        uint32 value;
+        break;
+    case 0x0004: // QWORD
+        uint64 value;
+        break;
+    case 0x0005: // WORD
+        uint16 value;
+        break;
+    case 0x0006: // GUID
+        GUID value;
+        break;
+    default:
+        // Unknown type
+        byte value[length];
+        break;
+    }
+};
+
+
+// ASFObject is a generic, unknown ASF object - data is an opaque blob
+struct ASFObject {
+    GUID guidID;
+    UINT64 size;
+    byte data[size - 24];
+};
+
+// ASFHeaderObject is the header for the ASF file that contains things like metadata and stream properties
+struct ASFHeaderObject {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+    uint32 numberOfObjects;
+    byte reserved1;
+    byte reserved2;
+    
+    local int i;
+    for (i = 0; i < numberOfObjects && FTell() < startOffset + size; i++) {
+        DefineASFObject();
+    }
+
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+
+struct ContentDescriptor {
+    uint16 nameLength;
+    wchar_t name[nameLength / sizeof(wchar_t)];
+    uint16 descriptorDataType;
+    uint16 descriptorLength;
+
+    DefineTypedValue(descriptorDataType, descriptorLength);
+};
+
+
+// ExtendedContentDescriptionObject
+struct ExtendedContentDescriptionObject {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+    uint16 contentDescriptorsCount;
+    
+    ContentDescriptor descriptors[contentDescriptorsCount] <optimize=false>;
+
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+
+
+// FilePropertiesObject
+struct FilePropertiesObject {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+
+    GUID fileID;
+    uint64 fileSize;
+    uint64 creationDate;
+    uint64 dataPacketsCount;
+    uint64 playDuration;
+    uint64 sendDuration;
+    uint64 preroll;
+    uint32 flags;
+    uint32 minimumDataPacketSize;
+    uint32 maximumDataPacketSize;
+    uint32 maximumBitrate;
+    
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+
+
+// HeaderExtensionObject
+struct HeaderExtensionObject {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+
+    GUID reserved1;
+    uint16 reserved2;    
+    uint32 extensionSize;
+    
+    while (FTell() < startOffset + size) {
+        DefineASFObject();
+    }
+    
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+
+
+struct DescriptionRecord {
+    uint16 languageListIndex;
+    uint16 streamNumber;
+    uint16 nameLength;
+    uint16 dataType;
+    uint32 dataLength;
+    wchar_t name[nameLength / 2];    
+    DefineTypedValue(dataType, dataLength);
+};
+
+
+// MetadataObject
+struct MetadataObject {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+
+    uint16 descriptionRecordCount;
+    DescriptionRecord record[descriptionRecordCount] <optimize=false>;
+    
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+
+
+// ExtendedStreamPropertiesObject
+struct ExtendedStreamPropertiesObject {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+
+    uint64 startTime;
+    uint64 endTime;
+    uint32 bitrate;
+    uint32 bufferSize;
+    uint32 initialBufferFullness;
+    uint32 alternateDataBitrate;
+    uint32 alternateBufferSize;
+    uint32 alternateInitialBufferFullness;
+    uint32 maximumObjectSize;
+    
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+
+
+struct IndexSpecifier {
+    uint16 streamNumber;
+    uint16 indexType;
+};
+
+// IndexParametersObject
+struct IndexParametersObject {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+
+    uint32 indexEntryTimeInterval;
+    uint16 indexSpecifiersCount;
+    
+    IndexSpecifier specifier[indexSpecifiersCount];
+    
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+
+
+// MetadataLibrary
+struct MetadataLibrary {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+
+    uint16 descriptionRecordsCount;
+    DescriptionRecord record[descriptionRecordsCount] <optimize=false>;
+    
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+
+
+struct CodecEntry {
+    uint16 dataType;
+    uint16 codecNameLength;
+    wchar_t codecName[codecNameLength];
+    uint16 codecDescriptionLength;
+    wchar_t codecDescription[codecDescriptionLength];
+    uint16 codecInformationLength;
+    byte codecInformation[codecInformationLength];
+};
+
+// CodecListObject
+struct CodecListObject {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+
+    GUID reserved;
+    uint32 codecEntriesCount;
+    CodecEntry entry[codecEntriesCount] <optimize=false>;
+    
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+
+
+struct StreamPropertiesObject {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+
+    GUID streamType;
+    GUID errorCorrectionType;
+    uint64 timeOffset;
+    uint32 timeSpecificDataLength;
+    uint32 errorCorrectionDataLength;
+    uint16 flags;
+    uint32 reserved;
+    
+    // TODO: These are structures based on streamType and errorCorrectionType - see section 9 of spec
+    byte typeSpecificData[timeSpecificDataLength];
+    byte errorCorrectionData[errorCorrectionDataLength];
+    
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+
+
+struct BitrateRecord {
+    uint16 flags;
+    uint32 averageBitrate;
+};
+
+struct StreamBitratePropertiesObject {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+
+    uint16 bitrateRecordsCount;
+    BitrateRecord bitrateRecords[bitrateRecordsCount];
+    
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+
+
+struct ContentDescriptionObject {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+
+    uint16 titleLength;
+    uint16 authorLength;
+    uint16 copyrightLength;
+    uint16 descriptionLength;
+    uint16 ratingLength;
+    wchar_t title[titleLength / 2];
+    wchar_t author[authorLength / 2];
+    wchar_t copyright[copyrightLength / 2];
+    wchar_t description[descriptionLength / 2];
+    wchar_t rating[ratingLength / 2];
+    
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+
+
+struct DataObject {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+
+    GUID fileID;
+    uint64 totalDataPackets;
+    uint16 reserved;    
+    byte dataPackets[startOffset + size - FTell()];
+    
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+
+
+struct ContentEncryptionObject {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+
+    uint32 secretDataLength;
+    byte secretData[secretDataLength];
+    uint32 protectionTypeLength;
+    char protectionType[protectionTypeLength];
+    uint32 keyIDLength;
+    char keyID[keyIDLength];
+    uint32 licenseURLLength;
+    char licenseURL[licenseURLLength];
+    
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+
+
+struct DigitalSignatureObject {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+
+    uint32 signatureType;
+    uint32 signatureDataLength;
+    byte signatureData[signatureDataLength];
+    
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+
+
+struct CommandType {
+    uint16 commandTypeNameLength;
+    wchar_t commandTypeName[commandTypeNameLength];
+};
+
+struct ScriptCommand {
+    uint32 presentationTime;
+    uint16 typeIndex;
+    uint16 commandNameLength;
+    wchar_t commandName[commandNameLength];
+};
+
+struct ScriptCommandObject {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+
+    GUID reserved;
+    uint16 commandCount;
+    uint16 commandTypesCount;
+    CommandType commandTypes[commandTypesCount] <optimize=false>;
+    ScriptCommand commands[commandCount] <optimize=false>;
+    
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+
+
+struct IndexBlock(uint16 specifierCount) {
+    uint32 indexEntryCount;
+    uint64 blockPositions;
+    uint32 offsets[specifierCount];
+};
+
+struct IndexObject {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+
+    uint32 indexEntryTimeInterval;
+    uint16 indexSpecifiersCount;
+    uint32 indexBlocksCount;
+    IndexSpecifier indexSpecifiers[indexSpecifiersCount];
+    IndexBlock indexBlocks(indexSpecifiersCount)[indexBlocksCount] <optimize=false>;
+    
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+
+
+struct IndexEntry {
+    uint32 packetNumber;
+    uint16 packetCount;
+};
+
+struct SimpleIndexObject {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+
+    GUID fileID;
+    uint64 indexEntryTimeInterval;
+    uint32 maximumPacketCount;
+    uint32 indexEntriesCount;
+    IndexEntry indexEntries[indexEntriesCount];
+    
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+
+
+struct TimecodeIndexEntry(uint16 indexSpecifiersCount) {
+    uint32 timecode;
+    uint32 offsets[indexSpecifiersCount];
+};
+
+struct TimecodeIndexBlock(uint16 indexSpecifiersCount) {
+    uint32 indexEntryCount;
+    uint16 timecodeRange;
+    uint64 blockPositions[indexSpecifiersCount];
+    TimecodeIndexEntry IndexEntries[indexEntryCount];
+};
+
+struct TimecodeIndexObject {
+    local uint64 startOffset = FTell();
+    GUID guidID;
+    UINT64 size;
+
+    uint32 reserved;
+    uint16 indexSpecifiersCount;
+    uint32 indexBlocksCount;
+
+    IndexSpecifier indexSpecifiers[indexSpecifiersCount];
+    TimecodeIndexBlock indexBlocks(indexSpecifiersCount)[indexBlocksCount];
+    
+    // If there's extra space, skip forward
+    FSeek(startOffset + size);
+};
+    
+
+void DefineASFObject() {
+    local byte idBytes[16];
+    ReadBytes(idBytes, FTell(), 16);
+    local string idString = GUIDToString(idBytes);
+    DebugOut(Str("ASF Object start at 0x%Lx - id = %s\r\n", FTell(), idString));
+    
+    switch (idString) {
+    // Top-level objects
+    case "{75B22630-668E-11CF-A6D9-00AA0062CE6C}": // ASF_Header_Object	
+        ASFHeaderObject header;
+        break;
+        
+    case "{75B22636-668E-11CF-A6D9-00AA0062CE6C}": // ASF_Data_Object
+        DataObject data;
+        break;
+        
+    case "{33000890-E5B1-11CF-89F4-00A0C90349CB}": // ASF_Simple_Index_Object        
+        SimpleIndexObject simpleIndex;
+        break;
+        
+    case "{D6E229D3-35DA-11D1-9034-00A0C90349BE}": // ASF_Index_Object	
+        IndexObject index;
+        break;
+        
+    case "{FEB103F8-12AD-4C64-840F-2A1D2F7AD48C}": // ASF_Media_Object_Index_Object	
+        ASFObject mediaObjectIndex;
+        break;
+        
+    case "{3CB73FD0-0C4A-4803-953D-EDF7B6228F0C}": // ASF_Timecode_Index_Object	
+        TimecodeIndexObject timecodeIndex;
+        break;        
+
+    case "{D9AADE20-7C17-4F9C-BC28-8555DD98E2A2}": // Index Placeholder Object - not in spec
+        ASFObject indexPlaceholder;
+        break;        
+        
+    // Header objects
+    case "{8CABDCA1-A947-11CF-8EE4-00C00C205365}": // ASF_File_Properties_Object
+        FilePropertiesObject fileProperties;
+        break;
+        
+    case "{B7DC0791-A9B7-11CF-8EE6-00C00C205365}": // ASF_Stream_Properties_Object
+        StreamPropertiesObject streamProperties;
+        break;
+        
+    case "{5FBF03B5-A92E-11CF-8EE3-00C00C205365}": // ASF_Header_Extension_Object
+        HeaderExtensionObject headerExtension;
+        break;
+        
+    case "{86D15240-311D-11D0-A3A4-00A0C90348F6}": // ASF_Codec_List_Object
+        CodecListObject codecList;
+        break;
+        
+    case "{1EFB1A30-0B62-11D0-A39B-00A0C90348F6}": // ASF_Script_Command_Object
+        ScriptCommandObject scriptCommand;
+        break;
+        
+    case "{F487CD01-A951-11CF-8EE6-00C00C205365}": // ASF_Marker_Object
+        ASFObject marker;
+        break;
+        
+    case "{D6E229DC-35DA-11D1-9034-00A0C90349BE}": // ASF_Bitrate_Mutual_Exclusion_Object
+        ASFObject bitrateMutalExclusion;
+        break;
+        
+    case "{75B22635-668E-11CF-A6D9-00AA0062CE6C}": // ASF_Error_Correction_Object
+        ASFObject errorCorrection;
+        break;
+        
+    case "{75B22633-668E-11CF-A6D9-00AA0062CE6C}": // ASF_Content_Description_Object
+        ContentDescriptionObject contentDescription;
+        break;
+        
+    case "{D2D0A440-E307-11D2-97F0-00A0C95EA850}": // ASF_Extended_Content_Description_Object
+        ExtendedContentDescriptionObject extendedContentDescription;
+        break;
+        
+    case "{2211B3FA-BD23-11D2-B4B7-00A0C955FC6E}": // ASF_Content_Branding_Object
+        ASFObject contentBranding;
+        break;
+        
+    case "{7BF875CE-468D-11D1-8D82-006097C9A2B2}": // ASF_Stream_Bitrate_Properties_Object
+        StreamBitratePropertiesObject streamBitrateProperties;
+        break;
+        
+    case "{2211B3FB-BD23-11D2-B4B7-00A0C955FC6E}": // ASF_Content_Encryption_Object
+        ContentEncryptionObject contentEncryption;
+        break;
+        
+    case "{298AE614-2622-4C17-B935-DAE07EE9289C}": // ASF_Extended_Content_Encryption_Object
+        ASFObject extendedContentEncryption;
+        break;
+        
+    case "{2211B3FC-BD23-11D2-B4B7-00A0C955FC6E}": // ASF_Digital_Signature_Object
+        DigitalSignatureObject digitalSignature;
+        break;
+        
+    case "{1806D474-CADF-4509-A4BA-9AABCB96AAE8}": // ASF_Padding_Object
+        ASFObject padding;
+        break;
+        
+    case "{26F18B5D-4584-47EC-9F5F-0E651F0452C9}": // compatibility object (not in spec)
+        ASFObject compatibility;
+        break;
+
+    // Header Extension Object GUIDs
+    case "{14E6A5CB-C672-4332-8399-A96952065B5A}": // ASF_Extended_Stream_Properties_Object
+        ExtendedStreamPropertiesObject extendedStreamProperties;
+        break;
+    
+    case "{A08649CF-4775-4670-8A16-6E35357566CD}": // ASF_Advanced_Mutual_Exclusion_Object
+        ASFObject advancedMutualExclusion;
+        break;
+        
+    case "{D1465A40-5A79-4338-B71B-E36B8FD6C249}": // ASF_Group_Mutual_Exclusion_Object
+        ASFObject groupMutualExclusion;
+        break;
+        
+    case "{D4FED15B-88D3-454F-81F0-ED5C45999E24}": // ASF_Stream_Prioritization_Object
+        ASFObject streamPrioritization;
+        break;
+        
+    case "{A69609E6-517B-11D2-B6AF-00C04FD908E9}": // ASF_Bandwidth_Sharing_Object
+        ASFObject bandwidthSharing;
+        break;
+        
+    case "{7C4346A9-EFE0-4BFC-B229-393EDE415C85}": // ASF_Language_List_Object
+        ASFObject languageList;
+        break;
+
+    case "{C5F8CBEA-5BAF-4877-8467-AA8C44FA4CCA}": // ASF_Metadata_Object
+        MetadataObject metadata;
+        break;
+    
+    case "{44231C94-9498-49D1-A141-1D134E457054}": // ASF_Metadata_Library_Object
+        MetadataLibrary metadataLibrary;
+        break;
+
+    case "{D6E229DF-35DA-11D1-9034-00A0C90349BE}": // ASF_Index_Parameters_Object
+        IndexParametersObject indexParameters;
+        break;
+
+    case "{6B203BAD-3F11-48E4-ACA8-D7613DE2CFA7}": // ASF_Media_Object_Index_Parameters_Object
+        ASFObject mediaObjectIndexParameters;
+        break;
+
+    case "{F55E496D-9797-4B5D-8C8B-604DFE9BFB24}": // ASF_Timecode_Index_Parameters_Object
+        ASFObject timecodeIndexParameters;
+        break;
+
+    case "{75B22630-668E-11CF-A6D9-00AA0062CE6C}": // ASF_Compatibility_Object
+        ASFObject compatibility;
+        break;
+
+    case "{43058533-6981-49E6-9B74-AD12CB86D58C}": // ASF_Advanced_Content_Encryption_Object
+        ASFObject advancedContentEncryption;
+        break;
+
+    default:
+        Printf("Unknown id: %s at %lx\n", idString, FTell());
+        ASFObject unknownObject;
+        break;
+    }
+}
+
+// Start script
+LittleEndian();
+
+// Check the magic - it will be the GUID for the head object
+local uint64 magic = ReadUInt(0);
+if (0x75b22630 != magic) {
+    Printf("File is not an ASF file - magic = %lx\n", magic);
+    Exit(-1);
+}
+
+// Define a sequence of ASF objects until we get to the end of the file
+while (FTell() < FileSize()) {
+    DefineASFObject();
+}

@@ -1,0 +1,95 @@
+//------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+//
+//      File: LoL_WAD.bt
+//   Authors: DaniilSV
+//   Version: 1.0
+//   Purpose: Parse WAD asset archive from League Of Legends.
+//  Category: Game
+// File Mask: *.wad.client
+//  ID Bytes: 52 57
+//   History: 
+//      1.0   2024-06-15 DaniilSV: initial release
+//------------------------------------------------
+
+LittleEndian();
+
+typedef struct 
+{
+    char nameHash[8] <format=hex>;
+    
+    uint32 dataOffset;
+    uint32 dataSize;
+    uint32 decompressedDataSize;
+    
+    local uint32 pos = FTell();
+    FSeek(dataOffset);
+    char data[dataSize];
+    FSeek(pos);
+    
+    byte flags <format=binary>;
+    byte isDuplicate;
+    uint16 subchunkIndex;
+    
+    if (version != 0)
+    {
+        char checksum[8];
+    }
+
+    local int subchunkCount = flags >> 4;
+    local int compression = flags & 0xF;
+} Entry <read=readEntry>;
+
+string readEntry(Entry &v) {
+    local string s = "";
+    
+    local string compression = "Unknown";
+    switch (v.compression)
+    {
+        case 0:
+            compression = "None";
+            break;
+        case 1:
+            compression = "GZip";
+            break;
+        case 2:
+            compression = "Satelite";
+            break;
+        case 3:
+            compression = "ZSTD";
+            break;
+        case 4:
+            compression = "ZSTD Chunks";
+            break;
+        default:
+            break;
+    }
+    
+    SPrintf(s, "Compression: %s", compression);
+    return s;
+};
+
+struct File
+{
+    char magic[2];
+    Assert(magic == "RW", "File is corrupted");
+    
+    byte version;
+    byte revision;
+
+    switch (version)
+    {
+        case 3:
+            char ECDSA[256];
+            char XXH64[8];
+            uint32 entry_count;
+            break;
+        
+        default:
+            printf("Unxpected version: %d", version);
+            return;    
+    }
+    
+    Entry entries[entry_count] <optimize=false>;
+
+} file;

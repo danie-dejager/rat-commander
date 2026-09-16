@@ -1,0 +1,2863 @@
+//------------------------------------------------------------------------------------------------------------------
+//--- 010 Editor v16.0 Template File
+//
+// File:	  M2.bt
+// Author:	  Alastor Strix'Efuartus + credits to all previous Authors of the Original M2 template (Sorry but I have no idea who the original authors are)
+// Purpose:   Parses a Blizzard M2(.m2) Compatible with 1.x.x up to 11.x.x (Tested on 1.12.1 / 2.4.3 / 3.3.5 / 7.0.1 / 8.0.1 / 9.0.1 / 9.2.0 / 10.0.0 / 11.0.0)
+// Version:   2.2.6
+// Category:  Game
+// File Mask: *.m2
+// ID Bytes:  4D 44 32 30, 4D 44 32 31 //MD20, MD21
+//	 History: M2 files (also called MDX) contain model objects. Each M2 file describes the vertices, faces, materials, texture names, animations and properties of one model. M2 files don't have a chunked format like most other WoW formats (except in Legion). Since it is chunked in Legion, all offsets are relative to beginning of the MD21 chunk's data rather than the beginning of the file.
+//   2.2.6 2026-07-14 Alastor: Extended Bone CRC list by the PB_AT_Helmet_11
+//   2.2.5 2026-06-12 Alastor: Percentual representation value added for the frequency of the sequence being played
+//   2.2.4 2026-05-18 Alastor: Reference-aligned safety pass: initialize MD21 base before version detection, fix MD21-relative particle offsets, repair mismatched chunk entry counts and a stray encoded light attribute character.
+//   2.2.3 2026-05-11 Alastor: Condition pre-inicialization of LittleEndian to make sure the template will read the data correctly
+//   2.2.2 2026-03-11 Alastor: Updated inline views for M2 Chunks reduced whitespaces
+//   2.2.1 2026-02-18 Alastor: Minor correction added inline read for lights counting for amount of blocks
+//   2.2.0 2025-10-29 Alastor: Changed how hash table of Attachments + BoneIndices works
+//   2.1.9 2025-10-29 Alastor: Changed how hash table of Sequences works
+//   2.1.8 2025-10-14 Alastor: Improved Read function of CRC bones
+//   2.1.7 2025-05-24 Alastor: Ribbon color M2Track bug fix
+//   2.1.6 2025-05-19 Alastor: Updated DETL chunk struct + Additional comments + Fixed PEDC chunk struct + New GlobalFlag name
+//   2.1.5 2025-05-15 Alastor: Added PCOL+DPIV (>=11.1.7.60520) chunks thanks to Zee's resarch and Marlamin who sent me the data + Made minor change to how AFRA is handled + Extended GlobalFlags to include newly observed flag being set since 11.1.7+ seen on player housing furniture models + Changed the reading method of GlobalFlags in m2 header to capital hex from decimal
+//   2.1.4 2025-05-13 Alastor: Changed Bone limit + added more comments for m2.materials.flags fixed the naming added some expac notify comments + preparing for another optimalization wave
+//   2.1.3 2025-05-06 Alastor: Fixed C4Quaternion usage for vanila models + Fixed the errors being throw by the M2TrackBase for trying to create empty structures + Removed some extra comments
+//   2.1.2 2025-04-23 Alastor: Added debugging script duration meassuring functions + Changed the logic behind Bone structure limiter working removed the prompt message box and started using simple value declated at the start of the template for manual change + Changed the M2Track function to require less arguments and used the declated template variables instead and increased speed time of script execution by 20% (example was Arthaslichking from 130~140ms to 100~110ms on Ryzen 7950X3D)
+//	 2.1.1 2025-04-18 Alastor: White spaces removal
+//	 2.1.0 2025-04-18 Alastor: Added comments for clarity and minor syntax fixes
+//	 2.0.9 2025-04-16 Alastor: Contribution by <Wall>: Changed the value type for sub WOTLK xpack for handling AlphaTrack in Ribbons Block
+//	 2.0.8 2025-03-21 Alastor: Fixed Collisions reading block + fixed wrong variable type at reading material
+//	 2.0.7 2024-12-17 Alastor: Added minor inline reading for material flags struc
+//	 2.0.6 2024-12-10 Alastor: Particle reading fix
+//	 2.0.5 2024-12-06 Alastor: Improved Level reading for indexStart now doing proper bitshift + SortCenterPos version check for vanila
+//	 2.0.4 2024-12-06 Alastor: Fixed Sequence anim file read function due missing MD21 offset
+//	 2.0.3 2024-12-06 Alastor: Fixed reading of TexIndicesByIDRec+ TexComboIDRec for MD21 models
+//	 2.0.2 2024-12-05 Alastor: Particle autofixer bug fix + Animation Read function not having right version check
+//	 2.0.1 2024-12-05 Alastor: Fixed bones CRC ReadFunc + Improved FallBackAnimation ReadFunc both for vanila/tbc support + condition for particle error checks should optimize it a bit
+//	 2.0.0 2024-12-04 Alastor: Finished refactoring of the whole M2 template to rename most of all known data blocks to be exact to names used by Blizzard which were determined by reverse engineering wow client by this the template is practically 90%~ accurate just as official Blizzard tech with some minor deviations + Added Read function that translates the .anim file name if the sub-anim sequence has data sitting outside of the m2 file + Rewrote expansin checking code and all checks in the template accounting for version checks as well alongside better header version selection too + Interpolation ranges in M2Track finished for <=TBC + SkinProfile section reading enabled Fixed the MultiTexture param reading in particles for >= Cata + Fixed particle block for <= TBC + Camera version check upgrade + With this update TBC should be fully supported according to documentation on the wow dev wiki alongside vanilla as well if there are bugs they should be notified to me since I do not have a way to test it myself
+//	 1.9.8 2024-11-03 Alastor: Fixing missing M2Track sub value type C2Vector + Changed some variable types for better clarity + changed M2Track sub value type for ribbons to C3RGB
+//	 1.9.7 2024-10-28 Alastor: Added more clues to event strucutres of what they are used for + Added more Readlines for other blocks to indicate correct amount of records + Better Handling of Unk Attachment points + TexComboTableID and TexIndicesByIDTable will now show links to textures types/names refferenced by them + Added read camera type refference for CameraLookUp block
+//	 1.9.6 2024-10-16 Alastor: Renamed TimestampsPairs to shorted easier to read term
+//	 1.9.5 2024-10-14 Alastor: Fix on chunk reading that sometimes detected wrong data now the failsave will prevent reading from Adr > filesize
+//	 1.9.4 2024-09-27 Alastor: Cleanup on code some formating and shifted coloring + Revised ordering of blocks processing + fixed typos and cleared syntax from some white spaces + preparations for vanilla support + improved no anim/skid check + Fixed bone optimization issue + More helper Comments + Fixed typo on Particle_Type + Added Cata Check + Operand fix in ReadTexture
+//	 1.9.3 2024-09-08 Alastor: Fixed nSplinePoints in particle block
+//	 1.9.2 2024-08-28 Alastor: Fixed M2Track AlphaTrack Timestamp Variable
+//	 1.9.1 2024-08-21 Alastor: Added new lines to Ribbons and fixed the Ribbon AlphaBlock missmatching structure values PriorityPlane, RibbonColorIndex, textureTransformLookupIndex - Added TXID x nTexture matching to show in the Texture Block - Added support for new undocumented MD21 chunk AFRA further research needed - Upgraded RGB value track by removing tons of clutter and moving most of the functions to the variable attributes - Added helpet union value of bit flags to material flags to better depict functions that are impractical for enum listbox which was preserved - Converted the Light blocks C3 values of Color M2 Tracks from using float via inline conversion to 0 to 256 range to keep with standarts from particle block for better reading - Added E_CRC_BoneName to translate names of bones for debugging purposes - Added <open=true> to M2_File main structure - reworked some of the SetColor schemes to lessen the occurange of buggy colorization of structure
+//	 1.9.0 2024-08-20 Alastor: Added MovingSpeed calculation inline function to display the percentual speed of animation played
+//	 1.8.9 2024-08-19 Alastor: Added new enum for mapping of TexCoordCombosTable --> Environmental_Mapping/First_UVMap/Second_UVMap
+//	 1.8.8 2024-08-19 Alastor: Minor Comments and typo fixes
+//	 1.8.7 2024-08-15 Alastor: Fixed texture reading array bug
+//	 1.8.6 2024-08-12 Alastor: M2Track argument bug fix
+//	 1.8.5 2024-08-12 Alastor: Hyper optimization of template reducing total characters by roughly 700 characters making Animation Blocks (M2Tracks) loading much simpler and easier to read and understand now fixed bug of reading Particle timestamps used in some FBlocks where original values were uint32 but was ushort
+//	 1.8.1 2024-08-12 Alastor: Added OnRead fucntion for bone weights checking if they add up to 255 if they do not it can lead to visual glithes on rendering of m2 faces + Removed tons of PosVars for MD21 Chunks alongside with enabling the MD21 Chunks to be readed even in lesser version than Legion if they are present
+//	 1.8.0 2024-08-08 Alastor: Remade how SubAnimationSeq blocks are handled made them more modulare decreased the amount of typedefs needed and simplified var types + Changed structures of CollisionIndices, CollisionPositions, CollisionFaceNormals
+//	 1.7.9 2024-07-31 Alastor: New TextureTypes added, Added More Flags to Anim Sequences + Fixed some Comments on new renamed structures
+//	 1.7.8 2024-07-15 Alastor: replacable_texture_lookup --> textureIndicesById, bone_lookup_table --> boneCombos, --> texture_lookup_table --> textureCombos, tex_unit_lookup_table --> textureCoordCombos, transparency_lookup_table --> textureWeightCombos, texture_transforms_lookup_table --> textureTransformCombos, TextureAnimations --> TexAnimations
+//	 1.7.7 2024-07-15 Alastor: Texture_Combiner block restructured simplified and optimzed no longer causing the wrong highlight issue due the loop being used instead of struct[n]
+//	 1.7.6 2024-05-20 Alastor: Fixed issue where RGB values in Particle Color Track were displayed incorrect now the particle color will be correctly translated and display by the same color in the Hex preview of mode
+//	 1.7.5 2024-05-17 Alastor: More colors for more timestamps + Added SubAnimBlock_sRead function + more cleanup + formating fixes simplified header a bit + major amount of read functions for many timestamps and keyframing sub anim structures + made more clear what is autofixer script foing to set from output console print if you read that... + removed around 500 extra trailing whitespaces + converted all hex color codes to upper case for better reading yes I hate lower case hex
+//	 1.7.1 2024-05-16 Alastor: Minor typo fixes and cleanup with some additional comments and filled in many colors for different data blocks
+//	 1.7.0 2024-05-15 Alastor: Added MessageBox to detection of faulty Particle items such as Blending / Type / Emmiter / HeadOrTail once prompted template will list commands to fix faulty particle items into the outpur box from where can user copy and execute
+//	 1.6.8 2024-02-21 Alastor: Added DB0C structure which was discovered in 9ard_nebulacloud_b01.m2 which was by Deamon gussed to be added by thed end of SL in late 9.X.X + Removed some Skel strcutures which are not needed anymore as they were used for merging .skel and .m2 but the said method is no longer in use
+//	 1.6.6 2023-11-16 Alastor: More comments on functions and minor clean up and readability adjustments
+//	 1.6.5 2023-05-11 Alastor: Removal of some characters left from HIP's commit for some reason that commit inserted seemingly random amount of "Ã¢â‚¬Â¢" characters into the template at random places
+//	 1.6.4 2023-05-10 Alastor: Particle color track now shows the actual color in the template of the particle RGB value
+//	 1.6.3 2023-05-09 Alastor: Improved warnings for particle block to output hex offset of faulty value
+//	 1.6.2 2023-03-06 HIP: Fixed some formatting and characters
+//	 1.6.1 2023-02-14 Alastor: Additional conditions for Particle strcuture to alert if some values are incorrect for exact client version where issue most commonly happens
+//	 1.6.0 2022-12-22 Alastor: Significant changes to MD21 Chunks added more variable to keep track of data and internal relative offsets within chunks
+//	 1.5.7 2022-12-06 Alastor: Renamed variables used for C4Byte in the Vertex structure to make more sense it was RGBA previously which made no sence at all
+//	 1.5.6 2022-11-22 Alastor: Remastered the Texture_Combiner Structure from the ugly Alt_mapping look that it had
+//	 1.5.5 2022-11-13 Alastor: New C3Vector struc used for BoundingBox Animation Block
+//	 1.5.4 2022-10-28 Alastor: Added new argument for inline read function of attachments to show attachment ID
+//	 1.5.3 2022-10-25 Alastor: Added <read=ReadMaterial> --- its kinda experimental I tried to add variable gap lenght but it seems that default 010 editor font is not having equal character lenght in terms of a pixel width which causes the lenght to be very out of place thus my code wont be effective as much as I would like too
+//	 1.5.2 2022-09-27 Alastor: Bone structure bug fix
+//	 1.5.1 2022-09-11 Alastor: Particle adjustments added new flag and conditions for filepathing
+//	 1.5.0 2022-06-30 Alastor: Fixed Event block reading
+//	 1.4.6 2022-06-23 Alastor: some improvements / reorganization / bug fix
+//	 1.4.5 2022-06-05 Alastor: Anim/Keybone/Attachment Lookups now have names I added some more read functions to bones and some other adjustmens that I dont remember anymore also updated list of animations
+//	 1.3.0 2022-05-09 Alastor: Added inline function to rotations in bone block and better reading of some subanimvalues
+//	 1.1.0 2022-04-13 Alastor: Added inline function to M2Tracks to have a read property that shows in the animation block how many keyframes and timestamps is in the said block without need to collapse it
+//	 1.0.0 2022-03-10 Alastor: Multiversion M2 loading (Tested on 3.3.5 / 7.0.1 / 8.0.1 / 9.0.1 / 9.2.0 / 10.0.0) â€¢ MD21 Chunk + other Chunks including TXID reading and more â€¢ Improved block reading with added conditions and checks to avoide empty structure generations fastening the load times â€¢ Added functions with Read and Write reading properties mostly notable for C3Vectors • Renamed most of the variables and types to proper names like Materials • Sequenceures for C3Vectors now contains properly XYZ named values not val0 val1 val2 like before • Main Blocks are now colored to visibly show the chunks of data in the hex preview • Added lots of undefined binary flags to numerous places lol bone flags / anim flags / global sequcnes flags that were not mapped at all in previous version • Added commends to some parts of the blocks to better describe what the data mean • Named lots of previously unknown strucutres after the lastest data from wowdev.wiki • Better described Camera block • Added more enum types where possible like texture types or added new animations entries • Some other edits that I surely just forgot Added inline function to M2Tracks to have a read property that shows in the animation block how many keyframes and timestamps is in the said block without need to collapse it
+//------------------------------------------------------------------------------------------------------------------
+// Repo: sweetscape.com/010editor/repository/templates/file_info.php?file=M2.bt
+
+RequiresVersion(16.0); LittleEndian();
+
+local string startTime = GetCurrentDateTime("hh:mm:ss:zzz");
+local int nBoneLimiter = 30; // Change this value to your own needs and prefference
+// Conversion between comp ushort and float quaternion used by bone rotations (lossy compression)
+local float f_MAX_SHORT = 32767; local float f_One = 1.0;
+float stf(ushort Short){ return (Short / f_MAX_SHORT) - f_One; } // float to short
+ushort fts(float Float){ return (Float + f_One) * f_MAX_SHORT; } // short to float
+
+local byte ofsMD21_8 = (ReadString(0x0,4) == "MD21") ? 0x8 : 0x0;
+local string G_SumAnimSeqVarType;
+local uint32 G_nKeys, G_OfsKeys, TexIndicesByIDRecMatch;
+local ubyte MessageBoxMask = 0;
+local uint64 MD21_C_Pos;
+
+enum Expansion{
+	VANILLA = 0,
+	TBC = 1,
+	WOTLK = 2,
+	CATA = 3,
+	MOP = 4,
+	WOD = 5,
+    LEGION = 6,
+};
+
+Expansion GetXpac( uint32 M2ver ){
+    if(M2ver >= 274) return LEGION;
+	if(M2ver >  272) return WOD;
+	if(M2ver == 272) return MOP;
+	if(M2ver >= 265) return CATA;
+	if(M2ver == 264) return WOTLK;
+	if(M2ver >= 260) return TBC;
+	return VANILLA;
+};
+
+local Expansion xpac = GetXpac( ReadUInt(0x4 + ofsMD21_8) );
+
+//some enums for purposes ^^
+typedef enum<uint16>{
+	IT_None = 0,
+	IT_Linear = 1,
+	IT_Bezier = 2,
+	IT_Hermite = 3
+}InterpolationType;
+
+typedef enum<uint32>{
+	AL_Looped = 0,
+	AL_NotLooped = 1
+}E_ANIMATIONLOOP;
+
+typedef enum<int32>{
+	CT_FlyBy = -1,
+	CT_Potrait = 0,
+	CT_CharInfo = 1
+}E_CAMERATYPE;
+
+typedef enum<uchar>{
+	TU_Animated = 0,
+	TU_Static = 16
+}E_VIEW_TEXUNITFLAGS;
+
+typedef enum<int16>{
+	Environmental_Mapping = -1,
+	First_UVMap = 0,
+	Second_UVMap = 1,
+}E_Mapping;
+
+typedef enum<uchar>{
+	HT_HEAD = 0,
+	HT_TAIL = 1,
+	HT_BOTH = 2
+}E_HEAD_OR_TAIL;
+
+typedef enum<ushort>{
+	RF_None = 0,
+	RF_Unlit = 1,
+	RF_Unfogged = 2,
+	RF_Unlit_Unfogged = 3,
+	RF_TwoSided = 4,
+	RF_Unlit_Two_Sided = 5,
+	RF_Unfogged_TwoSided = 6,
+	RF_Unlit_Unfogged_TwoSided = 7,
+	RF_Billboard = 8,
+	RF_Unlit_Billboard = 9,
+	RF_Unfogged_Billboard = 10,
+	RF_Unlit_Unfogged_Billboard = 11,
+	RF_Billboard_TwoSided = 12,
+	RF_Unlit_Billboard_TwoSided = 13,
+	RF_Unfogged_Billboard_TwoSided = 14,
+	RF_Unlit_Unfogged_Billboard_TwoSided = 15,
+	RF_Not_ZBuffered = 16,
+	RF_Not_ZBuffered_Unlit = 17,
+	RF_Not_ZBuffered_Unfogged  = 18,
+	RF_Not_ZBuffered_Unlit_Unfogged = 19,
+	RF_Not_ZBuffered_TwoSided = 20,
+	RF_Not_ZBuffered_Unlit_Two_Sided = 21,
+	RF_Not_ZBuffered_Unfogged_TwoSided = 22,
+	RF_Not_ZBuffered_Unlit_Unfogged_TwoSided = 23,
+	RF_Not_ZBuffered_Billboard = 24,
+	RF_Not_ZBuffered_Unlit_Billboard = 25,
+	RF_Not_ZBuffered_Unfogged_Billboard = 26,
+	RF_Not_ZBuffered_Unlit_Unfogged_Billboard = 27,
+	RF_Not_ZBuffered_Billboard_TwoSided = 28,
+	RF_Not_ZBuffered_Unlit_Billboard_TwoSided = 29,
+	RF_Not_ZBuffered_Unfogged_Billboard_TwoSided = 30,
+	RF_Not_ZBuffered_Unlit_Unfogged_Billboard_TwoSided = 31
+}E_RENDERFLAGS;
+
+typedef enum<ushort>{
+	RM_OPAQUE = 0,
+	RM_ALPHA_KEY = 1,
+	RM_ALPHA = 2,
+	RM_NO_ALPHA_ADD = 3,
+	RM_ADD = 4,
+	RM_MOD = 5,
+	RM_MOD2X = 6,
+	RM_BLENDADD = 7
+}E_RENDERMODES;
+
+typedef enum<uint32>{
+	HARDCODED = 0,		   //Texture given in filename
+	SKIN = 1,			   //Skin -- Body + clothes
+	OBJECT_SKIN = 2,	   //Object Skin -- Item, Capes ("Item\ObjectComponents\Cape\*.blp")
+	WEAPON_BLADE = 3,	   //Weapon Blade - on lots of models but not used in the client as far as I see. Armor Reflect?
+	WEAPON_HANDLE =4,	   //Weapon Handle
+	ENVIRONMENT = 5,	   //(OBSOLETE) Environment (Please remove from source art)
+	CHAR_HAIR = 6,		   //Character Hair
+	CHAR_FACIAL_HAIR = 7,  //(OBSOLETE) Character Facial Hair (Please remove from source art)
+	SKIN_EXTRA = 8, 	   //Skin Extra
+	UI_SKIN = 9,		   //Used on inventory art M2s (1): inventoryartgeometry.m2 and inventoryartgeometryold.m2
+	TAUREN_MANE = 10,	   //Character Misc // (OBSOLETE) Tauren Mane (Please remove from source art)
+	MONSTER_SKIN_1 = 11,   //Monster Skin 1 -- Skin for creatures or gameobjects #1
+	MONSTER_SKIN_2 = 12,   //Monster Skin 2 -- Skin for creatures or gameobjects #2
+	MONSTER_SKIN_3 = 13,   //Monster Skin 3 -- Skin for creatures or gameobjects #3
+	ITEM_ICON = 14, 	   //Used on inventory art M2s (2): ui-button.m2 and forcedbackpackitem.m2
+	GUILD_BG_COL = 15,	   //Guild Background Color
+	GUILD_EMBLEM_COL = 16, //Guild Emblem Color
+	GUILD_BORDER_COL = 17, //Guild Border Color
+	GUILD_EMBLEM = 18,	   //Guild Emblem
+	EYE_COL = 19,		   //Character Eyes
+	JEWEL = 20,		       //Character Jewelry // Accessory
+	SECOND_SKIN = 21,	   //Character Secondary Skin
+	SECOND_HAIR = 22,	   //Character Secondary Hair
+	SECOND_ARMOR = 23,	   //Character Secondary Armor
+	UNK_SL = 24,           
+	UNK_DF = 25,		   //Seen in DracthyrDragon.m2 (10.0.0+)
+	UNK1_DF = 26		   //Seen in DracthyrDragon.m2 (10.0.0+)
+}E_TEXTURETYPES;
+
+typedef enum<uint32>{
+	TF_None = 0,
+	TF_WrapX = 1,
+	TF_WrapY = 2,
+	TF_WrapXY = 3
+}E_TEXTUREFLAGS;
+
+typedef enum<uint16>{
+	A_Stand_0,	A_Death_1,	A_Spell_2,	A_Stop_3,	A_Walk_4,	A_Run_5,	A_Dead_6,	A_Rise_7,	A_StandWound_8, A_CombatWound_9,	A_CombatCritical_10,	A_ShuffleLeft_11,	A_ShuffleRight_12,	A_Walkbackwards_13, A_Stun_14,	A_HandsClosed_15,	A_AttackUnarmed_16, A_Attack1H_17,	A_Attack2H_18,	A_Attack2HL_19, A_ParryUnarmed_20,	A_Parry1H_21,	A_Parry2H_22,	A_Parry2HL_23,	A_ShieldBlock_24,	A_ReadyUnarmed_25,	A_Ready1H_26,	A_Ready2H_27,	A_Ready2HL_28,	A_ReadyBow_29,	A_Dodge_30, A_SpellPrecast_31,	A_SpellCast_32, A_SpellCastArea_33, A_NPCWelcome_34,	A_NPCGoodbye_35,	A_Block_36, A_JumpStart_37, A_Jump_38,	A_JumpEnd_39,	A_Fall_40,	A_SwimIdle_41,	A_Swim_42,	A_SwimLeft_43,	A_SwimRight_44, A_SwimBackwards_45, A_AttackBow_46, A_FireBow_47,	A_ReadyRifle_48,	A_AttackRifle_49,	A_Loot_50,	A_ReadySpellDirected_51,	A_ReadySpellOmni_52,	A_SpellCastDirected_53, A_SpellCastOmni_54, A_BattleRoar_55,	A_ReadyAbility_56,	A_Special1H_57, A_Special2H_58, A_ShieldBash_59,	A_EmoteTalk_60, A_EmoteEat_61,	A_EmoteWork_62, A_EmoteUseStanding_63,	A_EmoteTalkExclamation_64,	A_EmoteTalkQuestion_65, A_EmoteBow_66,	A_EmoteWave_67, A_EmoteCheer_68,	A_EmoteDance_69,	A_EmoteLaugh_70,	A_EmoteSleep_71,	A_EmoteSitGround_72,	A_EmoteRude_73, A_EmoteRoar_74, A_EmoteKneel_75,	A_EmoteKiss_76, A_EmoteCry_77,	A_EmoteChicken_78,	A_EmoteBeg_79,	A_EmoteApplaud_80,	A_EmoteShout_81,	A_EmoteFlex_82, A_EmoteShy_83,	A_EmotePoint_84,	A_Attack1HPierce_85,	A_Attack2HLoosePierce_86,	A_AttackOff_87, A_AttackOffPierce_88,	A_Sheath_89,	A_HipSheath_90, A_Mount_91, A_RunRight_92,	A_RunLeft_93,	A_MountSpecial_94,	A_Kick_95,	A_SitGroundDown_96, A_SitGround_97, A_SitGroundUp_98,	A_SleepDown_99, A_Sleep_100,	A_SleepUp_101,	A_SitChairLow_102,	A_SitChairMed_103,	A_SitChairHigh_104, A_LoadBow_105,	A_LoadRifle_106,	A_AttackThrown_107, A_ReadyThrown_108,	A_HoldBow_109,	A_HoldRifle_110,	A_HoldThrown_111,	A_LoadThrown_112,	A_EmoteSalute_113,	A_KneelStart_114,	A_KneelLoop_115,	A_KneelEnd_116, A_AttackUnarmedOff_117, A_SpecialUnarmed_118,	A_StealthWalk_119,	A_StealthStand_120, A_Knockdown_121,	A_EatingLoop_122,	A_UseStandingLoop_123,	A_ChannelCastDirected_124,	A_ChannelCastOmni_125,	A_Whirlwind_126,	A_Birth_127,	A_UseStandingStart_128, A_UseStandingEnd_129,	A_CreatureSpecial_130,	A_Drown_131,	A_Drowned_132,	A_FishingCast_133,	A_FishingLoop_134,	A_Fly_135,	A_EmoteWorkNoSheathe_136,	A_EmoteStunNoSheathe_137,	A_EmoteUseStandingNoSheathe_138,	A_SpellSleepDown_139,	A_SpellKneelStart_140,	A_SpellKneelLoop_141,	A_SpellKneelEnd_142,	A_Sprint_143,	A_InFlight_144, A_Spawn_145,	A_Close_146,	A_Closed_147,	A_Open_148, A_Opened_149,	A_Destroy_150,	A_Destroyed_151,	A_Rebuild_152,	A_Custom0_153,	A_Custom1_154,	A_Custom2_155,	A_Custom3_156,	A_Despawn_157,	A_Hold_158, A_Decay_159,	A_BowPull_160,	A_BowRelease_161,	A_ShipStart_162,	A_ShipMoving_163,	A_ShipStop_164, A_GroupArrow_165,	A_Arrow_166,	A_CorpseArrow_167,	A_GuideArrow_168,	A_Sway_169, A_DruidCatPounce_170,	A_DruidCatRip_171,	A_DruidCatRake_172, A_DruidCatRavage_173,	A_DruidCatClaw_174, A_DruidCatCower_175,	A_DruidBearSwipe_176,	A_DruidBearBite_177,	A_DruidBearMaul_178,	A_DruidBearBash_179,	A_DragonTail_180,	A_DragonStomp_181,	A_DragonSpit_182,	A_DragonSpitHover_183,	A_DragonSpitFly_184,	A_EmoteYes_185, A_EmoteNo_186,	A_JumpLandRun_187,	A_LootHold_188, A_LootUp_189,	A_StandHigh_190,	A_Impact_191,	A_LiftOff_192,	A_Hover_193,	A_SuccubusEntice_194,	A_EmoteTrain_195,	A_EmoteDead_196,	A_EmoteDanceOnce_197,	A_Deflect_198,	A_EmoteEatNoSheathe_199,	A_Land_200, A_Submerge_201, A_Submerged_202,	A_Cannibalize_203,	A_ArrowBirth_204,	A_GroupArrowBirth_205,	A_CorpseArrowBirth_206, A_GuideArrowBirth_207,	A_EmoteTalkNoSheathe_208,	A_EmotePointNoSheathe_209,	A_EmoteSaluteNoSheathe_210, A_EmoteDanceSpecial_211,	A_Mutilate_212, A_CustomSpell01_213,	A_CustomSpell02_214,	A_CustomSpell03_215,	A_CustomSpell04_216,	A_CustomSpell05_217,	A_CustomSpell06_218,	A_CustomSpell07_219,	A_CustomSpell08_220,	A_CustomSpell09_221,	A_CustomSpell10_222,	A_StealthRun_223,	A_Emerge_224,	A_Cower_225,	A_Grab_226, A_GrabClosed_227,	A_GrabThrown_228,	A_FlyStand_229, A_FlyDeath_230, A_FlySpell_231, A_FlyStop_232,	A_FlyWalk_233,	A_FlyRun_234,	A_FlyDead_235,	A_FlyRise_236,	A_FlyStandWound_237,	A_FlyCombatWound_238,	A_FlyCombatCritical_239,	A_FlyShuffleLeft_240,	A_FlyShuffleRight_241,	A_FlyWalkbackwards_242, A_FlyStun_243,	A_FlyHandsClosed_244,	A_FlyAttackUnarmed_245, A_FlyAttack1H_246,	A_FlyAttack2H_247,	A_FlyAttack2HL_248, A_FlyParryUnarmed_249,	A_FlyParry1H_250,	A_FlyParry2H_251,	A_FlyParry2HL_252,	A_FlyShieldBlock_253,	A_FlyReadyUnarmed_254,	A_FlyReady1H_255,	A_FlyReady2H_256,	A_FlyReady2HL_257,	A_FlyReadyBow_258,	A_FlyDodge_259, A_FlySpellPrecast_260,	A_FlySpellCast_261, A_FlySpellCastArea_262, A_FlyNPCWelcome_263,	A_FlyNPCGoodbye_264,	A_FlyBlock_265, A_FlyJumpStart_266, A_FlyJump_267,	A_FlyJumpEnd_268,	A_FlyFall_269,	A_FlySwimIdle_270,	A_FlySwim_271,	A_FlySwimLeft_272,	A_FlySwimRight_273, A_FlySwimBackwards_274, A_FlyAttackBow_275, A_FlyFireBow_276,	A_FlyReadyRifle_277,	A_FlyAttackRifle_278,	A_FlyLoot_279,	A_FlyReadySpellDirected_280,	A_FlyReadySpellOmni_281,	A_FlySpellCastDirected_282, A_FlySpellCastOmni_283, A_FlyBattleRoar_284,	A_FlyReadyAbility_285,	A_FlySpecial1H_286, A_FlySpecial2H_287, A_FlyShieldBash_288,	A_FlyEmoteTalk_289, A_FlyEmoteEat_290,	A_FlyEmoteWork_291, A_FlyEmoteUseStanding_292,	A_FlyEmoteTalkExclamation_293,	A_FlyEmoteTalkQuestion_294, A_FlyEmoteBow_295,	A_FlyEmoteWave_296, A_FlyEmoteCheer_297,	A_FlyEmoteDance_298,	A_FlyEmoteLaugh_299,	A_FlyEmoteSleep_300,	A_FlyEmoteSitGround_301,	A_FlyEmoteRude_302, A_FlyEmoteRoar_303, A_FlyEmoteKneel_304,	A_FlyEmoteKiss_305, A_FlyEmoteCry_306,	A_FlyEmoteChicken_307,	A_FlyEmoteBeg_308,	A_FlyEmoteApplaud_309,	A_FlyEmoteShout_310,	A_FlyEmoteFlex_311, A_FlyEmoteShy_312,	A_FlyEmotePoint_313,	A_FlyAttack1HPierce_314,	A_FlyAttack2HLoosePierce_315,	A_FlyAttackOff_316, A_FlyAttackOffPierce_317,	A_FlySheath_318,	A_FlyHipSheath_319, A_FlyMount_320, A_FlyRunRight_321,	A_FlyRunLeft_322,	A_FlyMountSpecial_323,	A_FlyKick_324,	A_FlySitGroundDown_325, A_FlySitGround_326, A_FlySitGroundUp_327,	A_FlySleepDown_328, A_FlySleep_329, A_FlySleepUp_330,	A_FlySitChairLow_331,	A_FlySitChairMed_332,	A_FlySitChairHigh_333,	A_FlyLoadBow_334,	A_FlyLoadRifle_335, A_FlyAttackThrown_336,	A_FlyReadyThrown_337,	A_FlyHoldBow_338,	A_FlyHoldRifle_339, A_FlyHoldThrown_340,	A_FlyLoadThrown_341,	A_FlyEmoteSalute_342,	A_FlyKneelStart_343,	A_FlyKneelLoop_344, A_FlyKneelEnd_345,	A_FlyAttackUnarmedOff_346,	A_FlySpecialUnarmed_347,	A_FlyStealthWalk_348,	A_FlyStealthStand_349,	A_FlyKnockdown_350, A_FlyEatingLoop_351,	A_FlyUseStandingLoop_352,	A_FlyChannelCastDirected_353,	A_FlyChannelCastOmni_354,	A_FlyWhirlwind_355, A_FlyBirth_356, A_FlyUseStandingStart_357,	A_FlyUseStandingEnd_358,	A_FlyCreatureSpecial_359,	A_FlyDrown_360, A_FlyDrowned_361,	A_FlyFishingCast_362,	A_FlyFishingLoop_363,	A_FlyFly_364,	A_FlyEmoteWorkNoSheathe_365,	A_FlyEmoteStunNoSheathe_366,	A_FlyEmoteUseStandingNoSheathe_367, A_FlySpellSleepDown_368,	A_FlySpellKneelStart_369,	A_FlySpellKneelLoop_370,	A_FlySpellKneelEnd_371, A_FlySprint_372,	A_FlyInFlight_373,	A_FlySpawn_374, A_FlyClose_375, A_FlyClosed_376,	A_FlyOpen_377,	A_FlyOpened_378,	A_FlyDestroy_379,	A_FlyDestroyed_380, A_FlyRebuild_381,	A_FlyCustom0_382,	A_FlyCustom1_383,	A_FlyCustom2_384,	A_FlyCustom3_385,	A_FlyDespawn_386,	A_FlyHold_387,	A_FlyDecay_388, A_FlyBowPull_389,	A_FlyBowRelease_390,	A_FlyShipStart_391, A_FlyShipMoving_392,	A_FlyShipStop_393,	A_FlyGroupArrow_394,	A_FlyArrow_395, A_FlyCorpseArrow_396,	A_FlyGuideArrow_397,	A_FlySway_398,	A_FlyDruidCatPounce_399,	A_FlyDruidCatRip_400,	A_FlyDruidCatRake_401,	A_FlyDruidCatRavage_402,	A_FlyDruidCatClaw_403,	A_FlyDruidCatCower_404, A_FlyDruidBearSwipe_405,	A_FlyDruidBearBite_406, A_FlyDruidBearMaul_407, A_FlyDruidBearBash_408, A_FlyDragonTail_409,	A_FlyDragonStomp_410,	A_FlyDragonSpit_411,	A_FlyDragonSpitHover_412,	A_FlyDragonSpitFly_413, A_FlyEmoteYes_414,	A_FlyEmoteNo_415,	A_FlyJumpLandRun_416,	A_FlyLootHold_417,	A_FlyLootUp_418,	A_FlyStandHigh_419, A_FlyImpact_420,	A_FlyLiftOff_421,	A_FlyHover_422, A_FlySuccubusEntice_423,	A_FlyEmoteTrain_424,	A_FlyEmoteDead_425, A_FlyEmoteDanceOnce_426,	A_FlyDeflect_427,	A_FlyEmoteEatNoSheathe_428, A_FlyLand_429,	A_FlySubmerge_430,	A_FlySubmerged_431, A_FlyCannibalize_432,	A_FlyArrowBirth_433,	A_FlyGroupArrowBirth_434,	A_FlyCorpseArrowBirth_435,	A_FlyGuideArrowBirth_436,	A_FlyEmoteTalkNoSheathe_437,	A_FlyEmotePointNoSheathe_438,	A_FlyEmoteSaluteNoSheathe_439,	A_FlyEmoteDanceSpecial_440, A_FlyMutilate_441,	A_FlyCustomSpell01_442, A_FlyCustomSpell02_443, A_FlyCustomSpell03_444, A_FlyCustomSpell04_445, A_FlyCustomSpell05_446, A_FlyCustomSpell06_447, A_FlyCustomSpell07_448, A_FlyCustomSpell08_449, A_FlyCustomSpell09_450, A_FlyCustomSpell10_451, A_FlyStealthRun_452,	A_FlyEmerge_453,	A_FlyCower_454, A_FlyGrab_455,	A_FlyGrabClosed_456,	A_FlyGrabThrown_457,	A_ToFly_458,	A_ToHover_459,	A_ToGround_460, A_FlyToFly_461, A_FlyToHover_462,	A_FlyToGround_463,	A_Settle_464,	A_FlySettle_465,	A_DeathStart_466,	A_DeathLoop_467,	A_DeathEnd_468, A_FlyDeathStart_469,	A_FlyDeathLoop_470, A_FlyDeathEnd_471,	A_DeathEndHold_472, A_FlyDeathEndHold_473,	A_Strangulate_474,	A_FlyStrangulate_475,	A_ReadyJoust_476,	A_LoadJoust_477,	A_HoldJoust_478,	A_FlyReadyJoust_479,	A_FlyLoadJoust_480, A_FlyHoldJoust_481, A_AttackJoust_482,	A_FlyAttackJoust_483,	A_ReclinedMount_484,	A_FlyReclinedMount_485, A_ToAltered_486,	A_FromAltered_487,	A_FlyToAltered_488, A_FlyFromAltered_489,	A_InStocks_490, A_FlyInStocks_491,	A_VehicleGrab_492,	A_VehicleThrow_493, A_FlyVehicleGrab_494,	A_FlyVehicleThrow_495,	A_ToAlteredPostSwap_496,	A_FromAlteredPostSwap_497,	A_FlyToAlteredPostSwap_498, A_FlyFromAlteredPostSwap_499,	A_ReclinedMountPassenger_500,	A_FlyReclinedMountPassenger_501,	A_Carry2H_502,	A_Carried2H_503,	A_FlyCarry2H_504,	A_FlyCarried2H_505, A_EmoteSniff_506,	A_EmoteFlySniff_507,	A_AttackFist1H_508, A_FlyAttackFist1H_509,	A_AttackFist1HOff_510,	A_FlyAttackFist1HOff_511,	A_ParryFist1H_512,	A_FlyParryFist1H_513,	A_ReadyFist1H_514,	A_FlyReadyFist1H_515,	A_SpecialFist1H_516,	A_FlySpecialFist1H_517, A_EmoteReadStart_518,	A_FlyEmoteReadStart_519,	A_EmoteReadLoop_520,	A_FlyEmoteReadLoop_521, A_EmoteReadEnd_522, A_FlyEmoteReadEnd_523,	A_SwimRun_524,	A_FlySwimRun_525,	A_SwimWalk_526, A_FlySwimWalk_527,	A_SwimWalkBackwards_528,	A_FlySwimWalkBackwards_529, A_SwimSprint_530,	A_FlySwimSprint_531,	A_MountSwimIdle_532,	A_FlyMountSwimIdle_533, A_MountSwimBackwards_534,	A_FlyMountSwimBackwards_535,	A_MountSwimLeft_536,	A_FlyMountSwimLeft_537, A_MountSwimRight_538,	A_FlyMountSwimRight_539,	A_MountSwimRun_540, A_FlyMountSwimRun_541,	A_MountSwimSprint_542,	A_FlyMountSwimSprint_543,	A_MountSwimWalk_544,	A_FlyMountSwimWalk_545, A_MountSwimWalkBackwards_546,	A_FlyMountSwimWalkBackwards_547,	A_MountFlightIdle_548,	A_FlyMountFlightIdle_549,	A_MountFlightBackwards_550, A_FlyMountFlightBackwards_551,	A_MountFlightLeft_552,	A_FlyMountFlightLeft_553,	A_MountFlightRight_554, A_FlyMountFlightRight_555,	A_MountFlightRun_556,	A_FlyMountFlightRun_557,	A_MountFlightSprint_558,	A_FlyMountFlightSprint_559, A_MountFlightWalk_560,	A_FlyMountFlightWalk_561,	A_MountFlightWalkBackwards_562, A_FlyMountFlightWalkBackwards_563,	A_MountFlightStart_564, A_FlyMountFlightStart_565,	A_MountSwimStart_566,	A_FlyMountSwimStart_567,	A_MountSwimLand_568,	A_FlyMountSwimLand_569, A_MountSwimLandRun_570, A_FlyMountSwimLandRun_571,	A_MountFlightLand_572,	A_FlyMountFlightLand_573,	A_MountFlightLandRun_574,	A_FlyMountFlightLandRun_575,	A_ReadyBlowDart_576,	A_FlyReadyBlowDart_577, A_LoadBlowDart_578, A_FlyLoadBlowDart_579,	A_HoldBlowDart_580, A_FlyHoldBlowDart_581,	A_AttackBlowDart_582,	A_FlyAttackBlowDart_583,	A_CarriageMount_584,	A_FlyCarriageMount_585, A_CarriagePassengerMount_586,	A_FlyCarriagePassengerMount_587,	A_CarriageMountAttack_588,	A_FlyCarriageMountAttack_589,	A_BarTendStand_590, A_FlyBarTendStand_591,	A_BarServerWalk_592,	A_FlyBarServerWalk_593, A_BarServerRun_594, A_FlyBarServerRun_595,	A_BarServerShuffleLeft_596, A_FlyBarServerShuffleLeft_597,	A_BarServerShuffleRight_598,	A_FlyBarServerShuffleRight_599, A_BarTendEmoteTalk_600, A_FlyBarTendEmoteTalk_601,	A_BarTendEmotePoint_602,	A_FlyBarTendEmotePoint_603, A_BarServerStand_604,	A_FlyBarServerStand_605,	A_BarSweepWalk_606, A_FlyBarSweepWalk_607,	A_BarSweepRun_608,	A_FlyBarSweepRun_609,	A_BarSweepShuffleLeft_610,	A_FlyBarSweepShuffleLeft_611,	A_BarSweepShuffleRight_612, A_FlyBarSweepShuffleRight_613,	A_BarSweepEmoteTalk_614,	A_FlyBarSweepEmoteTalk_615, A_BarPatronSitEmotePoint_616,	A_FlyBarPatronSitEmotePoint_617,	A_MountSelfIdle_618,	A_FlyMountSelfIdle_619, A_MountSelfWalk_620,	A_FlyMountSelfWalk_621, A_MountSelfRun_622, A_FlyMountSelfRun_623,	A_MountSelfSprint_624,	A_FlyMountSelfSprint_625,	A_MountSelfRunLeft_626, A_FlyMountSelfRunLeft_627,	A_MountSelfRunRight_628,	A_FlyMountSelfRunRight_629, A_MountSelfShuffleLeft_630, A_FlyMountSelfShuffleLeft_631,	A_MountSelfShuffleRight_632,	A_FlyMountSelfShuffleRight_633, A_MountSelfWalkBackwards_634,	A_FlyMountSelfWalkBackwards_635,	A_MountSelfSpecial_636, A_FlyMountSelfSpecial_637,	A_MountSelfJump_638,	A_FlyMountSelfJump_639, A_MountSelfJumpStart_640,	A_FlyMountSelfJumpStart_641,	A_MountSelfJumpEnd_642, A_FlyMountSelfJumpEnd_643,	A_MountSelfJumpLandRun_644, A_FlyMountSelfJumpLandRun_645,	A_MountSelfStart_646,	A_FlyMountSelfStart_647,	A_MountSelfFall_648,	A_FlyMountSelfFall_649, A_Stormstrike_650,	A_FlyStormstrike_651,	A_ReadyJoustNoSheathe_652,	A_FlyReadyJoustNoSheathe_653,	A_Slam_654, A_FlySlam_655,	A_DeathStrike_656,	A_FlyDeathStrike_657,	A_SwimAttackUnarmed_658,	A_FlySwimAttackUnarmed_659, A_SpinningKick_660, A_FlySpinningKick_661,	A_RoundHouseKick_662,	A_FlyRoundHouseKick_663,	A_RollStart_664,	A_FlyRollStart_665, A_Roll_666, A_FlyRoll_667,	A_RollEnd_668,	A_FlyRollEnd_669,	A_PalmStrike_670,	A_FlyPalmStrike_671,	A_MonkOffenseAttackUnarmed_672, A_FlyMonkOffenseAttackUnarmed_673,	A_MonkOffenseAttackUnarmedOff_674,	A_FlyMonkOffenseAttackUnarmedOff_675,	A_MonkOffenseParryUnarmed_676,	A_FlyMonkOffenseParryUnarmed_677,	A_MonkOffenseReadyUnarmed_678,	A_FlyMonkOffenseReadyUnarmed_679,	A_MonkOffenseSpecialUnarmed_680,	A_FlyMonkOffenseSpecialUnarmed_681, A_MonkDefenseAttackUnarmed_682, A_FlyMonkDefenseAttackUnarmed_683,	A_MonkDefenseAttackUnarmedOff_684,	A_FlyMonkDefenseAttackUnarmedOff_685,	A_MonkDefenseParryUnarmed_686,	A_FlyMonkDefenseParryUnarmed_687,	A_MonkDefenseReadyUnarmed_688,	A_FlyMonkDefenseReadyUnarmed_689,	A_MonkDefenseSpecialUnarmed_690,	A_FlyMonkDefenseSpecialUnarmed_691, A_MonkHealAttackUnarmed_692,	A_FlyMonkHealAttackUnarmed_693, A_MonkHealAttackUnarmedOff_694, A_FlyMonkHealAttackUnarmedOff_695,	A_MonkHealParryUnarmed_696, A_FlyMonkHealParryUnarmed_697,	A_MonkHealReadyUnarmed_698, A_FlyMonkHealReadyUnarmed_699,	A_MonkHealSpecialUnarmed_700,	A_FlyMonkHealSpecialUnarmed_701,	A_FlyingKick_702,	A_FlyFlyingKick_703,	A_FlyingKickStart_704,	A_FlyFlyingKickStart_705,	A_FlyingKickEnd_706,	A_FlyFlyingKickEnd_707, A_CraneStart_708,	A_FlyCraneStart_709,	A_CraneLoop_710,	A_FlyCraneLoop_711, A_CraneEnd_712, A_FlyCraneEnd_713,	A_Despawned_714,	A_FlyDespawned_715, A_ThousandFists_716,	A_FlyThousandFists_717, A_MonkHealReadySpellDirected_718,	A_FlyMonkHealReadySpellDirected_719,	A_MonkHealReadySpellOmni_720,	A_FlyMonkHealReadySpellOmni_721,	A_MonkHealSpellCastDirected_722,	A_FlyMonkHealSpellCastDirected_723, A_MonkHealSpellCastOmni_724,	A_FlyMonkHealSpellCastOmni_725, A_MonkHealChannelCastDirected_726,	A_FlyMonkHealChannelCastDirected_727,	A_MonkHealChannelCastOmni_728,	A_FlyMonkHealChannelCastOmni_729,	A_Torpedo_730,	A_FlyTorpedo_731,	A_Meditate_732, A_FlyMeditate_733,	A_BreathOfFire_734, A_FlyBreathOfFire_735,	A_RisingSunKick_736,	A_FlyRisingSunKick_737, A_GroundKick_738,	A_FlyGroundKick_739,	A_KickBack_740, A_FlyKickBack_741,	A_PetBattleStand_742,	A_FlyPetBattleStand_743,	A_PetBattleDeath_744,	A_FlyPetBattleDeath_745,	A_PetBattleRun_746, A_FlyPetBattleRun_747,	A_PetBattleWound_748,	A_FlyPetBattleWound_749,	A_PetBattleAttack_750,	A_FlyPetBattleAttack_751,	A_PetBattleReadySpell_752,	A_FlyPetBattleReadySpell_753,	A_PetBattleSpellCast_754,	A_FlyPetBattleSpellCast_755,	A_PetBattleCustom0_756, A_FlyPetBattleCustom0_757,	A_PetBattleCustom1_758, A_FlyPetBattleCustom1_759,	A_PetBattleCustom2_760, A_FlyPetBattleCustom2_761,	A_PetBattleCustom3_762, A_FlyPetBattleCustom3_763,	A_PetBattleVictory_764, A_FlyPetBattleVictory_765,	A_PetBattleLoss_766,	A_FlyPetBattleLoss_767, A_PetBattleStun_768,	A_FlyPetBattleStun_769, A_PetBattleDead_770,	A_FlyPetBattleDead_771, A_PetBattleFreeze_772,	A_FlyPetBattleFreeze_773,	A_MonkOffenseAttackWeapon_774,	A_FlyMonkOffenseAttackWeapon_775,	A_BarTendEmoteWave_776, A_FlyBarTendEmoteWave_777,	A_BarServerEmoteTalk_778,	A_FlyBarServerEmoteTalk_779,	A_BarServerEmoteWave_780,	A_FlyBarServerEmoteWave_781,	A_BarServerPourDrinks_782,	A_FlyBarServerPourDrinks_783,	A_BarServerPickup_784,	A_FlyBarServerPickup_785,	A_BarServerPutDown_786, A_FlyBarServerPutDown_787,	A_BarSweepStand_788,	A_FlyBarSweepStand_789, A_BarPatronSit_790, A_FlyBarPatronSit_791,	A_BarPatronSitEmoteTalk_792,	A_FlyBarPatronSitEmoteTalk_793, A_BarPatronStand_794,	A_FlyBarPatronStand_795,	A_BarPatronStandEmoteTalk_796,	A_FlyBarPatronStandEmoteTalk_797,	A_BarPatronStandEmotePoint_798, A_FlyBarPatronStandEmotePoint_799,	A_CarrionSwarm_800, A_FlyCarrionSwarm_801,	A_WheelLoop_802,	A_FlyWheelLoop_803, A_StandCharacterCreate_804, A_FlyStandCharacterCreate_805,	A_MountChopper_806, A_FlyMountChopper_807,	A_FacePose_808, A_FlyFacePose_809,	A_CombatAbility2HBig01_810, A_FlyCombatAbility2HBig01_811,	A_CombatAbility2H01_812,	A_FlyCombatAbility2H01_813, A_CombatWhirlwind_814,	A_FlyCombatWhirlwind_815,	A_CombatChargeLoop_816, A_FlyCombatChargeLoop_817,	A_CombatAbility1H01_818,	A_FlyCombatAbility1H01_819, A_CombatChargeEnd_820,	A_FlyCombatChargeEnd_821,	A_CombatAbility1H02_822,	A_FlyCombatAbility1H02_823, A_CombatAbility1HBig01_824, A_FlyCombatAbility1HBig01_825,	A_CombatAbility2H02_826,	A_FlyCombatAbility2H02_827, A_ShaSpellPrecastBoth_828,	A_FlyShaSpellPrecastBoth_829,	A_ShaSpellCastBothFront_830,	A_FlyShaSpellCastBothFront_831, A_ShaSpellCastLeftFront_832,	A_FlyShaSpellCastLeftFront_833, A_ShaSpellCastRightFront_834,	A_FlyShaSpellCastRightFront_835,	A_ReadyCrossbow_836,	A_FlyReadyCrossbow_837, A_LoadCrossbow_838, A_FlyLoadCrossbow_839,	A_AttackCrossbow_840,	A_FlyAttackCrossbow_841,	A_HoldCrossbow_842, A_FlyHoldCrossbow_843,	A_CombatAbility2HL01_844,	A_FlyCombatAbility2HL01_845,	A_CombatAbility2HL02_846,	A_FlyCombatAbility2HL02_847,	A_CombatAbility2HLBig01_848,	A_FlyCombatAbility2HLBig01_849, A_CombatUnarmed01_850,	A_FlyCombatUnarmed01_851,	A_CombatStompLeft_852,	A_FlyCombatStompLeft_853,	A_CombatStompRight_854, A_FlyCombatStompRight_855,	A_CombatLeapLoop_856,	A_FlyCombatLeapLoop_857,	A_CombatLeapEnd_858,	A_FlyCombatLeapEnd_859, A_ShaReadySpellCast_860,	A_FlyShaReadySpellCast_861, A_ShaSpellPrecastBothChannel_862,	A_FlyShaSpellPrecastBothChannel_863,	A_ShaSpellCastBothUp_864,	A_FlyShaSpellCastBothUp_865,	A_ShaSpellCastBothUpChannel_866,	A_FlyShaSpellCastBothUpChannel_867, A_ShaSpellCastBothFrontChannel_868, A_FlyShaSpellCastBothFrontChannel_869,	A_ShaSpellCastLeftFrontChannel_870, A_FlyShaSpellCastLeftFrontChannel_871,	A_ShaSpellCastRightFrontChannel_872,	A_FlyShaSpellCastRightFrontChannel_873, A_PriReadySpellCast_874,	A_FlyPriReadySpellCast_875, A_PriSpellPrecastBoth_876,	A_FlyPriSpellPrecastBoth_877,	A_PriSpellPrecastBothChannel_878,	A_FlyPriSpellPrecastBothChannel_879,	A_PriSpellCastBothUp_880,	A_FlyPriSpellCastBothUp_881,	A_PriSpellCastBothFront_882,	A_FlyPriSpellCastBothFront_883, A_PriSpellCastLeftFront_884,	A_FlyPriSpellCastLeftFront_885, A_PriSpellCastRightFront_886,	A_FlyPriSpellCastRightFront_887,	A_PriSpellCastBothUpChannel_888,	A_FlyPriSpellCastBothUpChannel_889, A_PriSpellCastBothFrontChannel_890, A_FlyPriSpellCastBothFrontChannel_891,	A_PriSpellCastLeftFrontChannel_892, A_FlyPriSpellCastLeftFrontChannel_893,	A_PriSpellCastRightFrontChannel_894,	A_FlyPriSpellCastRightFrontChannel_895, A_MagReadySpellCast_896,	A_FlyMagReadySpellCast_897, A_MagSpellPrecastBoth_898,	A_FlyMagSpellPrecastBoth_899,	A_MagSpellPrecastBothChannel_900,	A_FlyMagSpellPrecastBothChannel_901,	A_MagSpellCastBothUp_902,	A_FlyMagSpellCastBothUp_903,	A_MagSpellCastBothFront_904,	A_FlyMagSpellCastBothFront_905, A_MagSpellCastLeftFront_906,	A_FlyMagSpellCastLeftFront_907, A_MagSpellCastRightFront_908,	A_FlyMagSpellCastRightFront_909,	A_MagSpellCastBothUpChannel_910,	A_FlyMagSpellCastBothUpChannel_911, A_MagSpellCastBothFrontChannel_912, A_FlyMagSpellCastBothFrontChannel_913,	A_MagSpellCastLeftFrontChannel_914, A_FlyMagSpellCastLeftFrontChannel_915,	A_MagSpellCastRightFrontChannel_916,	A_FlyMagSpellCastRightFrontChannel_917, A_LocReadySpellCast_918,	A_FlyLocReadySpellCast_919, A_LocSpellPrecastBoth_920,	A_FlyLocSpellPrecastBoth_921,	A_LocSpellPrecastBothChannel_922,	A_FlyLocSpellPrecastBothChannel_923,	A_LocSpellCastBothUp_924,	A_FlyLocSpellCastBothUp_925,	A_LocSpellCastBothFront_926,	A_FlyLocSpellCastBothFront_927, A_LocSpellCastLeftFront_928,	A_FlyLocSpellCastLeftFront_929, A_LocSpellCastRightFront_930,	A_FlyLocSpellCastRightFront_931,	A_LocSpellCastBothUpChannel_932,	A_FlyLocSpellCastBothUpChannel_933, A_LocSpellCastBothFrontChannel_934, A_FlyLocSpellCastBothFrontChannel_935,	A_LocSpellCastLeftFrontChannel_936, A_FlyLocSpellCastLeftFrontChannel_937,	A_LocSpellCastRightFrontChannel_938,	A_FlyLocSpellCastRightFrontChannel_939, A_DruReadySpellCast_940,	A_FlyDruReadySpellCast_941, A_DruSpellPrecastBoth_942,	A_FlyDruSpellPrecastBoth_943,	A_DruSpellPrecastBothChannel_944,	A_FlyDruSpellPrecastBothChannel_945,	A_DruSpellCastBothUp_946,	A_FlyDruSpellCastBothUp_947,	A_DruSpellCastBothFront_948,	A_FlyDruSpellCastBothFront_949, A_DruSpellCastLeftFront_950,	A_FlyDruSpellCastLeftFront_951, A_DruSpellCastRightFront_952,	A_FlyDruSpellCastRightFront_953,	A_DruSpellCastBothUpChannel_954,	A_FlyDruSpellCastBothUpChannel_955, A_DruSpellCastBothFrontChannel_956, A_FlyDruSpellCastBothFrontChannel_957,	A_DruSpellCastLeftFrontChannel_958, A_FlyDruSpellCastLeftFrontChannel_959,	A_DruSpellCastRightFrontChannel_960,	A_FlyDruSpellCastRightFrontChannel_961, A_ArtMainLoop_962,	A_FlyArtMainLoop_963,	A_ArtDualLoop_964,	A_FlyArtDualLoop_965,	A_ArtFistsLoop_966, A_FlyArtFistsLoop_967,	A_ArtBowLoop_968,	A_FlyArtBowLoop_969,	A_CombatAbility1H01Off_970, A_FlyCombatAbility1H01Off_971,	A_CombatAbility1H02Off_972, A_FlyCombatAbility1H02Off_973,	A_CombatFuriousStrike01_974,	A_FlyCombatFuriousStrike01_975, A_CombatFuriousStrike02_976,	A_FlyCombatFuriousStrike02_977, A_CombatFuriousStrikes_978, A_FlyCombatFuriousStrikes_979,	A_CombatReadySpellCast_980, A_FlyCombatReadySpellCast_981,	A_CombatShieldThrow_982,	A_FlyCombatShieldThrow_983, A_PalSpellCast1HUp_984, A_FlyPalSpellCast1HUp_985,	A_CombatReadyPostSpellCast_986, A_FlyCombatReadyPostSpellCast_987,	A_PriReadyPostSpellCast_988,	A_FlyPriReadyPostSpellCast_989, A_DHCombatRun_990,	A_FlyDHCombatRun_991,	A_CombatShieldBash_992, A_FlyCombatShieldBash_993,	A_CombatThrow_994,	A_FlyCombatThrow_995,	A_CombatAbility1HPierce_996,	A_FlyCombatAbility1HPierce_997, A_CombatAbility1HOffPierce_998, A_FlyCombatAbility1HOffPierce_999,	A_CombatMutilate_1000,	A_FlyCombatMutilate_1001,	A_CombatBladeStorm_1002,	A_FlyCombatBladeStorm_1003, A_CombatFinishingMove_1004, A_FlyCombatFinishingMove_1005,	A_CombatLeapStart_1006, A_FlyCombatLeapStart_1007,	A_GlvThrowMain_1008,	A_FlyGlvThrowMain_1009, A_GlvThrownOff_1010,	A_FlyGlvThrownOff_1011, A_DHCombatSprint_1012,	A_FlyDHCombatSprint_1013,	A_CombatAbilityGlv01_1014,	A_FlyCombatAbilityGlv01_1015,	A_CombatAbilityGlv02_1016,	A_FlyCombatAbilityGlv02_1017,	A_CombatAbilityGlvOff01_1018,	A_FlyCombatAbilityGlvOff01_1019,	A_CombatAbilityGlvOff02_1020,	A_FlyCombatAbilityGlvOff02_1021,	A_CombatAbilityGlvBig01_1022,	A_FlyCombatAbilityGlvBig01_1023,	A_CombatAbilityGlvBig02_1024,	A_FlyCombatAbilityGlvBig02_1025,	A_ReadyGlv_1026,	A_FlyReadyGlv_1027, A_CombatAbilityGlvBig03_1028,	A_FlyCombatAbilityGlvBig03_1029,	A_DoubleJumpStart_1030, A_FlyDoubleJumpStart_1031,	A_DoubleJump_1032,	A_FlyDoubleJump_1033,	A_CombatEviscerate_1034,	A_FlyCombatEviscerate_1035, A_DoubleJumpLandRun_1036,	A_FlyDoubleJumpLandRun_1037,	A_BackFlipStart_1038,	A_FlyBackFlipStart_1039,	A_BackFlipLoop_1040,	A_FlyBackFlipLoop_1041, A_FelRushLoop_1042, A_FlyFelRushLoop_1043,	A_FelRushEnd_1044,	A_FlyFelRushEnd_1045,	A_DHToAlteredStart_1046,	A_FlyDHToAlteredStart_1047, A_DHToAlteredEnd_1048,	A_FlyDHToAlteredEnd_1049,	A_DHGlide_1050, A_FlyDHGlide_1051,	A_FanOfKnives_1052, A_FlyFanOfKnives_1053,	A_SingleJumpStart_1054, A_FlySingleJumpStart_1055,	A_DHBladeDance1_1056,	A_FlyDHBladeDance1_1057,	A_DHBladeDance2_1058,	A_FlyDHBladeDance2_1059,	A_DHBladeDance3_1060,	A_FlyDHBladeDance3_1061,	A_DHMeteorStrike_1062,	A_FlyDHMeteorStrike_1063,	A_CombatExecute_1064,	A_FlyCombatExecute_1065,	A_ArtLoop_1066, A_FlyArtLoop_1067,	A_ParryGlv_1068,	A_FlyParryGlv_1069, A_CombatUnarmed02_1070, A_FlyCombatUnarmed02_1071,	A_CombatPistolShot_1072,	A_FlyCombatPistolShot_1073, A_CombatPistolShotOff_1074, A_FlyCombatPistolShotOff_1075,	A_Monk2HLIdle_1076, A_FlyMonk2HLIdle_1077,	A_ArtShieldLoop_1078,	A_FlyArtShieldLoop_1079,	A_CombatAbility2H03_1080,	A_FlyCombatAbility2H03_1081,	A_CombatStomp_1082, A_FlyCombatStomp_1083,	A_CombatRoar_1084,	A_FlyCombatRoar_1085,	A_PalReadySpellCast_1086,	A_FlyPalReadySpellCast_1087,	A_PalSpellPrecastRight_1088,	A_FlyPalSpellPrecastRight_1089, A_PalSpellPrecastRightChannel_1090, A_FlyPalSpellPrecastRightChannel_1091,	A_PalSpellCastRightFront_1092,	A_FlyPalSpellCastRightFront_1093,	A_ShaSpellCastBothOut_1094, A_FlyShaSpellCastBothOut_1095,	A_AttackWeapon_1096,	A_FlyAttackWeapon_1097, A_ReadyWeapon_1098, A_FlyReadyWeapon_1099,	A_AttackWeaponOff_1100, A_FlyAttackWeaponOff_1101,	A_SpecialDual_1102, A_FlySpecialDual_1103,	A_DkCast1HFront_1104,	A_FlyDkCast1HFront_1105,	A_CastStrongRight_1106, A_FlyCastStrongRight_1107,	A_CastStrongLeft_1108,	A_FlyCastStrongLeft_1109,	A_CastCurseRight_1110,	A_FlyCastCurseRight_1111,	A_CastCurseLeft_1112,	A_FlyCastCurseLeft_1113,	A_CastSweepRight_1114,	A_FlyCastSweepRight_1115,	A_CastSweepLeft_1116,	A_FlyCastSweepLeft_1117,	A_CastStrongUpLeft_1118,	A_FlyCastStrongUpLeft_1119, A_CastTwistUpBoth_1120, A_FlyCastTwistUpBoth_1121,	A_CastOutStrong_1122,	A_FlyCastOutStrong_1123,	A_DrumLoop_1124,	A_FlyDrumLoop_1125, A_ParryWeapon_1126, A_FlyParryWeapon_1127,	A_ReadyFL_1128, A_FlyReadyFL_1129,	A_AttackFL_1130,	A_FlyAttackFL_1131, A_AttackFLOff_1132, A_FlyAttackFLOff_1133,	A_ParryFL_1134, A_FlyParryFL_1135,	A_SpecialFL_1136,	A_FlySpecialFL_1137,	A_PriHoverForward_1138, A_FlyPriHoverForward_1139,	A_PriHoverBackward_1140,	A_FlyPriHoverBackward_1141, A_PriHoverRight_1142,	A_FlyPriHoverRight_1143,	A_PriHoverLeft_1144,	A_FlyPriHoverLeft_1145, A_RunBackwards_1146,	A_FlyRunBackwards_1147, A_CastStrongUpRight_1148,	A_FlyCastStrongUpRight_1149,	A_WAWalk_1150,	A_FlyWAWalk_1151,	A_WARun_1152,	A_FlyWARun_1153,	A_WADrunkStand_1154,	A_FlyWADrunkStand_1155, A_WADrunkShuffleLeft_1156,	A_FlyWADrunkShuffleLeft_1157,	A_WADrunkShuffleRight_1158, A_FlyWADrunkShuffleRight_1159,	A_WADrunkWalk_1160, A_FlyWADrunkWalk_1161,	A_WADrunkWalkBackwards_1162,	A_FlyWADrunkWalkBackwards_1163, A_WADrunkWound_1164,	A_FlyWADrunkWound_1165, A_WADrunkTalk_1166, A_FlyWADrunkTalk_1167,	A_WATrance01_1168,	A_FlyWATrance01_1169,	A_WATrance02_1170,	A_FlyWATrance02_1171,	A_WAChant01_1172,	A_FlyWAChant01_1173,	A_WAChant02_1174,	A_FlyWAChant02_1175,	A_WAChant03_1176,	A_FlyWAChant03_1177,	A_WAHang01_1178,	A_FlyWAHang01_1179, A_WAHang02_1180,	A_FlyWAHang02_1181, A_WASummon01_1182,	A_FlyWASummon01_1183,	A_WASummon02_1184,	A_FlyWASummon02_1185,	A_WABeggarTalk_1186,	A_FlyWABeggarTalk_1187, A_WABeggarStand_1188,	A_FlyWABeggarStand_1189,	A_WABeggarPoint_1190,	A_FlyWABeggarPoint_1191,	A_WABeggarBeg_1192, A_FlyWABeggarBeg_1193,	A_WASit01_1194, A_FlyWASit01_1195,	A_WASit02_1196, A_FlyWASit02_1197,	A_WASit03_1198, A_FlyWASit03_1199,	A_WACrierStand01_1200,	A_FlyWACrierStand01_1201,	A_WACrierStand02_1202,	A_FlyWACrierStand02_1203,	A_WACrierStand03_1204,	A_FlyWACrierStand03_1205,	A_WACrierTalk_1206, A_FlyWACrierTalk_1207,	A_WACrateHold_1208, A_FlyWACrateHold_1209,	A_WABarrelHold_1210,	A_FlyWABarrelHold_1211, A_WASackHold_1212,	A_FlyWASackHold_1213,	A_WAWheelBarrowStand_1214,	A_FlyWAWheelBarrowStand_1215,	A_WAWheelBarrowWalk_1216,	A_FlyWAWheelBarrowWalk_1217,	A_WAWheelBarrowRun_1218,	A_FlyWAWheelBarrowRun_1219, A_WAHammerLoop_1220,	A_FlyWAHammerLoop_1221, A_WACrankLoop_1222, A_FlyWACrankLoop_1223,	A_WAPourStart_1224, A_FlyWAPourStart_1225,	A_WAPourLoop_1226,	A_FlyWAPourLoop_1227,	A_WAPourEnd_1228,	A_FlyWAPourEnd_1229,	A_WAEmotePour_1230, A_FlyWAEmotePour_1231,	A_WARowingStandRight_1232,	A_FlyWARowingStandRight_1233,	A_WARowingStandLeft_1234,	A_FlyWARowingStandLeft_1235,	A_WARowingRight_1236,	A_FlyWARowingRight_1237,	A_WARowingLeft_1238,	A_FlyWARowingLeft_1239, A_WAGuardStand01_1240,	A_FlyWAGuardStand01_1241,	A_WAGuardStand02_1242,	A_FlyWAGuardStand02_1243,	A_WAGuardStand03_1244,	A_FlyWAGuardStand03_1245,	A_WAGuardStand04_1246,	A_FlyWAGuardStand04_1247,	A_WAFreezing01_1248,	A_FlyWAFreezing01_1249, A_WAFreezing02_1250,	A_FlyWAFreezing02_1251, A_WAVendorStand01_1252, A_FlyWAVendorStand01_1253,	A_WAVendorStand02_1254, A_FlyWAVendorStand02_1255,	A_WAVendorStand03_1256, A_FlyWAVendorStand03_1257,	A_WAVendorTalk_1258,	A_FlyWAVendorTalk_1259, A_WALean01_1260,	A_FlyWALean01_1261, A_WALean02_1262,	A_FlyWALean02_1263, A_WALean03_1264,	A_FlyWALean03_1265, A_WALeanTalk_1266,	A_FlyWALeanTalk_1267,	A_WABoatWheel_1268, A_FlyWABoatWheel_1269,	A_WASmithLoop_1270, A_FlyWASmithLoop_1271,	A_WAScrubbing_1272, A_FlyWAScrubbing_1273,	A_WAWeaponSharpen_1274, A_FlyWAWeaponSharpen_1275,	A_WAStirring_1276,	A_FlyWAStirring_1277,	A_WAPerch01_1278,	A_FlyWAPerch01_1279,	A_WAPerch02_1280,	A_FlyWAPerch02_1281,	A_HoldWeapon_1282,	A_FlyHoldWeapon_1283,	A_WABarrelWalk_1284,	A_FlyWABarrelWalk_1285, A_WAPourHold_1286,	A_FlyWAPourHold_1287,	A_CastStrong_1288,	A_FlyCastStrong_1289,	A_CastCurse_1290,	A_FlyCastCurse_1291,	A_CastSweep_1292,	A_FlyCastSweep_1293,	A_CastStrongUp_1294,	A_FlyCastStrongUp_1295, A_WABoatWheelStand_1296,	A_FlyWABoatWheelStand_1297, A_WASmithStand_1298,	A_FlyWASmithStand_1299, A_WACrankStand_1300,	A_FlyWACrankStand_1301, A_WAPourWalk_1302,	A_FlyWAPourWalk_1303,	A_FalconeerStart_1304,	A_FlyFalconeerStart_1305,	A_FalconeerLoop_1306,	A_FlyFalconeerLoop_1307,	A_FalconeerEnd_1308,	A_FlyFalconeerEnd_1309, A_WADrunkDrink_1310,	A_FlyWADrunkDrink_1311, A_WAStandEat_1312,	A_FlyWAStandEat_1313,	A_WAStandDrink_1314,	A_FlyWAStandDrink_1315, A_WABound01_1316,	A_FlyWABound01_1317,	A_WABound02_1318,	A_FlyWABound02_1319,	A_CombatAbility1H03Off_1320,	A_FlyCombatAbility1H03Off_1321, A_CombatAbilityDualWield01_1322,	A_FlyCombatAbilityDualWield01_1323, A_WACradle01_1324,	A_FlyWACradle01_1325,	A_LocSummon_1326,	A_FlyLocSummon_1327,	A_LoadWeapon_1328,	A_FlyLoadWeapon_1329,	A_ArtOffLoop_1330,	A_FlyArtOffLoop_1331,	A_WADead01_1332,	A_FlyWADead01_1333, A_WADead02_1334,	A_FlyWADead02_1335, A_WADead03_1336,	A_FlyWADead03_1337, A_WADead04_1338,	A_FlyWADead04_1339, A_WADead05_1340,	A_FlyWADead05_1341, A_WADead06_1342,	A_FlyWADead06_1343, A_WADead07_1344,	A_FlyWADead07_1345, A_GiantRun_1346,	A_FlyGiantRun_1347, A_BarTendEmoteCheer_1348,	A_FlyBarTendEmoteCheer_1349,	A_BarTendEmoteTalkQuestion_1350,	A_FlyBarTendEmoteTalkQuestion_1351, A_BarTendEmoteTalkExclamation_1352, A_FlyBarTendEmoteTalkExclamation_1353,	A_BarTendWalk_1354, A_FlyBarTendWalk_1355,	A_BartendShuffleLeft_1356,	A_FlyBartendShuffleLeft_1357,	A_BarTendShuffleRight_1358, A_FlyBarTendShuffleRight_1359,	A_BarTendCustomSpell01_1360,	A_FlyBarTendCustomSpell01_1361, A_BarTendCustomSpell02_1362,	A_FlyBarTendCustomSpell02_1363, A_BarTendCustomSpell03_1364,	A_FlyBarTendCustomSpell03_1365, A_BarServerEmoteCheer_1366, A_FlyBarServerEmoteCheer_1367,	A_BarServerEmoteTalkQuestion_1368,	A_FlyBarServerEmoteTalkQuestion_1369,	A_BarServerEmoteTalkExclamation_1370,	A_FlyBarServerEmoteTalkExclamation_1371,	A_BarServerCustomSpell01_1372,	A_FlyBarServerCustomSpell01_1373,	A_BarServerCustomSpell02_1374,	A_FlyBarServerCustomSpell02_1375,	A_BarServerCustomSpell03_1376,	A_FlyBarServerCustomSpell03_1377,	A_BarPatronEmoteDrink_1378, A_FlyBarPatronEmoteDrink_1379,	A_BarPatronEmoteCheer_1380, A_FlyBarPatronEmoteCheer_1381,	A_BarPatronCustomSpell01_1382,	A_FlyBarPatronCustomSpell01_1383,	A_BarPatronCustomSpell02_1384,	A_FlyBarPatronCustomSpell02_1385,	A_BarPatronCustomSpell03_1386,	A_FlyBarPatronCustomSpell03_1387,	A_HoldDart_1388,	A_FlyHoldDart_1389, A_ReadyDart_1390,	A_FlyReadyDart_1391,	A_AttackDart_1392,	A_FlyAttackDart_1393,	A_LoadDart_1394,	A_FlyLoadDart_1395, A_WADartTargetStand_1396,	A_FlyWADartTargetStand_1397,	A_WADartTargetEmoteTalk_1398,	A_FlyWADartTargetEmoteTalk_1399,	A_BarPatronSitEmoteCheer_1400,	A_FlyBarPatronSitEmoteCheer_1401,	A_BarPatronSitCustomSpell01_1402,	A_FlyBarPatronSitCustomSpell01_1403,	A_BarPatronSitCustomSpell02_1404,	A_FlyBarPatronSitCustomSpell02_1405,	A_BarPatronSitCustomSpell03_1406,	A_FlyBarPatronSitCustomSpell03_1407,	A_BarPianoStand_1408,	A_FlyBarPianoStand_1409,	A_BarPianoEmoteTalk_1410,	A_FlyBarPianoEmoteTalk_1411,	A_WAHearthSit_1412, A_FlyWAHearthSit_1413,	A_WAHearthSitEmoteCry_1414, A_FlyWAHearthSitEmoteCry_1415,	A_WAHearthSitEmoteCheer_1416,	A_FlyWAHearthSitEmoteCheer_1417,	A_WAHearthSitCustomSpell01_1418,	A_FlyWAHearthSitCustomSpell01_1419, A_WAHearthSitCustomSpell02_1420,	A_FlyWAHearthSitCustomSpell02_1421, A_WAHearthSitCustomSpell03_1422,	A_FlyWAHearthSitCustomSpell03_1423, A_WAHearthStand_1424,	A_FlyWAHearthStand_1425,	A_WAHearthStandEmoteCheer_1426, A_FlyWAHearthStandEmoteCheer_1427,	A_WAHearthStandEmoteTalk_1428,	A_FlyWAHearthStandEmoteTalk_1429,	A_WAHearthStandCustomSpell01_1430,	A_FlyWAHearthStandCustomSpell01_1431,	A_WAHearthStandCustomSpell02_1432,	A_FlyWAHearthStandCustomSpell02_1433,	A_WAHearthStandCustomSpell03_1434,	A_FlyWAHearthStandCustomSpell03_1435,	A_WAScribeStart_1436,	A_FlyWAScribeStart_1437,	A_WAScribeLoop_1438,	A_FlyWAScribeLoop_1439, A_WAScribeEnd_1440, A_FlyWAScribeEnd_1441,	A_WAEmoteScribe_1442,	A_FlyWAEmoteScribe_1443,	A_Haymaker_1444,	A_FlyHaymaker_1445, A_HaymakerPrecast_1446, A_FlyHaymakerPrecast_1447,	A_ChannelCastOmniUp_1448,	A_FlyChannelCastOmniUp_1449,	A_DHJumpLandRun_1450,	A_FlyDHJumpLandRun_1451,	A_Cinematic01_1452, A_FlyCinematic01_1453,	A_Cinematic02_1454, A_FlyCinematic02_1455,	A_Cinematic03_1456, A_FlyCinematic03_1457,	A_Cinematic04_1458, A_FlyCinematic04_1459,	A_Cinematic05_1460, A_FlyCinematic05_1461,	A_Cinematic06_1462, A_FlyCinematic06_1463,	A_Cinematic07_1464, A_FlyCinematic07_1465,	A_Cinematic08_1466, A_FlyCinematic08_1467,	A_Cinematic09_1468, A_FlyCinematic09_1469,	A_Cinematic10_1470, A_FlyCinematic10_1471,	A_TakeOffStart_1472,	A_FlyTakeOffStart_1473, A_TakeOffFinish_1474,	A_FlyTakeOffFinish_1475,	A_LandStart_1476,	A_FlyLandStart_1477,	A_LandFinish_1478,	A_FlyLandFinish_1479,	A_WAWalkTalk_1480,	A_FlyWAWalkTalk_1481,	A_WAPerch03_1482,	A_FlyWAPerch03_1483,	A_CarriageMountMoving_1484, A_FlyCarriageMountMoving_1485,	A_TakeOffFinishFly_1486,	A_FlyTakeOffFinishFly_1487, A_CombatAbility2HBig02_1488,	A_FlyCombatAbility2HBig02_1489, A_MountWide_1490,	A_FlyMountWide_1491,	A_EmoteTalkSubdued_1492,	A_FlyEmoteTalkSubdued_1493, A_WASit04_1494, A_FlyWASit04_1495,	A_MountSummon_1496, A_FlyMountSummon_1497,	A_EmoteSelfie_1498, A_FlyEmoteSelfie_1499,	A_CustomSpell11_1500,	A_FlyCustomSpell11_1501,	A_CustomSpell12_1502,	A_FlyCustomSpell12_1503,	A_CustomSpell13_1504,	A_FlyCustomSpell13_1505,	A_CustomSpell14_1506,	A_FlyCustomSpell14_1507,	A_CustomSpell15_1508,	A_FlyCustomSpell15_1509,	A_CustomSpell16_1510,	A_FlyCustomSpell16_1511,	A_CustomSpell17_1512,	A_FlyCustomSpell17_1513,	A_CustomSpell18_1514,	A_FlyCustomSpell18_1515,	A_CustomSpell19_1516,	A_FlyCustomSpell19_1517,	A_CustomSpell20_1518,	A_FlyCustomSpell20_1519,	A_AdvFlyLeft_1520,	A_FlyAdvFlyLeft_1521,	A_AdvFlyRight_1522, A_FlyAdvFlyRight_1523,	A_AdvFlyForward_1524,	A_FlyAdvFlyForward_1525,	A_AdvFlyBackward_1526,	A_FlyAdvFlyBackward_1527,	A_AdvFlyUp_1528,	A_FlyAdvFlyUp_1529, A_AdvFlyDown_1530,	A_FlyAdvFlyDown_1531,	A_AdvFlyForwardGlide_1532,	A_FlyAdvFlyForwardGlide_1533,	A_AdvFlyRoll_1534,	A_FlyAdvFlyRoll_1535,	A_ProfCookingLoop_1536, A_FlyProfCookingLoop_1537,	A_ProfCookingStart_1538,	A_FlyProfCookingStart_1539, A_ProfCookingEnd_1540,	A_FlyProfCookingEnd_1541,	A_WACurious_1542,	A_FlyWACurious_1543,	A_WAAlert_1544, A_FlyWAAlert_1545,	A_WAInvestigate_1546,	A_FlyWAInvestigate_1547,	A_WAInteraction_1548,	A_FlyWAInteraction_1549,	A_WAThreaten_1550,	A_FlyWAThreaten_1551,	A_WAReact01_1552,	A_FlyWAReact01_1553,	A_WAReact02_1554,	A_FlyWAReact02_1555,	A_AdvFlyRollStart_1556, A_FlyAdvFlyRollStart_1557,	A_AdvFlyRollEnd_1558,	A_FlyAdvFlyRollEnd_1559,	A_EmpBreathPrecast_1560,	A_FlyEmpBreathPrecast_1561, A_EmpBreathPrecastChannel_1562, A_FlyEmpBreathPrecastChannel_1563,	A_EmpBreathSpellCast_1564,	A_FlyEmpBreathSpellCast_1565,	A_EmpBreathSpellCastChannel_1566,	A_FlyEmpBreathSpellCastChannel_1567,	A_DracFlyBreathTakeoffStart_1568,	A_FlyDracFlyBreathTakeoffStart_1569,	A_DracFlyBreathTakeoffFinish_1570,	A_FlyDracFlyBreathTakeoffFinish_1571,	A_DracFlyBreath_1572,	A_FlyDracFlyBreath_1573,	A_DracFlyBreathLandStart_1574,	A_FlyDracFlyBreathLandStart_1575,	A_DracFlyBreathLandFinish_1576, A_FlyDracFlyBreathLandFinish_1577,	A_DracAirDashLeft_1578, A_FlyDracAirDashLeft_1579,	A_DracAirDashForward_1580,	A_FlyDracAirDashForward_1581,	A_DracAirDashBackward_1582, A_FlyDracAirDashBackward_1583,	A_DracAirDashRight_1584,	A_FlyDracAirDashRight_1585, A_LivingWorldProximityEnter_1586,	A_FlyLivingWorldProximityEnter_1587,	A_AdvFlyDownEnd_1588,	A_FlyAdvFlyDownEnd_1589,	A_LivingWorldProximityLoop_1590,	A_FlyLivingWorldProximityLoop_1591, A_LivingWorldProximityLeave_1592,	A_FlyLivingWorldProximityLeave_1593,	A_EmpAirBarragePrecast_1594,	A_FlyEmpAirBarragePrecast_1595, A_EmpAirBarragePrecastChannel_1596, A_FlyEmpAirBarragePrecastChannel_1597,	A_EmpAirBarrageSpellCast_1598,	A_FlyEmpAirBarrageSpellCast_1599,	A_DracClawSwipeLeft_1600,	A_FlyDracClawSwipeLeft_1601,	A_DracClawSwipeRight_1602,	A_FlyDracClawSwipeRight_1603,	A_DracHoverIdle_1604,	A_FlyDracHoverIdle_1605,	A_DracHoverLeft_1606,	A_FlyDracHoverLeft_1607,	A_DracHoverRight_1608,	A_FlyDracHoverRight_1609,	A_DracHoverBackward_1610,	A_FlyDracHoverBackward_1611,	A_DracHoverForward_1612,	A_FlyDracHoverForward_1613, A_DracAttackWings_1614, A_FlyDracAttackWings_1615,	A_DracAttackTail_1616,	A_FlyDracAttackTail_1617,	A_AdvFlyStart_1618, A_FlyAdvFlyStart_1619,	A_AdvFlyLand_1620,	A_FlyAdvFlyLand_1621,	A_AdvFlyLandRun_1622,	A_FlyAdvFlyLandRun_1623,	A_AdvFlyStrafeLeft_1624,	A_FlyAdvFlyStrafeLeft_1625, A_AdvFlyStrafeRight_1626,	A_FlyAdvFlyStrafeRight_1627,	A_AdvFlyIdle_1628,	A_FlyAdvFlyIdle_1629,	A_AdvFlyRollRight_1630, A_FlyAdvFlyRollRight_1631,	A_AdvFlyRollRightEnd_1632,	A_FlyAdvFlyRollRightEnd_1633,	A_AdvFlyRollLeft_1634,	A_FlyAdvFlyRollLeft_1635,	A_AdvFlyRollLeftEnd_1636,	A_FlyAdvFlyRollLeftEnd_1637,	A_AdvFlyFlap_1638,	A_FlyAdvFlyFlap_1639,	A_DracHoverDracClawSwipeLeft_1640,	A_FlyDracHoverDracClawSwipeLeft_1641,	A_DracHoverDracClawSwipeRight_1642, A_FlyDracHoverDracClawSwipeRight_1643,	A_DracHoverDracAttackWings_1644,	A_FlyDracHoverDracAttackWings_1645, A_DracHoverReadySpellOmni_1646, A_FlyDracHoverReadySpellOmni_1647,	A_DracHoverSpellCastOmni_1648,	A_FlyDracHoverSpellCastOmni_1649,	A_DracHoverChannelSpellOmni_1650,	A_FlyDracHoverChannelSpellOmni_1651,	A_DracHoverReadySpellDirected_1652, A_FlyDracHoverReadySpellDirected_1653,	A_DracHoverChannelSpellDirected_1654,	A_FlyDracHoverChannelSpellDirected_1655,	A_DracHoverSpellCastDirected_1656,	A_FlyDracHoverSpellCastDirected_1657,	A_DracHoverCastOutStrong_1658,	A_FlyDracHoverCastOutStrong_1659,	A_DracHoverBattleRoar_1660, A_FlyDracHoverBattleRoar_1661,	A_DracHoverEmpBreathSpellCast_1662, A_FlyDracHoverEmpBreathSpellCast_1663,	A_DracHoverEmpBreathSpellCastChannel_1664,	A_FlyDracHoverEmpBreathSpellCastChannel_1665,	A_LivingWorldTimeOfDayEnter_1666,	A_FlyLivingWorldTimeOfDayEnter_1667,	A_LivingWorldTimeOfDayLoop_1668,	A_FlyLivingWorldTimeOfDayLoop_1669, A_LivingWorldTimeOfDayLeave_1670,	A_FlyLivingWorldTimeOfDayLeave_1671,	A_LivingWorldWeatherEnter_1672, A_FlyLivingWorldWeatherEnter_1673,	A_LivingWorldWeatherLoop_1674,	A_FlyLivingWorldWeatherLoop_1675,	A_LivingWorldWeatherLeave_1676, A_FlyLivingWorldWeatherLeave_1677,	A_AdvFlyDownStart_1678, A_FlyAdvFlyDownStart_1679,	A_AdvFlyFlapBig_1680,	A_FlyAdvFlyFlapBig_1681,	A_DracHoverReadyUnarmed_1682,	A_FlyDracHoverReadyUnarmed_1683,	A_DracHoverAttackUnarmed_1684,	A_FlyDracHoverAttackUnarmed_1685,	A_DracHoverParryUnarmed_1686,	A_FlyDracHoverParryUnarmed_1687,	A_DracHoverCombatWound_1688,	A_FlyDracHoverCombatWound_1689, A_DracHoverCombatCritical_1690, A_FlyDracHoverCombatCritical_1691,	A_DracHoverAttackTail_1692, A_FlyDracHoverAttackTail_1693,	A_Glide_1694,	A_FlyGlide_1695,	A_GlideEnd_1696,	A_FlyGlideEnd_1697, A_DracClawSwipe_1698,	A_FlyDracClawSwipe_1699,	A_DracHoverDracClawSwipe_1700,	A_FlyDracHoverDracClawSwipe_1701,	A_AdvFlyFlapUp_1702,	A_FlyAdvFlyFlapUp_1703, A_AdvFlySlowFall_1704,	A_FlyAdvFlySlowFall_1705,	A_AdvFlyFlapFoward_1706,	A_FlyAdvFlyFlapFoward_1707, A_DracSpellCastWings_1708,	A_FlyDracSpellCastWings_1709,	A_DracHoverDracSpellCastWings_1710, A_FlyDracHoverDracSpellCastWings_1711,	A_DracAirDashVertical_1712, A_FlyDracAirDashVertical_1713,	A_DracAirDashRefresh_1714,	A_FlyDracAirDashRefresh_1715,	A_SkinningLoop_1716,	A_FlySkinningLoop_1717, A_SkinningStart_1718,	A_FlySkinningStart_1719,	A_SkinningEnd_1720, A_FlySkinningEnd_1721,	A_AdvFlyForwardGlideSlow_1722,	A_FlyAdvFlyForwardGlideSlow_1723,	A_AdvFlyForwardGlideFast_1724,	A_FlyAdvFlyForwardGlideFast_1725A_AdvFlySecondFlapUp_1726,	A_FlyAdvFlySecondFlapUp_1727,	A_FloatIdle_1728,	A_FlyFloatIdle_1729,	A_FloatWalk_1730,	A_FlyFloatWalk_1731,	A_CinematicTalk_1732,	A_FlyCinematicTalk_1733,	A_CinematicWAGuardEmoteSlam01_1734,	A_FlyCinematicWAGuardEmoteSlam01_1735,	A_WABlowHorn_1736,	A_FlyWABlowHorn_1737,	A_MountExtraWide_1738,	A_FlyMountExtraWide_1739,	A_WA2HIdle_1740,	A_FlyWA2HIdle_1741,	A_HerbalismLoop_1742,	A_FlyHerbalismLoop_1743,	A_CookingLoop_1744,	A_FlyCookingLoop_1745,	A_WAWeaponSharpenNoSheathe_1746,	A_FlyWAWeaponSharpenNoSheathe_1747,	A_CinematicDeath_1748,	A_FlyCinematicDeath_1749,	A_CinematicDeathPose_1750,	A_FlyCinematicDeathPose_1751,	A_EmpSlamPrecast_1752,	A_FlyEmpSlamPrecast_1753,	A_EmpSlamPrecastChannel_1754,	A_FlyEmpSlamPrecastChannel_1755,	A_EmpSlamSpellCast_1756,	A_FlyEmpSlamSpellCast_1757,	A_Climb_1758,	A_FlyClimb_1759,	A_ClimbStart_1760,	A_FlyClimbStart_1761,	A_ClimbEnd_1762,	A_FlyClimbEnd_1763,	A_MountLeanLeft_1764,	A_FlyMountLeanLeft_1765,	A_MountLeanRight_1766,	A_FlyMountLeanRight_1767,	A_MountDive_1768,	A_FlyMountDive_1769,	A_MountCrouch_1770,	A_FlyMountCrouch_1771,	A_WAShovelLoop_1772,	A_FlyWAShovelLoop_1773,	A_EmoteTalkFrustrated_1774,	A_FlyEmoteTalkFrustrated_1775,	A_MountMedium_1776,	A_FlyMountMedium_1777
+}E_SEQUENCES;
+
+typedef int16 SequenceIdxHashByIdEntry_rec<name=readSequenceIdxHashByIdEntry_rec(startof(this))>;
+
+string readSequenceIdxHashByIdEntry_rec( int ofsAdr ){
+    local uint loc_ofsSequenceIdxHashByID = ReadUInt(0x28);
+    local E_SEQUENCES eSequenceIDxHashId_reader;
+    
+    eSequenceIDxHashId_reader = ((ofsAdr - loc_ofsSequenceIdxHashByID)/2);
+ 
+	string s;
+	SPrintf( s, "%s", EnumToString(eSequenceIDxHashId_reader) );
+	return s;
+}
+
+typedef enum<uint32>{
+ Toe_R = 3142542542, Toe_L = 1094736301, Chest_R = 87406847, Chest_L = 4282025372, Neck = 2149808493, Leg_L = 3947676041, Leg_R = 289668330, B_Loin_01 = 1187100303, F_Loin_01 = 455993219, Wrist_L = 133952906, Calf_L = 1475065404, Calf_R = 2917436255, Knee_La = 453281255, Knee_Lb = 4116633036, Knee_Lc = 2215716567, Knee_Ra = 3775641732, Knee_Rb = 257026223, Knee_Rc = 2115902388, B_Loin_02 = 3754485557, F_Loin_02 = 2183444025, F_Loin_03 = 4112746159, CAH = 3987563274, CPP = 2904086604, CSS = 524081717, HIT = 1025530540, CST = 2170048406, ESD = 2556568384, FD1 = 3217595452, FR0 = 3562477949, FL0 = 1451682, BWP = 3818595516, BWR = 227886480, SHL = 656719658, SHR = 3710616137, TRD = 2627590982, DTH = 3747058587, FSD = 2586090777, SCD = 3389779667, Ear_01_L = 3985447072, Eyebrow_R = 2713847615, Eyebrow_L = 1540176476, Ear_01_R = 1565210636, SpineUp = 310207871, Ear_02_L = 1954826522, Ear_02_R = 3292686774, Tail01a = 200542651, Tail01b = 3234909848, Tail02 = 2466076673, Tail03 = 786345908, Object26 = 699064172, MiddleFinger_Tip_R = 841976507, IndexFinger_Tip_R = 2353668594, Thumb_Tip_R = 2319604107, Thumb_Tip_L = 1884120296, IndexFinger_Tip_L = 1984240785, MiddleFinger_Tip_L = 3357587416, RingFinger_Tip_R = 3157792292, PinkyFinger_Tip_R = 3380046314, PinkyFinger_Tip_L = 863523977, RingFinger_Tip_L = 1178020679, Plane01 = 2124421159, Plane02 = 3886631325, EF_Eyelid01 = 4278575356, EF_Eyelid_Death = 2435095781, EyeBow_L = 2602753973, EyeBow_R = 1630397142, BWA = 2301297742, BWS = 2056418566, Belly = 1236608114, Plane05 = 2043534398, Hip_La = 1756834604, Hip_Lb = 1073108840, Hip_Ra = 2461537871, Hip_Rb = 3321457163, Spine1_joint = 4256852168, Spine2_joint = 1991852656, Eye01 = 1280356454, Spine3_joint = 3503180228, Tail1_joint = 1113222609, LMLeg_joint45 = 4274609575, RMLeg_joint48 = 3466169200, LFLeg_joint46 = 374515731, RFLeg_joint49 = 3356237800, Tail2_joint = 1941075788, LMLeg_joint41 = 4188314046, RMLeg_joint41 = 3074765780, LFLeg_joint41 = 2285256112, RFLeg_joint41 = 3336017882, Tail3_joint = 3586489592, RLLeg_joint40 = 1541885741, RLLeg_joint47 = 3313752718, LMLeg_joint42 = 1622001668, RMLeg_joint42 = 776757870, LFLeg_joint42 = 289369098, RFLeg_joint42 = 1608435296, Tail4_joint = 274874998, RLLeg_joint41 = 752910267, RLLeg_joint42_L = 3051957761, RLLeg_joint42_R = 1010067695, LMLeg_joint43 = 397080722, RMLeg_joint43 = 1498108664, RFLeg_joint43 = 685373174, RLLeg_joint043 = 1261656185, RLLeg_joint43 = 3270385303, RLLeg_joint044 = 3579301338, HeadScale_joint22 = 2601158378, LFLeg_joint43 = 1714969756, FinLeft_joint50 = 1320797406, FinRight_joint51 = 2639070569, NoseLeft_joint18 = 3160519086, Spine1Sale_joint = 1694731022, Spine2Scale_joint = 4287748709, Spine3Scale_joint = 1681167882, TailScale_joint = 244018153, Tail3Scale_joint = 3056783546, Taile4Scale_joint = 2568972396, Hips = 3738240529, LegBack_01_L = 2118608204, LegBack_01_R = 1761602358, SpineUpper = 1688372140, LegBack_02_L = 3880662262, LegBack_02_R = 4059478668, Hump = 2911396259, LegFront_01_L = 3774419696, LegFront_01_R = 4131495050, FootBack_L = 3176988174, FootBack_R = 1196671853, LegFront_02_L = 2045789002, LegFront_02_R = 1867042096, ToeBack_L = 2211631441, ToeBack_R = 2044587058, FootFront_L = 2906586403, FootFront_R = 1462878272, ToeFront_L = 1456750441, ToeFront_R = 2900034058, Arm1_Twist3_La = 2828305040, Arm1_Twist3_Lb = 2133193007, Arm1_Twist3_Ra = 1385938931, Arm1_Twist3_Rb = 2234174540, Elbow_L = 1005774799, Elbow_R = 3254639276, Ankle_L = 286571785, Ankle_R = 3944448106, Plane04 = 248179880, SpineLower = 73869075, Hand_Ra = 3713458406, Hand_Rb = 3951430818, Thumb_La = 2424878462, Thumb_Lb = 3151027085, Thumb_Ra = 1787267101, Thumb_Rb = 1105192686, Lower_01 = 156616400, Upper_01 = 3862048847, Lower_02 = 2421987178, Leg_01_Front_L = 2336852693, Leg_01_Front_R = 1995865176, Upper_02 = 2134598133, Lower_03 = 3881543676, Leg_01_Middle_L = 2652958531, Leg_01_Middle_R = 597339540, Leg_02_Front_L = 96898358, Leg_02_Front_R = 1333477533, Upper_03 = 138170723, Lower_04 = 2034184799, Leg_01_Back_L = 659936916, Leg_01_Back_R = 3713723383, Leg_02_Middle_L = 849488884, Leg_02_Middle_R = 3366786711, Leg_03_Front_L = 3379334568, Leg_03_Front_R = 1476416734, Upper_04 = 2522399936, Lower_05 = 238551753, Leg_02_Back_L = 2849689975, Leg_02_Back_R = 1406528532, Leg_03_Middle_L = 3714072778, Leg_03_Middle_R = 661618089, Upper_05 = 3781162070, Lower_06 = 2536592243, Leg_03_Back_L = 1701892585, Leg_03_Back_R = 2675960970, Upper_06 = 2018944492, Jaw_Top_L = 2734454220, Jaw_Bottom_L = 2836712998, Jaw_Top_R = 1492338863, Jaw_Bottom_R = 1394340677, Pinky_01_L = 320446612, Index_01_L = 324882040, Pinky_01_R = 94449390, Index_01_R = 98942978, Pinky_02_L = 2316366126, Index_02_L = 2320768962, Pinky_02_R = 2628288340, Index_02_R = 2632749496, Pinky_03_L = 4246192568, Index_03_L = 4250087252, Pinky_03_R = 3954134978, Index_03_R = 3958087982, Foot_La = 117032577, Foot_Lb = 90603765, Foot_Ra = 4244044770, Foot_Rb = 4285119894, Finger_L = 1839222075, Finger_R = 2544857176, Plane03  = 2427353355, Arm_La = 2701186468, Arm_Lb = 4204807211, Arm_Ra = 1527769287, Arm_Rb = 11499848, Eye_R = 2006816958, Eye_L = 2375198173, Hand_La = 660200837, Hand_Lb = 294203841, Blid_01_L = 2502312157, Flid_01_R = 131383389, Blid_L = 3827894237, Blid_R = 505821886, Flid_L = 2142782923, Flid_R = 2243393704, GEO_Eyelid_L = 1116453182, GEO_Eyelid_R = 3095692381, Cheek_L = 717968576, Cheek_R = 3502533027, Geo_EyeLid_Death = 902861035, fin = 2905535025 , Root = 3066451557, Main = 521822810, SpineLow = 40275131, Chest = 981834931, Shoulder_R = 3057625618, Shoulder_L = 1278252913, C1_Spine2 = 2031597313, C1_Pelvis1 = 727987715, Leg_Twist1_L = 4144451481, Leg_Twist1_R = 3118917107, Leg_Twist2_L = 3337573636, Leg_Twist2_R = 2282684270, Leg_Twist3_Ra = 1474856159, Leg_Twist3_Rb = 2588036986, Leg_Twist3_La = 420032181, Leg_Twist3_Lb = 1615688217   , Name = 2738135331, Head = 130111906, Breath = 3299126614, Arm_Twist2_R = 3180860948, Arm_Twist2_L = 4084841598, IndexFinger_R = 995305172, IndexFinger_L = 3244039095  , MiddleFinger_R = 80758321, MiddleFinger_L = 4276058962, PinkyFinger_R = 2425597951, PinkyFinger_L = 1788646044, RingFinger_L = 2357464676, RingFinger_R = 1988834055 , Jaw = 818638717, Neck2 = 3191706695, Waist = 3690404639, Arm_1Twist2_L = 3264325347, Arm_1Twist2_R = 2356153481, Arm_2Twist3_L = 2222886120, Arm_1Twist3_R = 4218895391, Arm_1Twist3_L = 3046545013, Tail04 = 2964994583, Tail05 = 3351054977, Tail06 = 1588878139, Tail07 = 699624365, Tail08 = 3104601660, Tail09 = 3456845482, Tail10 = 181343385, Tail11 = 2110268431, Tail12 = 3837883829, Thigh_Twist_L = 1846418979, Thigh_Twist_R = 552580169, Knee_Twist_L = 1608910014, Knee_Twist_R = 285716180, Knee_Twist2_L = 1620598448, Knee_Twist2_R = 779744474, Foot_Twist_L = 685847592, Foot_Twist_R = 1711316546, Foot_Twist2_L = 2392211356, Foot_Twist2_R = 3229062646, Toe2_L = 2608964796, Toe2_R = 1656702206, ClawFinger_Thumb_L = 3491694732, ClawFinger_Thumb_R = 3106810773, ClawFinger_Middle_L = 4214381391, ClawFinger_Middle_R = 2449700950, ClawFinger_Pinky_L = 3794364942, ClawFinger_Pinky_R = 2333624599, ShoulderPad_L = 2073508559, ShoulderPad_R = 3532045813, Neck3 = 3376063697, Tongue_01 = 3849436463, Tongue_02 = 2088299669, Tongue_03 = 192928771, Eyebrow2_L = 424145231, Eyebrow2_R = 1886835286, Earring_R = 1556996711, Teeth1_L = 529118274, Teeth1_R = 3809041295, Teeth2_L = 3849050008, Teeth2_R = 2354771073, Neck_Twist1_L = 2925354052, Neck_Twist1_R = 3395274151, Neck_Twist2_L = 3074845957, Neck_Twist2_R = 3544511718, Neck_Twist3_L = 2624274118, Neck_Twist3_R = 4167673637, Tail = 1726923784, Tail_01_R = 1891761965, Tail_01_L = 435215412, Tail_01_C = 3914029468, Tail_02_R = 3922243223, Tail_02_L = 2163838350, Tail_02_C = 1883375654, Wing_01_L = 2103394629, Wing_01_R = 342778460, Knee_Twist3_R = 3077612896, Tail_03_R = 2664406529, Tail_03_L = 4160666904, Tail_03_C = 121977008, Knee_Twist3_L = 4187033354, Wing_02_L = 1451483209, Wing_03_L = 3830845695, Wing_02_R = 2852327300, Wing_03_R = 2372350950, Back_Finger_01_R = 3218399563, Tail_04_R = 11209634, Tail_04_L = 1771710651, Tail_04_C = 2569121043, Back_Finger_01_L = 1129582214, Wing_02_Child_L = 3481973235, Wing_04_L = 2874942730, Wing_05_L = 2471567465, Wing_02_Child_R = 856317502, Wing_05_R = 4200596336, Wing_04_R = 3854405472, Eyelid_L = 1978538041, Eyelid_R = 2305751028, Cockscomb_01 = 2978057156, Left_Finger_01_R = 2841259341, Middle_Finger_01_R = 1479669234, Right_Finger_01_R = 1469570872, Back_Finger_02_R = 652062961, Middle_Finger_01_L = 382754712, Left_Finger_01_L = 2998854106, Right_Finger_01_L = 1282610095, Back_Finger_02_L = 3663552316, Wing_04_Child_L = 844461232, Wing_05_Child2_L = 2104980072, Wing_05_Child1_L = 3166366925, Wing_05_Child3_L = 3059083108, Wing_06_L = 221623754, Wing_05_Child2_R = 3563517266, Wing_05_Child3_R = 3760227983, Wing_05_Child1_R = 2048861432, Wing_06_R = 1678022355, Wing_04_Child_R = 2092228314, Bottom_Eyelid_L = 919375390, Top_Eyelid_L = 1836246439, Bottom_Eyelid_R = 2682063140, Top_Eyelid_R = 3294847645, Cockscomb_02 = 680057470, Left_Finger_02_R = 810777847, Middle_Finger_02_R = 3241714760, Right_Finger_02_R = 3466497666, Middle_Finger_02_L = 2413366818, Left_Finger_02_L = 733458528, Right_Finger_02_L = 3581559317, Wing_06_Child2_L = 820568285, Wing_06_Child1_L = 1450942369, Wing_06_Child2_R = 4132251880, Wing_06_Child1_R = 2430490516, Left_Finger_03_R = 1196706913, Middle_Finger_03_R = 3057620190, Right_Finger_03_R = 3113860628, Middle_Finger_03_L = 4175314612, Left_Finger_03_L = 1555071222, Right_Finger_03_L = 2726130307, PB_AT_Helmet_11 = 2526474064, PB_AT_Chest2 = 3197191323
+}E_CRC_BoneName;
+
+typedef enum<uchar>{
+	PT_Normal = 0,
+	PT_Quads = 1,
+	PT_Deeprun = 2
+}PARTICLE_TYPE;
+
+typedef enum<uchar>{
+	ET_Plane = 1,
+	ET_Sphere = 2,
+	ET_Spline = 3,
+	ET_Bone_CATA_Plus = 4
+}EMITTER_TYPE;
+
+typedef enum<uint16>{
+	ET_Plane_tbc = 1,
+	ET_Sphere_tbc = 2,
+	ET_Spline_tbc = 3,
+	ET_Bone_CATA_Plus_tbc = 4
+}EMITTER_TYPE_TBC;
+
+typedef enum<uchar>{
+	PB_glDisable_GL_BLEND_glDisable_GL_ALPHA_TEST = 0,
+	PB_glBlendFunc_GL_SRC_COLOR_GL_ONE = 1,
+	PB_glBlendFunc_GL_SRC_ALPHA_GL_ONE_MINUS_SRC_ALPHA = 2,
+	PB_glDisable_GL_BLEND_glEnable_GL_ALPHA_TEST = 3,
+	PB_glBlendFunc_GL_SRC_ALPHA_GL_ONE = 4
+}PARTICLE_BLENDING;
+
+typedef enum<uint16>{
+	PB_glDisable_GL_BLEND_glDisable_GL_ALPHA_TEST_tbc = 0,
+	PB_glBlendFunc_GL_SRC_COLOR_GL_ONE_tbc = 1,
+	PB_glBlendFunc_GL_SRC_ALPHA_GL_ONE_MINUS_SRC_ALPHA_tbc = 2,
+	PB_glDisable_GL_BLEND_glEnable_GL_ALPHA_TEST_tbc = 3,
+	PB_glBlendFunc_GL_SRC_ALPHA_GL_ONE_tbc = 4
+}PARTICLE_BLENDING_TBC;
+
+typedef enum<uint16>{
+	LT_Directional = 0,
+	LT_Point = 1
+}LIGHT_TYPE;
+
+typedef enum<int32>{
+	BI_NONE = -1,
+	BI_ArmL_00 = 0,
+	BI_ArmR_01 = 1,
+	BI_ShoulderL_02 = 2,
+	BI_ShoulderR_03 = 3,
+	BI_SpineLow_04 = 4,
+	BI_Waist_05 = 5,
+	BI_Head_06 = 6,
+	BI_Jaw_07 = 7,
+	BI_IndexFingerR_08 = 8,
+	BI_MiddleFingerR_09 = 9,
+	BI_PinkyFingerR_10 = 10,
+	BI_RingFingerR_11 = 11,
+	BI_ThumbR_12 = 12,
+	BI_IndexFingerL_13 = 13,
+	BI_MiddleFingerL_14 = 14,
+	BI_PinkyFingerL_15 = 15,
+	BI_RingFingerL_16 = 16,
+	BI_ThumbL_17 = 17,
+	BI_BTH_18 = 18,
+	BI_CSR_19 = 19,
+	BI_CSL_20 = 20,
+	BI_Breath_21 = 21,
+	BI_Name_22 = 22,
+	BI_NameMount_23 = 23,
+	BI_CHD_24 = 24,
+	BI_CCH_25 = 25,
+	BI_Root_26 = 26,
+	BI_Wheel1_27 = 27,
+	BI_Wheel2_28 = 28,
+	BI_Wheel3_29 = 29,
+	BI_Wheel4_30 = 30,
+	BI_Wheel5_31 = 31,
+	BI_Wheel6_32 = 32,
+	BI_Wheel7_33 = 33,
+	BI_Wheel8_34 = 34,
+	BI_FaceAttenuation_35 = 35,
+	BI_CapeParent_36 = 36,
+	BI_CapeChild1_37 = 37,
+	BI_CapeChild2_38 = 38,
+	BI_CapeChild3_39 = 39,
+	BI_CapeChild4_40 = 40,
+	BI_Unk_41 = 41,
+	BI_Unk_42 = 42,
+	BI_TabardParent_43 = 43,
+	BI_TabardChild1_44 = 44,
+	BI_TabardChild2_45 = 45,
+	BI_Unk_Head_Top1_46 = 46,
+	BI_Unk_Head_Top2_47 = 47,
+	BI_UpperBodyParent_48 = 48,
+	BI_NeckParent_49 = 49,
+	BI_NeckChild1_50 = 50,
+	BI_LowerBodyParent_51 = 51,
+	BI_Buckle_52 = 52,
+	BI_Chest_53 = 53,
+	BI_Main_54 = 54,
+	BI_LegR_55 = 55,
+	BI_LegL_56 = 56,
+	BI_KneeR_57 = 57,
+	BI_KneeL_58 = 58,
+	BI_FootL_59 = 59,
+	BI_FootR_60 = 60,
+	BI_ElbowR_61 = 61,
+	BI_ElbowL_62 = 62,
+	BI_Unk_ElbowL_Child_63 = 63,
+	BI_HandR_64 = 64,
+	BI_HandL_65 = 65,
+	BI_WeaponR_66 = 66,
+	BI_WeaponL_67 = 67,
+	BI_Unk_WristL_Child_68 = 68,
+	BI_Unk_WristR_Child_69 = 69,
+	BI_KneeR_UpperRig_70 = 70,
+	BI_KneeL_UpperRig_71 = 71,
+	BI_ArmR_2_72 = 72,
+	BI_ArmL_2_73 = 73,
+	BI_ElbowR_UpperRig_74 = 74,
+	BI_ElbowL_UpperRig_75 = 75,
+	BI_ForearmR_76 = 76,
+	BI_ForearmL_77 = 77,
+	BI_WristR_UpperRig_78 = 78,
+	BI_WristL_UpperRig_79 = 79,
+}E_BoneIndicesID;
+
+typedef int16 BoneIndicesID_rec<name=readBoneIndicesByID(startof(this))>;
+
+string readBoneIndicesByID( int ofsAdr ){    
+    local uint loc_ofsBoneIndicesByID = ReadUInt(0x38 + ofsMD21_8);
+    local E_BoneIndicesID eBoneIndicesByID_reader;    
+    eBoneIndicesByID_reader = ((ofsAdr - loc_ofsBoneIndicesByID)/2);    
+
+    string s;
+    SPrintf( s, "%s", EnumToString(eBoneIndicesByID_reader) );
+    return s;
+}
+
+typedef enum<uint32>{
+	AT_Shield_MountMain_ItemVisual0_00 = 0,
+	AT_HandRight_ItemVisual1_01 = 1,
+	AT_HandLeft_ItemVisual2_02 = 2,
+	AT_ElbowRight_ItemVisual3_03 = 3,
+	AT_ElbowLeft_ItemVisual4_04 = 4,
+	AT_Right_Shoulder_05 = 5,
+	AT_Left_Shoulder_06 = 6,
+	AT_Right_Knee_07 = 7,
+	AT_Left_knee_08 = 8,
+	AT_HipRight_09 = 9,
+	AT_HipLeft_10 = 10,
+	AT_Helmet_11 = 11,
+	AT_Back_12 = 12,
+	AT_ShoulderFlapRight_13 = 13,
+	AT_ShoulderFlapLeft_14 = 14,
+	AT_Bust_ChestBloodFront_15 = 15,
+	AT_Bust2_ChestBloodBack_16 = 16,
+	AT_Face_Breath_17 = 17,
+	AT_AboveChar_PlayerName_18 = 18,
+	AT_Ground_Base_19 = 19,
+	AT_Top_of_head_20 = 20,
+	AT_SpellLeftHand_21 = 21,
+	AT_SpellRightHand_22 = 22,
+	AT_Special1_23 = 23,
+	AT_Special2_24 = 24,
+	AT_Special3_25 = 25,
+	AT_SheathMainHand_26 = 26,
+	AT_SheathOffHand_27 = 27,
+	AT_SheathShield_28 = 28,
+	AT_Belly_PlayerNameMounted_29 = 29,
+	AT_LargeWeaponLeft_30 = 30,
+	AT_LargeWeaponRight_31 = 31,
+	AT_HipWeaponLeft_32 = 32,
+	AT_HipWeaponRight_33 = 33,
+	AT_Chest_34 = 34,
+	AT_HandArrow_35 = 35,
+	AT_Bullet_36 = 36,
+	AT_SpellHandOmni_37 = 37,
+	AT_SpellHandDirected_38 = 38,
+	AT_Vehicle_Seat1_39 = 39,
+	AT_Vehicle_Seat2_40 = 40,
+	AT_Vehicle_Seat3_41 = 41,
+	AT_Vehicle_Seat4_42 = 42,
+	AT_Vehicle_Seat5_43 = 43,
+	AT_Vehicle_Seat6_44 = 44,
+	AT_Vehicle_Seat7_45 = 45,
+	AT_Vehicle_Seat8_46 = 46,
+	AT_LeftFoot_47 = 47,
+	AT_RightFoot_48 = 48,
+	AT_ShieldNoGlove_49 = 49,
+	AT_SpineLow_50 = 50,
+	AT_AlteredShoulderR_51 = 51,
+	AT_AlteredShoulderL_52 = 52,
+	AT_BeltBuckle_53 = 53,
+	AT_SheathCrossbow_54 = 54,
+	AT_HeadTop_55 = 55,
+	AT_VirtualSpellDirected_56 = 56,
+	AT_Backpack_57 = 57,
+	AT_Unk_58 = 58,
+	AT_Unk_59 = 59,
+	AT_Unk_60 = 60
+}E_ATTACHMENT_ID;
+
+typedef int16 ATTACHMENT_ID_rec<name=readATTACHMENT_ID(startof(this))>;
+
+string readATTACHMENT_ID( int ofsAdr ){    
+    local uint loc_ofsAttachIndicesByID = ReadUInt(0xFC);
+    local E_ATTACHMENT_ID eofsAttachIndicesByID_reader;    
+    eofsAttachIndicesByID_reader = ((ofsAdr - loc_ofsAttachIndicesByID)/2);    
+
+    string s;
+    SPrintf( s, "%s", EnumToString(eofsAttachIndicesByID_reader) );
+    return s;
+}
+
+// C4Vector --------------------------------------------------------------------
+
+typedef struct{
+  float x;
+  float y;
+  float z;
+  float w;
+}C4Vector<read=C4VectorRead, write=C4VectorWrite, optimize=false>;
+
+string C4VectorRead(C4Vector& rec){
+  string a;
+  SPrintf(a, "(%f %f %f %f)\n", rec.x, rec.y, rec.z, rec.w);
+  return a;
+}
+void C4VectorWrite(C4Vector& rec, string s){
+  SScanf(s, "(%f %f %f %f)", rec.x, rec.y, rec.z, rec.w);
+}
+
+// C3Vector --------------------------------------------------------------------
+
+typedef struct{
+	float x;
+	float y;
+	float z;
+}C3Vector<read=C3VectorRead, write=C3VectorWrite, optimize=false>;
+
+string C3VectorRead(C3Vector& rec){
+	string a;
+	SPrintf(a, "(%f %f %f)\n", rec.x, rec.y, rec.z);
+	return a;
+}
+void C3VectorWrite(C3Vector& rec, string s){
+	SScanf(s, "(%f %f %f)", rec.x, rec.y, rec.z);
+}
+
+// C2Vector --------------------------------------------------------------------
+
+typedef struct{
+	float x;
+	float y;
+}C2Vector<read=C2VectorRead, write=C2VectorWrite, optimize=false>;
+
+string C2VectorRead(C2Vector& rec){
+	string a;
+	SPrintf(a, "(%f %f)\n", rec.x, rec.y);
+	return a;
+}
+void C2VectorWrite(C2Vector& rec, string s){
+	SScanf(s, "(%f %f)", rec.x, rec.yz);
+}
+
+// C3 Short Vector -------------------------------------------------------------
+
+typedef struct{
+	uint16 X;
+	uint16 Y;
+	uint16 Z;
+}C3sVector<read=C3sVectorRead, write=C3sVectorWrite, optimize=false>;
+
+string C3sVectorRead(C3sVector& rec){
+	string a;
+	SPrintf(a, "(%u %u %u)\n", rec.X, rec.Y, rec.Z);
+	return a;
+}
+void C3sVectorWrite(C3sVector& rec, string s){
+	SScanf(s, "(%u %u %u)", rec.X, rec.Y, rec.Z);
+}
+
+// C4 Short Vector -------------------------------------------------------------
+
+typedef struct{
+	uint16 x;
+	uint16 y;
+	uint16 z;
+	uint16 w;
+}C4sVector<read=C4sVectorRead, write=C4sVectorWrite, optimize=false>;
+
+string C4sVectorRead(C4sVector& rec){
+	string a;
+	SPrintf(a, "(%u %u %u %u)\n", rec.x, rec.y, rec.z, rec.w);
+	return a;
+}
+void C4sVectorWrite(C4sVector& rec, string s){
+	SScanf(s, "(%u %u %u %u)", rec.x, rec.y, rec.z, rec.w);
+}
+
+// C4  Float Quaternion Compressed To Short Vector -----------------------------
+
+typedef struct{ //<read=Str("us: %u f: %f\n", this, stf(this)), comment="Comp short to float">
+	uint16 x<read=Str("%f", stf(this)), write=(this=fts(Atof(value))), comment="Comp ushort to float X">;
+	uint16 y<read=Str("%f", stf(this)), write=(this=fts(Atof(value))), comment="Comp ushort to float Y">;
+	uint16 z<read=Str("%f", stf(this)), write=(this=fts(Atof(value))), comment="Comp ushort to float Z">;
+	uint16 w<read=Str("%f", stf(this)), write=(this=fts(Atof(value))), comment="Comp ushort to float W">;
+}C4CompQuatVector<read=C4CompQuatVectorRead, optimize=false>;
+
+string C4CompQuatVectorRead(C4CompQuatVector& rec){
+	string a;
+	SPrintf(a, "(%f %f %f %f)\n", stf(rec.x), stf(rec.y), stf(rec.z), stf(rec.w));
+	return a;
+}
+
+// C4Byte ----------------------------------------------------------------------
+
+typedef struct{
+	unsigned char Bone1;
+	unsigned char Bone2;
+	unsigned char Bone3;
+	unsigned char Bone4;
+}C4Byte<read=C4ByteRead, optimize=false>;
+
+string C4ByteRead(C4Byte& rec){
+	string a;
+	SPrintf(a, "(%u %u %u %u)\n", rec.Bone1, rec.Bone2, rec.Bone3, rec.Bone4);
+	return a;
+}
+
+// C4ByteWeights ---------------------------------------------------------------
+
+typedef struct{
+	unsigned char Bone1;
+	unsigned char Bone2;
+	unsigned char Bone3;
+	unsigned char Bone4;
+}C4ByteWeights<read=C4ByteWeightsRead, optimize=false>;
+
+string C4ByteWeightsRead(C4ByteWeights& rec){
+	string a;
+	SPrintf(a, "(%u %u %u %u)\n", rec.Bone1, rec.Bone2, rec.Bone3, rec.Bone4);
+	local short SumWeights = rec.Bone1 + rec.Bone2 + rec.Bone3 + rec.Bone4;
+	if(SumWeights<255){
+		Printf("Warning: Weights do not add up to 255 but %d\n", SumWeights);
+	}
+	return a;
+}
+
+//------------------------------------------------------------------------------
+
+void M2TrackSubValType(string VarType){
+	switch(VarType){
+		case "Timestamp":
+			uint32 Timestamp<fgcolor=0xFFFFFF, bgcolor=0x000000>;
+			break;
+		case "sTimestamp":
+			ushort Timestamp<fgcolor=0xFFFFFF, bgcolor=0x000000>;
+			break;
+		case "C2Vector":
+			C2Vector val<fgcolor=0x00FFFF, bgcolor=cNone>;
+			break;
+		case "C3Vector":
+			C3Vector val<fgcolor=0x00FFFF, bgcolor=cNone>;
+			break;
+        case "C4Vector":
+			C4Vector val<fgcolor=0x00FFFF, bgcolor=cNone>;
+			break;
+		case "C3VectorBF":
+			C3Vector Point<fgcolor=0x00FFFF, bgcolor=cNone>;
+			C3Vector TanIn<fgcolor=0x00FFFF, bgcolor=cNone>;
+			C3Vector TanOut<fgcolor=0x00FFFF, bgcolor=cNone>;
+			break;
+		case "uint32":
+			uint32 val<fgcolor=0xFF8080, bgcolor=cNone>;
+			break;
+		case "int32":
+			int32 val<fgcolor=0xFF8080, bgcolor=cNone>;
+			break;
+		case "float":
+			float val<fgcolor=0x00FFFF, bgcolor=cNone>;
+			break;
+		case "byte":
+			byte val<fgcolor=0xFF8080, bgcolor=cNone>;
+			break;
+		case "ubyte":
+			ubyte val<fgcolor=0xFF8080, bgcolor=cNone>;
+			break;
+		case "uint16":
+			uint16 val<fgcolor=0xFF8080, bgcolor=0x000000>;
+			break;
+		case "int16":
+			int16 val<fgcolor=0xFF8080, bgcolor=cNone>;
+			break;
+		case "C4CompQuat":
+			C4sVector val<fgcolor=0x00FFFF, bgcolor=cNone>;
+			break;
+		case "C4CompQuatVector":
+			C4CompQuatVector val<fgcolor=0x00FFFF, bgcolor=cNone>;
+			break;
+		case "RGB":      // Float of 0.0 to 255.0 used in Particles
+            struct{
+			    float R; //0
+			    float G; //256
+			    float B; //65536
+            }RGB<read=Str("#%02X%02X%02X", this.R, this.G, this.B), fgcolor=(this.R+(this.G*256)+(this.B*65536)), bgcolor=cBlack>;
+            break;
+		case "C3RGB":    // Float of 0.0 to 1.0 used in Ribbons
+			struct{
+				float R<read=Str("%d", this*256), write=(this = Atof(value)/256.0)>; //0
+				float G<read=Str("%d", this*256), write=(this = Atof(value)/256.0)>; //256
+				float B<read=Str("%d", this*256), write=(this = Atof(value)/256.0)>; //65536
+			}C3RGB<read=Str("#%02X%02X%02X", this.R*255, this.G*255, this.B*255), fgcolor=((this.R*255) + (this.G*65536) + (this.B*16777216)), bgcolor=cBlack>; // Don't judge me
+			break;
+	}
+}
+
+typedef struct(uint32 SequenceID){
+	int32 nValues<fgcolor=cLtGreen, bgcolor=0x000000>;
+	int32 ofsValues<fgcolor=cLtGreen, bgcolor=0x000000, format=hex>;
+	local uint OfsSeq = ReadUInt(0x20+ofsMD21_8);
+	local uint SeqFlag = ReadUInt(OfsSeq+ofsMD21_8 + (SequenceID*0x40) + 0xC);
+	local uint locSeqID = SequenceID;
+	if((nValues!=0) && (ofsValues!=0) && (SeqFlag&0x20)){
+		local int oldpos=FTell();
+		FSeek(ofsValues + ofsMD21_8);
+		local int i=0;
+		while(i < nValues){
+			M2TrackSubValType(G_SumAnimSeqVarType);
+			i++;
+		}
+		FSeek(oldpos);
+	}
+}sM2TrackSubValSeq<read=M2TrackSubValSeq_nValRead, optimize=false>;
+
+string M2TrackSubValSeq_nValRead(sM2TrackSubValSeq& rec){
+	string a;
+	local uint OfsSeq = ReadUInt(0x20+ofsMD21_8);
+	local uint SeqFlag = ReadUInt(OfsSeq+ofsMD21_8 + (rec.locSeqID*0x40) + 0xC);
+	local uint16 SeqAnimID = ReadUInt(OfsSeq+ofsMD21_8 + (rec.locSeqID*0x40));
+	local uint16 SeqSubAnimID = ReadUInt(OfsSeq+ofsMD21_8 + (rec.locSeqID*0x40)+0x2);
+	local string locFileName = FileNameGetBase(GetFileName(), false);
+
+	if(SeqFlag&0x20){
+		if(rec.nValues > 0){
+			SPrintf(a, "(Values: %d)\n", rec.nValues);
+		}else{
+			SPrintf(a, "Empty\n");
+		}
+	}else{
+		if(rec.nValues > 0){
+			SPrintf(a, "(Values: %d --> %s%04d-%02d.anim )\n", rec.nValues, locFileName, SeqAnimID, SeqSubAnimID);
+		}else{
+			SPrintf(a, "Empty\n");
+		}
+	}
+	return a;
+}
+ // TODO change the variable type
+void M2TrackBase(string M2TrackType, string TempVarType){
+	G_SumAnimSeqVarType = TempVarType;
+	if(M2TrackType=="T"){   // Full Timestamp Block
+		if(xpac <= TBC){    // TBC insert for Interpolation Ranges
+			uint32 nInterpolationRanges<comment="TBC">;
+			uint32 ofsnInterpolationRanges<format=hex, comment="TBC">;
+			G_nKeys = nInterpolationRanges;
+			G_OfsKeys = ofsnInterpolationRanges;
+			if((nInterpolationRanges!=0) && (ofsnInterpolationRanges!=0)){
+				struct{
+ 					oldpos=FTell();
+					FSeek(G_OfsKeys + ofsMD21_8);
+					i=0;
+					while(i < G_nKeys){
+						M2TrackSubValType("uint32");
+						i++;
+					}
+					FSeek(oldpos);
+				}InterpolationRanges;
+			}
+		}
+		uint32 nTimestampPairs;
+		uint32 ofsTimestampPairs<format=hex>;
+		G_nKeys = nTimestampPairs;
+		G_OfsKeys = ofsTimestampPairs;
+		if((nTimestampPairs!=0) && (ofsTimestampPairs!=0)){
+ 			oldpos=FTell();
+            FSeek(G_OfsKeys + ofsMD21_8);
+			struct{
+                //Printf("G_OfsKeys: %LX\n", G_OfsKeys);
+                //Printf("ofsMD21_8: %LX\n", ofsMD21_8);
+                //Printf("G_OfsKeys+ofsMD21_8: %LX\n", G_OfsKeys + ofsMD21_8);
+				i=0;
+				while(i < G_nKeys){
+					if(xpac <= TBC){   // TBC insert
+						M2TrackSubValType(G_SumAnimSeqVarType);
+					}else{
+						sM2TrackSubValSeq SumAnimSeq(i);
+					}
+					i++;
+				}
+			}Timestamps;
+			FSeek(oldpos);
+		}
+	}else if(M2TrackType=="sT"){	  // Timestamp Block without sub sequences
+		uint32 nTimestampPairs;
+		uint32 ofsTimestampPairs<format=hex>;
+		G_nKeys = nTimestampPairs;
+		G_OfsKeys = ofsTimestampPairs;
+		if((nTimestampPairs!=0) && (ofsTimestampPairs!=0)){
+ 			oldpos=FTell();
+			struct{
+				FSeek(G_OfsKeys + ofsMD21_8);
+				i=0;
+				while(i < G_nKeys){
+					M2TrackSubValType(G_SumAnimSeqVarType);
+					i++;
+				}
+			}sTimestamps;
+			FSeek(oldpos);
+		}
+	}else if(M2TrackType=="V"){	      // Full Values Block
+		uint32 numberOfKeyFramePairs;
+		uint32 offsetToKeyFramePairs<format=hex>;
+		G_nKeys = numberOfKeyFramePairs;
+		G_OfsKeys = offsetToKeyFramePairs;
+		if((numberOfKeyFramePairs!=0) && (offsetToKeyFramePairs!=0)){
+ 			oldpos=FTell();
+			FSeek(G_OfsKeys + ofsMD21_8);
+			struct{
+				i=0;
+				while(i < G_nKeys){
+					if(xpac >= TBC){  // TBC insert
+						sM2TrackSubValSeq SumAnimSeq(i);
+					}else{
+						M2TrackSubValType(G_SumAnimSeqVarType);
+					}
+					i++;
+				}
+ 			}Values<optimize=false>;
+			FSeek(oldpos);
+		}
+	}else if(M2TrackType=="sV"){	  // Values Block without sub sequences
+		uint32 numberOfKeyFramePairs;
+		uint32 offsetToKeyFramePairs<format=hex>;
+		G_nKeys = numberOfKeyFramePairs;
+		G_OfsKeys = offsetToKeyFramePairs;
+		if((numberOfKeyFramePairs!=0) && (offsetToKeyFramePairs!=0)){
+ 			oldpos=FTell();
+			struct{
+				FSeek(G_OfsKeys + ofsMD21_8);
+				i=0;
+				while(i < G_nKeys){
+					M2TrackSubValType(G_SumAnimSeqVarType);
+					i++;
+				}
+			}Values;
+			FSeek(oldpos);
+		}
+	}else if(M2TrackType=="T_short"){ // Timestamps without any sequences
+		uint32 numberOfKeyFramePairs;
+		uint32 offsetToKeyFramePairs<format=hex>;
+	}else if(M2TrackType=="V_short"){ // Values without any sequences
+		if(xpac <= TBC){			  // TBC insert
+			uint32 Start_Timestamp<comment="TBC">;
+			uint32 End_Timestamp<comment="TBC">;
+		}
+		uint32 nTimestampPairs;
+		uint32 ofsTimestampPairs<format=hex>;
+	}else{
+	    local int EmptyStruct=0;
+	}
+}
+
+typedef struct(string M2Track1_Type, string M2Track1_Var, string M2Track2_Type, string M2Track2_Var, byte Header){
+	local int oldpos = 0;
+	local int i;
+	if(Header==1){	                  // Headless M2Tracks used only in Particles
+		InterpolationType Interpolation;
+		int16 LoopID;
+	}
+	M2TrackBase(M2Track1_Type, M2Track1_Var);
+	M2TrackBase(M2Track2_Type, M2Track2_Var);
+}M2Track<read=M2Track_Pairs_Read, optimize=false>;
+
+string M2Track_Pairs_Read(M2Track& rec){
+  string a;
+  if((exists(rec.nTimestampPairs) && exists(rec.numberOfKeyFramePairs))){
+	  if((rec.nTimestampPairs>0) || (rec.numberOfKeyFramePairs>0)){
+		  SPrintf(a, "(Timestamps: %d KeyFrames: %d)\n", rec.nTimestampPairs, rec.numberOfKeyFramePairs);
+	  }else{
+		  SPrintf(a, "Empty\n");
+	  }
+	  return a;
+  }else if(exists(rec.nTimestampPairs)){
+	  if((rec.nTimestampPairs>0)){
+		  SPrintf(a, "(Timestamps: %d)\n", rec.nTimestampPairs);
+	  }else{
+		  SPrintf(a, "Empty\n");
+	  }
+	  return a;
+  }else{
+	  SPrintf(a, "Empty\n");
+	  return a;
+  }
+}
+
+typedef struct{
+	CHAR	 Identifier[4]; // Some kind of ID, starts with '$'. Some identifiers below.
+	uint32	 Data;			// This data is passed when the event is fired.
+	uint32	 ParentBone;	// Somewhere it has to be attached.
+	C3Vector Position;		// Relative to that bone of course.
+	M2Track  Timer("T", "Timestamp", "Empty", "Empty", 1)<fgcolor=0xA3FF87, bgcolor=0x1E1E1E>;
+}sEvents<read=ReadEvent>;
+
+string ReadEvent(sEvents &a){
+	string s;
+	s = Str("%c%c%c%c", a.Identifier[0], a.Identifier[1], a.Identifier[2], a.Identifier[3]);
+	local uchar s_UCas[1024] = s;
+	local int16 strl = Strlen(s);
+	for(byte i=0; i < strl; i++){ s_UCas[i] = ToUpper(s_UCas[i]); }
+	if(a.Data!=0){ s += Str(" - %d", a.Data); }
+	switch(s_UCas){
+		case "$AH0": s += Str(" - CustomAttack(CreatureSoundDataID)"); break;
+		case "$AH1": s += Str(" - CustomAttack(CreatureSoundDataID)"); break;
+		case "$AH2": s += Str(" - CustomAttack(CreatureSoundDataID)"); break;
+		case "$AH3": s += Str(" - CustomAttack(CreatureSoundDataID)"); break;
+		case "$BMD": s += Str(" - BowMissleDestination"); break;
+		case "$AIM": s += Str(" - MissileFirePos"); break;
+		case "$ALT": s += Str(" - Anim_Swap_Event"); break;
+		case "$BL0": s += Str(" - FootstepAnimEventHit_Left(Backwards)"); break;
+		case "$BL1": s += Str(" - FootstepAnimEventHit_Left(Backwards)"); break;
+		case "$BL2": s += Str(" - FootstepAnimEventHit_Left(Backwards)"); break;
+		case "$BL3": s += Str(" - FootstepAnimEventHit_Left(Backwards)"); break;
+		case "$BR0": s += Str(" - FootstepAnimEventHit_Right(Backwards)"); break;
+		case "$BR1": s += Str(" - FootstepAnimEventHit_Right(Backwards)"); break;
+		case "$BR2": s += Str(" - FootstepAnimEventHit_Right(Backwards)"); break;
+		case "$BR3": s += Str(" - FootstepAnimEventHit_Right(Backwards)"); break;
+		case "$BRT": s += Str(" - Birth(CreatureSoundDataID)"); break;
+		case "$BTH": s += Str(" - Breath"); break;
+		case "$BWP": s += Str(" - PlayRangedItemPull"); break;
+		case "$BWR": s += Str(" - BowRelease"); break;
+		case "$CAH": s += Str(" - HandleCombatAnimEvent"); break;
+		case "$CCH": s += Str(" - AttackThrown"); break;
+		case "$CFM": s += Str(" - UpdateMountHeightOrOffsetZ"); break;
+		case "$CHD": s += Str(" - Unk"); break;
+		case "$CMA": s += Str(" - UpdateMountHeightOrOffset"); break;
+		case "$CPP": s += Str(" - PlayCombatActionAnimKit"); break;
+		case "$CSD": s += Str(" - PlayEmoteSound(SoundEntryID)"); break;
+		case "$CSL": s += Str(" - ReleaseMissilesOnUpdate_Left"); break;
+		case "$CSR": s += Str(" - ReleaseMissilesOnUpdate_Right"); break;
+		case "$CSS": s += Str(" - PlayWeaponSwooshSound"); break;
+		case "$CST": s += Str(" - ReleaseMissilesOnUpdate"); break;
+		case "$CVS": s += Str(" - SoundEntriesAdvancedID"); break;
+		case "$DSE": s += Str(" - DestroyEmitter"); break;
+		case "$DSL": s += Str(" - GO(SoundEntryID)"); break;
+		case "$DSO": s += Str(" - DoodadSoundOneShot(SoundEntryID)"); break;
+		case "$DTH": s += Str(" - DeathThud_LootEffect"); break;
+		case "$EAC": s += Str(" - ObjStateEnter_3"); break;
+		case "$EDC": s += Str(" - ObjStateEnter_5"); break;
+		case "$EMV": s += Str(" - ObjStateEnter_4"); break;
+		case "$ESD": s += Str(" - PlayEmoteStateSound(soundEffectID)"); break;
+		case "$EWT": s += Str(" - ObjStateEnter_2"); break;
+		case "$FD1": s += Str(" - PlayFidgetSound(CreatureSoundDataID)"); break;
+		case "$FD2": s += Str(" - PlayFidgetSound(CreatureSoundDataID)"); break;
+		case "$FD3": s += Str(" - PlayFidgetSound(CreatureSoundDataID)"); break;
+		case "$FD4": s += Str(" - PlayFidgetSound(CreatureSoundDataID)"); break;
+		case "$FD5": s += Str(" - PlayFidgetSound(CreatureSoundDataID)"); break;
+		case "$FD6": s += Str(" - PlayFidgetSound(CreatureSoundDataID)"); break;
+		case "$FD7": s += Str(" - PlayFidgetSound(CreatureSoundDataID)"); break;
+		case "$FD8": s += Str(" - PlayFidgetSound(CreatureSoundDataID)"); break;
+		case "$FD9": s += Str(" - PlayFidgetSound(CreatureSoundDataID)"); break;
+		case "$FDX": s += Str(" - PlayUnitSound(soundEffectID)"); break;
+		case "$FL0": s += Str(" - FootstepAnimEventHit_Left(Forward)"); break;
+		case "$FL1": s += Str(" - FootstepAnimEventHit_Left(Forward)"); break;
+		case "$FL2": s += Str(" - FootstepAnimEventHit_Left(Forward)"); break;
+		case "$FL3": s += Str(" - FootstepAnimEventHit_Left(Forward)"); break;
+		case "$FR0": s += Str(" - FootstepAnimEventHit_Right(Forward)"); break;
+		case "$FR1": s += Str(" - FootstepAnimEventHit_Right(Forward)"); break;
+		case "$FR2": s += Str(" - FootstepAnimEventHit_Right(Forward)"); break;
+		case "$FR3": s += Str(" - FootstepAnimEventHit_Right(Forward)"); break;
+		case "$FSD": s += Str(" - HandleFootfallAnimEvent"); break;
+		case "$GC0": s += Str(" - GO_C_PlayAnimatedSound(GameObjectDisplayInfoID)"); break;
+		case "$GC1": s += Str(" - GO_C_PlayAnimatedSound(GameObjectDisplayInfoID)"); break;
+		case "$GC2": s += Str(" - GO_C_PlayAnimatedSound(GameObjectDisplayInfoID)"); break;
+		case "$GC3": s += Str(" - GO_C_PlayAnimatedSound(GameObjectDisplayInfoID)"); break;
+		case "$GO0": s += Str(" - GO_C_PlayAnimatedSound(GameObjectDisplayInfoID)"); break;
+		case "$GO1": s += Str(" - GO_C_PlayAnimatedSound(GameObjectDisplayInfoID)"); break;
+		case "$GO2": s += Str(" - GO_C_PlayAnimatedSound(GameObjectDisplayInfoID)"); break;
+		case "$GO3": s += Str(" - GO_C_PlayAnimatedSound(GameObjectDisplayInfoID)"); break;
+		case "$GO4": s += Str(" - GO_C_PlayAnimatedSound(GameObjectDisplayInfoID)"); break;
+		case "$GO5": s += Str(" - GO_C_PlayAnimatedSound(GameObjectDisplayInfoID)"); break;
+		case "$HIT": s += Str(" - PlayWoundAnimKit(soundEntryIDxSpellVisualKit)"); break;
+		case "$KVS": s += Str(" - MapLoad"); break;
+		case "$RL0": s += Str(" - FootstepAnimEventHit_Left(Running)"); break;
+		case "$RL1": s += Str(" - FootstepAnimEventHit_Left(Running)"); break;
+		case "$RL2": s += Str(" - FootstepAnimEventHit_Left(Running)"); break;
+		case "$RL3": s += Str(" - FootstepAnimEventHit_Left(Running)"); break;
+		case "$RR0": s += Str(" - FootstepAnimEventHit_Right(Running)"); break;
+		case "$RR1": s += Str(" - FootstepAnimEventHit_Right(Running)"); break;
+		case "$RR2": s += Str(" - FootstepAnimEventHit_Right(Running)"); break;
+		case "$RR3": s += Str(" - FootstepAnimEventHit_Right(Running)"); break;
+		case "$SCD": s += Str(" - CreatureSoundDataID:SpellCastDirectedSoundID"); break;
+		case "$SCD": s += Str(" - CreatureSoundDataID:SpellCastDirectedSoundID"); break;
+		case "$SHK": s += Str(" - SpellEffectCameraShakesID"); break;
+		case "$SHL": s += Str(" - ExchangeSheathedWeapon_Left"); break;
+		case "$SHR": s += Str(" - ExchangeSheathedWeapon_Right"); break;
+		case "$SL0": s += Str(" - FootstepAnimEventHit_Left(Jump)"); break;
+		case "$SL1": s += Str(" - FootstepAnimEventHit_Left(Jump)"); break;
+		case "$SL2": s += Str(" - FootstepAnimEventHit_Left(Jump)"); break;
+		case "$SL3": s += Str(" - FootstepAnimEventHit_Left(Jump)"); break;
+		case "$SMD": s += Str(" - CreatureSoundDataID:SubmergedSoundID"); break;
+		case "$SMG": s += Str(" - CreatureSoundDataID:SubmergeSoundID"); break;
+		case "$SND": s += Str(" - PlaySoundKit(Custom_GO)"); break;
+		case "$SR0": s += Str(" - FootstepAnimEventHit_Right(Jump)"); break;
+		case "$SR1": s += Str(" - FootstepAnimEventHit_Right(Jump)"); break;
+		case "$SR2": s += Str(" - FootstepAnimEventHit_Right(Jump)"); break;
+		case "$SR3": s += Str(" - FootstepAnimEventHit_Right(Jump)"); break;
+		case "$STE": s += Str(" - MountTransitionObject"); break;
+		case "$STB": s += Str(" - MountTransitionObject"); break;
+		case "$TRD": s += Str(" - HandleSpellEventSound(SoundEffectIDxSpellID)"); break;
+		case "$VG0": s += Str(" - HandleBoneAnimGrabEvent"); break;
+		case "$VG1": s += Str(" - HandleBoneAnimGrabEvent"); break;
+		case "$VG2": s += Str(" - HandleBoneAnimGrabEvent"); break;
+		case "$VG3": s += Str(" - HandleBoneAnimGrabEvent"); break;
+		case "$VG4": s += Str(" - HandleBoneAnimGrabEvent"); break;
+		case "$VG5": s += Str(" - HandleBoneAnimGrabEvent"); break;
+		case "$VG6": s += Str(" - HandleBoneAnimGrabEvent"); break;
+		case "$VG7": s += Str(" - HandleBoneAnimGrabEvent"); break;
+		case "$VG8": s += Str(" - HandleBoneAnimGrabEvent"); break;
+		case "$VT0": s += Str(" - HandleBoneAnimThrowEvent"); break;
+		case "$VT1": s += Str(" - HandleBoneAnimThrowEvent"); break;
+		case "$VT2": s += Str(" - HandleBoneAnimThrowEvent"); break;
+		case "$VT3": s += Str(" - HandleBoneAnimThrowEvent"); break;
+		case "$VT4": s += Str(" - HandleBoneAnimThrowEvent"); break;
+		case "$VT5": s += Str(" - HandleBoneAnimThrowEvent"); break;
+		case "$VT6": s += Str(" - HandleBoneAnimThrowEvent"); break;
+		case "$VT7": s += Str(" - HandleBoneAnimThrowEvent"); break;
+		case "$VT8": s += Str(" - HandleBoneAnimThrowEvent"); break;
+		case "$WGG": s += Str(" - CreatureSoundDataRec:SoundWingGlideID"); break;
+		case "$WL0": s += Str(" - FootstepAnimEventHit_Left"); break;
+		case "$WL1": s += Str(" - FootstepAnimEventHit_Left"); break;
+		case "$WL2": s += Str(" - FootstepAnimEventHit_Left"); break;
+		case "$WL3": s += Str(" - FootstepAnimEventHit_Left"); break;
+		case "$WLB": s += Str(" - Model_Weapon_Left_Bot"); break;
+		case "$WLT": s += Str(" - Model_Weapon_Left_Top"); break;
+		case "$WNG": s += Str(" - CreatureSoundDataID:SoundWingFlapID"); break;
+		case "$WR0": s += Str(" - FootstepAnimEventHit_Right"); break;
+		case "$WR1": s += Str(" - FootstepAnimEventHit_Right"); break;
+		case "$WR2": s += Str(" - FootstepAnimEventHit_Right"); break;
+		case "$WR3": s += Str(" - FootstepAnimEventHit_Right"); break;
+		case "$WRB": s += Str(" - Model_Weapon_Right_Bot"); break;
+		case "$WRT": s += Str(" - Model_Weapon_Right_Top"); break;
+		case "$WTB": s += Str(" - Weapons(BowXTrailBottom)"); break;
+		case "$WTT": s += Str(" - Weapons(BowXTrailTop)"); break;
+		case "$WWG": s += Str(" - WMTObjFuncCall"); break;
+		case "DEST": s += Str(" - BallistaExplosion"); break;
+		case "POIN": s += Str(" - Unk_Unit"); break;
+		case "WHEE": s += Str(" - Wheels"); break;
+		case "BOTT": s += Str(" - Unk"); break;
+		case "TOP":  s += Str(" - Unk"); break;
+	}
+	return s;
+}
+
+typedef struct{
+	E_ATTACHMENT_ID ID;		// Just an id. Is referenced in the lookup-block below too.
+	uint32   ParentBone;	// Attachment base
+	C3Vector Position;		// Relative to bone; Often this value is the same as bone's pivot point
+	M2Track  Data("T", "Timestamp", "V", "int32", 1)<fgcolor=0x0B9AED, bgcolor=cBlack>; // whether or not the attached model is animated when this model is. only a bool is used. default is true
+}sAttachments<read=ReadAttachment>;
+
+string ReadAttachment(sAttachments &a){
+	string s;
+	if(EnumToString(a.ID)!=""){
+		SPrintf(s, "%s (%d)", EnumToString(a.ID), a.ID);
+	}else{
+		SPrintf(s, "%s (%d)", "AT_Undocumented", a.ID);
+	}
+	return s;
+}
+
+typedef struct{
+	C3Vector Position;
+	C4ByteWeights BoneWeight;
+	C4Byte	 BoneIndices;
+	C3Vector Normal;
+	C2Vector TextureCoords1;
+	C2Vector TextureCoords2; //Depending on shader used
+}sVertices;
+
+//============================ SKIN SECTION ===================================
+
+typedef struct{
+	uint16 Indices_0;   // Three indices which make up a triangle
+	uint16 Indices_1;   // an index into the local skin vertex list
+	uint16 Indices_2;
+}ssIndices<read=IndicesRead, optimize=false>;
+
+string IndicesRead(ssIndices& rec){
+	string a;
+	SPrintf(a, "(%d %d %d)\n", rec.Indices_0, rec.Indices_1, rec.Indices_2);
+	return a;
+}
+
+typedef struct{
+	byte BoneIndices_0; // Usually 0? Purpose unknown
+	byte BoneIndices_1; // 4 indices into the global bone list (see remarks below)
+	byte BoneIndices_2;
+	byte BoneIndices_3;
+}ssBones<read=BonesRead, optimize=false>;
+
+string BonesRead(ssBones& rec){
+	string a;
+	SPrintf(a, "(%d %d %d %d)\n", rec.BoneIndices_0, rec.BoneIndices_1, rec.BoneIndices_2, rec.BoneIndices_3);
+	return a;
+}
+
+string SSCheck(int secIDMin, int secIDMax, int secID, string secName, string secVar){
+	if( (secID>=secIDMin) & (secID<=secIDMax) ){
+		return secName;
+	}else{
+		return secVar;
+	}
+}
+
+string SkinSectionName(int ssID){ /* Dont Judge me */
+	local string sName = "Unk";
+	sName = SSCheck(   0,	 0, ssID, "Skin", sName);
+	sName = SSCheck(   1,   99, ssID, "Hair", sName);
+	sName = SSCheck( 100,  199, ssID, "Facial1", sName);
+	sName = SSCheck( 200,  299, ssID, "Facial2", sName);
+	sName = SSCheck( 300,  399, ssID, "Facial3", sName);
+	sName = SSCheck( 400,  499, ssID, "Gloves", sName);
+	sName = SSCheck( 500,  599, ssID, "Boots", sName);
+	sName = SSCheck( 600,  699, ssID, "Shirt", sName);
+	sName = SSCheck( 700,  799, ssID, "Ears", sName);
+	sName = SSCheck( 800,  899, ssID, "Sleeves", sName);
+	sName = SSCheck( 900,  999, ssID, "Kneepads", sName);
+	sName = SSCheck(1000, 1099, ssID, "ShirtDoublet", sName);
+	sName = SSCheck(1100, 1199, ssID, "Pants", sName);
+	sName = SSCheck(1200, 1299, ssID, "Tabard", sName);
+	sName = SSCheck(1300, 1399, ssID, "Robe", sName);
+	sName = SSCheck(1400, 1499, ssID, "Loincloth", sName);
+	sName = SSCheck(1500, 1599, ssID, "Cape", sName);
+	sName = SSCheck(1600, 1699, ssID, "FacialJewelry", sName);
+	sName = SSCheck(1700, 1799, ssID, "EyeEffects", sName);
+	sName = SSCheck(1800, 1899, ssID, "Belt", sName);
+	sName = SSCheck(1900, 1999, ssID, "BoneTail", sName);
+	sName = SSCheck(2000, 2099, ssID, "Toes", sName);
+	sName = SSCheck(2100, 2199, ssID, "Skull", sName);
+	sName = SSCheck(2200, 2299, ssID, "Torso", sName);
+	sName = SSCheck(2300, 2399, ssID, "Hands", sName);
+	sName = SSCheck(2400, 2499, ssID, "Horns", sName);
+	sName = SSCheck(2500, 2599, ssID, "Facewear", sName);
+	sName = SSCheck(2600, 2699, ssID, "Shoulders", sName);
+	sName = SSCheck(2700, 2799, ssID, "Helm", sName);
+	sName = SSCheck(2800, 2899, ssID, "ArmUpper", sName);
+	sName = SSCheck(2900, 2999, ssID, "ArmsReplace", sName);
+	sName = SSCheck(3000, 3099, ssID, "LegsReplace", sName);
+	sName = SSCheck(3100, 3199, ssID, "FeetReplace", sName);
+	sName = SSCheck(3200, 3299, ssID, "HeadSwap", sName);
+	sName = SSCheck(3300, 3399, ssID, "Eyes", sName);
+	sName = SSCheck(3400, 3499, ssID, "Eyebrows", sName);
+	sName = SSCheck(3500, 3599, ssID, "Piercings", sName);
+	sName = SSCheck(3600, 3699, ssID, "Necklaces", sName);
+	sName = SSCheck(3700, 3799, ssID, "Headdres", sName);
+	sName = SSCheck(3800, 3899, ssID, "DrTail", sName);
+	sName = SSCheck(3900, 3999, ssID, "MiscAccessory", sName);
+	sName = SSCheck(4000, 4099, ssID, "MiscFeature", sName);
+	sName = SSCheck(4100, 4199, ssID, "Noses", sName);
+	sName = SSCheck(4200, 4299, ssID, "HairDecoration", sName);
+	sName = SSCheck(4300, 4399, ssID, "HornDecoration", sName);
+	sName = SSCheck(4400, 4499, ssID, "BodySizeDrac", sName);
+	sName = SSCheck(4400, 4499, ssID, "Unk", sName);
+	sName = SSCheck(4500, 4599, ssID, "Unk", sName);
+	sName = SSCheck(4600, 4699, ssID, "UnkDrac", sName);
+	sName = SSCheck(4700, 4799, ssID, "Unk", sName);
+	sName = SSCheck(4800, 4899, ssID, "Unk", sName);
+	sName = SSCheck(4900, 4999, ssID, "Unk", sName);
+	sName = SSCheck(5000, 5099, ssID, "Unk", sName);
+	sName = SSCheck(5100, 5199, ssID, "EyeGlow2", sName);
+	return sName;
+}
+
+typedef struct{
+   uint16 SkinSectionID;   // Mesh part ID, see below.
+   uint16 Level;
+   uint16 VertexStart; 	   // Starting vertex number.
+   uint16 VertexCount;	   // Number of vertices.
+   uint16 IndicesStart<read=Str("%d (%d)", this<<ReadUShort(startof(this)-0x6), (this/3)<<ReadUShort(startof(this)-0x6)), comment="Divide by 3">;	// Starting triangle index (that's 3* the number of triangles drawn so far).
+   uint16 IndicesCount<read=Str("%d (%d)", this, this/3), comment="Divide by 3">;	 // Number of triangle indices.
+   uint16 BonesCount;	   // Number of elements in the bone lookup table.
+   uint16 BonesStart;	   // Starting index in the bone lookup table.
+   uint16 BoneInfluences;
+   uint16 CenterBoneIndex; // Not sure.
+   C3Vector CenterPos;	   // Average position of all the vertices in the sub mesh.
+   if(xpac >= TBC){
+	   C3Vector SortCenterPos;  // Distance of the vertex farthest from CenterBoundingBox
+	   float SortRadius;   // Distance of the vertex farthest from CenterBoundingBox.
+   }
+}ssSubmeshes<read=SubmeshIDRead, optimize=false>;
+
+string SubmeshIDRead(ssSubmeshes& rec){
+	string a;
+	SPrintf(a, "%d : %s\n", rec.SkinSectionID, SkinSectionName(rec.SkinSectionID) );
+	return a;
+}
+
+typedef struct{
+	struct{
+		ubyte MaterialInversion_0x1 : 1;
+		ubyte Transform_0x2 : 1;
+		ubyte ProjectedTexture01_0x4 : 1;
+		ubyte Unk_0x8: 1;
+		ubyte BatchCompatible_0x10: 1;
+		ubyte ProjectedTexture02_0x20: 1;
+		ubyte TransparencyMultiplier_0x40: 1;
+	}TextureUnitFlags<read=Str("%LXh", ReadUByte(startof(this)) )>;
+	byte priorityPlane;      // Flags
+	uint16 ShaderID<read=Str("%LXh", ReadUShort(startof(this)) ), format=binary>; // shader_id; may index textureCombinerCombos when global flag 0x8 is set.
+	uint16 SubmeshIndex;     // Material this texture is part of (index into mat)
+	uint16 GeosetIndex;		 // flags2 in newer docs; 0x2 projected, 0x8 applies EDGF edge fade chunk.
+	int16 ColorIndex;		 // color or -1
+	uint16 MaterialIndex<comment="MaterialID">;	// more flags...
+	uint16 MaterialLayer;	 // Texture unit (0 or 1)
+	uint16 TextureCount;	 // TextureCount
+	uint16 TexComboIndex<comment="TextureLookupID">;	        // Index into Texture lookup table
+	uint16 TexCoordComboIndex<comment="TexUnitLookupID">;	    // Index into the texture mapping lookup table.
+	uint16 TexWeightComboIndex<comment="TransparencyLookupID">;	// Index into transparency lookup table.
+	uint16 TexTransformComboIndex<comment="TexAnimLookupID">;	// Index into uvanimation lookup table.
+} ssTextureUnits<read=TextureUnitsRead, optimize=false>;
+
+string TextureUnitsRead(ssTextureUnits& rec){
+	string a;
+	SPrintf(a, "SubmeshID: %d\n", rec.SubmeshIndex);
+	return a;
+}
+
+typedef struct(int SkinSectionVal){
+	uint32 nVertices<fgcolor=0x00FFFF, bgcolor=0x330033>;
+	uint32 ofsVertices<format=hex, fgcolor=0x00FFFF, bgcolor=0x330033>;		// Indices used in this View.
+	uint32 nIndices<fgcolor=0x99FFFF, bgcolor=0x330033>;
+	uint32 ofsIndices<format=hex, fgcolor=0x99FFFF, bgcolor=0x330033>;		// The triangles made with them.
+	uint32 nBoneIndices<fgcolor=0xFF00FF, bgcolor=0x331900>;
+	uint32 ofsBoneIndices<format=hex, fgcolor=0xFF00FF, bgcolor=0x331900>;	// Properties of the vertices.
+	uint32 nSubmeshes<fgcolor=0x00CCFF, bgcolor=0x330033>;
+	uint32 ofsSubmeshes<format=hex,fgcolor=0x00CCFF, bgcolor=0x330033>;		// Submeshes (Geosets) of this View.
+	uint32 nTextureUnits<fgcolor=0xFF00BF, bgcolor=0x112200>;
+	uint32 ofsTextureUnits<format=hex, fgcolor=0xFF00BF, bgcolor=0x112200>;	// Texture Units.
+	uint32 boneCountMax<fgcolor=0xFF00FF, bgcolor=0x331900>;				// Max bones per draw call; some docs also note this can behave like a LOD vertex-data offset.
+
+	local int oldpos = FTell();
+	FSeek(ofsVertices);
+	uint16 Vertex[nVertices]<fgcolor=0x00FFFF, bgcolor=0x330033>;
+	FSeek(ofsIndices);
+	ssIndices Indices[nIndices / 3]<fgcolor=0x99FFFF, bgcolor=0x330033, comment="Idx->Vert list">;
+	FSeek(ofsBoneIndices);
+	ssBones BonesIndices[nBoneIndices]<fgcolor=0xFF00FF, bgcolor=0x331900>;
+	FSeek(ofsSubmeshes);
+	ssSubmeshes Submeshes[nSubmeshes]<fgcolor=0x00CCFF, bgcolor=0x330033>;
+	FSeek(ofsTextureUnits);
+	ssTextureUnits TextureUnits[nTextureUnits]<fgcolor=0xFF00BF, bgcolor=0x112200>;
+	FSeek(oldpos);
+}sSkinProfiles;
+
+//=========================== END OF SKIN SECTION ===================================
+
+typedef struct{
+	LIGHT_TYPE Type<fgcolor=0xFF00FF, bgcolor=0x331900>;
+	uint16	 ParentBone<fgcolor=0xFF00FF, bgcolor=0x331900>;
+	C3Vector Postion<fgcolor=0xFF00FF, bgcolor=0x331900>;
+	M2Track Ambient_Color("T", "Timestamp", "V", "C3RGB", 1)<fgcolor=0xFF00FF, bgcolor=0x331900>;
+	M2Track Ambient_Intensity("T", "Timestamp", "V", "float", 1)<fgcolor=0xFF00FF, bgcolor=0x331900>;
+	M2Track Diffuse_Color("T", "Timestamp", "V", "C3RGB", 1)<fgcolor=0xFF00FF, bgcolor=0x331900>;
+	M2Track Diffuse_Intensity("T", "Timestamp", "V", "float", 1)<fgcolor=0xFF00FF, bgcolor=0x331900>;
+	M2Track Attenuation_Start("T", "Timestamp", "V", "float", 1)<fgcolor=0xFF00FF, bgcolor=0x331900>;
+	M2Track Attenuation_End("T", "Timestamp", "V", "float", 1)<fgcolor=0xFF00FF, bgcolor=0x331900>;
+	M2Track Visibility("T", "Timestamp", "V", "ubyte", 1)<fgcolor=0xFF00FF, bgcolor=0x331900>;
+}sLights;
+
+typedef struct{
+	E_RENDERFLAGS TxtCombo_Flag;
+	E_RENDERMODES TxtCombo_Blend;
+}Texture_Combiner; //<name=(Str("Texture_Combiner_%d", ReadInt(0x130 + ofsMD21_8)))>
+
+typedef struct{
+	E_SEQUENCES SequenceID;	    // Animation id in AnimationData.dbc
+	uint16 SubSequenceID;	    // Sub-animation id: Which number in a row of animations this one is.
+	if(xpac <= TBC){			//  TBC insert
+		uint32 Start_Timestamp<comment="TBC">;
+		uint32 End_Timestamp<comment="TBC">;
+	}else{
+		uint32 Length;		    // The length (timestamps) of the animation. I believe this actually the length of the animation in milliseconds.
+	}
+	float MovingSpeed<read=Str("%.4f yards/s  %.2f%s", this, (this/7.1111)*100, '%')>; 	   // As 2.x says: moving speed for walk/run animations.   (0.071111)
+	//E_ANIMATIONLOOP looped;// Most likely. All flags I saw: 0b01101101
+	struct{
+		uint32 Set_0x80_OnLoad_0x1: 1; //Sets 0x80 when loaded. (M2Init)
+		uint32 Unk_0x2: 1;
+		uint32 Unk_0x4: 1;
+		uint32 Unk_0x8: 1;
+		uint32 LoadLowPrioritySequence_0x10: 1; //apparently set during runtime in CM2Shared::LoadLowPrioritySequence for all entries of a loaded sequence (including aliases)
+		uint32 AnimationInM2_0x20: 1;			//primary bone sequence -- If set, the animation data is in the .m2 file. If not set, the animation data is in an .anim file. Was named 'looped animation' by schlumpf years ago, without source.
+		uint32 AliasNext_0x40: 1;				//has next / is alias (To find the animation data, the client skips these by following aliasNext until an animation without 0x40 is found.)
+		uint32 BlendedAnimation_0x80: 1;		//Blended animation (if either side of a transition has 0x80, lerp between end->start states, unless end==start by comparing bone values)
+		uint32 SequenceStored_0x100: 1; 		//sequence stored in model ?
+		uint32 BlendTimeInAndOut_0x200: 1;		//Signals that uint32_t blendTime is two fields: blendTimeIn and blendTimeOut. (Actual usage and influence of blendTimeIn and blendTimeOut depends on blendTimeOperation, which is not stored in files, but code and context dependent)
+		uint32 Unk_0x400: 1;
+		uint32 UNK_0x800: 1; //seen in Legion 24500 models
+		uint32 UNK_0x1000: 1;
+		uint32 UNK_0x2000: 1;
+	}SequenceFlags;
+	int16 frequency <read=Str("%d (%.2f%s)", this, (this / 32767.0) * 100.0, '%')>; //These two are connected. Most of the time, they are 0.
+	uint16	 _padding;
+	uint32	 M2Range_Min;
+	uint32	 M2Range_Max;	 //But if there is data in one, there is data in both of them.
+	uint32	 BlendTime;		 //Values: 0, 50, 100, 150, 200, 250, 300, 350, 500.
+	C3Vector BoundingBoxMin;
+	C3Vector BoundingBoxMax;
+	float	 BoundingBoxRadius; //A Bounding Box made out of 2 vectors.
+	int16	 NextAnimation;	 //ID of the following animation of this AnimationID, points to an Index or is -1 if none.
+	uint16	 AliasNext;		 //ID in the list of animations.  TODO List picker
+}sSequences<read=ReadAnimation>;
+
+string ReadAnimation(sSequences &a){
+	if(a.NextAnimation == -1){
+		string s;
+		if(xpac <= TBC){   // TBC insert
+			SPrintf(s, "[%i]: %s", (a.End_Timestamp - a.Start_Timestamp) , EnumToString(a.SequenceID));
+		}else{
+			SPrintf(s, "[%i]: %s",a.Length, EnumToString(a.SequenceID));
+		}
+	}else{
+		string s;
+		if(xpac <= TBC){   // TBC insert
+			SPrintf(s, "[%i]: %s", (a.End_Timestamp - a.Start_Timestamp) , EnumToString(a.SequenceID));
+		}else{
+			SPrintf(s, "[%i]: %s, > %i",a.Length,EnumToString(a.SequenceID), a.NextAnimation);
+		}
+	}
+	return s;
+}
+
+typedef struct{
+	int16 FallbackAnimationID; // Fallback Animation ID in AnimationData.dbc
+	struct{
+		int16 PlayNormal	:1;
+		int16 PlayBackwards :1;
+		int16 FrameByFrame  :1;
+		int16 Freeze		:1;
+	}Flags<read=Str("N: %d B: %d Fbf: %d F: %d", this.PlayNormal, this.PlayBackwards, this.FrameByFrame, this.Freeze)>;
+}sSequenceFallback<read=Str("FbID: %d N: %d B: %d Fbf: %d F: %d", this.FallbackAnimationID, this.Flags.PlayNormal, this.Flags.PlayBackwards, this.Flags.FrameByFrame, this.Flags.Freeze)>;
+
+typedef struct(byte Ext){
+	E_BoneIndicesID BoneIndicesID; 		   // Back-reference to the key bone lookup table. -1 if this is no key bone.
+	struct{
+		uint32 ignoreParentTranslate_0x1		 :1;
+		uint32 ignoreParentScale_0x2			 :1;
+		uint32 ignoreParentRotation_0x4 		 :1;
+		uint32 SPHERICAL_BILLBOARD_0x8			 :1;
+		uint32 CYLINDRICAL_BILLBOARD_LOCK_X_0x10 :1;
+		uint32 CYLINDRICAL_BILLBOARD_LOCK_Y_0x20 :1;
+		uint32 CYLINDRICAL_BILLBOARD_LOCK_Z_0x40 :1;
+		uint32 UNK_0x80 						 :1;
+		uint32 UNK_0x100						 :1;
+		uint32 TRANSFORMED_0x200				 :1;
+		uint32 KINEMATIC_BONE_0x400 			 :1<comment="MoP+">; // MoP+: allow physics to influence this bone
+		uint32 UNK_0x800						 :1;
+		uint32 HELMET_ANIM_SCALED_0x1000		 :1; // set blend_modificator to helmetAnimScalingRec.m_amount for this bone
+		uint32 SequenceID_something_0x2000		 :1<comment="BfA+">; // <=bfa+, parent_bone+submesh_id are a sequence id instead?!
+	}E_BONESFLAGS;
+	int16 parent_bone;						 // Parent bone ID or -1 if there is none.
+	uint16 submesh_id;						 // Mesh part ID OR uDistToParent?
+	if(xpac >= TBC){						 // TBC insert
+		union{ 								 // only BC ?
+			struct{
+				uint16 uDistToFurthDesc;
+				uint16 uZRatioOfChain;
+			}CompressData; 					 // No model has ever had this part of the union used.
+			E_CRC_BoneName BoneNameCRC; 	 // these are for debugging only. their bone names match those in key bone lookup.
+		}CRC<read=(Str("%s (%u)",EnumToString(this.BoneNameCRC), (this.BoneNameCRC) ))>;
+	}
+	if(Ext==1){
+		M2Track Translation("T", "Timestamp", "V", "C3Vector", 1)<fgcolor=0xFF00FF, bgcolor=0x331900>;
+        if(xpac >= TBC){
+            M2Track Rotation("T", "Timestamp", "V", "C4CompQuatVector", 1)<fgcolor=0xFF00FF, bgcolor=0x331900>;            
+        }else{    
+            M2Track Rotation("T", "Timestamp", "V", "C4Vector", 1)<fgcolor=0xFF00FF, bgcolor=0x331900>;
+        }
+		M2Track Scaling("T", "Timestamp", "V", "C3Vector", 1)<fgcolor=0xFF00FF, bgcolor=0x331900>;
+	}else{
+		M2Track Translation("T_short", "Timestamp", "V_short", "C3Vector", 1)<fgcolor=0xFF00FF, bgcolor=0x331900>;
+        if(xpac >= TBC){
+            M2Track Rotation("T_short", "Timestamp", "V_short", "C4CompQuatVector", 1)<fgcolor=0xFF00FF, bgcolor=0x331900>;            
+        }else{
+            M2Track Rotation("T_short", "Timestamp", "V_short", "C4Vector", 1)<fgcolor=0xFF00FF, bgcolor=0x331900>;            
+        }
+		M2Track Scaling("T_short", "Timestamp", "V_short", "C3Vector", 1)<fgcolor=0xFF00FF, bgcolor=0x331900>;
+	}
+	C3Vector PivotPoint;
+}sBone<read=ReadBone>;
+
+string ReadBone(sBone &b){  //if(exists(b.CRC.BoneNameCRC)==1){i = 0;} else {uint32 i;}
+	string s;
+	if( (b.BoneIndicesID==-1) & (exists(b.CRC.BoneNameCRC)==1) ){
+		SPrintf(s, "Parent: [%i] \t %s",b.parent_bone, EnumToString(b.CRC.BoneNameCRC));
+	}else if(b.BoneIndicesID==-1){
+		SPrintf(s, "Parent: [%i]",b.parent_bone);
+	}else if(b.BoneIndicesID!=-1){
+		SPrintf(s, "Parent: [%i] \t %s(%i)", b.parent_bone, EnumToString(b.BoneIndicesID), b.BoneIndicesID);
+	}
+	return s;
+}
+
+typedef struct{
+	C3Vector BoundingBoxMin;
+	C3Vector BoundingBoxMax;
+	float	 BoundingBoxRadius;
+	C3Vector CollisionBoxMin;
+	C3Vector CollisionBoxMax;
+	float	 CollisionBoxRadius;
+}TheFloats;
+
+typedef struct(uint32 nTextureID){
+	local uint32 TextureID = nTextureID;
+	E_TEXTURETYPES type;
+	E_TEXTUREFLAGS flags;
+	uint32 FileName_length;
+	uint32 FileName_offset<format=hex>;
+	if(FileName_length != 0 || FileName_offset != 0){
+		local int oldpos = FTell();
+		FSeek(FileName_offset + ofsMD21_8);
+		string texture;
+		FSeek(oldpos);
+	}
+}sTexture<read=readsTexture, write=writesTexture>;
+
+string readsTexture(sTexture & o){
+	if(o.type == 0){
+		string s;
+		if( (o.FileName_length != 0) & (o.FileName_offset != 0) ){
+			SPrintf(s, "%s", o.texture);
+		}else{
+			local int64 pos = FindFirst("TXID", true, false, 0, 0.0, 1, ReadUInt(0x4));
+			if(pos != -1){
+				local uint32 TXIDSize = ReadUInt(pos+0x4);
+				if(o.TextureID<=TXIDSize/4){
+					local uint32 TxidXnTextureMatch = ReadUInt(pos+(o.TextureID*4)+0x8);
+					SPrintf(s, Str("TXID: %d", TxidXnTextureMatch));
+				}else{
+					SPrintf(s, "TXID");
+				}
+			}else{
+				SPrintf(s, "Missing TXID Chunk");
+			}
+		}
+		return s;
+	}else{
+		return EnumToString(o.type);
+	}
+}
+
+void writesTexture(sTexture & o, string s){	   // TODO adding large sized textures
+	if(o.type==0){
+		SScanf(s, "%s", o.texture);
+	}
+	Printf("size: %d\n", Strlen(o.texture));
+}
+
+typedef int16 TexIndicesByIDRec<read=readTexComboIDX>;
+typedef int16 TexComboIDRec<read=readTexComboIDX>;
+
+string readTexComboIDX( TexComboIDRec v ){
+	string s;
+	if(v!=-1){
+		local uint32 ofsTexturesTemp = M2_file.ofsTextures;
+		local E_TEXTURETYPES TextureType = ReadUInt(ofsTexturesTemp + ( v * 0x10) + ofsMD21_8);
+		if(TextureType!=0){
+			SPrintf( s, "%d  : %s", v, EnumToString(TextureType) );
+		}else{
+			local uint32 TexLen = ReadUInt(0x8 + ofsTexturesTemp + ( v * 0x10) + ofsMD21_8);
+			local uint32 TexOfs = ReadUInt(0xC + ofsTexturesTemp + ( v * 0x10) + ofsMD21_8);
+			if(TexLen>1){
+				local string TextureFileName = ReadString(TexOfs + ofsMD21_8, TexLen);
+				SPrintf( s, "%d  : %s", v, FileNameGetBase(TextureFileName) );
+			}else{
+				local int64 pos = FindFirst("TXID", true, false, 0, 0.0, 1, ReadUInt(0x4));
+				if(pos != -1){
+					local uint32 TXIDSize = ReadUInt(pos+0x4);
+					if(v<=TXIDSize/4){
+						local uint32 TxidXnTextureMatch = ReadUInt(pos+(v*4)+0x8);
+						SPrintf(s, Str("TXID: %d", TxidXnTextureMatch));
+					}else{
+						SPrintf(s, "TXID");
+					}
+				}else{
+					SPrintf(s, "Missing TXID Chunk");
+				}
+			}
+		}
+	}else{
+		SPrintf( s, "%d", v );
+	}
+	return s;
+}
+
+typedef struct{
+	int32 ID;
+	struct{
+		uint32 Lit_ByLight_0x1			 :1; //Particles are affected by lighting;
+		uint32 Unk_0x2					 :1; //
+		uint32 Billboarded_0x4			 :1; //On emission, particle orientation is affected by player orientation
+		uint32 TravelUp_0x8 			 :1; //Particles travel "up" in world space, rather than model.
+		uint32 NoTrail_0x10 			 :1; //Do not Trail
+		uint32 UnLit_0x20				 :1; //Unlightning
+		uint32 BurstMulti_0x40			 :1; //Use Burst Multiplier
+		uint32 ModelSpace_0x80			 :1; //Particles in Model Space (Causes animation of the particle emitter to be carried over to the particles.[1])
+		uint32 Unk_0x100				 :1; //
+		uint32 Randomizer_0x200 		 :1; //Spawn position randomized in some way?
+		uint32 Pinned_0x400 			 :1; //STYLE: Pinned Particles, their quad enlarges from their creation position to where they expand.
+		uint32 Unk_0x800				 :1; //
+		uint32 XYQuad_Allign_0x1000 	 :1; //XYQuad Particles. They align to XY axis facing Z axis direction. (Causes the particles to be a type of tail that orients to the XY grid.[1])
+		uint32 GroundClamp_0x2000		 :1; //Clamp to ground; call CParticleEmitter2::ProjectParticle
+		uint32 Unk_0x4000				 :1; //
+		uint32 Unk_0x8000				 :1; //
+		uint32 RngTexture_0x10000		 :1; //ChooseRandomTexture
+		uint32 Outwards_x20000			 :1; //STYLE: "Outward" particles, most emitters have this and their particles move away from the origin, when they don't the particles start at origin+(speed*life) and move towards the origin.
+		uint32 Inwards_0x40000			 :1; //STYLE: unknown. In a large proportion of particles this seems to be simply the opposite of the above flag, but in some (e.g. voidgod.m2 or wingedlionmount.m2) both flags are true.
+		uint32 DisableScaleVary_0x80000  :1; //If set, ScaleVary affects x and y independently; if not set, ScaleVary.x affects x and y uniformly, and ScaleVary.y is not used.
+		uint32 RngFlip_0x200000 		 :1; //Random FlipBookStart
+		uint32 IgnoreDistance_0x400000	 :1; //Ignores Distance (or 0x4000000?!, CMapObjDef::SetDoodadEmittersIgnoresDistance has this one)
+		uint32 GravityComp_0x800000 	 :1; //Gravity values are compressed vectors instead of z-axis values (see Compressed Particle Gravity below)
+		uint32 BoneGen_0x1000000		 :1; //Bone generator = bone, not joint
+		uint32 NoThrottle_0x4000000 	 :1; //Do not throttle emission rate based on distance
+		uint32 Multitexturing_0x10000000 :1; //Particle uses multi-texturing (could be one of the other WoD-specific flags), see multi-textured section.
+	}Particle_Flags;
+	C3Vector Pos;
+	int16 Parent_Bone;
+	if(xpac >= CATA){		// Im not sure about this part tho
+		struct{
+			uint16 Texture_0 : 5;
+			uint16 Texture_1 : 5;
+			uint16 Texture_2 : 5;
+			uint16 Unk       : 1;
+		}Multitexture;
+	}else{
+		uint16 texture;
+	}
+
+	int32 GeometryModel_length;
+	int32 GeometryModel_offset<format=hex>;
+
+	if(GeometryModel_length > 1){
+		struct{
+			local int oldpos = FTell();
+			FSeek(GeometryModel_offset + ofsMD21_8);
+			string Texture;
+			FSeek(oldpos);
+		}GeometryModelName;
+	}
+
+	int32 RecursionModel_length;
+	int32 RecursionModel_offset<format=hex>;
+
+	if(RecursionModel_length > 1){
+		struct{
+			local int oldpos=FTell();
+			FSeek(RecursionModel_offset + ofsMD21_8);
+			string texture;
+			FSeek(oldpos);
+		}RecursionModelName;
+	}
+	if( ReadInt(0x4 + ofsMD21_8) >= 262 ){ // Late TBC+ only
+		PARTICLE_BLENDING Blending;
+	}else{
+		PARTICLE_BLENDING_TBC Blending;
+	}
+
+	if((xpac <= WOTLK) && (Blending >=5)){   // Blending Higher than LK
+		if(MessageBoxMask==0){
+			 MessageBoxMask = MessageBox(idYes | idOk | idNo,
+			 "Invalid Blending",
+			 "Emitter_type has higher value than Wotlk 3.3.5 Supports at: 0x%LX\n" +
+			 "Do you want this template to output a script to set default value? If Yes then press Ok\n" +
+			 "In case you want to repair all particles as they are found then press Yes",
+			 FTell());
+		}
+		if(MessageBoxMask==idOk){
+			Particle_ItemsFix1[ParticleArrayIndex1] = ((FTell()-0x1)); //Printf("test adr: %LX\n", Particle_ItemsFix[ParticleArrayIndex]);
+			ParticleArrayIndex1++;
+			Printf("Blending at: 0x%LX listed for fix default value will be: 0\n", (FTell()-0x1));
+			MessageBoxMask=0;
+		}
+		if(MessageBoxMask==idYes){
+			Particle_ItemsFix1[ParticleArrayIndex1] = ((FTell()-0x1)); //Printf("test adr: %LX\n", Particle_ItemsFix[ParticleArrayIndex]);
+			ParticleArrayIndex1++;
+			Printf("Blending at: 0x%LX listed for fix default value will be: 0\n", (FTell()-0x1));
+		}
+		if(MessageBoxMask==idNo){
+			Printf("Particles Error: Blending has higher value than Wotlk 3.3.5 Supports at: 0x%LX\n", FTell());
+			MessageBoxMask=0;
+		}
+	}
+
+	if( ReadInt(0x4 + ofsMD21_8) >= 262 ){  // Late TBC+ only
+		EMITTER_TYPE Emitter_type;
+	}else{
+		EMITTER_TYPE_TBC Emitter_type;
+	}
+
+	if((xpac <= WOTLK) && ((Emitter_type >=4) | (Emitter_type ==0)) ){   // Emitter_type Higher than LK
+		if(MessageBoxMask==0){
+			 MessageBoxMask = MessageBox(idYes | idOk | idNo,
+			 "Invalid Emitter type",
+			 "Emitter_type has higher value than Wotlk 3.3.5 Supports at: 0x%LX\n" +
+			 "Do you want this template to output a script to set default value? If Yes then press Ok\n" +
+			 "In case you want to repair all particles as they are found then press Yes",
+			 FTell());
+		}
+		if(MessageBoxMask==idOk){
+			Particle_ItemsFix2[ParticleArrayIndex2] = ((FTell()-0x1)); //Printf("test adr: %LX\n", Particle_ItemsFix[ParticleArrayIndex]);
+			ParticleArrayIndex2++;
+			Printf("Emitter_type at: 0x%LX listed for fix default value will be: 1\n", (FTell()-0x1));
+			MessageBoxMask=0;
+		}
+		if(MessageBoxMask==idYes){
+			Particle_ItemsFix2[ParticleArrayIndex2] = ((FTell()-0x1)); //Printf("test adr: %LX\n", Particle_ItemsFix[ParticleArrayIndex]);
+			ParticleArrayIndex2++;
+			Printf("Emitter_type at: 0x%LX listed for fix default value will be: 1\n", (FTell()-0x1));
+		}
+		if(MessageBoxMask==idNo){
+			Printf("Particles Error: Emitter_type has higher value than Wotlk 3.3.5 Supports at: 0x%LX\n", FTell());
+			MessageBoxMask=0;
+		}
+	}
+
+	if( ReadInt(0x4 + ofsMD21_8) >= 262 ){   // Late TBC+ only
+		uint16 ParticleColorReplaceable;
+	}
+
+	if( xpac >= CATA ){
+		struct{
+			ubyte MultiTextureParam1_2 : 2;
+			ubyte MultiTextureParam1_5 : 5;
+			ubyte MultiTextureParam2_2 : 2;
+			ubyte MultiTextureParam2_5 : 5;
+		}MultiTextureParams;
+	}else{
+		PARTICLE_TYPE Particle_type;
+		if(/*(xpac <= WOTLK) &&*/ (Particle_type >=3)){   // Particle_type Higher than LK
+			if(MessageBoxMask==0){
+				 MessageBoxMask = MessageBox(idYes | idOk | idNo,
+				 "Invalid Particly type",
+				 "Particle_type has higher value than Wotlk 3.3.5 Supports at: 0x%LX\n" +
+				 "Do you want this template to output a script to set default value? If Yes then press Ok\n" +
+				 "In case you want to repair all particles as they are found then press Yes",
+				 FTell());
+			}
+			if(MessageBoxMask==idOk){
+				Particle_ItemsFix1[ParticleArrayIndex1] = ((FTell()-0x1)); //Printf("test adr: %LX\n", Particle_ItemsFix[ParticleArrayIndex]);
+				ParticleArrayIndex1++;
+				Printf("Particle_type at: 0x%LX listed for fix default value will be: 0\n", (FTell()-0x1));
+				MessageBoxMask=0;
+			}
+			if(MessageBoxMask==idYes){
+				Particle_ItemsFix1[ParticleArrayIndex1] = ((FTell()-0x1)); //Printf("test adr: %LX\n", Particle_ItemsFix[ParticleArrayIndex]);
+				ParticleArrayIndex1++;
+				Printf("Particle_type at: 0x%LX listed for fix default value will be: 0\n", (FTell()-0x1));
+			}
+			if(MessageBoxMask==idNo){
+				Printf("Particles Error: Particle_type has higher value than Wotlk 3.3.5 Supports at: 0x%LX\n", FTell());
+				MessageBoxMask=0;
+			}
+		}
+		E_HEAD_OR_TAIL Head_or_Tail;
+		if(/*(xpac <= WOTLK) &&*/ (Head_or_Tail >=3)){   // Head_or_Tail Higher than LK
+			if(MessageBoxMask==0){
+				 MessageBoxMask = MessageBox(idYes | idOk | idNo,
+				 "Invalid Head or Tail",
+				 "Head_or_Tail has higher value than Wotlk 3.3.5 Supports at: 0x%LX\n" +
+				 "Do you want this template to output a script to set default value? If Yes then press Ok\n" +
+				 "In case you want to repair all particles as they are found then press Yes",
+				 FTell());
+			}
+			if(MessageBoxMask==idOk){
+				Particle_ItemsFix1[ParticleArrayIndex1] = ((FTell()-0x1)); //Printf("test adr: %LX\n", Particle_ItemsFix[ParticleArrayIndex]);
+				ParticleArrayIndex1++;
+				Printf("Head_or_Tail at: 0x%LX listed for fix default value will be: 0\n", (FTell()-0x1));
+				MessageBoxMask=0;
+			}
+			if(MessageBoxMask==idYes){
+				Particle_ItemsFix1[ParticleArrayIndex1] = ((FTell()-0x1)); //Printf("test adr: %LX\n", Particle_ItemsFix[ParticleArrayIndex]);
+				ParticleArrayIndex1++;
+				Printf("Head_or_Tail at: 0x%LX listed for fix default value will be: 0\n", (FTell()-0x1));
+			}
+			if(MessageBoxMask==idNo){
+				Printf("Particles Error: Head_or_Tail has higher value than Wotlk 3.3.5 Supports at: 0x%LX\n", FTell());
+				MessageBoxMask=0;
+			}
+		}
+	}
+
+	int16 TextureTileRotation;
+	int16 TextureDimensions_rows;
+	int16 TextureDimensions_columns;
+	M2Track Emissionspeed("T", "Timestamp", "V", "float", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;
+	M2Track Speed_var("T", "Timestamp", "V", "float", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;
+	M2Track Vertical_range("T", "Timestamp", "V", "float", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;
+	M2Track Horizontal_range("T", "Timestamp", "V", "float", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;
+	M2Track Gravity("T", "Timestamp", "V", "float", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;
+	M2Track Lifespan("T", "Timestamp", "V", "float", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;
+	if(xpac >= WOTLK){ float LifespanVary; }
+	M2Track EmissionRate("T", "Timestamp", "V", "float", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;
+	if(xpac >= WOTLK){ float EmissionRateVary; }
+	M2Track Emissionarea_length("T", "Timestamp", "V", "float", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;
+	M2Track Emissionarea_width("T", "Timestamp", "V", "float", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;
+	M2Track zSource("T", "Timestamp", "V", "float", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;
+	if(xpac >= WOTLK){
+		M2Track ColorTrack("sT", "sTimestamp", "sV", "RGB", 0)<fgcolor=0x2828FF, bgcolor=0x191919>;
+		M2Track AlphaTrack("sT", "sTimestamp", "sV", "int16", 0)<fgcolor=0x2828FF, bgcolor=0x191919>;
+		M2Track ScaleTrack("sT", "sTimestamp", "sV", "C2Vector", 0)<fgcolor=0x2828FF, bgcolor=0x191919>;
+		C2Vector ScaleVary;
+		M2Track HeadCellTrack("sT", "sTimestamp", "sV", "int16", 0)<fgcolor=0x2828FF, bgcolor=0x191919>;
+		M2Track TailCellTrack("sT", "sTimestamp", "sV", "int16", 0)<fgcolor=0x2828FF, bgcolor=0x191919>;
+	}else{
+        float midPoint;			   // MiddleTime; Middle point in lifespan (0 to 1). Time (parametric) Middle â€“ The relative time of the middle key to the life.[1]								 
+        C4Byte colorValues[3];	   // Color, Start/Middle/End â€“ Three values of BGRA Multiply for the particle.[1]
+        float  ScaleValues[3];	   // Scale, Start/Middle/End â€“ Scale of the particle in units across.[1]
+        uint16 LifespanUVAnim[3];  // Lifespan Head UV Anim â€“ Starting, middle and ending cell number for animating texture sequence of the first half of the Head particleâ€™s life. Repeat will cause this animating texture to cycle.[1]
+        uint16 DecayUVAnim[3];	   // Decay Head UV Anim - Starting, middle and ending cell number for animating texture sequence of the second half of the Head particleâ€™s life. Repeat will cause this animating texture to cycle.[1]
+        int16  TailUVAnim[2];	   // Lifespan Tail UV Anim - Starting and ending cell number for animating texture sequence of the first half of the Tail particleâ€™s life. Repeat will cause this animating texture to cycle.[1]
+        int16  TailDecayUVAnim[2]; // Decay Tail UV Anim - Starting and ending cell number for animating texture sequence of the second half of the Tail particleâ€™s life. Repeat will cause this animating texture to cycle.[1]
+	}
+	float TailLength;
+	float TwinkleSpeed;
+	float TwinklePercent;
+	C2Vector TwinkleScale;
+	float BurstMultiplier;
+	float Drag;
+	if(xpac >= WOTLK){
+		float BaseSpin;
+		float BaseSpinVary;
+		float Spin;
+		float SpinVary;
+	}else{
+		float Spin;
+	}
+	C3Vector TumbleMin;
+	C3Vector TumbleMax;
+	C3Vector WindVector;
+	float WindTime;
+	float FollowSpeed1;
+	float FollowScale1;
+	float FollowSpeed2;
+	float FollowScale2;
+	int32 nSplinePoints;
+	int32 ofsSplinePoints<format=hex>;
+
+	if(nSplinePoints!=0){
+		local int oldpos = FTell();
+		FSeek(ofsSplinePoints + ofsMD21_8);
+		C3Vector Spline_Points[nSplinePoints];
+		FSeek(oldpos);
+	}
+
+	M2Track EnabledIn("T", "Timestamp", "V", "byte", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;
+
+	if(xpac >= CATA){
+		ushort unk1_1<comment="Cata+ Filler">; //03.12.2021
+		ushort unk1_2<comment="Cata+ Filler">; //Trimitor: According to some information, this is "multi_texture_params"
+		ushort unk2_1<comment="Cata+ Filler">;
+		ushort unk2_2<comment="Cata+ Filler">; //Nix: textureIndex? The single uint16 is split into 3x5 bit values each texture id goes from 0..31?
+		ushort unk3_1<comment="Cata+ Filler">;
+		ushort unk3_2<comment="Cata+ Filler">;
+		ushort unk4_1<comment="Cata+ Filler">;
+		ushort unk4_2<comment="Cata+ Filler">;
+	}
+}sParticles<optimize=false>;
+
+typedef struct{
+	int32 RibbonID;					 // Always (as I have seen): -1.
+	int32 Parent_Bone;				 // A bone to attach to.
+	C3Vector Position;				 // And a position, relative to that bone.
+	int32 nTextures;				 // Into textures
+	int32 ofsTextures<format=hex>;
+    local int oldpos;
+	if(nTextures != 0){
+		if(nTextures==1){
+			oldpos = FTell();
+			FSeek(ofsTextures + ofsMD21_8);
+			int16 TextureIndex;
+			FSeek(oldpos);
+		}else{
+			struct{
+				oldpos = FTell();
+				FSeek(ofsTextures + ofsMD21_8);
+				local int i = 0;
+				while(i < nTextures){
+					int16 TextureIndex;
+					i++;
+				}
+				FSeek(oldpos);
+			}TextureIndices;
+		}
+	}
+	int32 nMaterial;				 // Into materials
+	int32 ofsMaterial<format=hex>;
+	if(nMaterial != 0){
+		if(nMaterial==1){
+			oldpos = FTell();
+			FSeek(ofsMaterial + ofsMD21_8);
+			int16 MaterialIndex;
+			FSeek(oldpos);
+		}else{
+ 			struct{
+				local int oldpos = FTell();
+				FSeek(ofsMaterial + ofsMD21_8);
+				local int i = 0;
+				while(i < nMaterial){
+					int16 MaterialIndex;
+					i++;
+				}
+				FSeek(oldpos);
+			}MaterialIndices;
+		}
+	}
+    
+    if(xpac >= WOTLK){
+		M2Track ColorTrack("sT", "sTimestamp", "V", "C3RGB", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;     // An RGB multiple for the material.
+        M2Track AlphaTrack("sT", "sTimestamp", "sV", "int16", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;   // And an alpha value in a short, where: 0 - transparent, 0x7FFF - opaque.
+    }else{
+		M2Track ColorTrack("T", "Timestamp", "V", "RGB", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;     // An RGB multiple for the material.
+		M2Track AlphaTrack("T", "Timestamp", "V", "int16", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;   // And an alpha value in a short, where: 0 - transparent, 0x7FFF - opaque.
+    }
+	M2Track heightAboveTrack("T", "Timestamp", "V", "float", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;   // Above and Below â€“ These fields define the width of a ribbon in units based on their offset from the origin.
+	M2Track heightBelowTrack("T", "Timestamp", "V", "float", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;   // do not set to same!
+	float EdgesPerSec;       // This defines how smooth the ribbon is. A low value may produce a lot of edges.  Edges/Sec â€“ The number of quads generated.
+	float EdgeLifeSpanInSec; // The length aka Lifespan. in seconds Time in seconds that the quads stay around after being generated.
+	float Gravity;		     // Use arcsin(val) to get the emission angle in degree Can be positive or negative. Will cause the ribbon to sink or rise in the z axis over time.
+	int16 TextureRows;	     // Tiles in texture
+	int16 TextureCols;	     // Texture Rows and Cols â€“ Allows an animating texture similar to BlizParticle. Set the number of rows and columns equal to the texture.
+	M2Track TexSlotTrack("T", "Timestamp", "V", "uint16", 1)<bgcolor=0x2828FF, bgcolor=0x191919>;   // Pick the index number of rows and columns, and animate this number to get a cycle.
+	M2Track VisibilityTrack("T", "Timestamp", "V", "byte", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;
+	if(xpac >= WOTLK){
+		int16 PriorityPlane;
+		byte RibbonColorIndex;
+		byte TextureTransformLookupIndex; // Index into m2data.header.textureTransformCombos. Applied only if m2data.header.global_flags.flag_unk_0x20000 flag is set
+	}
+}sRibbons;
+
+typedef struct{
+	M2Track Color("T", "Timestamp", "V", "C3Vector", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;
+	M2Track Alpha("T", "Timestamp", "V", "uint16", 1)<fgcolor=0x2828FF, bgcolor=0x191919>;
+}sColors;
+
+typedef struct{
+	M2Track Translation("T", "Timestamp", "V", "C3Vector", 1)<fgcolor=0xF9F934, bgcolor=0x191919>;
+	M2Track Rotation("T", "Timestamp", "V", "C4CompQuatVector", 1)<fgcolor=0xF9F934, bgcolor=0x191919>;
+	M2Track Scaling("T", "Timestamp", "V", "C3Vector", 1)<fgcolor=0xF9F934, bgcolor=0x191919>;
+}Texture_Animations;
+
+typedef struct{
+	E_CAMERATYPE Type;
+	if(xpac < CATA){
+	    local uint32 pos = FTell();
+	    float Diag_FOV<read=Str("Rad: %f Deg: %f", this, (this*180/PI)), comment="Diagonal FOV, Wotlk">;
+	    FSeek(pos);
+	    float Vert_FOV<read=Str("Rad: %f Deg: %f", (this)/Sqrt(1+Pow((1.77777),2)), ((this)/Sqrt(1+Pow((1.77777),2))*180/PI)), comment="Vertical FOV, Wotlk">;
+	    //vFoV = (FoV)/Sqrt(1+Pow((res_x/res_y),2));
+	    FSeek(pos);
+	    float Hori_FOV<read=Str("Rad: %f Deg: %f", ((this)/Sqrt(1+Pow((1.77777),2))*(1.77777)), (((this)/Sqrt(1+Pow((1.77777),2))*180/PI))*(1.77777)), comment="Horizontal FOV, Wotlk">;
+	    //hFoV = vFoV*(res_x/res_y);
+    
+	    /*  Export conversion:
+		    Convert horizontal to vertical:
+		    vFoV = hFoV / ( res_x / res_y );
+		    Convert vertical to diagonal:
+		    FoV = vFoV * Sqrt( 1 + Pow(( res_x / res_y ), 2)); */
+	}
+	float FarClipping;
+	float NearClipping;
+	M2Track TranslationPos("T", "Timestamp", "V", "C3VectorBF", 1)<fgcolor=0xFF0C00, bgcolor=0x191919>;
+	C3Vector Pos;
+	M2Track TranslationTar("T", "Timestamp", "V", "C3VectorBF", 1)<fgcolor=0xFF0C00, bgcolor=0x191919>;
+	C3Vector Target;
+	M2Track RollEffect("T", "Timestamp", "V", "C3Vector", 1)<fgcolor=0xFF0C00, bgcolor=0x191919>;
+	if(xpac >= CATA){
+		M2Track FOV("T", "Timestamp", "V", "C3Vector", 1)<fgcolor=0xFF0C00, bgcolor=0x191919, comment="Cata+">;
+	}
+}sCameras<read=ReadCam>;
+
+string ReadCam(sCameras &c){
+	return EnumToString(c.Type);
+}
+
+typedef int16 CameraIndicesByIDRec<read=readCameraIndicesByIDRec>;
+
+string readCameraIndicesByIDRec( CameraIndicesByIDRec v ){
+	string s;
+	if(v!=-1){
+		local uint32 ofsCameraTemp = ReadUInt(0x114 + ofsMD21_8);
+		local E_CAMERATYPE CameraType = ReadUInt(0x0 + ofsCameraTemp + ( v * 0x64) + ofsMD21_8);
+		SPrintf(s, "%d : %s", v, EnumToString(CameraType));
+	}else{
+		SPrintf(s, "%d", v);
+	}
+	return s;
+}
+
+typedef struct{
+	union{
+		E_RENDERFLAGS Enum_flag;
+		struct{
+			uint16 Unlit_0x1							:1; 
+			uint16 Unfogged_0x2							:1; 
+			uint16 TwoSided_0x4 						:1; // (No backface culling if set)
+			uint16 DepthTest_0x8						:1;
+			uint16 DepthWrite_0x10					    :1;
+			uint16 Unk_0x20							    :1;
+			uint16 ShadowBatch_0x40			            :1; // Shadow batch related ??? (seen in WoD) (seen in 31 models in Wrath)
+			uint16 ShadowBatch_0x80 	 		        :1; // Shadow batch related ??? (seen in WoD) (seen in 2 models in Wrath : SpectralTiger.m2 and SpectralTigerEpic.m2)
+			uint16 UNK_Fog_0x100					    :1<comment="LK+">;  // (seen in 1 model in Wrath : HFjord_Fog_02.m2)
+			uint16 ShadowBatch_0x200					:1<comment="WoD+">; // shadow batch related ??? (seen in WoD)
+			uint16 Unk_0x400 							:1<comment="WoD+">;
+			uint16 PreventAlphaForCustomElements_0x800	:1<comment="MoP+">;
+			uint16 Unk_0x1000                           :1;
+		}E_MaterialFLAGS<format=binary>;  // <read=Str("%f", (this*1.0))>;
+	}flags<read=(Str("%s (%d)", EnumToString(Enum_flag), ReadUShort(startof(this)) )), open=true>;
+	//E_RENDERFLAGS flag;
+	E_RENDERMODES blendingmode;
+}sMaterials<read=ReadMaterial>;
+
+string ReadMaterial(sMaterials &m){ //TODO
+	return Str("%s (%d) \t\t %s (%d)", EnumToString(m.blendingmode), m.blendingmode, EnumToString(m.flags.Enum_flag), m.flags.Enum_flag) ;
+}
+
+struct{ // Start of 'M2_file.' structure
+if(ReadString(0x0,4) == "MD21"){
+	CHAR MD21Magic[4]<fgcolor=cYellow>;
+	uint ofsMD21<format=hex, fgcolor=cYellow>;
+	ofsMD21_8 = 0x8;
+}else{
+	ofsMD21_8 = 0x0;
+}
+
+CHAR MD20Magic[4]<fgcolor=0x5050DD>;	   // 0x0
+if(xpac == VANILLA){ uint Version<comment=Str("%s", EnumToString(xpac)), fgcolor=0x98391A>; } // 0x4
+if(xpac == TBC)    { uint Version<comment=Str("%s", EnumToString(xpac)), fgcolor=cLtGreen>; }
+if(xpac == WOTLK)  { uint Version<comment=Str("%s", EnumToString(xpac)), fgcolor=cAqua>;	}
+if(xpac == CATA)   { uint Version<comment=Str("%s", EnumToString(xpac)), fgcolor=0xFF0000>; }
+if(xpac == MOP)    { uint Version<comment=Str("%s", EnumToString(xpac)), fgcolor=609805>;   }
+if(xpac == WOD)    { uint Version<comment=Str("%s", EnumToString(xpac)), fgcolor=0xFFA07A>; }
+if(xpac == LEGION) { uint Version<comment=Str("%s", EnumToString(xpac)), fgcolor=cGreen>;   }
+if(exists(Version)!=1 ){ uint Version<comment="Unk", fgcolor=0x5050DD>; }
+
+SetForeColor(0x5050DD);
+uint lName; 							   // 0x8
+uint ofsName<format=hex>;				   // 0xC
+struct{									   // 0x10
+	uint32 Tilt_X_0x1						   :1<comment="Vanila">;   // model will tilt according to terrain on X axis
+	uint32 Tilt_Y_0x2						   :1<comment="Vanila">;   // model will tilt according to terrain on Y axis
+	uint32 Unk_0x4							   :1<comment="Vanila">;
+	uint32 Texture_Combiner_0x8 			   :1<comment="TBC">;	   // add textureCombinerCombos array to end of header
+	uint32 Unk_0x10 						   :1<comment="TBC">;
+	uint32 Load_Phys_Data_Mop_0x20			   :1<comment="MoP">;
+	uint32 Unk_0x40 						   :1<comment="MoP">;
+	uint32 Unk_Wod_0x80 					   :1<comment="WoD">;
+	uint32 CameraReleated_0x100 			   :1<comment="WoD">;
+	uint32 New_Particle_Record_0x200		   :1<comment="Legion">;
+	uint32 Unk_0x400						   :1<comment="Legion">;
+	uint32 TexTransformsUseBoneSequences_0x800 :1<comment="Legion">;
+	uint32 Unk_0x1000						   :1<comment="Legion">;
+	uint32 ChunkedAnimFiles_0x2000			   :1<comment="Legion">;   // seen in various legion models
+	uint32 Unk_0x4000						   :1<comment="Legion">;   // "armor2 model"?
+	uint32 Unk_0x8000						   :1<comment="Legion+">;  // seen in UI_MainMenu_Legion
+	uint32 Unk_0x10000						   :1;
+	uint32 Unk_0x20000						   :1;
+	uint32 Unk_0x40000						   :1;
+	uint32 Unk_0x80000						   :1;
+	uint32 Unk_0x100000 					   :1;
+	uint32 Unk_0xNewChunks 					   :1; // Apparently: use 24500 upgraded model format: chunked .anim files, change in the exporter reordering sequence+bone blocks before name or if the M2 has a .skel file
+	uint32 Unk_0x400000 					   :1;
+	uint32 Unk_0x800000 					   :1;
+	uint32 Unk_0x1000000 					   :1;
+	uint32 Unk_0x2000000 					   :1;
+	uint32 Unk_0x4000000 					   :1;
+	uint32 Unk_0x8000000 					   :1;
+	uint32 Unk_0x10000000 					   :1;
+	uint32 Unk_0x20000000 					   :1;
+	uint32 Unk_0x40000000 					   :1;
+	uint32 Unk_0x80000000 					   :1;
+}Flags<read=Str("%Xh", ReadUInt(0x10+ofsMD21_8))>; // WIP
+uint nLoops<comment="GlobalSequneces">;	   // 0x14
+uint ofsLoops<format=hex>;				   // 0x18
+uint nSequences<comment="Animations">;	   // 0x1C
+uint ofsSequences<format=hex>; 			   // 0x20
+uint nSequenceIdxHashByID<comment="AnimLookUp">;// 0x24
+uint ofsSequenceIdxHashByID<format=hex>;   // 0x28
+if(xpac <= TBC){   // M2SequenceFallback TBC insert
+	uint nSequenceFallback<format=hex, comment="TBC">;
+	uint ofsSequenceFallback<format=hex>;
+}
+uint nBones;								// 0x2C
+uint ofsBones<format=hex>;					// 0x30
+uint nBoneIndicesByID<comment="KeyBones">; 	// 0x34
+uint ofsBoneIndicesByID<format=hex>;		// 0x38
+uint nVertices; 							// 0x3C
+uint ofsVertices<format=hex>;				// 0x40
+uint nSkinProfiles<comment="Views">;		// 0x44
+if(xpac <= TBC){   // skin_profiles TBC insert
+	uint ofsSkinProfiles<format=hex, comment="TBC">;
+}
+uint nColors;								// 0x48
+uint ofsColors<format=hex>; 				// 0x4C
+uint nTextures; 							// 0x50
+uint ofsTextures<format=hex>;				// 0x54
+uint nTexWeights<comment="Transparency">;   // 0x58
+uint ofsTexWeights<format=hex>;				// 0x5C
+if(xpac <= TBC){   // M2SequenceFallback TBC insert
+	uint nTextureFlipbook<format=hex, comment="TBC">;   // Never seen in file, 4 uint32_t fields. (M2Track<ushort>)
+	uint ofsTextureFlipbook<format=hex>;
+}
+uint nTexTransforms<comment="TexAnimations">;// 0x60
+uint ofsTexTransforms<format=hex>;			// 0x64
+uint nTexIndicesByID<comment="ReplaceTextureLookup">;// 0x68 // (alt. name: replacable_texture_lookup)
+uint ofsTexIndicesByID<format=hex>; 		// 0x6C
+uint nMaterials;							// 0x70 // Blending modes / render flags.
+uint ofsMaterials<format=hex>;				// 0x74
+uint nBoneCombos<comment="BoneLookUp">;	    // 0x78 // (alt. name: bone_lookup_table)
+uint ofsBoneCombos<format=hex>;				// 0x8C
+uint nTexCombos<comment="TexLookup">;	    // 0x80 // (alt. name: texture_lookup_table)
+uint ofsTexCombos<format=hex>;  			// 0x84
+uint nTexCoordCombos<comment="TexUnitLookUp">;// 0x88 // (alt. name: tex_unit_lookup_table, texture_mapping_lookup_table)
+uint ofsTexCoordCombos<format=hex>;			// 0x9C
+uint nTexWeightCombos<comment="TransparencyLookUp">;// 0x90 // (alt. name: transparency_lookup_table)
+uint ofsTexWeightCombos<format=hex>;		// 0x94
+uint nTexTransformCombos<comment="TexTransformsLookUp">;// 0x98 // (alt. name: texture_transforms_lookup_table)
+uint ofsTexTransformCombos<format=hex>;		// 0x9C
+TheFloats Bounds<comment="ModelBox">;	    // 0xA0
+uint nCollisionIndices<comment="C.triangles">; // 0xD8 // (alt. name: collision_triangles)
+uint ofsCollisionIndices<format=hex>;		// 0xDC
+uint nCollisionPositions<comment="C.vertices">;// 0xE0 // (alt. name: collision_vertices)
+uint ofsCollisionPositions<format=hex>; 	// 0xE4
+uint nCollisionFaceNormals<comment="C.normals">;// 0xE8 // (alt. name: collision_normals)
+uint ofsCollisionFaceNormals<format=hex>;	// 0xEC
+uint nAttachments;							// 0xF0
+uint ofsAttachments<format=hex>;			// 0xF4
+uint nAttachIndicesByID<comment="AttachLookUp">;// 0xF8
+uint ofsAttachIndicesByID<format=hex>;		// 0xFC
+uint nEvents;								// 0x100
+uint ofsEvents<format=hex>; 				// 0x104
+uint nLights;								// 0x108
+uint ofsLights<format=hex>; 				// 0x10C
+uint nCameras;								// 0x110
+uint ofsCameras<format=hex>;				// 0x114
+uint nCameraIndicesByID<comment="CameraLookUp">;// 0x118
+uint ofsCameraIndicesByID<format=hex>;		// 0x11C
+uint nRibbonEmitters;						// 0x120
+uint ofsRibbonEmitters<format=hex>; 		// 0x124
+uint nParticleEmitters; 					// 0x128
+uint ofsParticleEmitters<format=hex>;		// 0x12C
+
+if(ReadInt(0x10 + ofsMD21_8) & 8){
+	uint nTextureCombiner;					// 0x130 // Second_Texture_Material_Override_Combos
+	uint ofsTextureCombiner<format=hex>;	// 0x134
+	FSeek(ofsTextureCombiner + ofsMD21_8);
+	if(nTextureCombiner % 2 == 0){
+		Texture_Combiner TextureCombiner[ (nTextureCombiner/2) ];
+	}else{
+		uint16 _TxtCombo[nTextureCombiner];
+	}
+}
+
+if(ofsLoops != 0){						    // Global Sequences Block
+	FSeek(ofsLoops + ofsMD21_8);
+	uint32 Loops[nLoops]<fgcolor=cDkRed, bgcolor=cDkGray>;
+}
+
+if(ofsName != 0){ 						    // Internal Model Name Block
+	FSeek(ofsName + ofsMD21_8);
+	string ModelName<fgcolor=cWhite, bgcolor=cBlack>;
+}
+
+if(ofsSequences != 0){					    // Animations Sequences Block
+	FSeek(ofsSequences + ofsMD21_8);
+	sSequences Sequences[nSequences]<optimize=true, fgcolor=cAqua, bgcolor=cDkGray>;
+}else{
+	if(!exists(ofsMD21)) local uint64 ofsMD21;
+	if(FindFirst("SKID", true, false, 0, 0.0, 1, (ofsMD21)) == -1){
+		local string NoAnimWarn = "No Animations/SKID in model will result in crash!";
+		Printf(NoAnimWarn + "\n");
+		Warning(NoAnimWarn);
+	}
+}
+
+if(ofsSequenceIdxHashByID != 0){		    // Animations LookUp Block
+	FSeek(ofsSequenceIdxHashByID + ofsMD21_8);
+	struct{
+	    local int16 i=0;
+        //local E_SEQUENCES eSequenceIDxHashId_reader;
+	    while(i < nSequenceIdxHashByID){
+            //eSequenceIDxHashId_reader = i;
+            SequenceIdxHashByIdEntry_rec eSequenceIDxHashId_record;
+            //int16 Data<name=EnumToString(eSequenceIDxHashId_reader)>;
+		    i++;
+	    }
+		//SequenceIdxHashByIDEntry(nSequenceIdxHashByID);
+	}SequenceIDxHashByID<name=(Str("SequenceIDxHashByID[%d]", M2_file.nSequenceIdxHashByID)), fgcolor=0xFFAA00, bgcolor=cDkGray>;
+}
+
+if(xpac <= TBC){   // M2SequenceFallback TBC insert
+	if(ofsSequenceFallback != 0){		    // playable_animation_lookup
+		FSeek(ofsSequenceFallback + ofsMD21_8);
+		sSequenceFallback SequenceFallback[nSequenceFallback]<fgcolor=cAqua, bgcolor=cDkGray>;
+	}
+}
+
+if(nBones !=0){    // nBoneLimiter
+	if(nBones > nBoneLimiter){
+		FSeek(ofsBones + ofsMD21_8);	    // Bone Block - short
+		sBone Bones(0)[nBones]<optimize=false, fgcolor=0xFF00FF, bgcolor=0x331900>;
+        Printf("Loaded Keyframeless Bone M2Tracks, Current Limit is: %d\n", nBoneLimiter);
+	}else{
+		FSeek(ofsBones + ofsMD21_8);	    // Bone Block - complete
+		struct{
+			local int n=0;
+			while(n < nBones){
+				sBone Bones(1)<optimize=false, fgcolor=0xFF00FF, bgcolor=0x331900>;
+				n++;
+			}
+            Printf("Loaded Keyframe Bone M2Tracks\n");
+		}Bones<name=(Str("Bones[%d]", M2_file.nBones))>;
+	}
+
+/*	if(nBones > 100){
+	    if(MessageBox(idYes | idNo, "Bone Count",
+	    "M2 ('%s') has 100+ bones do you wish to skip bone timestamps ?",
+	    FileNameGetBase(GetFileName()))  == idYes){
+		    FSeek(ofsBones + ofsMD21_8);	   // Bone Block - short
+		    sBone Bones(0)[nBones]<optimize=false, fgcolor=0xFF00FF, bgcolor=0x331900>;
+	    }else{
+		    FSeek(ofsBones + ofsMD21_8);	   // Bone Block - complete
+		    struct{
+			    local int n=0;
+			    while(n < nBones){
+				    sBone Bones(1)<optimize=false, fgcolor=0xFF00FF, bgcolor=0x331900>;
+				    n++;
+			    }
+		    }Bones<name=(Str("Bones[%d]", M2_file.nBones))>;
+	    }
+	}else{
+		FSeek(ofsBones + ofsMD21_8);		   // Bone Block - complete
+		struct{
+			local int n=0;
+			while(n < nBones){
+				sBone Bones(1)<optimize=false, fgcolor=0xFF00FF, bgcolor=0x331900>;
+				n++;
+			}
+		}Bones<name=(Str("Bones[%d]", M2_file.nBones))>;
+	}
+*/    
+}
+
+if(ofsBoneIndicesByID != 0){ 				 // KeyBoneLookup Block BoneIndicesByID
+	FSeek(ofsBoneIndicesByID + ofsMD21_8);
+	struct{
+		//BoneIndicesByIDEntry(nBoneIndicesByID);
+        local int i=0;
+	    while(i < nBoneIndicesByID){
+            BoneIndicesID_rec eBoneIndicesByID_record;
+		    i++;
+	    }
+	}BoneIndicesByID<name=(Str("BoneIndicesByID[%d]", M2_file.nBoneIndicesByID)), fgcolor=0xFF00FF, bgcolor=0x331900, comment="KeyBones">;
+}
+
+if(ofsVertices !=  0){ 						 // Vertices Block
+	FSeek(ofsVertices + ofsMD21_8);
+	sVertices Vertices[nVertices]<fgcolor=0x00FFFF, bgcolor=0x330033, read=Str("(%f %f %f)", this.Position.x, this.Position.y, this.Position.z)>;
+}
+
+if(xpac <= TBC){
+	if(ofsSkinProfiles !=  0){ 				 // Vertices Block
+		FSeek(ofsSkinProfiles + ofsMD21_8);
+		struct{
+			local int n = 0;
+			while(n < nSkinProfiles){
+				sSkinProfiles SkinProfiles(n)<fgcolor=0x00FFFF, bgcolor=0x330033>;
+				n++;
+			}
+		}SkinProfiles<name=(Str("SkinProfiles[%d]", M2_file.nSkinProfiles))>;
+	}
+}
+
+if(ofsColors != 0){						    // Color Block
+	FSeek(ofsColors + ofsMD21_8);
+	struct{
+		local int n = 0;
+		while(n < nColors){
+			sColors Color<fgcolor=0xFFFFFF, bgcolor=cDkGray>;
+			n++;
+		}
+	}Color<name=(Str("Color[%d]", M2_file.nColors))>;
+}
+
+if((nTextures!=0) && (ofsTextures!=0)){	    // Texture Block
+	FSeek(ofsTextures + ofsMD21_8);
+	struct{
+		local int n = 0;
+		while(n < nTextures){
+			sTexture Texture(n)<fgcolor=0xFF00BF, bgcolor=0x112200>;
+			n++;
+		}
+	}Textures<name=(Str("Textures[%d]", M2_file.nTextures))>;
+}
+
+if(ofsTexWeights != 0){ 					// Transparency Block  --> texture_weights
+	FSeek(ofsTexWeights + ofsMD21_8);
+	struct{
+		local int n = 0;
+		while(n < nTexWeights){
+			M2Track TexWeights("T", "Timestamp", "V", "uint16", 1)<fgcolor=0xF9F934, bgcolor=0x191919>;
+			n++;
+		}
+	}TexWeights<name=(Str("TexWeights[%d]", M2_file.nTexWeights)), comment="Transparency">;
+}
+
+if(ofsTexTransforms != 0){					// Texture Animation Block --> texture_flipbooks
+	FSeek(ofsTexTransforms + ofsMD21_8);
+	struct{
+		local int n = 0;
+		while(n < nTexTransforms){
+			Texture_Animations TexAnim<fgcolor=0xF9F934, bgcolor=0x191919>;
+			n++;
+		}
+	}TextureTransforms<name=(Str("TextureTransforms[%d]", M2_file.nTexTransforms))>;
+}
+
+if(ofsTexIndicesByID != 0){					// Texture Replacement Block --> texture_transforms
+	FSeek(ofsTexIndicesByID + ofsMD21_8);
+	struct{
+		local int n = 0;
+		while(n < nTexIndicesByID){
+			TexIndicesByIDRec TexIndicesByID;
+			n++;
+		}
+	}TexIndicesByIDTable<name=(Str("TexIndicesByIDTable[%d]", M2_file.nTexIndicesByID)), fgcolor=0xF9F934, bgcolor=0x191919, comment="ReplacableTextureLookup">;
+}
+
+if(ofsMaterials != 0){						// Texture materials
+	FSeek(ofsMaterials + ofsMD21_8);
+	sMaterials Materials[nMaterials]<fgcolor=0xFF00BF, bgcolor=0x000000>;
+}
+
+if(ofsBoneCombos != 0){						// BoneLookup Block
+	FSeek(ofsBoneCombos + ofsMD21_8);
+	int16 BoneCombosTable[nBoneCombos]<comment="BoneLookup" ,fgcolor=0xFF00FF, bgcolor=0x331900>;
+}
+
+if(ofsTexCombos != 0){						// Texture lookup
+	FSeek(ofsTexCombos + ofsMD21_8);
+	struct{
+		local int n = 0;
+		while(n < nTexCombos){
+			TexComboIDRec TexComboID;
+			n++;
+		}
+	}TexComboTableID<name=(Str("TexComboTableID[%d]", M2_file.nTexCombos)), comment="TexLookup" ,fgcolor=0xF9F934, bgcolor=0x191919>;
+}
+
+if(ofsTexCoordCombos != 0){ 				// Texture units
+	FSeek(ofsTexCoordCombos + ofsMD21_8);
+	E_Mapping TexCoordCombosTable[nTexCoordCombos]<comment="TexUnitLookup" ,fgcolor=0xF9F934, bgcolor=0x191919>;
+}
+
+if(ofsTexWeightCombos != 0){				// Transparency lookup
+	FSeek(ofsTexWeightCombos + ofsMD21_8);
+	int16 TexWeightCombosTable[nTexWeightCombos]<comment="TranspLookup" ,fgcolor=0xF9F934, bgcolor=0x191919>;
+}
+
+if(ofsTexTransformCombos != 0){				// Texture animation lookup
+	FSeek(ofsTexTransformCombos + ofsMD21_8);
+	int16 TexTransformCombosTable[nTexTransformCombos]<comment="TexAnimLookup" ,fgcolor=0xF9F934, bgcolor=0x191919>;
+}
+
+if(ofsCollisionIndices != 0){ 				// Collision_triangles
+	FSeek(ofsCollisionIndices + ofsMD21_8);
+	C3sVector CollisionIndices[nCollisionIndices/3]<optimize=false, fgcolor=0xFFFFFF, bgcolor=0xf995d8, comment="Triangles">;
+}
+
+if(ofsCollisionPositions != 0){				// Collision_vertices
+	FSeek(ofsCollisionPositions + ofsMD21_8);
+	C3Vector CollisionPositions[nCollisionPositions]<optimize=false, fgcolor=0xFFFFFF, bgcolor=0xf995d8, comment="Vertices">;
+}
+
+if(ofsCollisionFaceNormals != 0){ 			// Collision_normals
+	FSeek(ofsCollisionFaceNormals + ofsMD21_8);
+	C3Vector CollisionFaceNormals[nCollisionFaceNormals]<optimize=false, fgcolor=0xFFFFFF, bgcolor=0xf995d8, comment="Normals">;
+}
+
+if(ofsAttachments != 0){					// Attachment position of equipped weapons or effects
+	FSeek(ofsAttachments + ofsMD21_8);
+	struct{
+		local int n = 0;
+		while(n < nAttachments){
+			sAttachments Attachment<fgcolor=0x0B9AED, bgcolor=cBlack>;
+			n++;
+		}
+	}Attachments<name=(Str("Attachments[%d]", M2_file.nAttachments))>;
+}
+
+if(nAttachIndicesByID != 0){				// Attachment_lookup_table
+	FSeek(ofsAttachIndicesByID + ofsMD21_8);
+	struct{
+        local int i = 0;
+        while( i < nAttachIndicesByID ){
+            ATTACHMENT_ID_rec AttachIndicesByID_rec;
+            i++;
+        }
+		//AttachmentLookUpEntry(nAttachIndicesByID);
+	}AttachIndicesByID<name=(Str("AttachIndicesByID[%d]", M2_file.nAttachIndicesByID)), fgcolor=0x96D8FF, bgcolor=cBlack>;
+}
+
+if(ofsEvents!=0){
+	FSeek(ofsEvents + ofsMD21_8);			// Used for playing sounds when dying and a lot else
+	struct{
+		local int n = 0;
+		while(n < nEvents){
+			sEvents Event<fgcolor=0xA3FF87, bgcolor=0x1E1E1E>;
+			n++;
+		}
+	}Events<name=(Str("Events[%d]", M2_file.nEvents))>;
+}
+
+if(ofsLights != 0){							// Lights are mainly used in loginscreens but in wands and some doodads too
+	FSeek(ofsLights + ofsMD21_8);
+	struct{
+		local int n = 0;
+		while(n < nLights){
+			sLights Light<fgcolor=0x80FFFF, bgcolor=0x008080>;
+			n++;
+		}
+	}Light<name=(Str("Light[%d]", M2_file.nLights))>;
+}
+
+if(ofsCameras != 0){						// The Cameras are present in most models for having a model in the character tab
+	FSeek(ofsCameras + ofsMD21_8);
+	struct{
+		local int n = 0;
+		while(n < nCameras){
+			sCameras Camera<fgcolor=0xFF0C00, bgcolor=0x191919>;
+			n++;
+		}
+	}Camera<name=(Str("Camera[%d]", M2_file.nCameras))>;
+}
+
+if(ofsCameraIndicesByID != 0){
+	FSeek(ofsCameraIndicesByID + ofsMD21_8); // Camera_lookup_table
+	struct{
+		local int n = 0;
+		while(n < nCameraIndicesByID){
+			CameraIndicesByIDRec CameraIndicesByID;
+			n++;
+		}
+	}CameraIndicesByID<name=(Str("CameraIndicesByID[%d]", M2_file.nCameraIndicesByID)), fgcolor=0x80FFFF, bgcolor=0x008080>;
+}
+
+if(ofsRibbonEmitters != 0){					 //Things swirling around. See the CoT-entrance for light-trails
+	FSeek(ofsRibbonEmitters + ofsMD21_8);
+	struct{
+		local int n = 0;
+		while(n < nRibbonEmitters){
+			sRibbons Ribbon<fgcolor=0x6D6DFF, bgcolor=0x191919>;
+			n++;
+		}
+	}Ribbon<name=(Str("Ribbon[%d]", M2_file.nRibbonEmitters))>;
+}
+
+if(ofsParticleEmitters != 0){ 				 // Particle generation system
+	local int64 Particle_ItemsFix1[256];
+	local ubyte ParticleArrayIndex1 = 0;
+	local int64 Particle_ItemsFix2[256];
+	local ubyte ParticleArrayIndex2 = 0;
+	FSeek(ofsParticleEmitters + ofsMD21_8);
+	struct{
+		local int n = 0;
+		while(n < nParticleEmitters){
+			sParticles Particle<fgcolor=0x2828FF, bgcolor=0x191919>;
+			n++;
+		}
+	}Particle<name=(Str("Particle[%d]", M2_file.nParticleEmitters))>;
+}
+
+/***************************
+*  4. Fucking MD21 Chunks  *
+****************************/
+
+typedef struct{
+	CHAR PFID[4];
+	uint PFID_Size<format=hex>;
+	uint phys_file_id[PFID_Size/4];
+}PFID_C;
+
+typedef struct{
+	CHAR SFID[4];
+	uint SFID_Size<format=hex>;
+	for(int i = 0; (SFID_Size/4)> i; i++){
+		uint skinFileDataIDs;
+	}
+}SFID_C<read=(Str("nViews: %d", (SFID_Size/4)))>;
+
+typedef struct{
+	uint16 anim_id;
+	uint16 sub_anim_id;
+	uint32 file_id;  // Might be 0
+}AFID_Entry;
+
+typedef struct{
+	CHAR AFID[4];
+	uint AFID_Size<format=hex>;
+	AFID_Entry AFID_strc[AFID_Size/8];
+}AFID_C<read=(Str("nAnims: %d", (AFID_Size/8)))>;
+
+typedef struct{
+	CHAR BFID[4];
+	uint BFID_Size<format=hex>;
+	uint BoneFileDataIDs[BFID_Size/4];
+}BFID_C<read=(Str("nBoneFIDs: %d", (BFID_Size/4)))>;
+
+typedef struct{
+	CHAR TXAC[4];
+	uint TXAC_Size<format=hex>;
+	char TXAC_Entry[TXAC_Size];
+}TXAC_C<read=(Str("nTexture_ACs: %d", (TXAC_Size)))>;
+
+typedef struct{
+	float zSource;
+	uint unk1;
+	uint unk2;
+	uint16 unk3;
+}EXPT_Entry;
+
+typedef struct{
+	CHAR EXPT[4];
+	uint EXPT_Size<format=hex>;
+	EXPT_Entry EXPT_strc[EXPT_Size/14];
+}EXPT_C<read=(Str("nExtendedParticles: %d", (EXPT_Size/14)))>;
+
+typedef struct{
+	CHAR PABC[4];
+	uint PABC_Size<format=hex>;
+	uint16 PABC_Entry[PABC_Size/2];
+}PABC_C<read=(Str("nBlacklistAnimDatas: %d", (PABC_Size/2)))>;
+
+typedef struct{
+	CHAR PADC[4];
+	uint PADC_Size<format=hex>;
+	uint16 PADC_Entry[PADC_Size/2];
+}PADC_C<read=(Str("nParentAnimDatas: %d", (PADC_Size/2)))>;
+
+typedef struct{
+	CHAR PSBC[4];
+	uint PSBC_Size<format=hex>;
+	uint32 nSequenceBounds_Maybe;
+	uint32 ofsSequenceBounds_Maybe<format=hex>;
+	uint64 unk_padding64;
+	struct{
+		C3Vector BoundingBoxMin;
+		C3Vector BoundingBoxMax;
+		float	 BoundingBoxRadius;  //A Bounding Box made out of 2 vectors.
+	}SequenceBounds[nSequenceBounds_Maybe];
+	//float PSBC_Entry[ ((PSBC_Size - 16) / 4) ];
+}PSBC_C<read=(Str("SequenceBounds: %d",nSequenceBounds_Maybe))>;
+
+typedef struct{
+    InterpolationType Interpolation;
+    int16  LoopID;
+    uint32 nTimestampPairs;
+    uint32 ofsTimestampPairs<format=hex>;
+    if(nTimestampPairs!=0){
+		local int oldpos=FTell();
+		FSeek(StartOfChunkData + ofsTimestampPairs);
+	    struct{
+		    for(int i = 0; nTimestampPairs > i; i++){
+			    struct{
+				    uint32 nValues;
+				    uint32 ofsValues<format=hex>;
+					local int oldpos=FTell();
+				    if(nValues!=0){
+					    FSeek(StartOfChunkData + ofsValues);
+					    for(int i = 0; nValues > i; i++){
+						    uint Timestamp;
+					    }
+					    FSeek(oldpos);
+				    }
+			    }Sequence<read=(Str("(Values: %d)", nValues))>;
+		    }
+	    }Timestamps;
+		FSeek(oldpos);
+    }    
+}PEDC_Entry<read=(Str("(Timestamps: %d)", nTimestampPairs)), optimize=false>;
+
+typedef struct{
+	CHAR PEDC[4];
+	uint PEDC_Size<format=hex>;
+    local uint64 StartOfChunkData=FTell();
+	uint32 nEvent;
+	uint32 ofsEvent<format=hex>; // uint16 offset ????
+	uint64 unk_padding64;
+	PEDC_Entry PEDCEntry[nEvent];
+}PEDC_C<read=(Str("Events: %d", nEvent))>;
+
+typedef struct{
+	CHAR SKID[4];
+	uint SKID_Size<format=hex>;
+	if((SKID_Size/4)==1){
+		uint SkeletonfileID;
+	}else{
+		uint SkeletonfileID[SKID_Size/4];
+	}
+}SKID_C<read=(Str(".Skel FID: %d",SkeletonfileID))>;
+
+typedef struct{
+	CHAR TXID[4];
+	uint TXID_Size<format=hex>;
+	uint Texture_FID[TXID_Size/4];
+}TXID_C<read=(Str("nTextureFIDs: %d", (TXID_Size/4)))>;
+
+typedef struct{
+	uint16 Unk0;
+	uint16 LodCount; //maxLod = lodCount-1;
+	float Unk2_f;
+	byte ParticleBoneLod[4]; //lod serves as indes into this array
+	uint Unk4;
+}LDV1_Entry;
+
+typedef struct{
+	CHAR LDV1[4];
+	uint LDV1_Size<format=hex>;
+	LDV1_Entry LDV1Entry[LDV1_Size/16];
+}LDV1_C<read=(Str("nLodData: %d", (LDV1_Size/16)))>;
+
+typedef struct{
+	CHAR RPID[4];
+	uint RPID_Size<format=hex>;
+	uint Recursive_Particle_Models_FID[RPID_Size/4];
+}RPID_C<read=(Str("nRecursiveParticleModels %d", (RPID_Size/4)))>;
+
+typedef struct{
+	CHAR GPID[4];
+	uint GPID_Size<format=hex>;
+	uint Geometry_Particle_Models[GPID_Size/4];
+}GPID_C<read=(Str("nGeometryParticleModels %d", (GPID_Size/4)))>;
+
+typedef struct{
+	CHAR WFV1[4];
+	uint WFV1_Size<format=hex>;
+	uint unk[WFV1_Size/4];
+}WFV1_C<read=(Str("nWaterFall1s %d", (WFV1_Size/4)))>; //WaterFallVersion1
+
+typedef struct{
+	CHAR WFV2[4];
+	uint WFV2_Size<format=hex>;
+	uint unk[WFV2_Size/4];
+}WFV2_C<read=(Str("nWaterFall2s %d", (WFV2_Size/4)))>; //WaterFallVersion2
+
+typedef struct{
+	CHAR PGD1[4];
+	uint PGD1_Size<format=hex>;
+	uint16 geoset_id[PGD1_Size/2];
+}PGD1_C<read=(Str("nParticleGeosets %d", (PGD1_Size/2)))>; //ParticleGeosetData
+
+typedef struct{
+   float BumpScale;  // Passed to vertex shader
+   float Value0_X;
+   float Value0_Y;
+   float Value0_Z;
+   float Value1_W;
+   float Value0_W;
+   float Value1_X;
+   float Value1_Y;
+   float Value2_W;
+   float Value3_Y;
+   float Value3_X;
+   byte BaseColor[4]; // In RGBa (not bgra)
+   uint16 Flags;
+   uint16 Unk0;
+   float Values3_W;
+   float Values3_Z;
+   float Values4_Y;
+   float Unk1;
+   float Unk2;
+   float Unk3;
+   float Unk4;
+}WFV3_Entry;
+
+typedef struct{
+	CHAR WFV3[4];
+	uint WFV3_Size<format=hex>;
+	WFV3_Entry WFV3Entry[WFV3_Size/80];
+}WFV3_C<read=(Str("nWaterFall3s %d", (WFV3_Size/80)))>; // WaterFallVersion1
+
+typedef struct{
+	CHAR PFDC[4];
+	uint PFDC_Size<format=hex>;
+	uint16 Physics[PFDC_Size/2];
+}PFDC_C<read=(Str("nPhysicsDatas %d", (PFDC_Size/2)))>; // Contains inline physics information in the same structure as the .phys files.
+
+typedef struct{
+	float Unk1;
+	float Unk2;
+	float Unk3;
+	char Unk4[4];
+}EDGF_Entry;
+
+typedef struct{
+	CHAR EDGF[4];
+	uint EDGF_Size<format=hex>;
+	EDGF_Entry EDGFEntry[EDGF_Size/16];
+}EDGF_C<read=(Str("nEdgeFades %d", (EDGF_Size/16)))>; // EdgeFade. This data is applied to mesh only if M2Batch.flags2 has 0x8 flag
+
+typedef struct{
+	CHAR NERF[4];
+	uint NERF_Size<format=hex>;
+	C2Vector NERFEntry[NERF_Size/8];
+}NERF_C<read=(Str("nCoefs %d", (NERF_Size/8)))>; // Something related to calculation of alpha for whole model and related to distance
+
+typedef struct{
+  uint16 Flags;
+  uint16 Scale; // scale for shadow RT matrix in half-float format
+  uint16 DiffuseColorMultiplier; // multiplier for M2Light.diffuse_color in half-float format
+  uint16 Unk0;
+  uint32 Unk1;
+}DETL_Entry;
+
+typedef struct{
+	CHAR DETL[4];
+	uint DETL_Size<format=hex>;
+	DETL_Entry DETLEntry[DETL_Size/12];
+}DETL_C<read=(Str("nLightDatas %d", (DETL_Size/12)))>; // ParticleGeosetData
+
+typedef struct{
+	float Unk_Float1;
+	float Unk_Float2;
+	int32 Unk_Int1;
+	int32 Unk_Int2;
+}DBOC_Entry; // Discovered in 9ard_nebulacloud_b01
+
+typedef struct{
+	CHAR DBOC[4];
+	uint DBOC_Size<format=hex>;
+	DBOC_Entry DBOCEntry[DBOC_Size/16];
+}DBOC_C<read=(Str("nDBOCs %d", (DBOC_Size/16)))>;
+
+typedef struct{
+    byte UnkData;
+}AFRA_Entry;
+
+typedef struct{
+	CHAR AFRA[4];
+	uint AFRA_Size<format=hex>;
+	AFRA_Entry AFRAEntry[AFRA_Size];
+}AFRA_C<read=(Str("nAFRAs %d", (AFRA_Size)))>;
+
+typedef struct{
+    local uint64 StartOfChunkData=FTell();
+    int VertexPosCount;
+    int VertexPosOffset;
+    int FaceNormCount;
+    int FaceNormOffset;
+    int IndexCount;
+    int IndexOffset;
+    int FlagsCount;
+    int FlagsOffset;
+    FSeek(StartOfChunkData+VertexPosOffset);
+    C3Vector VertexPositions[VertexPosCount];
+    FSeek(StartOfChunkData+FaceNormOffset);
+    C3Vector FaceNormals[FaceNormCount];
+    FSeek(StartOfChunkData+IndexOffset);
+    short Indices[IndexCount];
+    FSeek(StartOfChunkData+FlagsOffset);
+    short Flags[FlagsCount];
+}PCOL_Entry;
+
+typedef struct{
+	CHAR PCOL[4];
+	uint PCOL_Size<format=hex>;
+	PCOL_Entry PCOLEntry; //[PCOL_Size/Unk];
+}PCOL_C<read=(Str("nCollisionMeshs %d", (PCOL_Size)))>; // Collision mesh and information assumed to be specifically for the player housing feature in Midnight
+
+typedef struct{
+    byte UnkData;
+}DPIV_Entry;
+
+typedef struct{
+	CHAR DPIV[4];
+	uint DPIV_Size<format=hex>;
+	DPIV_Entry DPIVEntry[DPIV_Size];
+}DPIV_C<read=(Str("nDPIVs %d", (DPIV_Size)))>; // Unknown, seemingly always 32 bytes, mostly empty.
+
+if(!exists(ofsMD21)) local uint64 ofsMD21;
+FindMD21Chunk("PFID");
+FindMD21Chunk("SFID");
+FindMD21Chunk("AFID");
+FindMD21Chunk("BFID");
+FindMD21Chunk("TXAC");
+FindMD21Chunk("EXPT");
+FindMD21Chunk("EXP2");
+FindMD21Chunk("PABC");
+FindMD21Chunk("PADC");
+FindMD21Chunk("PSBC");
+FindMD21Chunk("PEDC");
+FindMD21Chunk("SKID");
+FindMD21Chunk("TXID");
+FindMD21Chunk("LDV1");
+FindMD21Chunk("RPID");
+FindMD21Chunk("GPID");
+FindMD21Chunk("WFV1");
+FindMD21Chunk("WFV2");
+FindMD21Chunk("PGD1");
+FindMD21Chunk("WFV3");
+FindMD21Chunk("PFDC");
+FindMD21Chunk("EDGF");
+FindMD21Chunk("NERF");
+FindMD21Chunk("DETL");
+FindMD21Chunk("DBOC");
+FindMD21Chunk("AFRA");
+FindMD21Chunk("PCOL");
+FindMD21Chunk("DPIV");
+
+}M2_file<open=true>;
+
+void FindMD21Chunk(string ChunkName){
+	local int64 pos = FindFirst(ChunkName, true, false, 0, 0.0, 1, (ofsMD21));
+	if(pos != -1){
+		local uint32 ChunkSize = ReadUInt(pos+0x4);
+		if((pos + 0x8 + ChunkSize) > FileSize()) return;
+		FSeek(pos);
+		switch(ChunkName){
+			case "PFID":
+				PFID_C PFID<fgcolor=0x80FF00, comment="PHYS FID">;
+				break;
+			case "SFID":
+				SFID_C SFID<fgcolor=0x80FF0A, comment="SKIN FID">;
+				break;
+			case "AFID":
+				AFID_C AFID<fgcolor=0x80FF00, comment="ANIM FID">;
+				break;
+			case "BFID":
+				BFID_C BFID<fgcolor=0x80FF1E, comment="BONE FID">;
+				break;
+			case "TXAC":
+				TXAC_C TXAC<fgcolor=0x80FF28, comment="Texture_AC">;
+				break;
+			case "EXPT":
+				EXPT_C EXPT<fgcolor=0x80FF32, comment="M2ExtendedParticle">;
+				break;
+			case "EXP2":
+				EXPT_C EXP2<fgcolor=0x80FF3C, comment="M2ExtendedParticle2">;
+				break; //not making EXP2 struc it looks same as EXPT
+			case "PABC":
+				PABC_C PABC<fgcolor=0x80FF46, comment="M2InitBlacklistAnimData">;
+				break;
+			case "PADC":
+				PADC_C PADC<fgcolor=0x80FF50, comment="M2InitParentAnimData">;
+				break;
+			case "PSBC":
+				PSBC_C PSBC<fgcolor=0x80FF5A, comment="M2InitParentSequenceBoundsData">;
+				break;
+			case "PEDC":
+				PEDC_C PEDC<fgcolor=0x80FF64, comment="M2InitParentEventData">;
+				break;
+			case "SKID":
+				SKID_C SKID<fgcolor=0x80FF6E, comment="SKEL FID">;
+				break;
+			case "TXID":
+				TXID_C TXID<fgcolor=0x80FF78, comment="Texture FID">;
+				break;
+			case "LDV1":
+				LDV1_C LDV1<fgcolor=0x80FF82, comment="LOD skin">;
+				break;
+			case "RPID":
+				RPID_C RPID<fgcolor=0x80FF8C, comment="RecursiveParticleModel">;
+				break;
+			case "GPID":
+				GPID_C GPID<fgcolor=0x80FF96, comment="ParticleModel">;
+				break;
+			case "WFV1":
+				WFV1_C WFV1<fgcolor=0x80FFA0, comment="Waterfall">;
+				break;
+			case "WFV2":
+				WFV2_C WFV2<fgcolor=0x80FFAA, comment="Waterfall">;
+				break;
+			case "PGD1":
+				PGD1_C PGD1<fgcolor=0x80FFB4, comment="ParticleGeoset">;
+				break;
+			case "WFV3":
+				WFV3_C WFV3<fgcolor=0x80FFBE, comment="Waterfall">;
+				break;
+			case "PFDC":
+				PFDC_C PFDC<fgcolor=0x80FFC8, comment="Phys">;
+				break;
+			case "EDGF":
+				EDGF_C EDGF<fgcolor=0x80FFD2, comment="EdgeFade">;
+				break;
+			case "NERF":
+				NERF_C NERF<fgcolor=0x80FFDC, comment="Alpha?">;
+				break;
+			case "DETL":
+				DETL_C DETL<fgcolor=0x80FFDC, comment="Lights?">;
+				break;
+			case "DBOC":
+				DBOC_C DBOC<fgcolor=0x80FFE6, comment="Unk">;
+				break;
+			case "AFRA":
+				AFRA_C AFRA<fgcolor=0x80FFF0, comment="Unk">;
+				break;
+			case "PCOL":
+				PCOL_C PCOL<fgcolor=0x80FFFA, comment="CollisionMesh">;
+				break;                
+			case "DPIV":
+				DPIV_C DPIV<fgcolor=0x60FFFA, comment="Unk">;
+				break;                
+		}
+		Printf("Pos of %s: 0x%LX\n", ChunkName, pos);
+	}
+}
+
+/***********************************
+*  5. Automated Script Fix Creator *
+************************************/
+if(M2_file.nParticleEmitters>0){
+	local int PAI1 = 0;
+	while(PAI1<M2_file.ParticleArrayIndex1){
+		Printf("WriteByte(0x%X, 0);\n", M2_file.Particle_ItemsFix1[PAI1]);
+		PAI1++;
+	}
+
+	local int PAI2 = 0;
+	while(PAI2<M2_file.ParticleArrayIndex2){
+		Printf("WriteByte(0x%X, 1);\n", M2_file.Particle_ItemsFix2[PAI2]);
+		PAI2++;
+	}
+}
+
+/************************************
+*  6. Debug values for testing      *
+*************************************/
+
+// Function to parse time string "hh:mm:ss:zzz" into total milliseconds
+int ParseTimeToMilliseconds(string timeStr){
+    local int hours, minutes, seconds, milliseconds;
+    local int parsed = SScanf(timeStr, "%d:%d:%d:%d", hours, minutes, seconds, milliseconds);
+    
+    if(parsed != 4){
+        Printf("Error: Invalid time format - expected hh:mm:ss:zzz\n");
+        return -1;
+    }
+    
+    // Validate time components
+    if(hours < 0 || hours > 23 || minutes < 0 || minutes > 59 || 
+        seconds < 0 || seconds > 59 || milliseconds < 0 || milliseconds > 999){
+        Printf("Error: Invalid time values\n");
+        return -1;
+    }
+    
+    return (hours * 3600 + minutes * 60 + seconds) * 1000 + milliseconds;
+}
+
+// Function to format milliseconds into "hh:mm:ss:zzz"
+string FormatMilliseconds(int totalMs) {
+    if(totalMs < 0) return "Invalid duration";
+    
+    local int ms = totalMs % 1000;
+    local int totalSeconds = totalMs / 1000;
+    local int hours = totalSeconds / 3600;
+    local int minutes = (totalSeconds % 3600) / 60;
+    local int seconds = totalSeconds % 60;
+    
+    return Str("%02d:%02d:%02d:%03d", hours, minutes, seconds, ms);
+}
+
+// Main function to calculate time difference
+void CalculateRuntime(string startTimeStr, string endTimeStr) {
+    local int startMs = ParseTimeToMilliseconds(startTimeStr);
+    local int endMs = ParseTimeToMilliseconds(endTimeStr);
+    
+    if(startMs == -1 || endMs == -1){
+        Printf("Error parsing time strings\n");
+        return;
+    }
+    
+    if(endMs < startMs){
+        Printf("Warning: End time is before start time\n");
+    }
+    
+    local int durationMs = endMs - startMs;
+    local string durationStr = FormatMilliseconds(durationMs);
+    Printf("Runtime: %s (%dms)\n", durationStr, durationMs);
+}
+
+local string endTime = GetCurrentDateTime("hh:mm:ss:zzz");
+CalculateRuntime(startTime, endTime);

@@ -427,26 +427,8 @@ impl<S: Sink> Parser<'_, S> {
         self.diags.push(Diagnostic { span, message: message.into() });
     }
 
-    /// `span` cut to its first line and made at least one character long, so
-    /// it can always be underlined.
     fn one_line(&self, span: Range<usize>) -> Range<usize> {
-        let len = self.text.len();
-        let mut start = span.start.min(len);
-        let mut end = span.end.min(len);
-        if let Some(nl) = self.bytes[start..end].iter().position(|&b| b == b'\n') {
-            end = start + nl;
-        }
-        while end > start && self.bytes[end - 1] == b'\r' {
-            end -= 1;
-        }
-        if end <= start {
-            if start >= len {
-                // Nothing left to point at: the last character before it.
-                start = self.text[..len].char_indices().next_back().map_or(0, |(i, _)| i);
-            }
-            end = start + self.text[start..].chars().next().map_or(0, char::len_utf8);
-        }
-        start..end
+        super::clip_to_line(self.text, span)
     }
 
     fn line_of(&mut self, pos: usize) -> usize {

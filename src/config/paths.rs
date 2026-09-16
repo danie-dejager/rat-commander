@@ -8,6 +8,11 @@ pub fn config_file() -> Option<PathBuf> {
     ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("config.toml"))
 }
 
+/// Path to the FTPS servers' pinned certificates (`ftps_known_hosts`).
+pub fn ftps_known_hosts_file() -> Option<PathBuf> {
+    ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("ftps_known_hosts"))
+}
+
 /// Path to the F2 user-menu file (`menu`), or `None` if undetermined.
 pub fn menu_file() -> Option<PathBuf> {
     ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("menu"))
@@ -34,6 +39,13 @@ pub fn themes_file() -> Option<PathBuf> {
 /// language; or `None` if the config directory can't be determined.
 pub fn lang_dir() -> Option<PathBuf> {
     ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("lang"))
+}
+
+/// Path to the binary-template directory (`templates/`), where the bundled
+/// 010 Editor templates are deployed and the user's own `.bt` files live; or
+/// `None` if the config directory can't be determined.
+pub fn templates_dir() -> Option<PathBuf> {
+    ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("templates"))
 }
 
 /// Path to the persistent command-line history file (`history`, one command per

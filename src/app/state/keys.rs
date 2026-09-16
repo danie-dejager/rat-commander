@@ -29,7 +29,10 @@ impl AppState {
         // pulldown menu keep Esc as an immediate cancel.
         let prefixable = self.dialog.is_none()
             && self.menu.is_none()
-            && !self.editor.as_ref().is_some_and(|e| e.menu_open() || e.editing_cell());
+            && !self
+                .editor
+                .as_ref()
+                .is_some_and(|e| e.menu_open() || e.editing_cell() || e.editing_template_value());
         if prefixable {
             if self.pending_esc.take().is_some() {
                 // The previous key was a lone Esc; this key completes the
@@ -101,6 +104,7 @@ impl AppState {
             && self.procview.is_none()
             && self.diskview.is_none()
             && self.diffview.is_none()
+            && self.hexdiff.is_none()
             && self.mountview.is_none()
             && self.netview.is_none()
             && self.theme_editor.is_none()
@@ -181,6 +185,22 @@ impl AppState {
                 }
                 DiffSignal::ConfirmQuit => {
                     self.dialog = Some(Dialog::Confirm(ConfirmDialog::diff_quit()));
+                }
+            }
+            return Flow::Continue;
+        }
+        if let Some(hd) = self.hexdiff.as_mut() {
+            match hd.handle_key(key) {
+                HexDiffSignal::Stay => {}
+                HexDiffSignal::Close => self.hexdiff = None,
+                HexDiffSignal::Goto => {
+                    let at = format!("0x{:X}", hd.cursor);
+                    self.dialog = Some(Dialog::Input(InputDialog::new(
+                        "Goto",
+                        "Offset",
+                        at,
+                        InputPurpose::HexDiffGoto,
+                    )));
                 }
             }
             return Flow::Continue;

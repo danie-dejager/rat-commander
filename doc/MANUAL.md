@@ -263,7 +263,7 @@ used to share now lives on `Alt-T`.
   Raw; (image files) toggle Image / Raw;
   (model files) toggle Model / Raw; (audio files) toggle Audio / Raw; (byte map)
   toggle Density / Bytes colouring; (binary view) toggle demangled / raw symbol
-  names
+  names; (certificate and key files) toggle Certs / Raw
 - In an **audio view**: `Space` play / pause, `s` stop, `← →` seek 5 s,
   `PgUp PgDn` seek 30 s, `Home End` jump to the start / end, `+ -` or `↑ ↓`
   change the volume; click or drag on the picture to seek
@@ -277,6 +277,9 @@ used to share now lives on `Alt-T`.
   narrow and widen the column; a click picks a cell
 - In the **binary view**: `Tab` / `Shift-Tab` or `1`–`7` switch lists, `Enter`
   opens the hex view at the highlighted row, `Esc` drops a *Find all* filter
+- In the **certificate view**: `Tab` / `Shift-Tab` or `1`–`6` switch tabs,
+  `Enter` goes to the highlighted row's line in the raw text, `Esc` drops a
+  *Find all* filter
 - `↑ ↓` / `PgUp PgDn` / `Home End` — Scroll (in a **model view**: `← → ↑ ↓`
   orbit the camera, `+` / `-` zoom, `Home` re-frames; dragging orbits and the
   wheel zooms)
@@ -316,8 +319,10 @@ used to share now lives on `Alt-T`.
 - `Shift-F9` — Toggle word wrap
 - `Ctrl-F9` — Toggle the in-place hex editor
 - `Alt-G` — Toggle the spreadsheet grid (see *Spreadsheet grid* below)
-- `Alt-E` / `Alt-Shift-E` — (JSON files) Jump to the next / previous syntax error
-- `Alt-M` — Show the GeoJSON in the file on a world map (see *GeoJSON map* below)
+- `Alt-E` / `Alt-Shift-E` — (JSON, TOML, YAML and XML files) Jump to the next /
+  previous syntax error
+- `Alt-F` — (JSON files) Pretty-print the document
+- `Alt-M` — Show and edit the GeoJSON in the file on a world map (see *GeoJSON map* below)
 - `Esc` / `F10` — Quit (prompts if modified)
 
 While **Shift** or **Ctrl** is held, the F-key bar relabels the keys those
@@ -357,11 +362,19 @@ Beyond the F-key actions, the menus offer:
   JSON file, **Next error** and **Previous error** step through its syntax
   errors.
 - **Command** — Go to line, jump to the matching bracket, and the syntax /
-  word-wrap / hex-mode / spreadsheet toggles, the **GeoJSON map**, plus a screen
-  repaint.
+  word-wrap / hex-mode / spreadsheet toggles, the **GeoJSON map**, **Decode JWT
+  at cursor** (the JSON Web Token under the cursor — in a header, a log line, a
+  config file — shown with its header and claims pretty-printed, `iat` / `nbf` /
+  `exp` read as dates with how long until or since it expires; the signature is
+  not checked), plus a screen repaint. In hex mode, **Binary templates** opens a submenu to choose a
+  template, run it again, jump to the variable under the cursor, edit the
+  template, start a new one, or stop using one, and **Data inspector** shows or
+  hides the inspector.
 - **Format** — Insert the date and time, re-wrap the current paragraph to the
   configured line length, sort the marked block's lines (with reverse,
   ignore-case and remove-duplicates options), and paste a shell command's output.
+  In a JSON file, **JSON** opens a submenu to pretty-print, minify or sort the
+  keys of the document.
   In the **spreadsheet grid**, insert and delete rows and columns, and choose
   whether the first row is the header; these are greyed out elsewhere, and the
   items that work on lines and marked blocks are greyed out in the grid.
@@ -417,15 +430,40 @@ persist across runs and apply to every file opened afterwards.
 
 - `0`–`9`, `a`–`f` — Overwrite the current byte's nibble (hex column)
 - typed character — Overwrite the current byte (ASCII column)
-- `Tab` — Switch between the hex and ASCII columns
+- `Tab` / `Shift-Tab` — Step round the hex and ASCII columns, the data
+  inspector when it shows, and the template tree when a template is shown
+  (entered as with `F6`)
 - `← ↑ ↓ →` / `PgUp PgDn` — Move; `Home` / `End` — start / end of row
 - `Ctrl-Home` / `Ctrl-End` — Start / end of file
 - `F7` — Search (hex bytes like `48 65` or text)
 - `F4` — Replace all (same length, overwrite-only)
 - `F2` — Save the changed bytes in place
+- `F5` / `Shift-F5` — Choose the binary template / run it again
+- `F6` — The template variable under the cursor, in the template tree
+- `F3` — The template's output / its variables
+- `F8` — Show / hide the data inspector
 - `Ctrl-F9` — Back to text mode
 - `F9` — Pulldown menu (text-only items greyed out)
 - `Esc` / `F10` — Quit (prompts if modified)
+
+In the template tree (see *Binary templates*):
+
+- `↑ ↓` / `PgUp PgDn` / `Home End` — Move; the byte cursor follows to the
+  variable
+- `→` / `+` — Open; `←` / `-` — Close, or go to the parent; `*` — Open
+  everything below
+- `Enter` — Open or close a struct or array, or edit a value (`Enter` writes it,
+  `Esc` drops it)
+- `F6` / `Esc` — Back to the bytes, at the selected variable; `Tab` /
+  `Shift-Tab` — the same, on to the hex column / the inspector
+
+In the data inspector (see *Data inspector*):
+
+- `↑ ↓` / `PgUp PgDn` / `Home End` — Choose a type; its bytes are marked
+- `← →` — Move the byte cursor; `Ctrl-←` / `Ctrl-→` — by the chosen value's width
+- `Enter` — Edit the value (`Enter` writes it, `Esc` drops it)
+- `b` — Switch between little- and big-endian
+- `Esc` — Back to the bytes; `F6` — to the template tree
 
 ### Process explorer
 
@@ -863,6 +901,34 @@ selected changes between them.
   back to disk. **Esc** closes (prompting save / discard / cancel when there are
   unsaved changes).
 
+**Binary files.** When either file is binary (it has a NUL byte among its
+first 8 KiB) — or, for local files, too large to load as text — the two are
+compared **byte by byte** instead, in a read-only view: offsets on the left,
+then each file's hex and ASCII side by side (only the hex on a narrower
+terminal, one file above the other on a narrow one), one cursor on both.
+Every byte that differs is coloured, as is the offset of a row holding one; a
+file shorter than the other shows blank cells past its end. Local files are
+read from disk a page at a time, so files of any size can be compared; binary
+files from an archive or a remote connection are read into memory and must be
+under 64 MiB.
+
+A scan in the background finds the **runs** of differences (differences less
+than 16 bytes apart count as one run); the status line shows how many it has
+found, which one the cursor is in, how far it has got, and the two sizes when
+they differ. When a binary template fits the first file (see *Binary
+templates*), it runs over that file in the background too, and the status line
+names the field the cursor is in — `ZIP.bt: record.frCompression` — so a
+difference reads as the field it changes. Bytes are compared at the same offset: a byte inserted in one file
+moves everything after it, and the rest of the file shows as different.
+
+- `↑ ↓ ← →` / `PgUp PgDn` — Move; `Home` / `End` — start / end of the row;
+  `Ctrl-Home` / `Ctrl-End` — start / end of the files
+- `Ctrl-↓` / `n` — Next difference; `Ctrl-↑` / `N` — previous. Asked for
+  before the scan gets there, the step waits for it.
+- `F5` / `g` — Go to an offset (`0x1F0`, `1F0h` or decimal)
+- the mouse wheel scrolls; a click puts the cursor on a byte
+- `Esc` / `F10` / `q` — Close
+
 
 ## Checksum a file
 
@@ -1108,6 +1174,47 @@ loading it into an editor.
   tables are read from the file, the strings pass streams it, and every list
   stops at 250,000 rows (its count then shown with a `+`), so a pathological file
   costs bounded memory.
+- **Certificates and keys** — **F3** on a certificate or key file shows what it
+  holds rather than base64. A file is taken for one by its name (`.pem`,
+  `.crt`, `.cer`, `.der`, `.csr`, `.p10`, `.key`, `.pub`, `ca-bundle…`,
+  `id_…`, `…-cert.pub`, `authorized_keys`, `known_hosts`) or by beginning with a
+  PEM block or an SSH key, so a README that quotes a certificate stays text.
+  PEM files may hold any number of blocks with text around them; DER files are
+  read by their name. Files over 4 MiB are not inspected.
+
+  Up to six tabs, only those with something in them. **Tab** / **Shift-Tab**
+  step through them, **1**–**6** jump straight to one, and a click on a title
+  opens it:
+
+  | Tab | What it holds |
+  | --- | --- |
+  | Summary | One row per certificate, request and key: who a certificate is for and when it expires, what a key is |
+  | Certificates | Each certificate field by field: subject, issuer, serial number, validity, public key type and size, signature algorithm, subject alternative names, basic constraints, key usage and extended key usage, key identifiers, CRL distribution points, OCSP and CA-issuer addresses, SHA-256 and SHA-1 fingerprints, and the SPKI SHA-256 pin |
+  | Requests | Each certificate request: its subject, key, the names and extensions it asks for, and whether its signature was made with its own key |
+  | Certificates (SSH) | Each OpenSSH certificate: user or host, key ID, serial number, the principals it is valid for (flagged when it lists none, which means any), validity, its key and the signing CA's fingerprints, whether the CA's signature holds, critical options and extensions |
+  | Keys | Each private or public key: its algorithm and size, how it is stored (PKCS#1, PKCS#8, SEC1, SubjectPublicKeyInfo, OpenSSH), how an encrypted one is encrypted, its SPKI SHA-256 pin or SSH fingerprint, and the certificate in the file it belongs to |
+  | Entries | Each line of an `authorized_keys` file (its key, fingerprint, comment and options) or a `known_hosts` file (its hosts — or that they are hashed — any `@cert-authority` or `@revoked` marker, and its key), with lines that can't be read marked |
+  | Chain | Whether each certificate is followed by its issuer, and for each one who issued it and whether that issuer's key verifies its signature |
+
+  Values that need attention are coloured: a certificate that has **expired**
+  or is not valid yet, and a signature that **does not verify**, in red; one
+  **expiring within 30 days**, an RSA key under 2048 bits and an MD5 or SHA-1
+  signature, in the warning colour; a verified signature and a certificate with
+  time to go, in green.
+
+  A private key is matched to its certificate by its public key, which RSA and
+  SEC1 keys store beside the private one — nothing is decrypted, and **no key
+  material is shown**. An OpenSSH private key keeps its public half
+  unencrypted, so its fingerprint shows even when it has a passphrase. An encrypted key shows only how it is encrypted. The
+  chain is checked **within the file only**: whether the system trusts the root,
+  whether the certificate fits a host name, and whether it has been revoked are
+  not looked at, and the Chain tab says so.
+
+  **Enter** goes to the line of the raw text the highlighted row came from, and
+  **F8** switches between the certificates and the raw text. **F7** searches
+  the rows of the tab on screen, `n` moves on to the next match, and **Find
+  all** narrows every tab to the matching rows (keeping the heading of the
+  certificate or key each belongs to) until **Esc** drops it.
 - **Line wrap** — **F2** toggles soft wrapping.
 - **Search** — **F7** opens the **same search dialog the editor uses** (see
   *Search and replace* under the editor): Normal / Regular expression / Hex /
@@ -1342,7 +1449,7 @@ the cursor on the cell holding the match. **Alt-G** switches to the text with
 the cursor on the cell that was selected, and back — for any file, so a table
 without a table's name can be edited as one too.
 
-**JSON syntax check.** A `.json` file — and `.geojson`, `.topojson`, JSON Lines
+**Syntax checks.** A `.json` file — and `.geojson`, `.topojson`, JSON Lines
 (`.jsonl`, `.ndjson`) and JSONC (`.jsonc`, and the `tsconfig.json`-style
 configuration files that allow comments) — is **checked as you type**. Once you
 pause for a quarter of a second the whole file is read again in the background,
@@ -1369,6 +1476,77 @@ end of the document. JSONC files may have comments and trailing commas; JSON
 Lines files may hold one document after another. A file with more than a
 thousand errors is not checked past the thousandth. JSON5 is a different
 language and is not checked.
+
+**JSON tools.** In a JSON file, **Alt-F** (or Format → JSON → *Pretty-print*)
+lays the whole document out one value to a line, indented by the editor's tab
+setting (spaces, or a tab when *Fill tabs with spaces* is off); *Minify* writes
+it on one line with no spaces; *Sort keys* sorts every object's keys, at every
+depth (by what the key says, so `"\u0061"` sorts as `a`), and lays it out as
+pretty-printing does. Nothing else about the document changes: keys stay in
+their order (except when sorting), numbers and strings are kept exactly as
+written — `1.0e+2` is not turned into `100`, and escapes stay escapes — and in
+JSONC files the comments stay with the member they are about (a comment on a
+member's line stays at the end of that line, and moves with it when sorting);
+minifying drops them, and says so. A JSON Lines file stays one document to a
+line. The tools refuse a document that has syntax errors, since what it means
+would be a guess. The rewrite is one step for **Ctrl-Z**, and the cursor stays
+on the token it was on.
+
+**TOML, YAML and XML** files are checked the same way — the same gutter,
+underlines, status line and **Alt-E** — each by its own rules:
+
+- **TOML** (`.toml`, `Cargo.lock`, `poetry.lock`, `uv.lock`): every error the
+  parser finds, which reads on past each one — a value that isn't one, a table
+  header left open, a key given twice, a table defined twice.
+- **YAML** (`.yaml`, `.yml`), read as YAML 1.2: the first syntax error (a YAML
+  parser can't tell what follows a broken indentation or an unclosed quote, so
+  it stops there), and before it **every key given twice in one mapping** —
+  which YAML forbids but many tools silently accept, keeping one of the two.
+- **XML** (`.xml`, `.svg`, `.xsd`, `.xsl`, `.csproj` and the other MSBuild files,
+  `.xaml`, `.kml`, `.gpx`, `.plist`, …): end tags that don't match — reported,
+  and read past, so the errors after one still show — elements never closed,
+  attributes given twice or malformed, a second root element or text outside
+  the root, and a fatal error such as an unterminated attribute, after which
+  the rest of the file can't be read. Only well-formedness is checked, not a
+  schema or DTD.
+
+**JSON Schema.** Once a JSON, YAML or TOML file's syntax is right, it is also
+checked against its **JSON Schema**, and what the schema doesn't allow is
+marked the same way — with a `!` in the gutter and an underline in the warning
+colour rather than the error colour, a `! n` count on the status line, and
+**Alt-E** stepping through these too. An unknown or misspelt key is marked
+where the key is, a missing required one at the object that lacks it, and a
+value of the wrong type or outside the allowed set at the value. The schema is,
+in this order:
+
+1. The one the file names: `"$schema": "…"` at the top of a JSON document, a
+   `# yaml-language-server: $schema=…` comment in YAML, or `#:schema …` in TOML
+   (comments are looked for in the first 20 lines). It may be the URL of a
+   bundled schema, a `file://` URL, or a path relative to the file; a file that
+   names any other URL is not validated.
+2. The one your mapping gives the file: `schemas/schemas.toml` in the
+   configuration directory (`~/.config/rat-commander/schemas/schemas.toml` on
+   Linux), with a `[[map]]` table per rule, shown below. The first rule with a
+   matching glob wins.
+3. The bundled one for a well-known file: **Compose** (`docker-compose.yml`,
+   `compose.yaml` and their `compose.*.yaml` variants),
+   **GitHub Actions** workflows (`.github/workflows/*.yml`) and `action.yml`,
+   **Dependabot** (`.github/dependabot.yml`), **GitLab CI** (`.gitlab-ci.yml`),
+   `Cargo.toml`, `package.json` and `tsconfig.json` / `jsconfig.json`.
+
+```toml
+[[map]]
+files = ["**/deploy/*.yaml"]    # globs matched against the absolute path;
+                                # * stops at a /, ** does not
+schema = "deploy.schema.json"   # beside schemas.toml, a bundled URL, or "none"
+```
+
+Nothing is fetched from the network: a schema's references to other bundled
+schemas and to local files are followed, and a reference to anything else is
+taken as allowing anything. Files over 4 MiB are not validated, and at most 200
+schema errors are shown. The bundled schemas are those published by SchemaStore
+and the Compose Specification (Apache-2.0) and GitLab (MIT); their sources and
+licenses are listed in `assets/schemas/README.md`.
 
 **GeoJSON map (Alt-M).** Draws the GeoJSON in the file over a **map of the
 world** — a `.geojson` file, or GeoJSON anywhere inside a larger JSON document,
@@ -1406,6 +1584,55 @@ dots — which a 16-colour terminal can show too. Its colours come from the
 active theme. The file is read in the background, so even a large GeoJSON file
 brings the dialog up at once.
 
+*Editing GeoJSON on the map.* **Edit features** (or `e`) turns the map into an
+editor of the GeoJSON, with a row of tools above the bottom line; `e` again, or
+**Stop editing**, turns it off. Every change is made to the editor's text the
+moment it is made, as one undo step of its own, and nothing else in the file is
+touched: a moved position rewrites only its geometry's `coordinates`, a new
+feature is added to the end of its collection's `features`, a removed one takes
+its comma with it. What is written follows the layout around it — all on one
+line or indented (with spaces or tabs, and as deep), with or without spaces
+after commas, a position or a number to a line — and the numbers of positions
+that were not moved stay exactly as they were written, altitude included. New
+positions are rounded to what the zoom can point at, never finer than seven
+decimal places. Close the map and save the file as usual; `Ctrl-Z` in the
+editor takes the changes back too.
+
+- **Positions.** The picked feature shows a square handle on each of its
+  positions and a dot in the middle of each segment. Drag a handle to move the
+  position, drag (or click) a dot to add one there; a click selects a position,
+  `[` / `]` step through them, `Shift`+arrows move the selected one a cell,
+  `Insert` adds one after it, and `Del` (or a right click on a handle) removes
+  it. A line keeps at least two positions and a polygon three: a hole or one
+  part of a Multi… geometry left smaller than that goes as a whole. With no
+  position selected, `Del` removes the picked feature. A feature with too many
+  positions to show at the zoom asks to be zoomed in on first.
+- **Drawing.** `1`, `2` and `3` (or **Point**, **Line**, **Polygon**) draw a new
+  feature: a click places each position — `Space` places one at the crosshair in
+  the middle of the map, for drawing from the keyboard with the arrow keys
+  panning — and `Enter`, a click back on the last position, or for a polygon a
+  click on the first, finishes it. `Backspace` takes back the last position and
+  `Esc` cancels. The tool stays on for the next feature until `Esc` or its key
+  again. The new feature has empty properties and is picked when done.
+- **Where new features go.** Into the collection chosen in the list, or the
+  one the picked feature is in, or the file's first FeatureCollection; the top
+  row shows which (`→ $.parks`). A file with none gets one: an empty file becomes
+  a FeatureCollection, a file that is a single Feature or geometry becomes a
+  FeatureCollection holding it and the new feature, a file of features one to a
+  line (GeoJSON Lines) gets another line, and any other JSON gets a new
+  FeatureCollection at the editor's cursor, which has to be where a value can
+  go — after a `:`, a `[` or a comma — and not inside GeoJSON already there; a
+  `null` at the cursor is replaced. `c` (**New collection**) makes an empty one
+  the same way, to draw into.
+- **Names.** `r` (**Rename**) types a name for the picked feature, written to
+  the naming property it already has (`name`, `title`, `label`…) or as a new
+  `name` in its properties.
+- **Undo.** `Ctrl-Z` and `Ctrl-Y` step back and forth through the changes made
+  on the map — in the map and in the editor's text together.
+
+`Esc` steps back out: from a feature being drawn, from the tool, from a
+selected position, then out of editing, and then closes the map.
+
 **Hex editor (Ctrl-F9).** Toggles an in-place offset / hex / ASCII editor. Only the
 visible window is read and only changed bytes are written back, so arbitrarily
 large files can be hex-edited (and a file too big to load as text opens straight
@@ -1413,6 +1640,125 @@ into hex mode). Editing is overwrite-only (length-preserving). **Tab** switches
 between the hex and ASCII columns; **F7** searches for hex bytes (`48 65 6c`) or
 text, **F4** replaces all (same length), **F2** saves the changed bytes. **F9**
 still opens the menu, with the text-buffer items greyed out.
+
+### Data inspector
+
+**F8** in hex mode (or Command → Data inspector) shows the bytes at the cursor
+read as each common type, in a panel beside the bytes (or below them, when the
+terminal isn't wide enough) that follows the cursor as it moves:
+
+- **binary** — the byte's bits
+- **int8** … **uint64** — signed and unsigned integers of 1, 2, 4 and 8 bytes
+- **float16**, **float32**, **float64** — half, single and double precision
+- **ULEB128**, **SLEB128** — variable-length integers, as DWARF, WebAssembly
+  and Android's DEX use them
+- **UTF-8**, **UTF-16** — the character starting at the cursor and its code
+  point, or *invalid*
+- **time_t** (32-bit), **time64_t**, **FILETIME**, **OLETIME**, **DOSDATE**,
+  **DOSTIME** — dates and times, in UTC
+- **GUID** — 16 bytes, the first three groups stored little-endian (as Windows
+  does) or, big-endian, in the order they are written
+
+A row shows *—* when too few bytes are left in the file to read one. The title
+row says which **byte order** the numbers are read in; **b** (or a click on the
+title) switches between little- and big-endian, and both it and whether the
+inspector shows are remembered.
+
+**Tab** reaches the inspector after the ASCII column (and before the template
+tree). There **↑ ↓** choose a type, and its bytes are marked in the hex view;
+**← →** move the byte cursor, and **Ctrl-← →** move it by the width of the
+chosen value. **Enter** edits the value in place: numbers in the same notations
+as the template tree (`-5`, `0x1F`, `1Fh`, `0b101`), dates as they are shown,
+a character as itself, in quotes or as `U+00E9`, a GUID as its 32 hex digits.
+The bytes go into the hex editor's unsaved changes, so **F2** saves them like
+any other edit. Editing never changes the file's length, so a value must fit
+the bytes it replaces: a smaller LEB128 number is padded to the length of the
+one there, and a character must take as many bytes as the one it replaces.
+
+### Binary templates
+
+In hex mode the file is read with an **010 Editor Binary Template** — a small
+C-like program that describes a file format — and the result is shown as a
+tree of the file's structures and fields beside the bytes (or below them, when
+the terminal isn't wide enough). Each row has the variable's **name**, its
+**value**, where it **starts**, its **size**, its **type** and a **comment**,
+narrower panels dropping the later columns. The template's colours tint the
+bytes it covers, and the bytes of the variable selected in the tree are
+highlighted.
+
+**Picking the template.** When hex mode opens, the template that fits the file
+runs by itself, in the background — its name and progress show on the status
+line. A template fits when one of its **file masks** matches the file's name
+and, if it has any, one of its **ID bytes** patterns matches the start of the
+file; a template without file masks fits on its ID bytes alone. A plain text
+file is not taken for a binary format that merely shares its extension, and an
+extension several formats use (`.img`, `.dat`) only picks a template by itself
+when one of them also recognises the file's first bytes. **F5**
+opens the template picker: the templates that fit come first, then every other
+one by category; type to filter, **Enter** uses the highlighted template, **F4**
+opens it for editing, and **(No template)** stops using one. **Shift-F5** runs
+the template again.
+
+**Moving around.** **F6** selects the variable under the byte cursor in the
+tree — opening whatever it is inside — and gives the tree the keys; **F6** or
+**Esc** give them back to the bytes, with the byte cursor on the selected
+variable (it stays put if it is already inside it). **Tab** steps round the hex
+column, the ASCII column, the data inspector when it shows and the tree
+(**Shift-Tab** the other way), going into and out of the tree the same way. Moving through the tree moves the byte cursor
+to each variable. **→** opens a struct or array, **←** closes it or steps to its
+parent, and **\*** opens everything below the selected row. Large arrays list
+their elements a thousand at a time, with a row to list more.
+**F3** switches the panel to the template's **output** — what it printed, its
+warnings, and why it stopped if it did — and back.
+
+**Editing values.** **Enter** on a value edits it in place. Numbers can be typed
+as decimal, `0x1F`, `1Fh` or `0b101`, an enum by its constant's name, a
+character as `'A'`, a string in quotes (with `\n`, `\t`, `\x41` escapes), and
+dates in the format they are shown in. The value is written with the variable's
+byte order and width — a bitfield keeps the bits around it — into the hex
+editor's unsaved changes, so **F2** saves it like any other edit. A variable
+with its own `read` function is edited through its `write` function, and is
+read-only without one. After an edit the template runs again once typing pauses
+(a template that took more than a second waits for **Shift-F5** instead).
+
+**The templates.** The program comes with **307 templates** from SweetScape's
+[template repository](https://www.sweetscape.com/010editor/repository/templates/)
+— archives, images, audio and video, executables, fonts, disk images, databases
+and many more — which it writes to **`templates/`** in the config directory on
+first start. They are yours to change: an edited template is never overwritten,
+one you delete is not brought back, and a later release only refreshes the ones
+you left as they were. Any other `.bt` file in that directory (or a subdirectory
+of it) is a template too, chosen by its header comments:
+
+```text
+//      File: MyFormat.bt
+//  Category: User
+//   Purpose: What it parses
+// File Mask: *.myf
+//  ID Bytes: 4D 59 46 [+4] 01   // bytes at the start; [+N] skips N
+```
+
+**New template…** (Command → Binary templates) starts one for the file being
+viewed — its file mask and first bytes already in the header — and opens it in
+the editor; **Edit template…** opens the template in use, at the line a run
+stopped at. The hex editor waits underneath and comes back, running the edited
+template, when that editor is closed. `#include` looks next to the including
+file, then in the templates directory, then among the built-in templates.
+
+**What runs.** Structs and unions (with arguments, recursive, on-demand with
+`size=`), typedefs, enums, padded and unpadded bitfields in either direction,
+duplicate arrays, strings, local variables and structs, functions with reference
+parameters, the `read`, `write`, `comment`, `name`, `format`, `fgcolor`,
+`bgcolor`, `style`, `hidden`, `open`, `optimize`, `pos` and `localpos`
+attributes, and the reading, string, math, date, checksum, search and colour
+functions. A template never changes the file while it runs: functions that
+would write to it, open other files or run programs stop the template with an
+error, keeping what it had built; prompts take their default answer, and
+disassembly is shown as plain bytes. An array of structs whose size can vary is
+read element by element when it has up to 1024 of them, and otherwise, as in
+010 Editor, assumed to repeat the size of its first element (`optimize=false` /
+`optimize=true` decide it for good). A run stops after two million variables or
+two minutes.
 
 
 ## Archives — browsed like directories
@@ -1511,7 +1857,7 @@ built-in archive, then one of the above, then an `rc.ext` rule, and finally the
 image flasher, the default application, or simply running the file.
 
 
-## Remote filesystems (SFTP / FTP / SCP)
+## Remote filesystems (SFTP / FTP / FTPS / SCP)
 
 Mounts a remote server into a panel, so you browse and transfer
 files over **SFTP** or **SCP** (SSH) or **FTP / FTPS** exactly like local files.
@@ -1536,6 +1882,28 @@ most NAT/firewalls; untick it for **active** mode, where the server connects
 back. The choice is remembered per server. (SFTP and SCP tunnel their data over
 the single SSH connection, so they have no such option.)
 
+**FTPS** is FTP secured with TLS: the connection is switched to TLS (`AUTH TLS`)
+before logging in, so the password and every listing and transfer are
+encrypted, and the data connections resume the same TLS session, as servers
+such as vsftpd require. It has the same form, PASV option and history as FTP
+(its own history). The server's certificate is checked like this:
+
+- A certificate that one of the **system's trusted authorities** vouches for,
+  for the host name you connected to and in date, is accepted without a word.
+- Any other — **self-signed**, from a private CA, expired, for another name —
+  stops the connection and asks: *Untrusted certificate* shows why it isn't
+  trusted, its subject, issuer, expiry and **SHA-256**. **Trust** pins that
+  certificate for the server (`host:port`) in `ftps_known_hosts` in the
+  configuration directory and connects; from then on that server connects
+  without asking, as long as it presents the same certificate.
+- If a pinned server presents a **different** certificate, the prompt turns into
+  a red *Certificate changed* warning, with **Cancel** focused: it may simply
+  have been renewed, or someone may be intercepting the connection. Trusting it
+  replaces the pin.
+
+Only explicit FTPS is supported; *implicit* FTPS (a TLS connection from the
+first byte, usually on port 990) is not.
+
 **SSH authentication** follows the same order `ssh` itself uses, stopping at the
 first method the server accepts:
 
@@ -1555,6 +1923,34 @@ was tried, so you can tell "wrong key" from "wrong password".
 SSH host keys are checked against `~/.ssh/known_hosts`: a matching key connects,
 an **unknown** host is trusted and **recorded** on first use, and a **changed**
 key is rejected as a possible machine-in-the-middle.
+
+**`~/.ssh/config`.** The hosts your SSH config names are offered in the SFTP and
+SCP connect forms' Host dropdown, after the recent servers — each shown as
+`alias   user@hostname:port via jump   (ssh config)` — and in the command palette
+as *SSH host* entries. Picking one fills in the **alias** as the host, and any
+host typed into the form is looked up in the config too, so a connection is set
+up the way `ssh alias` would set it up:
+
+- **HostName** is where it connects (with `%h` tokens expanded); **User** and
+  **Port** apply unless the form gives a user or a port other than the default,
+  as a command-line option would override them for `ssh`.
+- **IdentityFile** keys are tried, in order, instead of the default keys (unless
+  the form names a key file); `~` and the `%h %p %r %u %d %n` tokens are
+  expanded, and files that don't exist are skipped. **IdentitiesOnly yes** leaves
+  the agent's keys out.
+- **ProxyJump** routes the connection through one or more jump hosts, each looked
+  up in the config for its own HostName, User, Port, IdentityFile and
+  HostKeyAlias; every hop's host key is checked against `known_hosts` and every
+  hop authenticates in turn (the password is only offered to the host itself).
+  The jump connections stay open for as long as the panel's connection does.
+- **HostKeyAlias** is the name a host's key is looked up and recorded under.
+- **Include** files are read in place (relative to `~/.ssh`, wildcards allowed);
+  the first value found for a setting wins, as in `ssh`.
+
+Not supported: **ProxyCommand** (a host that needs one gets an error rather than
+a connection that bypasses the proxy — use `ProxyJump` where you can), **Match**
+blocks (skipped), and a different passphrase per key (one passphrase prompt
+applies to every encrypted key on the route).
 
 **Connections behave like drives.** Every open connection stays alive as a
 button in the picker, so you can switch a panel between **Local** and any server
@@ -2632,6 +3028,10 @@ Configuration files live in your platform config directory
   50 files edited (see *Editor*).
 - **`themes.toml`** — your editable themes (see *Themes*).
 - **`lang/`** — the localization files, one TOML per language (see *Language*).
+- **`templates/`** — the binary templates for the hex editor, the built-in ones
+  and your own, and `.rc-manifest.toml`, which records what was deployed so
+  upgrades refresh only the templates you haven't edited (see *Binary
+  templates*).
 - **`menu`** — the F2 user menu (see below).
 - **`rc.ext`** — file associations for Open/View/Edit actions and extfs mounts
   (see *The rc.ext file format*).

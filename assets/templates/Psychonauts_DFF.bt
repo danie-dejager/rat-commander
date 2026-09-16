@@ -1,0 +1,41 @@
+//------------------------------------------------
+//--- 010 Editor v16.0.2 Binary Template
+//
+//      File: Psychonauts_DFF.bt
+//   Authors: veydzh3r
+//   Version: 1.0
+//   Purpose: DFF Psychonauts Font File
+//  Category: Game
+// File Mask: *.DFF
+//  ID Bytes: 46 46 46 44 // FFFD
+//   History: 
+//   1.0   2025-11-20 veydzh3r: Initial release.
+//------------------------------------------------
+
+struct {
+    char signature[4];
+    uint32 asciiMapSize;
+    uint32 coordMapSize;
+} HEADER;
+
+struct {
+    char asciiCharacter;
+} ASCII_MAP[HEADER.asciiMapSize] <optimize=false, comment=asciiCharacter>;
+
+struct {
+    uint16 x_start;
+    uint16 y_start;
+    uint16 x_end;
+    uint16 y_end;
+    uint16 x_base;
+    uint16 y_base;
+} COORD_MAP[HEADER.coordMapSize] <optimize=false>;
+
+struct {
+    uint32 unknown;
+    uint32 width;
+    uint32 height;
+    struct {
+       byte ImageLine[width];
+    } IMAGEDATA[height] <optimize=false>;
+} TEXTURE;

@@ -23,6 +23,10 @@ pub enum Error {
 
     #[error("{0}")]
     Other(String),
+
+    /// An FTPS server's certificate isn't trusted (yet).
+    #[error("the server's certificate isn't trusted: {}", .0.reason)]
+    UntrustedCertificate(Box<crate::vfs::remote::tls::CertFailure>),
 }
 
 impl Error {

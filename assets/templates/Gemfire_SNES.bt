@@ -1,0 +1,345 @@
+//------------------------------------------------
+//--- 010 Editor v13.0 Binary Template
+//
+//      File: Gemfire_SNES.bt
+//   Authors: Feldherren
+//   Version: 1.2
+//   Purpose: Written for Gemfire (U) [!].sfc on SNES (may work with other ROM versions), with help from DragonAtma. Reading and editing game and scenario starting data values. 
+//  Category: Game
+// File Mask: *.sfc
+//   History: 
+//   1.2   2023-01-29 Feldherren: HP ushort in province fifth unit data is now a ubyte, followed by unknown byte
+//   1.1   2023-01-29 Feldherren: Can now read/edit which four officers are female.
+//   1.0   2023-01-29 Feldherren: Initial submission.
+//------------------------------------------------
+
+typedef byte FamilyID <comment=FamilyIDComment>;
+typedef byte RelatedFamilyID <comment=RelatedFamilyIDComment>;
+typedef byte OfficerID <comment=OfficerIDComment>;
+typedef byte RankID <comment=RankIDComment>;
+typedef byte GemFlag <comment=GemsComment, format=binary>;
+typedef byte Loyalty <format=hex>;
+typedef byte ProvinceID <comment=ProvinceIDComment>;
+typedef byte FifthUnitType <comment=FifthUnitTypeComment>;
+typedef byte FifthUnitID <comment=FifthUnitIDComment>;
+
+string FamilyIDComment(FamilyID $f)
+{
+    if(f<0)
+        return "N/A";
+    else
+        return ReadString(44596 + f*11);
+
+    return "";
+}
+
+string RelatedFamilyIDComment(FamilyID $f)
+{
+    string familyString = "Related to leader of ";
+    if(f<0)
+        familyString = "N/A";
+    else
+        Strcat(familyString, ReadString(44596 + f*11));
+
+    return familyString;
+}
+
+string OfficerIDComment(OfficerID $f)
+{
+    if(f<0)
+        return "N/A";
+    else
+        return ReadString(42652 + f*14);
+
+    return "";
+}
+
+string RankIDComment(RankID $f)
+{
+    string rank_comment = "";
+
+    switch(f)
+    {
+        case 1: rank_comment = "King/Prince/Princess; "; break;
+        case 2: rank_comment = "Lord/Lady; "; break;
+        case 4: rank_comment = "No title (Vassal); "; break;
+    }
+
+    Strcat(rank_comment, "affects icon in Officer list only?");
+
+    return rank_comment;
+}
+
+string GemsComment(GemFlag $f)
+{
+    string gem_string = "";
+    string return_string = "";
+
+    if (f & 1)
+    {
+        Strcat(gem_string, ReadString(44448, 9));
+        Strcat(gem_string, ", ");
+    }
+    if (f & 2)
+    {
+        Strcat(gem_string, ReadString(44466, 9));
+        Strcat(gem_string, ", ");
+    }
+    if (f & 4)
+    {
+        Strcat(gem_string, ReadString(44484, 9));
+        Strcat(gem_string, ", ");
+    }
+    if (f & 8)
+    {
+        Strcat(gem_string, ReadString(44502, 9));
+        Strcat(gem_string, ", ");
+    }
+    if (f & 16)
+    {
+        Strcat(gem_string, ReadString(44520, 9));
+        Strcat(gem_string, ", ");
+    }
+    if (f & 32)
+    {
+        Strcat(gem_string, ReadString(44538, 9));
+        Strcat(gem_string, ", ");
+    }
+    if (f & 64)
+    {
+        Strcat(gem_string, ReadString(44574, 9));
+        Strcat(gem_string, ", ");
+    }
+    if (f & 128)
+    {
+        Strcat(gem_string, ReadString(44556, 9));
+        Strcat(gem_string, ", ");
+    }
+    if(Strlen(gem_string) >= 1)
+        return_string = StrDel(gem_string, Strlen(gem_string)-2, 2);
+    return return_string;
+}
+
+string ProvinceIDComment(byte $id)
+{
+    string province_comment = "";
+
+    if(id<0)
+        return "N/A";
+    else
+    {
+        return ReadString(43548 + id*21, 7);
+    }
+}
+
+string FifthUnitIDComment(byte $id)
+{
+    if(id<0)
+        return "N/A";
+    else
+        return ReadString(44178 + 18*id);
+    return "N/A";
+}
+
+string FifthUnitTypeComment(byte $type)
+{
+    string type_comment = "";
+
+    switch(type)
+    {
+        case 9: type_comment = "Monster (Group A)"; break; // Lizards, Bugbear, Fachan, Wyvern
+        case 10: type_comment = "Wizard"; break; // Pluvius, Zendor, Skulryk, Empyron, Scylla, Chylla
+        case 14: type_comment = "Dragon"; break; // Dragon
+        case 17: type_comment = "Monster (Group B)"; break; // Orks, Ologhai, Gargoyles, Skeletons
+        case 18: type_comment = "Human"; break; // Gunners, Shooters, Spearmen, Pikemen, Lancers, Warriors, PASTHA(?)
+    }
+
+    return type_comment;
+}
+
+
+struct GameData {
+    FSeek(42652);
+    struct OfficerData {
+        struct Officer {
+            char name[7];
+            byte blank;
+            byte blank;
+            byte blank;
+            byte blank;
+            byte age <comment="Age in year 0 (1 year before scenarios start)">;
+            byte blank;
+            byte defection : 4 <comment="Odds of defecting (0: very low, 3: high)">;
+            byte surrender : 4 <comment="Odds of surrendering (0: very low, 3: high))">;
+        } O1 <comment=OfficerIDComment(0)>, O2 <comment=OfficerIDComment(1)>, O3 <comment=OfficerIDComment(2)>, O4 <comment=OfficerIDComment(3)>, O5 <comment=OfficerIDComment(4)>, O6 <comment=OfficerIDComment(5)>, O7 <comment=OfficerIDComment(6)>, O8 <comment=OfficerIDComment(7)>,
+        O9 <comment=OfficerIDComment(8)>, O10 <comment=OfficerIDComment(9)>, O11 <comment=OfficerIDComment(10)>, O12 <comment=OfficerIDComment(11)>, O13 <comment=OfficerIDComment(12)>, O14 <comment=OfficerIDComment(13)>, O15 <comment=OfficerIDComment(14)>, O16 <comment=OfficerIDComment(15)>,
+        O17 <comment=OfficerIDComment(16)>, O18 <comment=OfficerIDComment(17)>, O19 <comment=OfficerIDComment(18)>, O20 <comment=OfficerIDComment(19)>, O21 <comment=OfficerIDComment(20)>, O22 <comment=OfficerIDComment(21)>, O23 <comment=OfficerIDComment(22)>, 
+        O24 <comment=OfficerIDComment(23)>, O25 <comment=OfficerIDComment(24)>, O26 <comment=OfficerIDComment(25)>, O27 <comment=OfficerIDComment(26)>, O28 <comment=OfficerIDComment(27)>, O29 <comment=OfficerIDComment(28)>, O30 <comment=OfficerIDComment(29)>, 
+        O31 <comment=OfficerIDComment(30)>, O32 <comment=OfficerIDComment(31)>, O33 <comment=OfficerIDComment(32)>, O34 <comment=OfficerIDComment(33)>, O35 <comment=OfficerIDComment(34)>, O36 <comment=OfficerIDComment(35)>, O37 <comment=OfficerIDComment(36)>, 
+        O38 <comment=OfficerIDComment(37)>, O39 <comment=OfficerIDComment(38)>, O40 <comment=OfficerIDComment(39)>, O41 <comment=OfficerIDComment(40)>, O42 <comment=OfficerIDComment(41)>, O43 <comment=OfficerIDComment(42)>, O44 <comment=OfficerIDComment(43)>,
+        O45 <comment=OfficerIDComment(44)>, O46 <comment=OfficerIDComment(45)>, O47 <comment=OfficerIDComment(46)>, O48 <comment=OfficerIDComment(47)>, O49 <comment=OfficerIDComment(48)>, O50 <comment=OfficerIDComment(49)>, O51 <comment=OfficerIDComment(50)>, 
+        O52 <comment=OfficerIDComment(51)>, O53 <comment=OfficerIDComment(52)>, O54 <comment=OfficerIDComment(53)>, O55 <comment=OfficerIDComment(54)>, O56 <comment=OfficerIDComment(55)>, O57 <comment=OfficerIDComment(56)>, O58 <comment=OfficerIDComment(57)>,
+        O59 <comment=OfficerIDComment(58)>, O60 <comment=OfficerIDComment(59)>, O61 <comment=OfficerIDComment(60)>, O62 <comment=OfficerIDComment(61)>, O63 <comment=OfficerIDComment(62)>, O64 <comment=OfficerIDComment(63)>;
+    } Officers;
+    
+    struct ProvinceData {
+        struct Province {
+            char name[7] <comment="Provinces 1-9 get 7 letter maximum names; the rest have a limit of 6">;
+            byte blank;
+            byte blank;
+            byte blank;
+            byte blank;
+            ProvinceID neighbour;
+            ProvinceID neighbour;
+            ProvinceID neighbour;
+            ProvinceID neighbour;
+            ProvinceID neighbour;
+            ProvinceID neighbour;
+            ProvinceID neighbour;
+            ProvinceID neighbour;
+            byte x <comment="Family icon x (0 is west)">;
+            byte y <comment="Family icon y (0 is north)">;
+        } P1 <comment=ProvinceIDComment(0)>, P2 <comment=ProvinceIDComment(1)>, P3 <comment=ProvinceIDComment(2)>, P4 <comment=ProvinceIDComment(3)>, P5 <comment=ProvinceIDComment(4)>, P6 <comment=ProvinceIDComment(5)>, P7 <comment=ProvinceIDComment(6)>, P8 <comment=ProvinceIDComment(7)>, P9 <comment=ProvinceIDComment(8)>, P10 <comment=ProvinceIDComment(9)>, P11 <comment=ProvinceIDComment(10)>, 
+            P12 <comment=ProvinceIDComment(11)>, P13 <comment=ProvinceIDComment(12)>, P14 <comment=ProvinceIDComment(13)>, P15 <comment=ProvinceIDComment(14)>, P16 <comment=ProvinceIDComment(15)>, P17 <comment=ProvinceIDComment(16)>, P18 <comment=ProvinceIDComment(17)>, P19 <comment=ProvinceIDComment(18)>, P20 <comment=ProvinceIDComment(19)>,
+            P21 <comment=ProvinceIDComment(20)>, P22 <comment=ProvinceIDComment(21)>, P23 <comment=ProvinceIDComment(22)>, P24 <comment=ProvinceIDComment(23)>, P25 <comment=ProvinceIDComment(24)>, P26 <comment=ProvinceIDComment(25)>, P27 <comment=ProvinceIDComment(26)>, P28 <comment=ProvinceIDComment(27)>, P29 <comment=ProvinceIDComment(28)>, P30 <comment=ProvinceIDComment(29)>;
+    } Provinces;
+
+    struct FifthUnitData {
+        struct FifthUnit {
+            char name[9];
+            byte unknown1;
+            byte unknown2;
+            byte fame;
+            ubyte cost;
+            ubyte hp;
+            byte unknown6;
+            ubyte offense : 4 <comment="Lower is better; 0 best">;
+            ubyte defense : 4 <comment="Lower is better; 0 best">;
+            ubyte movement : 2 <comment="Movement range in tiles, 0 to 3">;
+            ubyte range    : 2 <comment="Attack range (fixed patterns) 0: adjacent, 1: 2 spaces, 2: wide, 3: all">;
+            ubyte : 4;
+            FifthUnitType type;
+        } U1 <comment=FifthUnitIDComment(0)>, U2 <comment=FifthUnitIDComment(1)>, U3 <comment=FifthUnitIDComment(2)>, U4 <comment=FifthUnitIDComment(3)>, U5 <comment=FifthUnitIDComment(4)>, 
+            U6 <comment=FifthUnitIDComment(5)>, U7 <comment=FifthUnitIDComment(6)>, U8 <comment=FifthUnitIDComment(7)>, U9 <comment=FifthUnitIDComment(8)>, U10 <comment=FifthUnitIDComment(9)>, U11 <comment=FifthUnitIDComment(10)>, U12 <comment=FifthUnitIDComment(11)>,
+            U13 <comment=FifthUnitIDComment(12)>, U14 <comment=FifthUnitIDComment(13)>, U15 <comment=FifthUnitIDComment(14)>, U16 <comment=FifthUnitIDComment(15)>, U17 <comment=FifthUnitIDComment(16)>, U18 <comment=FifthUnitIDComment(17)>,
+            U19 <comment=FifthUnitIDComment(18)>, U20 <comment=FifthUnitIDComment(19)>, U21 <comment=FifthUnitIDComment(20)>, U22 <comment=FifthUnitIDComment(21)>, U23 <comment=FifthUnitIDComment(22)>;
+    } FifthUnits;
+
+    FSkip(4);
+
+    struct FamilyNames {
+        struct FamilyName {
+            char name[11];
+        } F1 <comment=FamilyIDComment(0)>, F2 <comment=FamilyIDComment(1)>, F3 <comment=FamilyIDComment(2)>, F4 <comment=FamilyIDComment(3)>, F5 <comment=FamilyIDComment(4)>, F6 <comment=FamilyIDComment(5)>, F7 <comment=FamilyIDComment(6)>, F8 <comment=FamilyIDComment(7)>, F9 <comment=FamilyIDComment(8)>, F10 <comment=FamilyIDComment(9)>, F11 <comment=FamilyIDComment(10)>, 
+            F12 <comment=FamilyIDComment(11)>, F13 <comment=FamilyIDComment(12)>, F14 <comment=FamilyIDComment(13)>, F15 <comment=FamilyIDComment(14)>, F16 <comment=FamilyIDComment(15)>, F17 <comment=FamilyIDComment(16)>, F18 <comment=FamilyIDComment(17)>, F19 <comment=FamilyIDComment(18)>, F20 <comment=FamilyIDComment(19)>,
+            F21 <comment=FamilyIDComment(20)>, F22 <comment=FamilyIDComment(21)>, F23 <comment=FamilyIDComment(22)>, F24 <comment=FamilyIDComment(23)>, F25 <comment=FamilyIDComment(24)>, F26 <comment=FamilyIDComment(25)>, F27 <comment=FamilyIDComment(26)>, F28 <comment=FamilyIDComment(27)>, F29 <comment=FamilyIDComment(28)>, F30 <comment=FamilyIDComment(29)>,
+            F31 <comment=FamilyIDComment(30)>, F32 <comment=FamilyIDComment(31)>, F33 <comment=FamilyIDComment(32)>, F34 <comment=FamilyIDComment(33)>, F35 <comment=FamilyIDComment(34)>, F36 <comment=FamilyIDComment(35)>, F37 <comment=FamilyIDComment(36)>, F38 <comment=FamilyIDComment(37)>, F39 <comment=FamilyIDComment(38)>, F40 <comment=FamilyIDComment(39)>, F41 <comment=FamilyIDComment(40)>;
+    } Families;
+    FSeek(41032);
+    struct fOfficers {
+        OfficerID F1;
+        FSkip(8);
+        OfficerID F2;
+        FSkip(8);
+        OfficerID F3;
+        FSkip(8);
+        OfficerID F4;
+    } FemaleOfficers;
+} Data;
+
+struct Scenario {
+    struct ScenarioData {
+        byte unknown;
+        byte unknown;
+        byte unknown;
+        byte unknown;
+        byte year;
+        byte month;
+        byte unknown;
+        byte unknown;
+        byte ffArray[34];
+        byte unknown;
+        byte unknown;
+        byte unknown;
+        byte unknown;
+        byte unknown;
+        byte unknown;
+        byte unknown;
+        byte unknown;
+        byte unknown;
+        byte unknown;
+        byte unknown;
+        byte unknown;
+        byte unknown;
+    } Date;
+    struct ScenarioFamilyData {
+        struct ScenarioFamily {
+            FamilyID id;
+            OfficerID ruler;
+            byte unknown <comment="FF always?">;
+            GemFlag gems <name="Gem flags">;
+        } F1 <comment=FamilyIDComment(0)>, F2 <comment=FamilyIDComment(1)>, F3 <comment=FamilyIDComment(2)>, F4 <comment=FamilyIDComment(3)>, F5 <comment=FamilyIDComment(4)>, F6 <comment=FamilyIDComment(5)>, F7 <comment=FamilyIDComment(6)>, F8 <comment=FamilyIDComment(7)>, F9 <comment=FamilyIDComment(8)>, F10 <comment=FamilyIDComment(9)>, F11 <comment=FamilyIDComment(10)>, 
+            F12 <comment=FamilyIDComment(22)>, F13 <comment=FamilyIDComment(23)>, F14 <comment=FamilyIDComment(24)>, F15 <comment=FamilyIDComment(25)>, F16 <comment=FamilyIDComment(26)>, F17 <comment=FamilyIDComment(27)>, F18 <comment=FamilyIDComment(28)>, F19 <comment=FamilyIDComment(29)>, F20 <comment=FamilyIDComment(30)>,
+            F21 <comment=FamilyIDComment(31)>, F22 <comment=FamilyIDComment(32)>, F23 <comment=FamilyIDComment(33)>, F24 <comment=FamilyIDComment(34)>, F25 <comment=FamilyIDComment(35)>, F26 <comment=FamilyIDComment(36)>, F27 <comment=FamilyIDComment(37)>, F28 <comment=FamilyIDComment(38)>, F29 <comment=FamilyIDComment(39)>,
+            F30 <comment=FamilyIDComment(40)>;
+    } Families;
+
+    struct ScenarioOfficerData {
+        struct ScenarioOfficer {
+            byte blank;
+            byte blank;
+            byte leadership;
+            byte command;
+            byte charm;
+            ProvinceID province;
+            FamilyID faction;
+            RankID rank;
+            RelatedFamilyID relative;
+            byte fame;
+        } O1 <comment=OfficerIDComment(0)>, O2 <comment=OfficerIDComment(1)>, O3 <comment=OfficerIDComment(2)>, O4 <comment=OfficerIDComment(3)>, O5 <comment=OfficerIDComment(4)>, O6 <comment=OfficerIDComment(5)>, O7 <comment=OfficerIDComment(6)>, O8 <comment=OfficerIDComment(7)>,
+        O9 <comment=OfficerIDComment(8)>, O10 <comment=OfficerIDComment(9)>, O11 <comment=OfficerIDComment(10)>, O12 <comment=OfficerIDComment(11)>, O13 <comment=OfficerIDComment(12)>, O14 <comment=OfficerIDComment(13)>, O15 <comment=OfficerIDComment(14)>, O16 <comment=OfficerIDComment(15)>,
+        O17 <comment=OfficerIDComment(16)>, O18 <comment=OfficerIDComment(17)>, O19 <comment=OfficerIDComment(18)>, O20 <comment=OfficerIDComment(19)>, O21 <comment=OfficerIDComment(20)>, O22 <comment=OfficerIDComment(21)>, O23 <comment=OfficerIDComment(22)>, 
+        O24 <comment=OfficerIDComment(23)>, O25 <comment=OfficerIDComment(24)>, O26 <comment=OfficerIDComment(25)>, O27 <comment=OfficerIDComment(26)>, O28 <comment=OfficerIDComment(27)>, O29 <comment=OfficerIDComment(28)>, O30 <comment=OfficerIDComment(29)>, 
+        O31 <comment=OfficerIDComment(30)>, O32 <comment=OfficerIDComment(31)>, O33 <comment=OfficerIDComment(32)>, O34 <comment=OfficerIDComment(33)>, O35 <comment=OfficerIDComment(34)>, O36 <comment=OfficerIDComment(35)>, O37 <comment=OfficerIDComment(36)>, 
+        O38 <comment=OfficerIDComment(37)>, O39 <comment=OfficerIDComment(38)>, O40 <comment=OfficerIDComment(39)>, O41 <comment=OfficerIDComment(40)>, O42 <comment=OfficerIDComment(41)>, O43 <comment=OfficerIDComment(42)>, O44 <comment=OfficerIDComment(43)>,
+        O45 <comment=OfficerIDComment(44)>, O46 <comment=OfficerIDComment(45)>, O47 <comment=OfficerIDComment(46)>, O48 <comment=OfficerIDComment(47)>, O49 <comment=OfficerIDComment(48)>, O50 <comment=OfficerIDComment(49)>, O51 <comment=OfficerIDComment(50)>, 
+        O52 <comment=OfficerIDComment(51)>, O53 <comment=OfficerIDComment(52)>, O54 <comment=OfficerIDComment(53)>, O55 <comment=OfficerIDComment(54)>, O56 <comment=OfficerIDComment(55)>, O57 <comment=OfficerIDComment(56)>, O58 <comment=OfficerIDComment(57)>,
+        O59 <comment=OfficerIDComment(58)>, O60 <comment=OfficerIDComment(59)>, O61 <comment=OfficerIDComment(60)>, O62 <comment=OfficerIDComment(61)>, O63 <comment=OfficerIDComment(62)>, O64 <comment=OfficerIDComment(63)>;
+    } Officers;
+    
+    struct ScenarioProvinceData {
+        struct ScenarioProvince {
+            byte blank;
+            byte blank;
+            ushort gold;
+            ushort food;
+            ushort soldiers;
+            byte loyalty; 
+            byte farming; // for some reason this seems to be off by a few points when game starts
+            byte protection; // for some reason this seems to be off by a few points when game starts
+            byte blank;
+            byte blank;
+            byte blank;
+            FamilyID family;
+            byte blank;
+            struct ProvinceFifthUnits {
+                struct ProvinceFifthUnit {
+                    FifthUnitID id <comment=FifthUnitIDComment>;
+                    ubyte hp; //ubyte or ushort? Test if values from the next byte are read by the game for HP? Is HP shown in battle?
+                    byte unknown;
+                    byte existence; // availability?
+                } U1, U2, U3, U4, U5;
+            } Units;
+        } P1 <comment=ProvinceIDComment(0)>, P2 <comment=ProvinceIDComment(1)>, P3 <comment=ProvinceIDComment(2)>, P4 <comment=ProvinceIDComment(3)>, P5 <comment=ProvinceIDComment(4)>, P6 <comment=ProvinceIDComment(5)>, P7 <comment=ProvinceIDComment(6)>, P8 <comment=ProvinceIDComment(7)>, P9 <comment=ProvinceIDComment(8)>, P10 <comment=ProvinceIDComment(9)>, P11 <comment=ProvinceIDComment(10)>, 
+            P12 <comment=ProvinceIDComment(11)>, P13 <comment=ProvinceIDComment(12)>, P14 <comment=ProvinceIDComment(13)>, P15 <comment=ProvinceIDComment(14)>, P16 <comment=ProvinceIDComment(15)>, P17 <comment=ProvinceIDComment(16)>, P18 <comment=ProvinceIDComment(17)>, P19 <comment=ProvinceIDComment(18)>, P20 <comment=ProvinceIDComment(19)>,
+            P21 <comment=ProvinceIDComment(20)>, P22 <comment=ProvinceIDComment(21)>, P23 <comment=ProvinceIDComment(22)>, P24 <comment=ProvinceIDComment(23)>, P25 <comment=ProvinceIDComment(24)>, P26 <comment=ProvinceIDComment(25)>, P27 <comment=ProvinceIDComment(26)>, P28 <comment=ProvinceIDComment(27)>, P29 <comment=ProvinceIDComment(28)>, P30 <comment=ProvinceIDComment(29)>;
+    } Provinces;
+};
+FSeek(45556);
+Scenario s1;
+FSeek(47456);
+Scenario s2;
+FSeek(49356);
+Scenario s3;
+FSeek(51256);
+Scenario s4;

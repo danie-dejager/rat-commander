@@ -204,7 +204,7 @@ fn render_footer(f: &mut Frame, area: Rect, dv: &DiffView, theme: &Theme) {
     );
 }
 
-fn mix(a: Color, b: Color, t: f32) -> Color {
+pub(super) fn mix(a: Color, b: Color, t: f32) -> Color {
     match (a, b) {
         (Color::Rgb(ar, ag, ab), Color::Rgb(br, bg, bb)) => {
             let l = |x: u8, y: u8| {

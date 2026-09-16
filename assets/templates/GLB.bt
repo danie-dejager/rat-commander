@@ -1,0 +1,42 @@
+//------------------------------------------------
+//--- 010 Editor v12.0.1 Binary Template
+//
+//      File: GLB.bt
+//   Authors: FourCinnamon0
+//   Version: 0.3
+//   Purpose: Parse glb Khronos 3D Files
+//  Category: CAD
+// File Mask: *.glb,*.gltf
+//  ID Bytes: 67 6C 54 46
+//   History: 
+//   0.3   2022-06-25 FourCinnamon0: Template supports all valid glTF and GLB files and has hex data highlighting
+//   0.2   2022-04-29 Haccer SchMax: Fixed details.
+//   0.1   2022-04-29 Haccer SchMax: Created template.
+//------------------------------------------------
+LittleEndian();
+typedef struct {
+    uint32 chunkLength <name="Chunk Length", bgcolor=0xFFAAFF, fgcolor=0xFFFFFF>;
+    char chunkType[4] <name="Chunk Name", bgcolor=0xFFFFAA, fgcolor=0xFFFFFF>;
+    char data[chunkLength]<name="Chunk Data", bgcolor=0xAAAAAA>;
+} Chunk <read=chunkRead,name="Chunk">;
+string chunkRead(Chunk &v) {
+    local string s;
+    SPrintf(s, "%s - %d", v.chunkType, v.chunkLength);
+    return s;
+};
+typedef struct {
+    char magic[4] <name="Magic Bytes", bgcolor=0x000000>;
+    uint32 version <name="Version", bgcolor=0x20FF20>;
+    uint32 length <name="File length (total)", bgcolor=0xC01010>; //0xC01010
+} Header <comment=headerRead, read="glTF (header) - 12",name="Header">;
+string headerRead(Header &v) {
+    local string s;
+    SPrintf(s, "glTF v%d, File Size: %db", v.version, v.length);
+    return s;
+};
+//struct FILE {
+    Header header;
+    while (!FEof()) {
+        Chunk chunk;
+    }
+//} file;

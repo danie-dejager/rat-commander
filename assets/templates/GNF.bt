@@ -1,0 +1,133 @@
+//------------------------------------------------
+//--- 010 Editor v13.0.1 Binary Template
+//
+//      File: GNF.bt
+//   Authors: avan
+//   Version: 0.9
+//   Purpose: Parse PS4 GNF texture file
+//  Category: Game
+// File Mask: *.gnf
+//  ID Bytes: 47 4E 46 20 F8
+//   History: 
+//   0.9  2023-04-12 avan: Initial release.
+//
+// More information available at
+// https://github.com/tge-was-taken/GFD-Studio
+// https://en.wikipedia.org/wiki/Z-order_curve
+//------------------------------------------------
+RequiresVersion( 12 );
+
+typedef struct Header {
+  char magic[4] <fgcolor=cPurple>;
+  uint32 contentSize <fgcolor=cLtRed>;
+  byte version <fgcolor=cPurple>;
+  byte textureCount <fgcolor=cLtRed>;
+  byte alligment <fgcolor=cPurple>;
+  byte unused <fgcolor=cLtRed>;
+  uint32 streamSize <fgcolor=cPurple>;
+};
+
+typedef struct TextureDesc {
+  typedef struct MWord1 {
+    local int64 pos = FTell();
+    local uint32 value = ReadUInt();
+    FSeek(pos);
+    uint32 MinLodClamp <read=Str("%Xh",((this & 0x000fff00) >> 8))>;
+    FSeek(pos);
+    uint32 SurfaceFormat <read=Str("%Xh",((this & 0x03f00000) >> 20))>;
+    FSeek(pos);
+    uint32 ChannelType <read=Str("%Xh",((this & 0x3c000000) >>26))>;
+  };
+  typedef struct MWord2 {
+    local int64 pos = FTell();
+    local uint32 value = ReadUInt();
+    FSeek(pos);
+    uint32 Width <read=Str("%d",((this & 0x00003fff) + 1))>;
+    FSeek(pos);
+    uint32 Height <read=Str("%d",((this & 0x0fffc000) >> 14) + 1)>;
+    FSeek(pos);
+    uint32 SamplerModulationFactor <read=Str("%xh",((this & 0x70000000) >>28))>;
+  };
+  typedef struct MWord3 {
+    local int64 pos = FTell();
+    local uint32 value = ReadUInt();
+    FSeek(pos);
+    uint32 ChannelOrderX <read=Str("%Xh",(this & 0x00000007))>;
+    FSeek(pos);
+    uint32 ChannelOrderY <read=Str("%Xh",((this & 0x00000038) >> 3))>;
+    FSeek(pos);
+    uint32 ChannelOrderZ <read=Str("%Xh",((this & 0x000001c0) >> 6))>;
+    FSeek(pos);
+    uint32 ChannelOrderW <read=Str("%Xh",((this & 0x00000e00) >> 9))>;
+    FSeek(pos);
+    uint32 BaseMipLevel <read=Str("%Xh",((this & 0x0000f000) >>12))>;
+    FSeek(pos);
+    uint32 LastMipLevel <read=Str("%Xh",((this & 0x000f0000) >>16))>;
+    FSeek(pos);
+    uint32 TileMode <read=Str("%Xh",((this & 0x01f00000) >>20))>;
+    FSeek(pos);
+    uint32 IsPaddedToPow2 <read=Str("%Xh",((this & 0x02000000) >>25))>;
+    FSeek(pos);
+    uint32 TextureType <read=Str("%Xh",((this & 0xf0000000) >>28))>;
+  };
+  typedef struct MWord4 {
+    local int64 pos = FTell();
+    local uint32 value = ReadUInt();
+    FSeek(pos);
+    uint32 Depth <read=Str("%Xh",((this & 0x00001fff) + 1))>;
+    FSeek(pos);
+    uint32 Pitch <read=Str("%Xh",((this & 0x07ffe000) >> 13) + 1)>;
+  };
+  typedef struct MWord5 {
+    local int64 pos = FTell();
+    local uint32 value = ReadUInt();
+    FSeek(pos);
+    uint32 BaseArraySliceIndex <read=Str("%Xh",(this & 0x00001fff))>;
+    FSeek(pos);
+    uint32 LastArraySliceIndex <read=Str("%Xh",(this & 0x03ffe000) >> 13)>;
+  };
+  typedef struct MWord6 {
+    local int64 pos = FTell();
+    local uint32 value = ReadUInt();
+    FSeek(pos);
+    uint32 MinLodWarning <read=Str("%Xh",(this & 0x00000fff))>;
+    FSeek(pos);
+    uint32 MipStatsCounterIndex <read=Str("%Xh",((this & 0x000ff000) >> 12))>;
+    FSeek(pos);
+    uint32 MipStatsEnabled <read=Str("%Xh",((this & 0x00100000) >>20))>;
+    FSeek(pos);
+    uint32 MetadataCompressionEnabled <read=Str("%Xh",((this & 0x00200000) >>21))>;
+    FSeek(pos);
+    uint32 DccAlphaOnMsb <read=Str("%Xh",((this & 0x00400000) >>22))>;
+    FSeek(pos);
+    uint32 DccColorTransform <read=Str("%Xh",((this & 0x00800000) >>23))>;
+    FSeek(pos);
+    uint32 UseAltTileMode <read=Str("%Xh",((this & 0x01000000) >>24))>;
+  };
+  uint32 mWord0 <format=hex, fgcolor=cLtGreen>;
+  MWord1 mWord1 <read=Str("%Xh", value), fgcolor=cGreen>;
+  MWord2 mWord2 <read=Str("%Xh", value), fgcolor=cLtGreen>;
+  MWord3 mWord3 <read=Str("%Xh", value), fgcolor=cGreen>;
+  MWord4 mWord4 <read=Str("%Xh", value), fgcolor=cLtGreen>;
+  MWord5 mWord5 <read=Str("%Xh", value), fgcolor=cGreen>;
+  MWord6 mWord6 <read=Str("%Xh", value), fgcolor=cLtGreen>;
+  uint32 metadataOffset <format=hex, fgcolor=cGreen>;
+};
+
+typedef struct StreamBlock (uint32 dataCount) {
+  typedef struct Data {
+    byte data[16];
+  };
+  local uint index = 0;
+  while (index++ < dataCount) Data data <fgcolor=(index % 2 == 0 ? cAqua : cLtBlue)>;
+};
+//======================= Main Program =======================
+
+Header header <comment="header information">;
+TextureDesc textureDesc <comment="texture desc">;
+
+local uint32 dataSize = header.streamSize - header.contentSize - 8;
+
+FSeek(header.contentSize+8);
+StreamBlock streamBlock(dataSize/16) <comment="data block">;
+

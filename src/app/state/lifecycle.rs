@@ -95,6 +95,7 @@ impl AppState {
             dialog: None,
             viewer: None,
             editor: None,
+            editor_stack: Vec::new(),
             menu: None,
             force_clear: false,
             procview: None,
@@ -103,6 +104,7 @@ impl AppState {
             timeline: None,
             sizes_focus: None,
             diffview: None,
+            hexdiff: None,
             mountview: None,
             netview: None,
             theme_editor: None,
@@ -360,7 +362,20 @@ impl AppState {
         }
         // The editor's JSON check: start one once typing pauses, show its result.
         if let Some(ed) = self.editor.as_mut()
-            && ed.poll_json(Instant::now())
+            && ed.poll_check(Instant::now())
+        {
+            dirty = true;
+        }
+        // The hex editor's binary template: its run finishing, or rerunning
+        // after an edit.
+        if let Some(ed) = self.editor.as_mut()
+            && ed.poll_template(Instant::now())
+        {
+            dirty = true;
+        }
+        // A binary compare's scan moving on, or a step that waited for it.
+        if let Some(hd) = self.hexdiff.as_mut()
+            && hd.poll()
         {
             dirty = true;
         }
@@ -402,7 +417,11 @@ impl AppState {
             // background analysis for its result.
             || self.viewer.as_ref().is_some_and(|v| v.following() || v.analyzing() || v.audio_busy())
             // An edited JSON file is due a syntax check, or one is running.
-            || self.editor.as_ref().is_some_and(|e| e.json_pending())
+            || self.editor.as_ref().is_some_and(|e| e.check_pending())
+            // A binary template is running over the hex editor's file, or due to.
+            || self.editor.as_ref().is_some_and(|e| e.template_pending())
+            // A binary compare is still scanning for differences.
+            || self.hexdiff.as_ref().is_some_and(|h| h.busy())
             // A Details view's audio is still being analysed, or is playing.
             || self.details.iter().any(|d| d.audio.as_ref().is_some_and(|a| a.busy()))
             // A debounced panel reload is still waiting to fire.
@@ -841,6 +860,7 @@ impl AppState {
                                 // An executable from an archive or a remote
                                 // host opens in Binary mode, as a local one does.
                                 open_binary(&mut v, &temp).await;
+                                open_certs(&mut v, &temp).await;
                                 // Audio from an archive or a remote host is
                                 // drawn and played from the temp copy.
                                 if let Some(av) = load_view_audio(

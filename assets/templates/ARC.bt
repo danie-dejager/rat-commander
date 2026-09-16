@@ -1,0 +1,109 @@
+//------------------------------------------------
+//--- 010 Editor v13.0.2 Binary Template
+//
+//      File: ARC.bt
+//   Authors: Kevin O. Grover
+//   Version: 1.0
+//   Purpose: Parse SEA ARC files
+//  Category: Archive
+// File Mask: *.ARC,*.arc
+//  ID Bytes: 1A
+//   History:
+//   1.0   2025-04-20  K. Grover:   Initial Version
+//------------------------------------------------
+
+/*
+ARC is a _very_ old DOS format that was essentially replaced by Zip.
+I found a comressed ARC file sitting around and got curious.
+
+# Using 5.21p in cygwin
+$ arc v QB_FRAC.ARC
+Name          Length    Stowage    SF   Size now  Date       Time    CRC
+============  ========  ========  ====  ========  =========  ======  ====
+COMPRESS.BAS       848  Crunched   26%       628  15 May 87  11:01a  7994
+CONVERT.BAS        852  Crunched   34%       568   2 Mar 88   5:17p  0466
+FRACCOM.BAS       2429  Crunched   40%      1470  15 Feb 88   8:16p  aa7f
+MK.BAT              90  Crunched    5%        86  30 Jun 88   7:53p  7432
+        ====  ========            ====  ========
+Total      4      4219             35%      2752
+*/
+
+RequiresVersion(12);
+
+typedef unsigned char uint8;
+
+enum <uint8> COMPRESSION { END=0, UNPACKED_OBSOLTETE, UNPACKED, PACKED, SQUEEZED,
+                           CRUNCHED_OBSOLETE, CRUNCHED_AFTER_PACKING_OBSOLETE,
+                           CRUNCHED_AFTER_PACKING_FASTER_OBSOLETE, CRUNCHED_AFTER_PACKING_LZW,
+                           CRUSHED_PAK, DISTILLED_PAK
+                         };
+
+LittleEndian();
+
+typedef struct {
+    uint8 magic <format=hex>;
+    if (magic != 0x1A) {
+        Printf("Bad magic (0x%02x), not an ARC file?\n", magic);
+        Exit(-1);
+    }
+    COMPRESSION compression;
+    if (compression > 11) {
+        // Must be known
+        Printf("Unknown compression (%02x)\n", compression);
+        // Exit(-2);  // Still might be able to process
+    }
+    if (compression) {
+        // Otherwise, it's the end marker
+        char filename[13];
+        uint32 size_compressed;
+        uint16 file_date <read=Read_Date>;
+        uint16 file_time <read=Read_Time>;
+        uint16 file_crc <format=hex>;
+        uint32 size_original;
+        uint8 data[size_compressed];
+    }
+} File <read=Read_File>;
+
+string Read_File(File &f) {
+    if (f.compression == END) {
+        return "<END>";
+    }
+    else {
+        local string str;
+        // NOTE: 'arc 5.21p' uses Ceiling to calculate 'storage factor' (e.g. savings)
+        local float sf = 100.0 - 100.0*f.size_compressed/f.size_original;
+        SPrintf(str, "%s (%d / %d - %.1f%%)", f.filename, f.size_compressed, f.size_original, sf);
+        return str;
+    }
+}
+
+string Read_Date(uint16 &i) {
+    if (i == 0) return "<None>";
+
+    local string str;
+    local int year, month, day;
+    year = ((i & 0b1111111000000000) >> 9) + 1980;
+    month = (i & 0b111100000) >> 5;
+    day = i & 0b11111;
+    SPrintf(str, "%04d-%02d-%02d", year, month, day);
+    return str;
+}
+
+string Read_Time(uint16 &i) {
+    if (i == 0) return "<None>";
+
+    local string str;
+    local int hours, minutes, seconds;
+    hours = (i & 0b1111100000000000) >> 11;
+    minutes = (i & 0b11111100000) >> 5;
+    seconds = (i & 0b11111) * 2;
+    SPrintf(str, "%02d:%02d:%02d", hours, minutes, seconds);
+    return str;
+}
+
+
+local uint64 filecount = 0;
+while (!FEof()) {
+    File file;
+    if (file.compression != END) filecount++;
+}

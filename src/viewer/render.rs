@@ -27,6 +27,9 @@ pub fn render(
     // which is the width wrapping and scrolling have to measure against.
     let gutter_w = if v.active_blame().is_some() { blame_gutter_width(content.width) } else { 0 };
     let text_area = Rect { x: content.x + gutter_w, width: content.width - gutter_w, ..content };
+    // One page for the background gradient, however a full-width cursor bar
+    // cuts across it.
+    crate::ui::gradient::mark_surface(crate::ui::theme::GradRole::PanelBg, content);
 
     v.view_rows = content.height as usize;
     v.view_cols = text_area.width as usize;
@@ -44,7 +47,11 @@ pub fn render(
     if v.table_active() {
         v.ensure_table();
     }
-    if v.active_image().is_none() && v.active_model().is_none() && v.active_audio().is_none() {
+    if v.active_image().is_none()
+        && v.active_model().is_none()
+        && v.active_audio().is_none()
+        && v.active_certs().is_none()
+    {
         if v.mode == ViewMode::Text && !v.table_active() {
             v.extend_to_line(v.top + v.view_rows);
         }
@@ -56,7 +63,20 @@ pub fn render(
     // beneath; F8 toggles to the raw text/hex.
     if let Some(a) = v.active_audio() {
         f.render_widget(Clear, content);
-        crate::audio::widget::render(f, content, a, theme, gfx, crate::ui::graphics::Slot::ViewerAudio);
+        crate::audio::widget::render(
+            f,
+            content,
+            a,
+            theme,
+            gfx,
+            crate::ui::graphics::Slot::ViewerAudio,
+        );
+        render_footer(f, footer, v, theme);
+        return;
+    }
+    // A certificate or key file shows what it holds; F8 toggles to the raw text.
+    if v.active_certs().is_some() {
+        super::certs::render(f, content, v, theme);
         render_footer(f, footer, v, theme);
         return;
     }
@@ -737,6 +757,9 @@ fn render_image(
 }
 
 fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
+    if v.active_certs().is_some() {
+        return super::certs::render_header(f, area, v, theme);
+    }
     // In audio mode the header names the file, its format, which picture is
     // up, and where playback is.
     if let Some(a) = v.active_audio() {

@@ -1,0 +1,822 @@
+//------------------------------------------------
+//--- 010 Editor v15.0 Binary Template
+//
+//      File: EBML.bt
+//   Authors: scigrapher
+//   Version: 0.8
+//   Purpose: To parse Extensible Binary Meta Language (EBML) files, which includes mkv and webm
+//  Category: Video
+// File Mask: *.ebml,*.mkv,*.webm
+//  ID Bytes: 1A 45 DF A3
+//   History: 
+//   0.8    2024-08-01 scigrapher: First release - Supports EBML, MKV, WEBM
+//------------------------------------------------
+
+/*
+EBML is a binary file format composed of identical blocks (ID, data_size, data).  
+ - ID - indicates the meaning of the data.  These are akin to field names.
+ - data_size - indicates the number of bytes in the data field
+ - data - byte array with the length being data_size
+ID and data_size are encoded unsigned integers, allowing for small numbers to 
+take up fewer bytes of data.  Technically IDs are not defined this way and the 
+encoded values are used in the specifications rather than their actual numerical 
+equivalent.
+
+The only way to interpret the data is to know the meaning of the IDs.  This script
+has many of the EBML and Mastroska IDs, but not all of them.  Any unknown IDs will
+be treated as byte arrays.
+
+References:
+    EBML - https://matroska-org.github.io/libebml/specs.html
+    MKV - https://www.matroska.org/index.html
+
+TODO:
+- Properly sign-extend the signed integers
+- Add all documented Mastroska IDs
+- Verify that UNICODE strings work for characters > 127
+*/
+
+// Change this to output each of the blocks that are parsed
+#define DEBUG 0
+
+void DebugOut(string s) {
+    if (DEBUG) {
+        Printf("%s", s);
+    }
+}
+
+
+typedef struct {
+    // Element ID is an encoded number - number of 0 bits before the first 1 indicates the size
+    // bits, big-endian
+    // 1xxx xxxx                                  - Class A IDs (2^7 -1 possible values) (base 0x8X)
+    // 01xx xxxx  xxxx xxxx                       - Class B IDs (2^14-1 possible values) (base 0x4X 0xXX)
+    // 001x xxxx  xxxx xxxx  xxxx xxxx            - Class C IDs (2^21-1 possible values) (base 0x2X 0xXX 0xXX)
+    // 0001 xxxx  xxxx xxxx  xxxx xxxx  xxxx xxxx - Class D IDs (2^28-1 possible values) (base 0x1X 0xXX 0xXX 0xXX)
+    local ubyte b = ReadByte();
+    
+    if ((b & 0x80) == 0x80) {
+        ubyte id[1];
+    } else if ((b & 0xc0) == 0x40) {
+        ubyte id[2];
+    } else if ((b & 0xe0) == 0x20) {
+        ubyte id[3];
+    } else if ((b & 0xf0) == 0x10) {
+        ubyte id[4];
+    } else if ((b & 0xf8) == 0x8) {
+        ubyte id[5];
+    } else if ((b & 0xfc) == 0x04) {
+        ubyte id[6];
+    } else if ((b & 0xfe) == 0x02) {
+        ubyte id[7];
+    } else if ((b & 0xff) == 0x01) {
+        ubyte id[8];
+    } else {
+        Printf("Unsupported number 0x%Lx at %Lx\r\n", b, FTell());
+        Exit(-1);
+    }
+} EBMLNumber <read=EBMLNumberRead, comment="EBML Element ID">;
+
+
+// Reads a element ID from current position
+uint64 ReadElementID() {
+    local ubyte b = ReadByte();
+    
+    if ((b & 0x80) == 0x80) {
+        local ubyte buffer[1];
+        ReadBytes(buffer, FTell(), sizeof(buffer));
+        return EBMLNumberValueRaw(buffer);
+    } else if ((b & 0xc0) == 0x40) {
+        local ubyte buffer[2];
+        ReadBytes(buffer, FTell(), sizeof(buffer));
+        return EBMLNumberValueRaw(buffer);
+    } else if ((b & 0xe0) == 0x20) {
+        local ubyte buffer[3];
+        ReadBytes(buffer, FTell(), sizeof(buffer));
+        return EBMLNumberValueRaw(buffer);
+    } else if ((b & 0xf0) == 0x10) {
+        local ubyte buffer[4];
+        ReadBytes(buffer, FTell(), sizeof(buffer));
+        return EBMLNumberValueRaw(buffer);
+    } else if ((b & 0xf8) == 0x8) {
+        local ubyte buffer[5];
+        ReadBytes(buffer, FTell(), sizeof(buffer));
+        return EBMLNumberValueRaw(buffer);
+    } else if ((b & 0xfc) == 0x04) {
+        local ubyte buffer[6];
+        ReadBytes(buffer, FTell(), sizeof(buffer));
+        return EBMLNumberValueRaw(buffer);
+    } else if ((b & 0xfe) == 0x02) {
+        local ubyte buffer[7];
+        ReadBytes(buffer, FTell(), sizeof(buffer));
+        return EBMLNumberValueRaw(buffer);
+    } else if ((b & 0xff) == 0x01) {
+        local ubyte buffer[8];
+        ReadBytes(buffer, FTell(), sizeof(buffer));
+        return EBMLNumberValueRaw(buffer);
+    } else {
+        Printf("Unsupported element ID 0x%Lx at %Lx\r\n", b, FTell());
+        Exit(-1);
+    }
+}
+
+
+// Convert a raw EBML number (variable size with a prefixed 1 bit) into its uint64 value, stripping the leading 1 bit
+uint64 EBMLNumberValue(ubyte id[]) {
+    local uint64 val;
+    switch (sizeof(id)) {
+    case 1:
+        val = id[0] & 0x7f;
+        break;
+    case 2:
+        val = id[0] & 0x3f;
+        val = (val << 8) | id[1];
+        break;
+    case 3:
+        val = id[0] & 0x1f;
+        val = (val << 8) | id[1];
+        val = (val << 8) | id[2];
+        break;
+    case 4:
+        val = id[0] & 0x0f;
+        val = (val << 8) | id[1];
+        val = (val << 8) | id[2];
+        val = (val << 8) | id[3];
+        break;
+    case 5:
+        val = id[0] & 0x07;
+        val = (val << 8) | id[1];
+        val = (val << 8) | id[2];
+        val = (val << 8) | id[3];
+        val = (val << 8) | id[4];
+        break;
+    case 6:
+        val = id[0] & 0x03;
+        val = (val << 8) | id[1];
+        val = (val << 8) | id[2];
+        val = (val << 8) | id[3];
+        val = (val << 8) | id[4];
+        val = (val << 8) | id[5];
+        break;
+    case 7:
+        val = id[0] & 0x01;
+        val = (val << 8) | id[1];
+        val = (val << 8) | id[2];
+        val = (val << 8) | id[3];
+        val = (val << 8) | id[4];
+        val = (val << 8) | id[5];
+        val = (val << 8) | id[6];
+        break;
+    case 8:
+        val = (val << 8) | id[1];
+        val = (val << 8) | id[2];
+        val = (val << 8) | id[3];
+        val = (val << 8) | id[4];
+        val = (val << 8) | id[5];
+        val = (val << 8) | id[6];
+        val = (val << 8) | id[7];
+        break;
+    default:
+        val = 0;
+    }
+    return val;
+}
+
+
+// Convert a raw EBML number (variable size with a prefixed 1 bit) into its uint64 value, leaving the leading 1 bit
+uint64 EBMLNumberValueRaw(ubyte id[]) {
+    local uint64 val;
+    switch (sizeof(id)) {
+    case 1:
+        val = id[0];
+        break;
+    case 2:
+        val = id[0];
+        val = (val << 8) | id[1];
+        break;
+    case 3:
+        val = id[0];
+        val = (val << 8) | id[1];
+        val = (val << 8) | id[2];
+        break;
+    case 4:
+        val = id[0];
+        val = (val << 8) | id[1];
+        val = (val << 8) | id[2];
+        val = (val << 8) | id[3];
+        break;
+    case 5:
+        val = id[0];
+        val = (val << 8) | id[1];
+        val = (val << 8) | id[2];
+        val = (val << 8) | id[3];
+        val = (val << 8) | id[4];
+        break;
+    case 6:
+        val = id[0];
+        val = (val << 8) | id[1];
+        val = (val << 8) | id[2];
+        val = (val << 8) | id[3];
+        val = (val << 8) | id[4];
+        val = (val << 8) | id[5];
+        break;
+    case 7:
+        val = id[0];
+        val = (val << 8) | id[1];
+        val = (val << 8) | id[2];
+        val = (val << 8) | id[3];
+        val = (val << 8) | id[4];
+        val = (val << 8) | id[5];
+        val = (val << 8) | id[6];
+        break;
+    case 8:
+        val = (val << 8) | id[1];
+        val = (val << 8) | id[2];
+        val = (val << 8) | id[3];
+        val = (val << 8) | id[4];
+        val = (val << 8) | id[5];
+        val = (val << 8) | id[6];
+        val = (val << 8) | id[7];
+        break;
+    default:
+        val = 0;
+    }
+    return val;
+}
+
+
+// Given a big-endian array of bytes, convert them to an uint based on how many bytes it contains
+string VariableSizeUintRead(ubyte i[]) {
+    local uint64 val;
+    
+    switch (sizeof(i)) {
+    case 1:
+        val = i[0];
+        break;
+    case 2:
+        val = i[0];
+        val = val << 8 | i[1];
+        break;
+    case 3:
+        val = i[0];
+        val = val << 8 | i[1];
+        val = val << 8 | i[2];
+        break;
+    case 4:
+        val = i[0];
+        val = val << 8 | i[1];
+        val = val << 8 | i[2];
+        val = val << 8 | i[3];
+        break;
+    case 5:
+        val = i[0];
+        val = val << 8 | i[1];
+        val = val << 8 | i[2];
+        val = val << 8 | i[3];
+        val = val << 8 | i[4];
+        break;
+    case 6:
+        val = i[0];
+        val = val << 8 | i[1];
+        val = val << 8 | i[2];
+        val = val << 8 | i[3];
+        val = val << 8 | i[4];
+        val = val << 8 | i[5];
+        break;
+    case 7:
+        val = i[0];
+        val = val << 8 | i[1];
+        val = val << 8 | i[2];
+        val = val << 8 | i[3];
+        val = val << 8 | i[4];
+        val = val << 8 | i[5];
+        val = val << 8 | i[6];
+        break;
+    case 8:
+        val = i[0];
+        val = val << 8 | i[1];
+        val = val << 8 | i[2];
+        val = val << 8 | i[3];
+        val = val << 8 | i[4];
+        val = val << 8 | i[5];
+        val = val << 8 | i[6];
+        val = val << 8 | i[7];
+        break;
+    default:
+        Printf("unsupported variable uint size %d at %Lx\r\n", sizeof(i), FTell());
+        Exit(-1);
+    }
+
+    local string s;
+    s = SPrintf(s, "%ld", val);
+    return s;
+}
+
+
+// Given a big-endian array of bytes, convert them to an int based on how many bytes it contains
+string VariableSizeIntRead(ubyte i[]) {
+    local int64 val;
+    
+    // TODO: Sign-extend the value
+    
+    switch (sizeof(i)) {
+    case 1:
+        val = i[0];
+        break;
+    case 2:
+        val = i[0];
+        val = val << 8 | i[1];
+        break;
+    case 3:
+        val = i[0];
+        val = val << 8 | i[1];
+        val = val << 8 | i[2];
+        break;
+    case 4:
+        val = i[0];
+        val = val << 8 | i[1];
+        val = val << 8 | i[2];
+        val = val << 8 | i[3];
+        break;
+    case 5:
+        val = i[0];
+        val = val << 8 | i[1];
+        val = val << 8 | i[2];
+        val = val << 8 | i[3];
+        val = val << 8 | i[4];
+        break;
+    case 6:
+        val = i[0];
+        val = val << 8 | i[1];
+        val = val << 8 | i[2];
+        val = val << 8 | i[3];
+        val = val << 8 | i[4];
+        val = val << 8 | i[5];
+        break;
+    case 7:
+        val = i[0];
+        val = val << 8 | i[1];
+        val = val << 8 | i[2];
+        val = val << 8 | i[3];
+        val = val << 8 | i[4];
+        val = val << 8 | i[5];
+        val = val << 8 | i[6];
+        break;
+    case 8:
+        val = i[0];
+        val = val << 8 | i[1];
+        val = val << 8 | i[2];
+        val = val << 8 | i[3];
+        val = val << 8 | i[4];
+        val = val << 8 | i[5];
+        val = val << 8 | i[6];
+        val = val << 8 | i[7];
+        break;
+    default:
+        Printf("unsupported variable int size %d at %Lx\r\n", sizeof(i), FTell());
+        Exit(-1);
+    }
+
+    local string s;
+    s = SPrintf(s, "%ld", val);
+    return s;
+}
+
+
+// Given a big-endian array of bytes, convert them to a floating point number based on how many bytes it contains
+string VariableSizeFloatRead(ubyte i[]) {
+    local string s;
+    
+    switch (sizeof(i)) {
+    case 4:
+        local float val = ConvertBytesToFloat(i);
+        s = SPrintf(s, "%f", val);
+        break;
+    case 8:
+        local double val = ConvertBytesToDouble(i);
+        s = SPrintf(s, "%lf", val);
+        break;
+    default:
+        Printf("unsupported float size %d at %Lx\r\n", sizeof(i), FTell());
+        Exit(-1);
+    }
+
+    return s;
+}
+
+
+// Display function for EBMLNumbers
+string EBMLNumberRead(EBMLNumber &id) {
+    local string s;
+    s = SPrintf(s, "0x%LX", EBMLNumberValue(id.id));
+    return s;
+}
+
+
+typedef EBMLNumber ElementID; // ElementIDs are numbers
+
+
+// ByteElement is the most simple type - treat it as a binary blob.  This is also used when the element ID is unknown.
+typedef struct {
+    local uint64 startOffset = FTell();
+    ElementID id;
+    EBMLNumber size;
+    local uint64 sizeNum = EBMLNumberValue(size.id);
+    DebugOut(Str("ByteElement start at 0x%Lx - id = %s, size = 0x%Lx\r\n", startOffset, EBMLNumberRead(id), sizeNum));
+    ubyte data[sizeNum];
+} ByteElement;
+
+
+// EBMLUIntElement is an unsigned int element as defined in the EBML spec
+typedef struct {
+    local uint64 startOffset = FTell();
+    ElementID id;
+    EBMLNumber size;
+    DebugOut(Str("EBMLUIntElement start at 0x%Lx - id = %s, size = 0x%Lx\r\n", startOffset, EBMLNumberRead(id), EBMLNumberValue(size.id)));
+    local uint64 sizeNum = EBMLNumberValue(size.id);
+    ubyte data[sizeNum];
+} EBMLUIntElement <read=EBMLUIntElementRead>;
+
+string EBMLUIntElementRead(EBMLUIntElement &i) {
+    return VariableSizeUintRead(i.data);
+}
+
+
+// EBMLIntElement is a signed int element as defined in the EBML spec
+typedef struct {
+    local uint64 startOffset = FTell();
+    ElementID id;
+    EBMLNumber size;
+    DebugOut(Str("EBMLIntElement start at 0x%Lx - id = %s, size = 0x%Lx\r\n", startOffset, EBMLNumberRead(id), EBMLNumberValue(size.id)));
+    local uint64 sizeNum = EBMLNumberValue(size.id);
+    ubyte data[sizeNum];
+} EBMLIntElement <read=EBMLIntElementRead>;
+
+string EBMLIntElementRead(EBMLIntElement &i) {
+    return VariableSizeIntRead(i.data);
+}
+
+
+// EBMLFloatElement is a floating point element as defined in the EBML spec
+typedef struct {
+    local uint64 startOffset = FTell();
+    ElementID id;
+    EBMLNumber size;
+    DebugOut(Str("EBMLFloatElement start at 0x%Lx - id = %s, size = 0x%Lx\r\n", startOffset, EBMLNumberRead(id), EBMLNumberValue(size.id)));
+    local uint64 sizeNum = EBMLNumberValue(size.id);
+    ubyte data[sizeNum];
+} EBMLFloatElement <read=EBMLFloatElementRead>;
+
+string EBMLFloatElementRead(EBMLFloatElement &i) {
+    return VariableSizeFloatRead(i.data);
+}
+
+
+// EBMLDateElement is a date element as defined in the EBML spec
+typedef struct {
+    local uint64 startOffset = FTell();
+    ElementID id;
+    EBMLNumber size;
+    DebugOut(Str("EBMLDateElement start at 0x%Lx - id = %s, size = 0x%Lx\r\n", startOffset, EBMLNumberRead(id), EBMLNumberValue(size.id)));
+    local uint64 sizeNum = EBMLNumberValue(size.id);
+    ubyte data[sizeNum];
+} EBMLDateElement <read=EBMLDateElementRead>;
+
+string EBMLDateElementRead(EBMLDateElement &i) {
+    // Dates are signed 64-bit integers indicating the number of nanoseconds since 2001-01-01T00:00:00,000000000 UTC
+    // In order to not try to re-invent the complexity of leap years and such, use the time64_t type and adjust as needed.
+    uint64 dateData;
+    dateData = ((uint64)i.data[0]) << 56;
+    dateData |= ((uint64)i.data[1]) << 48;
+    dateData |= ((uint64)i.data[2]) << 40;
+    dateData |= ((uint64)i.data[3]) << 32;
+    dateData |= ((uint64)i.data[4]) << 24;
+    dateData |= ((uint64)i.data[5]) << 16;
+    dateData |= ((uint64)i.data[6]) << 8;
+    dateData |= (uint64)i.data[7];
+    
+    // Convert from nanoseconds to seconds
+    dateData = dateData / 1000000000;
+    
+    local time64_t t = (time64_t)(dateData + 978307200); // 978,307,200 seconds from 1970 (time64_t epoch) to 2001 (MKV epoch)
+        
+    return Time64TToString(t);
+}
+
+
+// EBMLUnicodeStringElement is an UNICODE string element as defined in the EBML spec
+typedef struct {
+    local uint64 startOffset = FTell();
+    ElementID id;
+    EBMLNumber size;
+    DebugOut(Str("EBMLUnicodeStringElement start at 0x%Lx - id = %s, size = 0x%Lx\r\n", startOffset, EBMLNumberRead(id), EBMLNumberValue(size.id)));
+    local uint64 sizeNum = EBMLNumberValue(size.id);
+    ubyte data[sizeNum];
+} EBMLUnicodeStringElement <read=EBMLUnicodeStringElementRead>;
+
+
+string EBMLUnicodeStringElementRead(EBMLUnicodeStringElement &i) {
+    local string s;
+    s = SPrintf(s, "%s", i.data); // TODO:  This is technically UTF-8
+    return s;
+}
+
+
+// EBMLASCIIStringElement is an ASCII string element as defined in the EBML spec
+typedef struct {
+    local uint64 startOffset = FTell();
+    ElementID id;
+    EBMLNumber size;
+    DebugOut(Str("EBMLASCIIStringElement start at 0x%Lx - id = %s, size = 0x%Lx\r\n", startOffset, EBMLNumberRead(id), EBMLNumberValue(size.id)));
+    local uint64 sizeNum = EBMLNumberValue(size.id);
+    ubyte data[sizeNum];
+} EBMLASCIIStringElement <read=EBMLASCIIStringElementRead>;
+
+
+string EBMLASCIIStringElementRead(EBMLASCIIStringElement &i) {
+    local string s;
+    s = SPrintf(s, "%s", i.data);
+    return s;
+}
+
+
+// This is a generic structure to define an element whose data is an array of sub-elements
+typedef struct (string typeName) {
+    local uint64 startOffset = FTell();
+    ElementID id;
+    EBMLNumber size;
+    DebugOut(Str("%s start at 0x%Lx - id = %s, size = 0x%Lx\r\n", typeName, startOffset, EBMLNumberRead(id), EBMLNumberValue(size.id)));
+    local uint64 sizeNum = EBMLNumberValue(size.id);
+    local uint64 dataStartOffset = FTell();
+    while (FTell() < dataStartOffset + sizeNum) {
+        DefineElement();
+    }
+} CompoundElement;
+
+
+
+// DefineElement declares a new element in the file based on the ID of the element
+void DefineElement() {
+    local uint64 startOffset = FTell();
+    idNum = ReadElementID();
+    switch (idNum) {
+        case 0:
+            Printf("Element ID was 0x%Lx at %Lx\r\n", idNum, FTell());
+            Exit(-1);
+        case 0x1a45dfa3: // EBML header - 0xA45DFA3
+            CompoundElement EBML("EBMLElement");
+            break;
+        case 0x4286: // EBMLVersion - 0x286
+            EBMLUIntElement version;
+            break;
+        case 0x42f7: // EBMLReadVersion - 0x2f7
+            EBMLUIntElement readVersion;
+            break;
+        case 0x42f2: // EBMLMaxIDLength - 0x2f2
+            EBMLUIntElement maxIDLength;
+            break;
+        case 0x42f3: // EBMLMaxSizeLength - 0x2f3
+            EBMLUIntElement maxSizeLength;
+            break;
+        case 0x4282: // DocType - 0x282
+            EBMLASCIIStringElement docType;
+            break;
+        case 0x4287: // DocTypeVersion - 0x287
+            EBMLUIntElement docTypeVersion;
+            break;
+        case 0x4285: // DocTypeReadVersion - 0x285
+            EBMLUIntElement docReadVersion;
+            break;
+        case 0xec: // Void - 0x6c
+            ByteElement empty;
+            break;
+            
+        /*    
+        // Matroska-specific
+        */
+        
+        // Segment
+        case 0x18538067: // Segment - 0x8538067
+            CompoundElement segment("MKVSegment");
+            break;
+        case 0x114d9b74: // SeekHead - 0x14D9B74
+            CompoundElement seekHead("MKVSeekHead");
+            break;
+        case 0x4DBB: // Seek - 0xDBB
+            CompoundElement seek("MKVSeek");
+            break;
+        case 0x53AB: // SeekID - 0x13AB
+            ByteElement seekID;
+            break;
+        case 0x53AC: // SeekPosition - 0x13AC
+            EBMLUIntElement seekPosition;
+            break;
+
+        // Info
+        case 0x1549a966: // Info - 0x549A966
+            CompoundElement info("MKVInfo");
+            break;
+        case 0x2AD7B1: // TimestampScale - 0xAD7B1
+            EBMLUIntElement timestampScale;
+            break;
+        case 0x4D80: // MuxingApp - 0xD80
+            EBMLUnicodeStringElement muxingApp;
+            break;
+        case 0x5741: // WritingApp - 0x1741
+            EBMLUnicodeStringElement writingApp;
+            break;
+        case 0x4489: // Duration - 0x489
+            EBMLFloatElement duration;
+            break;
+        case 0x7BA9: // Title - 0x3BA9
+            EBMLUnicodeStringElement title;
+            break;
+        case 0x4461: // DateUTC - 0x461
+            EBMLDateElement dateUTC;
+            break;
+        case 0x73A4: // SegmentUUID - 0x33A4
+            ByteElement segmentUUID;
+            break;
+        
+        // Track
+        case 0x1654ae6b: // Track - 0x654AE6B
+            CompoundElement track("MKVTrack");
+            break;
+        case 0xAE: // TrackEntry - 0x2e
+            CompoundElement entry("MKVTrackEntry");
+            break;
+        case 0xD7: // TrackNumber - 0x57
+            EBMLUIntElement trackNumber;
+            break;
+        case 0x73C5: // TrackUID - 0x33C5
+            EBMLUIntElement uid;
+            break;
+        case 0x83: // TrackType - 0x3: 1 - video, 2 - audio, 3 - complex, 16 - logo, 17 - subtitle, 18 - buttons, 32 - control, 33 - metadata
+            EBMLUIntElement trackType;
+            break;
+        case 0x88: // FlagDefault - 0x8
+            EBMLUIntElement flagDefault;
+            break;
+        case 0x9C: // FlagLacing - 0x1c
+            EBMLUIntElement flagLacing;
+            break;
+        case 0x6DE7: // MinCache - 0x2de7
+            EBMLUIntElement minCache;
+            break;
+        case 0x86: // CodecID - 0x6
+            EBMLUIntElement codecID;
+            break;
+        case 0x63A2: // CodecPrivate - 0x23A2
+            ByteElement codecPrivate;
+            break;
+        case 0x23E383: // DefaultDuration - 0x3e383
+            EBMLUIntElement defaultDuration;
+            break;
+        case 0xE0: // Video - 0x60
+            CompoundElement video("MKVVideo");
+            break;
+        case 0xB0: // PixelWidth - 0x30
+            EBMLUIntElement width;
+            break;
+        case 0xBA: // PixelHeight - 0x3a
+            EBMLUIntElement height;
+            break;
+        case 0x54B0: // DisplayWidth - 0x14B0
+            EBMLUIntElement displayWidth;
+            break;
+        case 0x54BA: // DisplayHeight - 0x14BA
+            EBMLUIntElement displayHeight;
+            break;
+        case 0x22B59C: // Language - 0x2B59C
+            EBMLASCIIStringElement language;
+            break;
+        case 0x536E: // Name - 0x136E
+            EBMLUnicodeStringElement name;
+            break;
+        case 0xE1: // Audio - 0x61
+            CompoundElement audio("MKVAudio");
+            break;
+        case 0xB5: // SamplingFrequency - 0x35
+            EBMLFloatElement samplingFrequency;
+            break;
+        case 0x9F: // Channels - 0x1f
+            EBMLUIntElement channels;
+            break;
+        case 0x6264: // BitDepth - 0x2264
+            EBMLUIntElement bitdepth;
+            break;
+                            
+        // Cluster
+        case 0x1f43b675: // Cluster - 0xF43B675
+            CompoundElement cluster("MKVCluster");
+            break;
+        case 0xE7: // Timestamp - 0x67
+            EBMLUIntElement timestamp;
+            break;
+        case 0xA0: // BlockGroup - 0x20
+            CompoundElement blockGroup("MKVBlockGroup");
+            break;
+        case 0xA3: // SimpleBlock - 0x23
+            ByteElement block;
+            break;
+        case 0xA1: // Block - 0x21
+            ByteElement block;
+            break;           
+        case 0x9B: // BlockDuration - 0x1B
+            EBMLUIntElement duration;
+            break;
+        case 0xFB: // ReferenceBlock - 0x7B
+            EBMLIntElement referenceBlock;
+            break;
+        case 0xA7: // Position - 0x27
+            EBMLUIntElement position;
+            break;
+        case 0xAB: // PrevSize - 0x2b
+            EBMLUIntElement prevSize;
+            break;
+
+        // Cueing data
+        case 0x1c53bb6b: // Cues - 0xC53BB6B
+            CompoundElement cues("MKVCues");
+            break;
+        case 0xbb: // CuePoint - 0x3B
+            CompoundElement cuePoint("MKVCuePoint ");
+            break;
+        case 0xb3: // CueTime - 0x33
+            EBMLUIntElement cueTime;
+            break;
+        case 0xb7: // CueTrackPositions - 0x37
+            CompoundElement cueTrackPosition("MKVCueTrackPositions");
+            break;
+        case 0xf7: // CueTrack - 0x77
+            EBMLUIntElement cueTrack;
+            break;
+        case 0xf1: // CueClusterPosition - 0x71
+            EBMLUIntElement cueClusterPosition;
+            break;
+        case 0xf0: // CueRelativePosition - 0x70
+            EBMLUIntElement cueRelativePosition;
+            break; 
+                        
+        // Tagging data
+        case 0x1254c367: // Tagging - 0x254C367
+            CompoundElement tagging("MKVTagging");
+            break;
+        case 0x7373: // Tag - 0x3373
+            CompoundElement tag("MKVTag");
+            break;
+        case 0x63C0: // Targets - 0x23c0
+            CompoundElement targets("MKVTargets");
+            break;                        
+        case 0x67C8: // SimpleTag - 0x27C8
+            CompoundElement tag("MKVSimpleTag");
+            break;
+        case 0x45A3: // TagName - 0x5A3
+            EBMLUnicodeStringElement name;
+            break;
+        case 0x447A: // TagLanguage - 0x47A
+            EBMLASCIIStringElement language;
+            break;
+        case 0x4487: // TagString - 0x487
+            EBMLUnicodeStringElement value;
+            break;
+        case 0x4484: // TagDefault - 0x484
+            EBMLUIntElement value;
+            break;
+        case 0x4485: // TagBinary - 0x485
+            ByteElement value;
+            break;
+        case 0x63c5: // TagTrackUID - 0x23c5
+            EBMLUIntElement trackUID;
+            break;        
+        case 0x63CA: // TargetType - 0x23ca
+            EBMLASCIIStringElement targetType;
+            break;        
+            
+        default:
+            // Worst case, everything can be treated as an opaque binary blob
+            Printf("Unknown start at 0x%Lx - id = 0x%Lx\r\n", startOffset, idNum);
+            ByteElement element;
+    }
+}
+
+
+/*
+** Script start
+*/
+
+// EBML is a big-endian format
+BigEndian();
+
+// Do a quick check of the first few bytes - All EBML documents must begin with this, which is defining an EBML header element
+local DWORD magic = ReadUInt(0);
+if (magic != 0x1A45DFA3) {
+        Printf("Wrong header value = %x\r\n", magic);
+        Exit(-1);
+}
+
+// Keep reading through the file declaring elements until we get to the end
+local uint64 idNum;
+while (FTell() < FileSize()) {
+    DefineElement();
+}

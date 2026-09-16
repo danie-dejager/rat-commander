@@ -96,7 +96,7 @@ impl DriveDialog {
                 rows.push(vec![sw, x]);
             }
             let mut conn_row = Vec::new();
-            for p in [Protocol::Sftp, Protocol::Ftp, Protocol::Scp] {
+            for p in [Protocol::Sftp, Protocol::Ftp, Protocol::Ftps, Protocol::Scp] {
                 items.push(DriveItem::Connect(p));
                 conn_row.push(items.len() - 1);
             }
@@ -138,6 +138,7 @@ impl DriveDialog {
             DriveItem::Local => " Local ".to_string(),
             DriveItem::Connect(Protocol::Sftp) => " SFTP ".to_string(),
             DriveItem::Connect(Protocol::Ftp) => " FTP ".to_string(),
+            DriveItem::Connect(Protocol::Ftps) => " FTPS ".to_string(),
             DriveItem::Connect(Protocol::Scp) => " SCP ".to_string(),
             DriveItem::Session { id } => {
                 let lbl = self

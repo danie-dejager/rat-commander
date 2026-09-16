@@ -1,0 +1,510 @@
+//------------------------------------------------
+//--- 010 Editor v5.0 Binary Template
+//
+//      File: UImage.bt
+//   Authors: AngelToms
+//   Version: 0.1
+//   Purpose: Parsing uboot images.
+//  Category: Drives
+// File Mask: *
+//  ID Bytes: 27 05 19 56
+//   History: 
+//   0.1   2024-05-28 AG: Initial release.
+//------------------------------------------------
+#define IH_MAGIC 0x27051956 /* Image Magic Number		*/
+#define IH_NMLEN 32
+typedef uint32 uint32_t;
+typedef uchar uint8_t;
+
+/*
+ * Operating System Codes
+ *
+ * The following are exposed to uImage header.
+ * New IDs *MUST* be appended at the end of the list and *NEVER*
+ * inserted for backward compatibility.
+ */
+enum
+{
+    IH_OS_INVALID = 0,          /* Invalid OS	*/
+    IH_OS_OPENBSD,              /* OpenBSD	*/
+    IH_OS_NETBSD,               /* NetBSD	*/
+    IH_OS_FREEBSD,              /* FreeBSD	*/
+    IH_OS_4_4BSD,               /* 4.4BSD	*/
+    IH_OS_LINUX,                /* Linux	*/
+    IH_OS_SVR4,                 /* SVR4		*/
+    IH_OS_ESIX,                 /* Esix		*/
+    IH_OS_SOLARIS,              /* Solaris	*/
+    IH_OS_IRIX,                 /* Irix		*/
+    IH_OS_SCO,                  /* SCO		*/
+    IH_OS_DELL,                 /* Dell		*/
+    IH_OS_NCR,                  /* NCR		*/
+    IH_OS_LYNXOS,               /* LynxOS	*/
+    IH_OS_VXWORKS,              /* VxWorks	*/
+    IH_OS_PSOS,                 /* pSOS		*/
+    IH_OS_QNX,                  /* QNX		*/
+    IH_OS_U_BOOT,               /* Firmware	*/
+    IH_OS_RTEMS,                /* RTEMS	*/
+    IH_OS_ARTOS,                /* ARTOS	*/
+    IH_OS_UNITY,                /* Unity OS	*/
+    IH_OS_INTEGRITY,            /* INTEGRITY	*/
+    IH_OS_OSE,                  /* OSE		*/
+    IH_OS_PLAN9,                /* Plan 9	*/
+    IH_OS_OPENRTOS,             /* OpenRTOS	*/
+    IH_OS_ARM_TRUSTED_FIRMWARE, /* ARM Trusted Firmware */
+    IH_OS_TEE,                  /* Trusted Execution Environment */
+    IH_OS_OPENSBI,              /* RISC-V OpenSBI */
+    IH_OS_EFI,                  /* EFI Firmware (e.g. GRUB2) */
+
+    IH_OS_COUNT,
+};
+
+/*
+ * CPU Architecture Codes (supported by Linux)
+ *
+ * The following are exposed to uImage header.
+ * New IDs *MUST* be appended at the end of the list and *NEVER*
+ * inserted for backward compatibility.
+ */
+enum
+{
+    IH_ARCH_INVALID = 0, /* Invalid CPU	*/
+    IH_ARCH_ALPHA,       /* Alpha	*/
+    IH_ARCH_ARM,         /* ARM		*/
+    IH_ARCH_I386,        /* Intel x86	*/
+    IH_ARCH_IA64,        /* IA64		*/
+    IH_ARCH_MIPS,        /* MIPS		*/
+    IH_ARCH_MIPS64,      /* MIPS	 64 Bit */
+    IH_ARCH_PPC,         /* PowerPC	*/
+    IH_ARCH_S390,        /* IBM S390	*/
+    IH_ARCH_SH,          /* SuperH	*/
+    IH_ARCH_SPARC,       /* Sparc	*/
+    IH_ARCH_SPARC64,     /* Sparc 64 Bit */
+    IH_ARCH_M68K,        /* M68K		*/
+    IH_ARCH_NIOS,        /* Nios-32	*/
+    IH_ARCH_MICROBLAZE,  /* MicroBlaze   */
+    IH_ARCH_NIOS2,       /* Nios-II	*/
+    IH_ARCH_BLACKFIN,    /* Blackfin	*/
+    IH_ARCH_AVR32,       /* AVR32	*/
+    IH_ARCH_ST200,       /* STMicroelectronics ST200  */
+    IH_ARCH_SANDBOX,     /* Sandbox architecture (test only) */
+    IH_ARCH_NDS32,       /* ANDES Technology - NDS32  */
+    IH_ARCH_OPENRISC,    /* OpenRISC 1000  */
+    IH_ARCH_ARM64,       /* ARM64	*/
+    IH_ARCH_ARC,         /* Synopsys DesignWare ARC */
+    IH_ARCH_X86_64,      /* AMD x86_64, Intel and Via */
+    IH_ARCH_XTENSA,      /* Xtensa	*/
+    IH_ARCH_RISCV,       /* RISC-V */
+
+    IH_ARCH_COUNT,
+};
+
+/*
+ * Image Types
+ *
+ * "Standalone Programs" are directly runnable in the environment
+ *	provided by U-Boot; it is expected that (if they behave
+ *	well) you can continue to work in U-Boot after return from
+ *	the Standalone Program.
+ * "OS Kernel Images" are usually images of some Embedded OS which
+ *	will take over control completely. Usually these programs
+ *	will install their own set of exception handlers, device
+ *	drivers, set up the MMU, etc. - this means, that you cannot
+ *	expect to re-enter U-Boot except by resetting the CPU.
+ * "RAMDisk Images" are more or less just data blocks, and their
+ *	parameters (address, size) are passed to an OS kernel that is
+ *	being started.
+ * "Multi-File Images" contain several images, typically an OS
+ *	(Linux) kernel image and one or more data images like
+ *	RAMDisks. This construct is useful for instance when you want
+ *	to boot over the network using BOOTP etc., where the boot
+ *	server provides just a single image file, but you want to get
+ *	for instance an OS kernel and a RAMDisk image.
+ *
+ *	"Multi-File Images" start with a list of image sizes, each
+ *	image size (in bytes) specified by an "uint32_t" in network
+ *	byte order. This list is terminated by an "(uint32_t)0".
+ *	Immediately after the terminating 0 follow the images, one by
+ *	one, all aligned on "uint32_t" boundaries (size rounded up to
+ *	a multiple of 4 bytes - except for the last file).
+ *
+ * "Firmware Images" are binary images containing firmware (like
+ *	U-Boot or FPGA images) which usually will be programmed to
+ *	flash memory.
+ *
+ * "Script files" are command sequences that will be executed by
+ *	U-Boot's command interpreter; this feature is especially
+ *	useful when you configure U-Boot to use a real shell (hush)
+ *	as command interpreter (=> Shell Scripts).
+ *
+ * The following are exposed to uImage header.
+ * New IDs *MUST* be appended at the end of the list and *NEVER*
+ * inserted for backward compatibility.
+ */
+enum image_type_t
+{
+    IH_TYPE_INVALID = 0, /* Invalid Image		*/
+    IH_TYPE_STANDALONE,  /* Standalone Program		*/
+    IH_TYPE_KERNEL,      /* OS Kernel Image		*/
+    IH_TYPE_RAMDISK,     /* RAMDisk Image		*/
+    IH_TYPE_MULTI,       /* Multi-File Image		*/
+    IH_TYPE_FIRMWARE,    /* Firmware Image		*/
+    IH_TYPE_SCRIPT,      /* Script file			*/
+    IH_TYPE_FILESYSTEM,  /* Filesystem Image (any type)	*/
+    IH_TYPE_FLATDT,      /* Binary Flat Device Tree Blob	*/
+    IH_TYPE_KWBIMAGE,    /* Kirkwood Boot Image		*/
+    IH_TYPE_IMXIMAGE,    /* Freescale IMXBoot Image	*/
+    IH_TYPE_UBLIMAGE,    /* Davinci UBL Image		*/
+    IH_TYPE_OMAPIMAGE,   /* TI OMAP Config Header Image	*/
+    IH_TYPE_AISIMAGE,    /* TI Davinci AIS Image		*/
+    /* OS Kernel Image, can run from any load address */
+    IH_TYPE_KERNEL_NOLOAD,
+    IH_TYPE_PBLIMAGE,        /* Freescale PBL Boot Image	*/
+    IH_TYPE_MXSIMAGE,        /* Freescale MXSBoot Image	*/
+    IH_TYPE_GPIMAGE,         /* TI Keystone GPHeader Image	*/
+    IH_TYPE_ATMELIMAGE,      /* ATMEL ROM bootable Image	*/
+    IH_TYPE_SOCFPGAIMAGE,    /* Altera SOCFPGA CV/AV Preloader */
+    IH_TYPE_X86_SETUP,       /* x86 setup.bin Image		*/
+    IH_TYPE_LPC32XXIMAGE,    /* x86 setup.bin Image		*/
+    IH_TYPE_LOADABLE,        /* A list of typeless images	*/
+    IH_TYPE_RKIMAGE,         /* Rockchip Boot Image		*/
+    IH_TYPE_RKSD,            /* Rockchip SD card		*/
+    IH_TYPE_RKSPI,           /* Rockchip SPI image		*/
+    IH_TYPE_ZYNQIMAGE,       /* Xilinx Zynq Boot Image */
+    IH_TYPE_ZYNQMPIMAGE,     /* Xilinx ZynqMP Boot Image */
+    IH_TYPE_ZYNQMPBIF,       /* Xilinx ZynqMP Boot Image (bif) */
+    IH_TYPE_FPGA,            /* FPGA Image */
+    IH_TYPE_VYBRIDIMAGE,     /* VYBRID .vyb Image */
+    IH_TYPE_TEE,             /* Trusted Execution Environment OS Image */
+    IH_TYPE_FIRMWARE_IVT,    /* Firmware Image with HABv4 IVT */
+    IH_TYPE_PMMC,            /* TI Power Management Micro-Controller Firmware */
+    IH_TYPE_STM32IMAGE,      /* STMicroelectronics STM32 Image */
+    IH_TYPE_SOCFPGAIMAGE_V1, /* Altera SOCFPGA A10 Preloader	*/
+    IH_TYPE_MTKIMAGE,        /* MediaTek BootROM loadable Image */
+    IH_TYPE_IMX8MIMAGE,      /* Freescale IMX8MBoot Image	*/
+    IH_TYPE_IMX8IMAGE,       /* Freescale IMX8Boot Image	*/
+    IH_TYPE_COPRO,           /* Coprocessor Image for remoteproc*/
+    IH_TYPE_SUNXI_EGON,      /* Allwinner eGON Boot Image */
+    IH_TYPE_SUNXI_TOC0,      /* Allwinner TOC0 Boot Image */
+    IH_TYPE_FDT_LEGACY,      /* Binary Flat Device Tree Blob	in a Legacy Image */
+    IH_TYPE_RENESAS_SPKG,    /* Renesas SPKG image */
+    IH_TYPE_STARFIVE_SPL,    /* StarFive SPL image */
+
+    IH_TYPE_COUNT, /* Number of image types */
+};
+
+/*
+ * Compression Types
+ *
+ * The following are exposed to uImage header.
+ * New IDs *MUST* be appended at the end of the list and *NEVER*
+ * inserted for backward compatibility.
+ */
+enum
+{
+    IH_COMP_NONE = 0, /*  No	Compression Used	*/
+    IH_COMP_GZIP,     /* gzip	 Compression Used	*/
+    IH_COMP_BZIP2,    /* bzip2 Compression Used	*/
+    IH_COMP_LZMA,     /* lzma  Compression Used	*/
+    IH_COMP_LZO,      /* lzo   Compression Used	*/
+    IH_COMP_LZ4,      /* lz4   Compression Used	*/
+    IH_COMP_ZSTD,     /* zstd   Compression Used	*/
+    IH_COMP_COUNT,
+};
+
+typedef struct image_header
+{
+    uint32_t ih_magic<format = hex, name = "maigc">;                                      /* Image Header Magic Number */
+    uint32_t ih_hcrc<format = hex, name = "header crc">;                                  /* Image Header CRC Checksum */
+    time_t ih_time<format = hex, name = "timestamp">;                                     /* Image Creation Timestamp */
+    uint32_t ih_size<name = "image data size">;                                           /* Image Data Size */
+    uint32_t ih_load<format = hex, name = "load addr">;                                   /* Data Load Address */
+    uint32_t ih_ep<format = hex, name = "entry point">;                                   /* Entry Point Address */
+    uint32_t ih_dcrc<format = hex, name = "image data crc">;                              /* Image Data CRC Checksum */
+    uint8_t ih_os<name = "OS", read = osName, comment = osName>;                          /* Operating System */
+    uint8_t ih_arch<name = "cpu architecture", read = cpuArch, comment = cpuArch>;        /* CPU architecture */
+    uint8_t ih_type<name = "image type", read = imageType, comment = imageType>;          /* Image Type */
+    uint8_t ih_comp<name = "compress type", read = compressType, comment = compressType>; /* Compression Type */
+    char ih_name[IH_NMLEN];                                                               /* Image Name */
+} image_header_t<read = imageName>;
+
+typedef struct zKernel
+{
+    uchar magic[6]<format = hex>;
+} zkernel;
+
+string imageName(local image_header_t &ih)
+{
+    // char name[IH_NMLEN];
+    return ih.ih_name;
+}
+
+string osName(uint8_t &os)
+{
+    switch (os)
+    {
+    case IH_OS_INVALID:
+        return "Invalid OS";
+    case IH_OS_OPENBSD: /* OpenBSD	*/
+        return "OpenBSD";
+    case IH_OS_NETBSD: /* NetBSD	*/
+        return "NetBSD";
+    case IH_OS_FREEBSD: /* FreeBSD	*/
+        return "FreeBSD";
+    case IH_OS_4_4BSD: /* 4.4BSD	*/
+        return "4.4BSD";
+    case IH_OS_LINUX:
+        return "Linux"; /* Linux	*/
+    case IH_OS_SVR4:
+        return "SVR4"; /* SVR4		*/
+    case IH_OS_ESIX:
+        return "Esix"; /* Esix		*/
+    case IH_OS_SOLARIS:
+        return "Solaris"; /* Solaris	*/
+    case IH_OS_IRIX:
+        return "Irix"; /* Irix		*/
+    case IH_OS_SCO:
+        return "SCO"; /* SCO		*/
+    case IH_OS_DELL:
+        return "Dell"; /* Dell		*/
+    case IH_OS_NCR:
+        return "NCR"; /* NCR		*/
+    case IH_OS_LYNXOS:
+        return "LynxOS"; /* LynxOS	*/
+    case IH_OS_VXWORKS:
+        return "VxWorks"; /* VxWorks	*/
+    case IH_OS_PSOS:
+        return "pSOS"; /* pSOS		*/
+    case IH_OS_QNX:
+        return "QNX"; /* QNX		*/
+    case IH_OS_U_BOOT:
+        return "Firmware"; /* Firmware	*/
+    case IH_OS_RTEMS:
+        return "RTEMS"; /* RTEMS	*/
+    case IH_OS_ARTOS:
+        return "ARTOS"; /* ARTOS	*/
+    case IH_OS_UNITY:
+        return "Unity OS"; /* Unity OS	*/
+    case IH_OS_INTEGRITY:
+        return "INTEGRITY"; /* INTEGRITY	*/
+    case IH_OS_OSE:
+        return "OSE"; /* OSE		*/
+    case IH_OS_PLAN9:
+        return "Plan 9"; /* Plan 9	*/
+    case IH_OS_OPENRTOS:
+        return "OpenRTOS"; /* OpenRTOS	*/
+    case IH_OS_ARM_TRUSTED_FIRMWARE:
+        return "ARM Trusted Firmware"; /* ARM Trusted Firmware */
+    case IH_OS_TEE:
+        return "Trusted Execution Environment"; /* Trusted Execution Environment */
+    case IH_OS_OPENSBI:
+        return "RISC-V OpenSBI"; /* RISC-V OpenSBI */
+    case IH_OS_EFI:
+        return "EFI Firmware (e.g. GRUB2)"; /* EFI Firmware (e.g. GRUB2) */
+    default:
+        break;
+    }
+    return "Invalid value";
+}
+
+string cpuArch(uint8_t &cpu)
+{
+    switch (cpu)
+    {
+    case IH_ARCH_INVALID:
+        return "Invalid CPU";
+    case IH_ARCH_ALPHA:
+        return "Alpha"; /* Alpha	*/
+    case IH_ARCH_ARM:
+        return "ARM"; /* ARM		*/
+    case IH_ARCH_I386:
+        return "Intel x86"; /* Intel x86	*/
+    case IH_ARCH_IA64:
+        return "IA64"; /* IA64		*/
+    case IH_ARCH_MIPS:
+        return "MIPS"; /* MIPS		*/
+    case IH_ARCH_MIPS64:
+        return "MIPS	 64 Bit"; /* MIPS	 64 Bit */
+    case IH_ARCH_PPC:
+        return "PowerPC"; /* PowerPC	*/
+    case IH_ARCH_S390:
+        return "IBM S390"; /* IBM S390	*/
+    case IH_ARCH_SH:
+        return "SuperH"; /* SuperH	*/
+    case IH_ARCH_SPARC:
+        return "Sparc"; /* Sparc	*/
+    case IH_ARCH_SPARC64:
+        return "Sparc 64 Bit"; /* Sparc 64 Bit */
+    case IH_ARCH_M68K:
+        return "M68K"; /* M68K		*/
+    case IH_ARCH_NIOS:
+        return "Nios-32"; /* Nios-32	*/
+    case IH_ARCH_MICROBLAZE:
+        return "MicroBlaze"; /* MicroBlaze   */
+    case IH_ARCH_NIOS2:
+        return "Nios-II"; /* Nios-II	*/
+    case IH_ARCH_BLACKFIN:
+        return "Blackfin"; /* Blackfin	*/
+    case IH_ARCH_AVR32:
+        return "AVR32"; /* AVR32	*/
+    case IH_ARCH_ST200:
+        return "STMicroelectronics ST200"; /* STMicroelectronics ST200  */
+    case IH_ARCH_SANDBOX:
+        return "Sandbox architecture (test only)"; /* Sandbox architecture (test only) */
+    case IH_ARCH_NDS32:
+        return "ANDES Technology - NDS32"; /* ANDES Technology - NDS32  */
+    case IH_ARCH_OPENRISC:
+        return "OpenRISC 1000"; /* OpenRISC 1000  */
+    case IH_ARCH_ARM64:
+        return "ARM64"; /* ARM64	*/
+    case IH_ARCH_ARC:
+        return "Synopsys DesignWare ARC"; /* Synopsys DesignWare ARC */
+    case IH_ARCH_X86_64:
+        return "AMD x86_64"; /* AMD x86_64, Intel and Via */
+    case IH_ARCH_XTENSA:
+        return "Xtensa"; /* Xtensa	*/
+    default:
+        break;
+    }
+    return "Invalid value";
+}
+
+string imageType(uint8_t &it)
+{
+    switch (it)
+    {
+    case IH_TYPE_INVALID:
+        return "Invalid Image"; /* Invalid Image		*/
+    case IH_TYPE_STANDALONE:
+        return "Standalone Program"; /* Standalone Program		*/
+    case IH_TYPE_KERNEL:
+        return "OS Kernel Image"; /* OS Kernel Image		*/
+    case IH_TYPE_RAMDISK:
+        return "RAMDisk Image"; /* RAMDisk Image		*/
+    case IH_TYPE_MULTI:
+        return "Multi-File Image"; /* Multi-File Image		*/
+    case IH_TYPE_FIRMWARE:
+        return "Firmware Image"; /* Firmware Image		*/
+    case IH_TYPE_SCRIPT:
+        return "Script file"; /* Script file			*/
+    case IH_TYPE_FILESYSTEM:
+        return "Filesystem Image"; /* Filesystem Image (any type)	*/
+    case IH_TYPE_FLATDT:
+        return "Binary Flat Device Tree Blob"; /* Binary Flat Device Tree Blob	*/
+    case IH_TYPE_KWBIMAGE:
+        return "Kirkwood Boot Image"; /* Kirkwood Boot Image		*/
+    case IH_TYPE_IMXIMAGE:
+        return "Freescale IMXBoot Image"; /* Freescale IMXBoot Image	*/
+    case IH_TYPE_UBLIMAGE:
+        return "Davinci UBL Image"; /* Davinci UBL Image		*/
+    case IH_TYPE_OMAPIMAGE:
+        return "TI OMAP Config Header Image"; /* TI OMAP Config Header Image	*/
+    case IH_TYPE_AISIMAGE:
+        return "TI Davinci AIS Image"; /* TI Davinci AIS Image		*/
+    case IH_TYPE_KERNEL_NOLOAD:
+        return "OS Kernel Image, can run from any load address"; /* OS Kernel Image, can run from any load address */
+    case IH_TYPE_PBLIMAGE:
+        return "Freescale PBL Boot Image"; /* Freescale PBL Boot Image	*/
+    case IH_TYPE_MXSIMAGE:
+        return "Freescale MXSBoot Image"; /* Freescale MXSBoot Image	*/
+    case IH_TYPE_GPIMAGE:
+        return "TI Keystone GPHeader Image"; /* TI Keystone GPHeader Image	*/
+    case IH_TYPE_ATMELIMAGE:
+        return "ATMEL ROM bootable Image"; /* ATMEL ROM bootable Image	*/
+    case IH_TYPE_SOCFPGAIMAGE:
+        return "Altera SOCFPGA CV/AV Preloader"; /* Altera SOCFPGA CV/AV Preloader */
+    case IH_TYPE_X86_SETUP:
+        return "x86 setup.bin Image"; /* x86 setup.bin Image		*/
+    case IH_TYPE_LPC32XXIMAGE:
+        return "x86 setup.bin Image"; /* x86 setup.bin Image		*/
+    case IH_TYPE_LOADABLE:
+        return "A list of typeless images"; /* A list of typeless images	*/
+    case IH_TYPE_RKIMAGE:
+        return "Rockchip Boot Image"; /* Rockchip Boot Image		*/
+    case IH_TYPE_RKSD:
+        return "Rockchip SD card"; /* Rockchip SD card		*/
+    case IH_TYPE_RKSPI:
+        return ""; /* Rockchip SPI image		*/
+    case IH_TYPE_ZYNQIMAGE:
+        return "Rockchip SPI image"; /* Xilinx Zynq Boot Image */
+    case IH_TYPE_ZYNQMPIMAGE:
+        return "Xilinx ZynqMP Boot Image"; /* Xilinx ZynqMP Boot Image */
+    case IH_TYPE_ZYNQMPBIF:
+        return "Xilinx ZynqMP Boot Image (bif)"; /* Xilinx ZynqMP Boot Image (bif) */
+    case IH_TYPE_FPGA:
+        return "FPGA Image"; /* FPGA Image */
+    case IH_TYPE_VYBRIDIMAGE:
+        return "VYBRID .vyb Image"; /* VYBRID .vyb Image */
+    case IH_TYPE_TEE:
+        return "Trusted Execution Environment OS Image"; /* Trusted Execution Environment OS Image */
+    case IH_TYPE_FIRMWARE_IVT:
+        return "Firmware Image with HABv4 IVT"; /* Firmware Image with HABv4 IVT */
+    case IH_TYPE_PMMC:
+        return "TI Power Management Micro-Controller Firmware"; /* TI Power Management Micro-Controller Firmware */
+    case IH_TYPE_STM32IMAGE:
+        return "STMicroelectronics STM32 Image"; /* STMicroelectronics STM32 Image */
+    case IH_TYPE_SOCFPGAIMAGE_V1:
+        return "Altera SOCFPGA A10 Preloader"; /* Altera SOCFPGA A10 Preloader	*/
+    case IH_TYPE_MTKIMAGE:
+        return "MediaTek BootROM loadable Image"; /* MediaTek BootROM loadable Image */
+    case IH_TYPE_IMX8MIMAGE:
+        return "Freescale IMX8MBoot Image"; /* Freescale IMX8MBoot Image	*/
+    case IH_TYPE_IMX8IMAGE:
+        return "Freescale IMX8Boot Image"; /* Freescale IMX8Boot Image	*/
+    case IH_TYPE_COPRO:
+        return "Coprocessor Image for remoteproc"; /* Coprocessor Image for remoteproc*/
+    case IH_TYPE_SUNXI_EGON:
+        return "Allwinner eGON Boot Image"; /* Allwinner eGON Boot Image */
+    case IH_TYPE_SUNXI_TOC0:
+        return "Allwinner TOC0 Boot Image"; /* Allwinner TOC0 Boot Image */
+    case IH_TYPE_FDT_LEGACY:
+        return "Binary Flat Device Tree Blob	in a Legacy Image"; /* Binary Flat Device Tree Blob	in a Legacy Image */
+    case IH_TYPE_RENESAS_SPKG:
+        return "Renesas SPKG image"; /* Renesas SPKG image */
+    case IH_TYPE_STARFIVE_SPL:
+        return "StarFive SPL image"; /* StarFive SPL image */
+    default:
+        break;
+    }
+    return "Invalid value";
+}
+
+string compressType(uint8_t &c)
+{
+    switch (c)
+    {
+    case IH_COMP_NONE:
+        return "No Compression Used";
+    case IH_COMP_GZIP: /* gzip	 Compression Used	*/
+        return "gzip";
+    case IH_COMP_BZIP2: /* bzip2 Compression Used	*/
+        return "bzip2";
+    case IH_COMP_LZMA: /* lzma  Compression Used	*/
+        return "lzma";
+    case IH_COMP_LZO: /* lzo   Compression Used	*/
+        return "lzo";
+    case IH_COMP_LZ4: /* lz4   Compression Used	*/
+        return "lz4";
+    }
+    return "Invalid value";
+}
+
+//-----------------------------------------------------------
+// LittleEndian();
+BigEndian();
+image_header_t header<bgcolor = 0x22ddff>;
+
+// Printf("%x, %x\n", IH_MAGIC, header.ih_magic);
+if (header.ih_magic != IH_MAGIC)
+{
+    Printf("bad uboot header magic\n");
+    return -1;
+}
+DisplayFormatHex();
+char kernel[header.ih_size]<bgcolor = 0xffcc00>;
+DisplayFormatHex();
+local long pad = FileSize() - sizeof(image_header_t) - header.ih_size;
+if (pad > 0)
+{
+
+    char padding[pad] <bgcolor = 0x229900>;
+}

@@ -1,0 +1,235 @@
+//------------------------------------------------
+//--- 010 Editor v16.0 Binary Template
+//
+//      File: msgpack.bt
+//   Authors: Alexander Salas Bastidas <a.salas@ieee.org>
+//   Version: 1.0
+//   Purpose: MessagePack serialization format for ML models and data
+//  Category: Machine Learning
+// File Mask: *.msgpack,*.mp
+//  ID Bytes: 
+//   History: 
+//   1.0   2025-08-19 Alexander Salas Bastidas : Initial implementation with complete MessagePack format support including all data types, arrays, maps, and extension types for machine learning applications.
+//------------------------------------------------
+
+BigEndian();
+
+typedef struct MSGPACK_VALUE;
+
+enum <uchar> MSGPACK_TYPE {
+    // Fixed types
+    POSITIVE_FIXINT_MASK = 0x7f,
+    FIXMAP_MASK = 0x8f,
+    FIXARRAY_MASK = 0x9f,
+    FIXSTR_MASK = 0xbf,
+    NEGATIVE_FIXINT_MASK = 0xff,
+    
+    // Nil, boolean
+    NIL = 0xc0,
+    FALSE = 0xc2,
+    TRUE = 0xc3,
+    
+    // Binary data
+    BIN8 = 0xc4,
+    BIN16 = 0xc5,
+    BIN32 = 0xc6,
+    
+    // Extension types
+    EXT8 = 0xc7,
+    EXT16 = 0xc8,
+    EXT32 = 0xc9,
+    
+    // Floating point
+    FLOAT32 = 0xca,
+    FLOAT64 = 0xcb,
+    
+    // Unsigned integers
+    UINT8 = 0xcc,
+    UINT16 = 0xcd,
+    UINT32 = 0xce,
+    UINT64 = 0xcf,
+    
+    // Signed integers
+    INT8 = 0xd0,
+    INT16 = 0xd1,
+    INT32 = 0xd2,
+    INT64 = 0xd3,
+    
+    // Fixed extension types
+    FIXEXT1 = 0xd4,
+    FIXEXT2 = 0xd5,
+    FIXEXT4 = 0xd6,
+    FIXEXT8 = 0xd7,
+    FIXEXT16 = 0xd8,
+    
+    // String types
+    STR8 = 0xd9,
+    STR16 = 0xda,
+    STR32 = 0xdb,
+    
+    // Array types
+    ARRAY16 = 0xdc,
+    ARRAY32 = 0xdd,
+    
+    // Map types
+    MAP16 = 0xde,
+    MAP32 = 0xdf
+};
+
+typedef struct {
+    uchar type_byte;
+    
+    local uchar b1 = type_byte;
+    
+    // Determine the actual type and parse accordingly
+    if ((b1 & 0x80) == 0) {
+        // Positive fixint (0xxxxxxx)
+        local uchar int_value = b1;
+    }
+    else if ((b1 & 0xe0) == 0xe0) {
+        // Negative fixint (111xxxxx) 
+        local char int_value = b1;
+    }
+    else if ((b1 & 0xf0) == 0x80) {
+        // Fixmap (1000xxxx)
+        local uchar map_size = b1 & 0x0f;
+        if (map_size > 0) {
+            struct {
+                MSGPACK_VALUE key;
+                MSGPACK_VALUE value;
+            } map_elements[map_size] <optimize=false>;
+        }
+    }
+    else if ((b1 & 0xf0) == 0x90) {
+        // Fixarray (1001xxxx)
+        local uchar array_size = b1 & 0x0f;
+        if (array_size > 0) {
+            MSGPACK_VALUE array_elements[array_size] <optimize=false>;
+        }
+    }
+    else if ((b1 & 0xe0) == 0xa0) {
+        // Fixstr (101xxxxx)
+        local uchar str_len = b1 & 0x1f;
+        if (str_len > 0) {
+            char str_data[str_len];
+        }
+    }
+    else {
+        switch (b1) {
+            case NIL:
+                // No additional data
+                break;
+            case FALSE:
+            case TRUE:
+                // No additional data
+                break;
+            case BIN8:
+                uchar bin_len;
+                if (bin_len > 0) {
+                    uchar bin_data[bin_len];
+                }
+                break;
+            case BIN16:
+                uint16 bin_len;
+                if (bin_len > 0) {
+                    uchar bin_data[bin_len];
+                }
+                break;
+            case BIN32:
+                uint32 bin_len;
+                if (bin_len > 0) {
+                    uchar bin_data[bin_len];
+                }
+                break;
+            case FLOAT32:
+                float float32_value;
+                break;
+            case FLOAT64:
+                double float64_value;
+                break;
+            case UINT8:
+                uchar uint8_value;
+                break;
+            case UINT16:
+                uint16 uint16_value;
+                break;
+            case UINT32:
+                uint32 uint32_value;
+                break;
+            case UINT64:
+                uint64 uint64_value;
+                break;
+            case INT8:
+                char int8_value;
+                break;
+            case INT16:
+                int16 int16_value;
+                break;
+            case INT32:
+                int32 int32_value;
+                break;
+            case INT64:
+                int64 int64_value;
+                break;
+            case STR8:
+                uchar str_len;
+                if (str_len > 0) {
+                    char str_data[str_len];
+                }
+                break;
+            case STR16:
+                uint16 str_len;
+                if (str_len > 0) {
+                    char str_data[str_len];
+                }
+                break;
+            case STR32:
+                uint32 str_len;
+                if (str_len > 0) {
+                    char str_data[str_len];
+                }
+                break;
+            case ARRAY16:
+                uint16 array_len;
+                if (array_len > 0) {
+                    MSGPACK_VALUE array_elements[array_len] <optimize=false>;
+                }
+                break;
+            case ARRAY32:
+                uint32 array_len;
+                if (array_len > 0) {
+                    MSGPACK_VALUE array_elements[array_len] <optimize=false>;
+                }
+                break;
+            case MAP16:
+                uint16 map_len;
+                if (map_len > 0) {
+                    struct {
+                        MSGPACK_VALUE key;
+                        MSGPACK_VALUE value;
+                    } map_elements[map_len] <optimize=false>;
+                }
+                break;
+            case MAP32:
+                uint32 map_len;
+                if (map_len > 0) {
+                    struct {
+                        MSGPACK_VALUE key;
+                        MSGPACK_VALUE value;
+                    } map_elements[map_len] <optimize=false>;
+                }
+                break;
+            default:
+                // Extension types and others
+                uchar unknown_data;
+                break;
+        }
+    }
+} MSGPACK_VALUE;
+
+// Main structure
+struct MSGPACK_FILE {
+    while (!FEof()) {
+        MSGPACK_VALUE value;
+    }
+} msgpack_file;

@@ -13,6 +13,8 @@ pub struct GitOutputDialog {
     pub title: String,
     /// Whether git exited successfully (a failure is titled and coloured as one).
     pub ok: bool,
+    /// Text that isn't git's: titled as it is, without the `git` prefix.
+    plain: bool,
     lines: Vec<String>,
     /// First visible line (vertical scroll offset).
     top: usize,
@@ -37,6 +39,7 @@ impl GitOutputDialog {
         GitOutputDialog {
             title: title.into(),
             ok,
+            plain: false,
             lines,
             top: 0,
             left: 0,
@@ -44,6 +47,11 @@ impl GitOutputDialog {
             view_w: 1,
             close_rect: Rect::default(),
         }
+    }
+
+    /// The same box for text of any other kind, titled `title`.
+    pub fn plain(title: impl Into<String>, text: &str) -> Self {
+        GitOutputDialog { plain: true, ..Self::new(title, true, text) }
     }
 
     /// The longest line, for clamping the horizontal scroll.
@@ -113,7 +121,9 @@ impl GitOutputDialog {
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
 
-        let heading = if self.ok {
+        let heading = if self.plain {
+            self.title.clone()
+        } else if self.ok {
             format!("git {}", self.title)
         } else {
             format!("git {} — failed", self.title)

@@ -2,6 +2,7 @@
 
 use crate::app::event::{AppEvent, FetchKind};
 use crate::config::Config;
+use crate::diff::hex::HexDiffSignal;
 use crate::diff::{DiffSignal, DiffView};
 use crate::disk::{DiskSignal, DiskView};
 use crate::editor::{EditorSignal, EditorState};
@@ -22,7 +23,7 @@ use crate::ui::dialog::{
     OverwriteDialog, PaletteAction, PaletteCategory, PaletteEntry, ProgressDialog, ReceiveDialog,
     SaveAsDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, SendFileDialog,
     SettingsTab, ShellHistoryDialog, SpeedChart, Submit, SyncPreviewDialog, TabPickerDialog,
-    UserMenuDialog,
+    TemplatePickerDialog, UserMenuDialog,
 };
 use crate::ui::layout::SplitDir;
 use crate::ui::menu::{MenuAction, MenuBarState, MenuSignal};
@@ -192,6 +193,9 @@ pub struct AppState {
     pub dialog: Option<Dialog>,
     pub viewer: Option<ViewerState>,
     pub editor: Option<EditorState>,
+    /// Editors waiting under the one shown, which returns to them when it
+    /// closes: a hex editor under the binary template being edited.
+    pub editor_stack: Vec<EditorState>,
     pub menu: Option<MenuBarState>,
     /// Set when something needs the terminal cleared before the next frame (the
     /// editor's Ctrl-L). The main loop clears and resets it.
@@ -213,6 +217,8 @@ pub struct AppState {
     sizes_focus: Option<std::path::PathBuf>,
     /// The full-screen side-by-side file comparison view, when open.
     pub diffview: Option<DiffView>,
+    /// The full-screen byte-by-byte comparison of two binary files, when open.
+    pub hexdiff: Option<Box<crate::diff::hex::HexDiffView>>,
     /// The full-screen disk-mounter tool, when open.
     pub mountview: Option<MountView>,
     /// The full-screen network-connections explorer, when open (Linux).
@@ -744,6 +750,39 @@ async fn open_binary(v: &mut crate::viewer::ViewerState, path: &Path) {
     if sniffed {
         v.analyze_binary(path.to_path_buf());
         v.settle_binary(BINARY_SETTLE).await;
+    }
+}
+
+/// Show what a certificate or key file holds — unless the file opened as a
+/// binary. The file is read and parsed off the main thread.
+async fn open_certs(v: &mut crate::viewer::ViewerState, path: &Path) {
+    if v.is_binary_mode() {
+        return;
+    }
+    let (p, name) = (path.to_path_buf(), v.name.clone());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64);
+    let report = tokio::task::spawn_blocking(move || {
+        use std::io::Read;
+        let mut head = Vec::with_capacity(64);
+        let mut file = std::fs::File::open(&p).ok()?;
+        if file.metadata().ok()?.len() > crate::certs::MAX_BYTES {
+            return None;
+        }
+        file.by_ref().take(64).read_to_end(&mut head).ok()?;
+        if !crate::certs::sniff(&name, &head) {
+            return None;
+        }
+        let mut data = head;
+        file.read_to_end(&mut data).ok()?;
+        crate::certs::inspect(&name, &data, now)
+    })
+    .await
+    .ok()
+    .flatten();
+    if let Some(r) = report {
+        v.set_certs(r);
     }
 }
 

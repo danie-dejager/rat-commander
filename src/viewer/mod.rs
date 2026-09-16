@@ -7,6 +7,7 @@
 //! Scrolling is by logical line (text) or 16-byte row (hex).
 
 pub mod binary;
+pub mod certs;
 pub mod fingerprint;
 pub mod loglevel;
 pub mod markdown;
@@ -372,6 +373,10 @@ pub struct ViewerState {
     pub(crate) map_cols: usize,
     /// Binary mode, for a file that sniffed as an executable or library.
     binary: Option<BinaryState>,
+    /// What a certificate or key file holds, laid out.
+    certs: Option<Box<certs::CertView>>,
+    /// Whether that (vs. the raw text) is showing — toggled with F8.
+    show_certs: bool,
 }
 
 impl ViewerState {
@@ -430,6 +435,8 @@ impl ViewerState {
             map_by_class: false,
             map_cols: 64,
             binary: None,
+            certs: None,
+            show_certs: false,
         }
     }
 
@@ -491,6 +498,8 @@ impl ViewerState {
             map_by_class: false,
             map_cols: 64,
             binary: None,
+            certs: None,
+            show_certs: false,
         }
     }
 
@@ -971,7 +980,11 @@ impl ViewerState {
                 KeyCode::Char('s') | KeyCode::Char('S') => a.stop(),
                 KeyCode::F(2) => a.toggle_display(),
                 KeyCode::F(8) => self.show_audio = false,
-                KeyCode::F(1) | KeyCode::F(3) | KeyCode::F(10) | KeyCode::Esc | KeyCode::Char('q') => {
+                KeyCode::F(1)
+                | KeyCode::F(3)
+                | KeyCode::F(10)
+                | KeyCode::Esc
+                | KeyCode::Char('q') => {
                     return self.handle_plain_view_key(key);
                 }
                 _ => {}
@@ -979,6 +992,9 @@ impl ViewerState {
             return ViewerSignal::Stay;
         }
 
+        if self.active_certs().is_some() {
+            return self.handle_certs_key(key);
+        }
         if self.mode == ViewMode::Binary {
             return self.handle_binary_key(key);
         }
@@ -1082,6 +1098,8 @@ impl ViewerState {
             KeyCode::F(5) => return ViewerSignal::OpenGoto,
             // F6 (Markdown files in text mode): open the document outline.
             KeyCode::F(6) if self.is_markdown && self.mode == ViewMode::Text => self.open_outline(),
+            // F8 (certificate and key files): back to the certificates.
+            KeyCode::F(8) if self.certs.is_some() => self.show_certs = true,
             // F8 (audio files): back from the raw text/hex to the audio view.
             KeyCode::F(8) if self.audio.is_some() => self.show_audio = !self.show_audio,
             // F8 (model files): toggle between the mesh and the raw text/hex.
@@ -1158,6 +1176,10 @@ impl ViewerState {
             return ViewerSignal::Stay;
         }
 
+        if self.active_certs().is_some() {
+            self.handle_certs_mouse(ev);
+            return ViewerSignal::Stay;
+        }
         if self.mode == ViewMode::Binary {
             self.handle_binary_mouse(ev);
             return ViewerSignal::Stay;
@@ -1407,6 +1429,11 @@ impl ViewerState {
         self.binary.is_some()
     }
 
+    /// Whether the file opened as an executable or a library.
+    pub fn is_binary_mode(&self) -> bool {
+        self.has_binary()
+    }
+
     /// Binary mode's lists, when it is showing and the analysis has landed.
     pub(crate) fn active_binary(&self) -> Option<&binary::view::BinaryView> {
         match &self.binary {
@@ -1536,6 +1563,10 @@ impl ViewerState {
             };
             return ["Help", f2, "Quit", "", "", "", "", "Raw", "", "Quit"];
         }
+        // The certificates: F8 shows the raw text; the rest act on the lists.
+        if self.active_certs().is_some() {
+            return ["Help", "", "Quit", "", "", "", "Search", "Raw", "Next", "Quit"];
+        }
         if self.mode == ViewMode::Binary {
             let f8 = match self.active_binary() {
                 Some(view) if view.demangle => "Raw",
@@ -1552,6 +1583,8 @@ impl ViewerState {
         // mode, "Raw" shows the source and "Render" the approximation.
         let f8 = if self.mode == ViewMode::Map {
             if self.map_by_class { "Density" } else { "Bytes" }
+        } else if self.certs.is_some() {
+            "Certs"
         } else if self.audio.is_some() {
             "Audio"
         } else if self.model.is_some() {
@@ -1865,6 +1898,14 @@ impl ViewerState {
 
     fn find_next(&mut self) {
         let Some(needle) = self.needle() else { return };
+        // The certificates search their rows, from the highlighted one.
+        if self.active_certs().is_some() {
+            let backwards = self.search.backwards;
+            if let Some(view) = self.active_certs_mut() {
+                view.find(&needle, backwards);
+            }
+            return;
+        }
         // Binary mode searches the list on screen, from the highlighted row.
         if self.mode == ViewMode::Binary {
             let backwards = self.search.backwards;
@@ -1916,6 +1957,16 @@ impl ViewerState {
     /// big to mark exhaustively, and a bounded set keeps this from turning into an
     /// unbounded scan of a multi-gigabyte log.
     fn find_all(&mut self) {
+        // The certificates narrow their lists to the matching rows.
+        if self.active_certs().is_some() {
+            let term = self.search.query.clone();
+            if let Some(needle) = self.needle()
+                && let Some(view) = self.active_certs_mut()
+            {
+                view.set_filter(&term, &needle);
+            }
+            return;
+        }
         // In Binary mode "Find all" narrows every list to its matching rows.
         if self.mode == ViewMode::Binary {
             let term = self.search.query.clone();

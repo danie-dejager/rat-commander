@@ -1,0 +1,146 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: MW2REG-GBL-DOS.bt
+//   Authors: Mateo Gomez
+//   Version: 1.0
+//   Purpose: To allow for easily reading and editing the MechWarrior 2: Ghost Bear's Legacy DOS save file.
+//  Category: Game
+// File Mask: MW2REG.CFG
+//  ID Bytes:
+//   History: 
+//   1.0   2025-05-04 Mateo Gomez: Initial release for Ghost Bear's Legacy DOS.
+//------------------------------------------------
+RequiresVersion(9);
+LittleEndian();
+
+// NOTE: This is only intended to work with MW2REG.cfg for GBL DOS!
+
+/*‑‑‑ abort if not the GBL‑DOS size (10 520  bytes) ‑‑‑*/
+if( FileSize() != 10520 )
+{
+    Printf("MW2REG‑GBL‑DOS.bt expects a 10,520‑byte file for (Ghost Bear's Legacy DOS), but found %d bytes.\nTemplate aborted.", FileSize());
+    return;            // make sure nothing else executes
+}
+
+// ── layout constants ───────────────────────────
+#define RECORD_SIZE   0x20E      // 526  bytes per pilot record
+
+// Note: If you try and apply this to MW2 DOS it will fail unless the pilot count is the same.
+#define NUM_PILOTS    10         // 10 pilot slots for GBL, but technically file supports more.
+
+
+
+// ── mission enumeration ────────────
+enum <uchar> Mission {
+    Trial_on_Alshain           = 0x00,
+    Defend_on_Mannedorf        = 0x01,
+    Patrol_on_Mannedorf        = 0x02,
+    Trial_on_Alshain__2        = 0x03,
+    Defend_on_Chandler         = 0x04,
+    Strike_on_Chandler         = 0x05,
+    Strike_on_Wolcott          = 0x06,
+    Circle_of_Equals           = 0x07,
+    Raid_on_Jeanette           = 0x08,
+    Defend_on_JumpShip         = 0x09,
+    Trial_of_Possession        = 0x0A,
+    Defend_on_Alshain          = 0x0B,
+    Trial_on_Alshain__3        = 0x0C,
+    Underwater_Strike          = 0x0D,
+    Strike_on_Moritz           = 0x0E,
+    Strike_on_Moritz__2        = 0x0F,
+    Destroy_Orbital_Platform   = 0x10,
+    Bloodright_Trial_1         = 0x11,
+    Bloodright_Trial_2         = 0x12,
+    Bloodright_Trial_3         = 0x13,
+    Bloodright_Trial_4         = 0x14,
+    Final_Bloodright_Trial     = 0x15,
+    Retired                    = 0x16
+};
+
+// ── rank enumeration ─────────────
+enum <uchar> Rank {
+    Cadet            = 0x00,
+    MechWarrior      = 0x01,
+    Star_Commander   = 0x02,
+    Star_Captain     = 0x03,
+    Star_Colonel     = 0x04,
+    Nova_Commander   = 0x05,
+    Galaxy_Commander = 0x06,
+    Wolf             = 0x07,
+    Jade_Falcon      = 0x08,
+    Ghost_Bear       = 0x09,
+    Smoke_Jaguar     = 0x0A,
+    Nova_Cat         = 0x0B,
+    Steel_Vipers     = 0x0C
+};
+
+// ── NEW location enumeration —──────────────────
+enum <uchar> Location {
+    Ghost_Bear_Den = 0x00,
+    Dropship       = 0x01,
+    On_Planet      = 0x02
+};
+
+/*────────  COLOURS (BGR order)  ─────────*/
+#define COL_SOFT_YELLOW  0xCDFAFF     // (RGB FF FA CD)
+#define COL_GREEN        0xC0FFC0
+#define COL_BLUE         0xFFD8C0
+#define COL_RED          0xC0C0FF
+#define COL_PURPLE       0xFFC0E0
+#define COL_GREY         0xF0F0F0
+
+
+/*────────  PILOT RECORD  ────────*/
+struct PilotRecord
+{
+    uchar   _pad0[0x0C];
+    Mission missionSelect                       <bgcolor=COL_GREEN>;
+    uchar   _pad1[3];
+    Rank    rank                                <bgcolor=COL_SOFT_YELLOW>;
+    uchar   _pad2[3];
+    int     honorPoints                         <bgcolor=COL_SOFT_YELLOW>;
+    uchar   killCount                           <bgcolor=COL_SOFT_YELLOW>;
+
+    uchar   _pad3[0x27 - 0x19 + 1];
+    char    rosterDeathCounter[20]              <bgcolor=COL_RED>;
+    uchar   rosterDeathCounterTerm;
+    char    pilotName[21]                       <bgcolor=COL_BLUE>;
+
+    uchar   deathFailCount1                     <bgcolor=COL_RED>;
+    uchar   _pad4[0x56 - 0x53];
+    uchar   deathFailCount2                     <bgcolor=COL_RED>;
+
+    uchar   _pad5[0x5A - 0x57];
+    Location locationSelect                     <bgcolor=COL_GREEN>;
+
+    uchar   _pad6[0x62 - 0x5B];
+    uchar   prmDeathRef                         <bgcolor=COL_RED>;
+
+    uchar   _pad7[0x76 - 0x63];
+    char    mechVariantAscii[8]                 <bgcolor=COL_PURPLE>;
+
+    uchar   _pad8[0x86 - 0x7E];
+    char    prmAsciiCounter[21]                 <bgcolor=COL_RED>;
+
+    /*── Starmate #2 ───────────────────────────*/
+    uchar   _pad9[0xB6 - 0x9B];
+    char    starmate2MechVariant[8];
+    uchar   _padA[0xC6 - 0xBE];
+    char    starmate2Name[21];
+    uchar   starmate2AsciiPad;
+    char    starmate2Ascii[21];
+
+    /*── Starmate #3 ───────────────────────────*/
+    uchar   _padB[0xF6 - 0xF1];
+    char    starmate3MechVariant[8];
+    uchar   _padC[0x106 - 0xFE];
+    char    starmate3Name[21];
+    uchar   starmate3AsciiPad;
+    char    starmate3Ascii[21];
+
+    /*── tail padding ──────────────────────────*/
+    uchar   _padRest[ RECORD_SIZE - 0x131 ];
+};
+
+PilotRecord pilots[NUM_PILOTS];

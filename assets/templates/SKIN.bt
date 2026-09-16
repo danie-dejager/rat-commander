@@ -1,0 +1,296 @@
+//------------------------------------------------------------------------------------------------------------------
+//--- 010 Editor v14.0 Template File
+//
+// File:	  SKIN.bt
+// Author:	  Alastor Strix'Efuartus
+// Purpose:   Parses a Blizzard Skin(.skin)
+// Version:   1.1.2
+// Category:  Game
+// File Mask: *.skin
+// ID Bytes:  53 4B 49 4E //SKIN
+//	 History: M2 files (also called MDX) contain model objects. but after TBC crucial data as vertices/indicies/submeshes/texture units were separated from M2 into its own .skin file
+//	 1.1.2 2025-05-05 Alastor: Minor check addition to nM2ShadowBatch 
+//	 1.1.1 2025-03-30 Alastor: Added two more M2ShadowBatch check to validate if it is truly present
+//	 1.1.0 2024-12-06 Alastor: Fixed up Submesh reading logic
+//	 1.0.9 2024-12-06 Alastor: Improved Level reading for indexStart now doing proper bitshift
+//	 1.0.8 2024-12-05 Alastor: Changed ShaderID and renamed some structs
+//	 1.0.7 2024-12-04 Alastor: Reworked skin section reading function to make it more clear alongside with some other improvements
+//	 1.0.6 2024-11-30 Alastor: Fixed ShaderID reading
+//	 1.0.5 2024-11-28 Alastor: Added table that summarizes group of the skin section names
+//	 1.0.4 2024-11-01 Alastor: Added read functions for bones and indices also restructures to reduce the redundancy in treeview
+//	 1.0.3 2024-09-30 Alastor: Added SubmeshID to Read function of TextureUnits
+//	 1.0.2 2024-09-27 Alastor: Fixed more variabls added some legacy comments
+//	 1.0.1 2024-09-22 Alastor: changed some variables from uint8 to byte as not to require 010 Editor version 15
+//	 1.0.0 2024-09-18 Alastor: Initial commit containing about all features of .skin and parsing them correctly
+//------------------------------------------------------------------------------------------------------------------
+
+typedef enum <uchar>{
+  TU_ANIMATED = 0,
+  TU_STATIC = 16
+} TEXUNITFLAGS;
+
+typedef struct{
+  uint16 Vertex;	  // The vertex in the global vertex list
+} Vertices;
+
+typedef struct{
+  uint16 Indices_0;   // Three indices which make up a triangle
+  uint16 Indices_1;   // an index into the local skin vertex list
+  uint16 Indices_2;
+} sIndices<read=IndicesRead, optimize=false>;
+
+string IndicesRead (sIndices& rec) {
+  string a;
+  SPrintf (a, "(%d %d %d)\n", rec.Indices_0, rec.Indices_1, rec.Indices_2);
+  return a;
+};
+
+typedef struct{
+  byte BoneIndices_0; // Usually 0? Purpose unknown
+  byte BoneIndices_1; // 4 indices into the global bone list (see remarks below)
+  byte BoneIndices_2;
+  byte BoneIndices_3;
+} sBones<read=BonesRead, optimize=false>;
+
+string BonesRead (sBones& rec) {
+  string a;
+  SPrintf (a, "(%d %d %d %d)\n", rec.BoneIndices_0, rec.BoneIndices_1, rec.BoneIndices_2, rec.BoneIndices_3);
+  return a;
+};
+
+// C3Vector --------------------------------------------------------------------
+
+typedef struct{
+  float x;
+  float y;
+  float z;
+} C3Vector<read=C3VectorRead, write=C3VectorWrite, optimize=false>;
+
+string C3VectorRead (C3Vector& rec) {
+  string a;
+  SPrintf (a, "(%f %f %f)\n", rec.x, rec.y, rec.z);
+  return a;
+};
+
+void C3VectorWrite (C3Vector& rec, string s) {
+  SScanf (s, "(%f %f %f)", rec.x, rec.y, rec.z);
+};
+
+string SSCheck(int secIDMin, int secIDMax, int secID, string secName, string secVar){
+    if( (secID>=secIDMin) & (secID<=secIDMax) ){
+        return secName;
+    }else{
+        return secVar;
+    };
+};
+
+string SkinSectionName(int ssID){ /* Dont Judge me */
+    local string sName = "Unk";    
+    sName = SSCheck(   0,    0, ssID, "Skin", sName);
+    sName = SSCheck(   1,   99, ssID, "Hair", sName);
+    sName = SSCheck( 100,  199, ssID, "Facial1", sName);
+    sName = SSCheck( 200,  299, ssID, "Facial2", sName);
+    sName = SSCheck( 300,  399, ssID, "Facial3", sName);
+    sName = SSCheck( 400,  499, ssID, "Gloves", sName);
+    sName = SSCheck( 500,  599, ssID, "Boots", sName);
+    sName = SSCheck( 600,  699, ssID, "Shirt", sName);
+    sName = SSCheck( 700,  799, ssID, "Ears", sName);
+    sName = SSCheck( 800,  899, ssID, "Sleeves", sName);
+    sName = SSCheck( 900,  999, ssID, "Kneepads", sName);
+    sName = SSCheck(1000, 1099, ssID, "ShirtDoublet", sName);
+    sName = SSCheck(1100, 1199, ssID, "Pants", sName);
+    sName = SSCheck(1200, 1299, ssID, "Tabard", sName);
+    sName = SSCheck(1300, 1399, ssID, "Robe", sName);
+    sName = SSCheck(1400, 1499, ssID, "Loincloth", sName);
+    sName = SSCheck(1500, 1599, ssID, "Cape", sName);
+    sName = SSCheck(1600, 1699, ssID, "FacialJewelry", sName);
+    sName = SSCheck(1700, 1799, ssID, "EyeEffects", sName);
+    sName = SSCheck(1800, 1899, ssID, "Belt", sName);
+    sName = SSCheck(1900, 1999, ssID, "BoneTail", sName);
+    sName = SSCheck(2000, 2099, ssID, "Toes", sName);
+    sName = SSCheck(2100, 2199, ssID, "Skull", sName);
+    sName = SSCheck(2200, 2299, ssID, "Torso", sName);
+    sName = SSCheck(2300, 2399, ssID, "Hands", sName);
+    sName = SSCheck(2400, 2499, ssID, "Horns", sName);
+    sName = SSCheck(2500, 2599, ssID, "Facewear", sName);
+    sName = SSCheck(2600, 2699, ssID, "Shoulders", sName);
+    sName = SSCheck(2700, 2799, ssID, "Helm", sName);
+    sName = SSCheck(2800, 2899, ssID, "ArmUpper", sName);
+    sName = SSCheck(2900, 2999, ssID, "ArmsReplace", sName);
+    sName = SSCheck(3000, 3099, ssID, "LegsReplace", sName);
+    sName = SSCheck(3100, 3199, ssID, "FeetReplace", sName);
+    sName = SSCheck(3200, 3299, ssID, "HeadSwap", sName);
+    sName = SSCheck(3300, 3399, ssID, "Eyes", sName);
+    sName = SSCheck(3400, 3499, ssID, "Eyebrows", sName);
+    sName = SSCheck(3500, 3599, ssID, "Piercings", sName);
+    sName = SSCheck(3600, 3699, ssID, "Necklaces", sName);
+    sName = SSCheck(3700, 3799, ssID, "Headdres", sName);
+    sName = SSCheck(3800, 3899, ssID, "DrTail", sName);
+    sName = SSCheck(3900, 3999, ssID, "MiscAccessory", sName);
+    sName = SSCheck(4000, 4099, ssID, "MiscFeature", sName);
+    sName = SSCheck(4100, 4199, ssID, "Noses", sName);
+    sName = SSCheck(4200, 4299, ssID, "HairDecoration", sName);
+    sName = SSCheck(4300, 4399, ssID, "HornDecoration", sName);
+    sName = SSCheck(4400, 4499, ssID, "BodySizeDrac", sName);
+    sName = SSCheck(4400, 4499, ssID, "Unk", sName);
+    sName = SSCheck(4500, 4599, ssID, "Unk", sName);
+    sName = SSCheck(4600, 4699, ssID, "UnkDrac", sName);
+    sName = SSCheck(4700, 4799, ssID, "Unk", sName);
+    sName = SSCheck(4800, 4899, ssID, "Unk", sName);
+    sName = SSCheck(4900, 4999, ssID, "Unk", sName);
+    sName = SSCheck(5000, 5099, ssID, "Unk", sName);
+    sName = SSCheck(5100, 5199, ssID, "EyeGlow2", sName);
+    return sName;
+};
+
+// C4Vector --------------------------------------------------------------------
+
+typedef struct{
+  float x;
+  float y;
+  float z;
+  float w;
+} C4Vector<read=C4VectorRead, write=C4VectorWrite, optimize=false>;
+
+string C4VectorRead (C4Vector& rec) {
+  string a;
+  SPrintf (a, "(%f %f %f %f)\n", rec.x, rec.y, rec.z, rec.w);
+  return a;
+};
+
+void C4VectorWrite (C4Vector& rec, string s) {
+  SScanf (s, "(%f %f %f %f)", rec.x, rec.y, rec.z, rec.w);
+};
+
+typedef struct{
+   uint16 SkinSectionID; // Mesh part ID, see below.
+   uint16 Level;
+   uint16 VertexStart;	 // Starting vertex number.
+   uint16 VertexCount;	 // Number of vertices.
+   uint16 IndicesStart<read=Str("%d (%d)", this<<ReadUShort(startof(this)-0x6), (this/3)<<ReadUShort(startof(this)-0x6)), comment="Divide by 3">;    // Starting triangle index (that's 3* the number of triangles drawn so far).
+   uint16 IndicesCount<read=Str("%d (%d)", this, this/3), comment="Divide by 3">;	 // Number of triangle indices.
+   uint16 BonesCount;	 // Number of elements in the bone lookup table.
+   uint16 BonesStart;	 // Starting index in the bone lookup table.
+   uint16 BoneInfluences;
+   uint16 CenterBoneIndex;		 // Not sure.
+   C3Vector CenterPos;	 // Average position of all the vertices in the sub mesh.
+   C3Vector SortCenterPos;  // Distance of the vertex farthest from CenterBoundingBox
+   float SortRadius; // Distance of the vertex farthest from CenterBoundingBox.
+}sSubmeshes<read=SubmeshIDRead, optimize=false>;
+
+string SubmeshIDRead (sSubmeshes& rec) {
+    string a;
+    SPrintf (a, "%d : %s\n", rec.SkinSectionID, SkinSectionName(rec.SkinSectionID) );
+    return a;
+};
+
+typedef struct{
+	struct{
+	    ubyte MaterialInversion_0x1 : 1;
+	    ubyte Transform_0x2 : 1;
+	    ubyte ProjectedTexture01_0x4 : 1;
+	    ubyte Unk_0x8: 1;
+	    ubyte Batchk_0x10: 1;
+	    ubyte ProjectedTexture02_0x20: 1;
+	    ubyte TransparencyMultiplier_0x40: 1;
+    } TextureUnitFlags<read=Str("%LXh", ReadUByte(startof(this)))>;
+	byte priorityPlane;  // Flags
+
+    uint16 ShaderID; //<read=Str("%LXh", ReadUShort(startof(this)) ), format=binary>;
+
+	/*struct{  // wowdev.wiki/M2/.skin#Shader_table
+		uint16 Sh_0x1	    :1; 
+		uint16 Sh_0x2	    :1; 
+		uint16 Sh_0x4 	    :1; // >LK
+		uint16 Sh_0x8	    :1;
+		uint16 Sh_0x10      :1;
+		uint16 Sh_0x20      :1;
+		uint16 Sh_0x40      :1;
+		uint16 Sh_0x80      :1;
+		uint16 Sh_0x100     :1;
+		uint16 Sh_0x200     :1;
+		uint16 Sh_0x400     :1;
+		uint16 Sh_0x800     :1;
+		uint16 Sh_0x1000    :1;
+		uint16 Sh_0x2000    :1;
+		uint16 Sh_0x4000    :1;
+		uint16 Sh_0x8000    :1;
+		//uint16 Sh_0x10000 :1;
+	} E_ShaderID<read=Str("%LXh", ReadUShort(startof(this)) ), format=binary>;*/
+
+
+	uint16 SubmeshIndex; // Material this texture is part of (index into mat)
+	uint16 GeosetIndex;	     // Always same as above?
+	int16 ColorIndex;	     // color or -1
+	uint16 MaterialIndex<comment="MaterialID">;    // more flags...
+	uint16 MaterialLayer;    // Texture unit (0 or 1)
+	uint16 TextureCount;     // TextureCount
+	uint16 TexComboIndex<comment="TextureLookupID">;    // Index into Texture lookup table
+	uint16 TexCoordComboIndex<comment="TexUnitLookupID">;	 // Index into the texture mapping lookup table.
+	uint16 TexWeightComboIndex<comment="TransparencyLookupID">;	 // Index into transparency lookup table.
+	uint16 TexTransformComboIndex<comment="TexAnimLookupID">;	 // Index into uvanimation lookup table.
+} sTextureUnits<read=TextureUnitsRead, optimize=false>;
+
+string TextureUnitsRead (sTextureUnits& rec) {
+    string a;
+    SPrintf (a, "SubmeshID: %d\n", rec.SubmeshIndex);
+    return a;
+};
+
+typedef struct{  //Apparently based on M2Batch (texture unit)
+  byte flags;              // if auto-generated: M2Batch.flags & 0xFF
+  byte flags2;             // if auto-generated: (renderFlag[i].flags & 0x04 ? 0x01 : 0x00)
+                           //                  | (!renderFlag[i].blendingmode ? 0x02 : 0x00)
+                           //                  | (renderFlag[i].flags & 0x80  ? 0x04 : 0x00)
+                           //                  | (renderFlag[i].flags & 0x400 ? 0x06 : 0x00)
+  uint16 _unknown1;
+  uint16 submesh_id;
+  uint16 texture_id;        // already looked-up
+  uint16 color_id;
+  uint16 transparency_id;   // already looked-up
+}sM2ShadowBatch;  // Generated on the fly, if !(batches[i].flags & 4) && !batches[i].texunit && !(renderflags[batches[i].renderFlag].flags & 0x40) && (renderflags[batches[i].renderFlag].blendingmode < 2u || renderflags[batches[i].renderFlag].flags & 0x80)
+
+//---------------------------------------------------
+
+struct{
+
+CHAR Magic[4]<fgcolor=0x5050DD, bgcolor=0x331900>;
+uint32 nVertices<fgcolor=0x00FFFF, bgcolor=0x330033>;
+uint32 ofsVertices<format=hex, fgcolor=0x00FFFF, bgcolor=0x330033>;		// Indices used in this View.
+uint32 nIndices<fgcolor=0x99FFFF, bgcolor=0x330033>;
+uint32 ofsIndices<format=hex, fgcolor=0x99FFFF, bgcolor=0x330033>;		// The triangles made with them.
+uint32 nBoneIndices<fgcolor=0xFF00FF, bgcolor=0x331900>;
+uint32 ofsBoneIndices<format=hex, fgcolor=0xFF00FF, bgcolor=0x331900>;	// Properties of the vertices.
+uint32 nSubmeshes<fgcolor=0x00CCFF, bgcolor=0x330033>;
+uint32 ofsSubmeshes<format=hex,fgcolor=0x00CCFF, bgcolor=0x330033>;	    // Submeshes (Geosets) of this View.
+uint32 nTextureUnits<fgcolor=0xFF00BF, bgcolor=0x112200>;
+uint32 ofsTextureUnits<format=hex, fgcolor=0xFF00BF, bgcolor=0x112200>;	// Texture Units.
+uint32 boneCountMax<fgcolor=0xFF00FF, bgcolor=0x331900>;	            // Divided by the num of bones in submeshes and stores the biggest one.
+
+if( ReadInt(0x8)!=0x30 && ReadInt(0x10)!=0x30 && ReadInt(0x18)!=0x30 && ReadInt(0x20)!=0x30 && ReadInt(0x28)!=0x30){
+    uint32 nM2ShadowBatch<fgcolor=0xFF0C00, bgcolor=0x191919>;
+    uint32 ofsM2ShadowBatch<format=hex, fgcolor=0xFF0C00, bgcolor=0x191919>;	// Texture Units.
+};
+
+FSeek(ofsVertices);
+uint16 Vertex[nVertices]<fgcolor=0x00FFFF, bgcolor=0x330033>;
+
+FSeek(ofsIndices);
+sIndices Indices[nIndices / 3]<fgcolor=0x99FFFF, bgcolor=0x330033, comment="Idx->Vert list">;
+
+FSeek(ofsBoneIndices);
+sBones BonesIndices[nBoneIndices]<fgcolor=0xFF00FF, bgcolor=0x331900>;
+
+FSeek(ofsSubmeshes);
+sSubmeshes Submeshes[nSubmeshes]<fgcolor=0x00CCFF, bgcolor=0x330033>;
+
+FSeek(ofsTextureUnits);
+sTextureUnits TextureUnits[nTextureUnits]<fgcolor=0xFF00BF, bgcolor=0x112200>;
+
+if( (exists(nM2ShadowBatch)) && (nM2ShadowBatch<65536) ){ // Inaccurate method but I cannot tell skin version
+    if( (nM2ShadowBatch>0) & (ofsM2ShadowBatch)<FileSize() ){                  // Other than making many "validation" checks to determine its version based on data
+        sM2ShadowBatch M2ShadowBatch[nM2ShadowBatch]<fgcolor=0xFF0C00, bgcolor=0x191919>;
+    }
+};
+
+}SKIN_file<open=true>;

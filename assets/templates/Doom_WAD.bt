@@ -1,0 +1,39 @@
+//------------------------------------------------
+//--- 010 Editor v12.0.1 Binary Template
+//
+//      File: Doom_WAD.bt
+//   Authors: f7cjo
+//   Version: 1
+//   Purpose: Parsing Doom 1/2 WAD files
+//  Category: Game
+// File Mask: *.wad
+//  ID Bytes: 
+//   History: 
+//   1     2022-10-08 f7cjo: Template created
+//------------------------------------------------
+RequiresVersion( 12 );
+
+struct
+{
+    LittleEndian();
+    struct Header{
+        SetBackColor(cDkGreen);
+        char WADType[1]<comment="Internal or Patch">;
+        char Magic[3];
+        int EntryCount;
+        int DirectoryPointer;
+    }header<name="Header">;
+    local int violet;
+    for(violet=0; violet<header.EntryCount; violet++){
+        SetBackColor(cGreen);
+        struct Lump{
+            FSeek(header.DirectoryPointer + violet*16 );
+            int LumpPointer;
+            int LumpSize;
+            char LumpName[8];
+            FSeek( LumpPointer );
+            SetBackColor(cYellow);
+            char Data[ LumpSize ];
+        }lump<name=LumpName>;
+    }
+}WAD;

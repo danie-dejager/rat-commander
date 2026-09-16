@@ -81,17 +81,46 @@ The installed executable is named **`rc`** for quick typing.
   opens the hex view at a row's bytes, and *Find all* narrows every list to one
   term. Analysis runs in the background; a file that does not parse opens as
   text.
+- **Certificates and keys (F3 on a `.pem`, `.crt`, `.key`, `.csr` …)** — X.509
+  certificates, certificate requests and private and public keys, PEM (whole
+  bundles) or DER, laid out field by field: subject, issuer, validity with the
+  **days until expiry** (red once expired, amber within 30 days), SANs, key type
+  and size, key usage, fingerprints and SPKI pins. The **Chain** tab checks
+  which certificate issued which, **verifies each signature** against its
+  issuer and says whether they are in the order a server must send them; a
+  private key is matched to its certificate without decrypting anything, and
+  its key material is never shown. **SSH** files too: OpenSSH private keys
+  (fingerprint and encryption, readable without the passphrase), public keys,
+  OpenSSH certificates (principals, validity, signing CA and whether its
+  signature holds), and every line of `authorized_keys` and `known_hosts`.
+  F8 switches to the raw text. In the editor, **Decode JWT at cursor** shows a
+  JSON Web Token's header, claims and expiry.
 - **Built-in editor (F4)** — `mcedit`-style block copy/move/delete, clipboard,
   search & replace, undo/redo, syntax highlighting, a **spreadsheet grid** for
   `.csv` / `.tsv` files (edit cells in a cell bar, insert and delete rows and
-  columns, every change one undo step and saved as plain text), a **live JSON
-  syntax check** that marks every error in the file as you type — in a gutter,
-  underlined, explained on the status line, `Alt-E` to the next one — a
+  columns, every change one undo step and saved as plain text), a **live syntax
+  check** of JSON, TOML, YAML and XML files that marks every error as you type —
+  in a gutter, underlined, explained on the status line, `Alt-E` to the next
+  one — and **JSON Schema validation** of JSON, YAML and TOML files marked the
+  same way (schemas bundled for docker-compose, GitHub Actions workflows and
+  actions, Dependabot, GitLab CI, `Cargo.toml`, `package.json` and
+  `tsconfig.json`, or named in the file, or mapped in your config) — JSON
+  **pretty-printing** (`Alt-F`), minifying and key sorting that keep the key
+  order, the numbers as written and a JSONC file's comments — a
   **GeoJSON map** (`Alt-M`) that draws the GeoJSON in a file, or nested anywhere
   in a larger JSON document, over a built-in vector map of the world (land,
   lakes, borders, rivers and cities from Natural Earth) with pan, zoom and
-  click-to-pick, in pixels or braille, and an
-  in-place **hex editor** for arbitrarily large files.
+  click-to-pick, in pixels or braille — and **edits** it: draw points, lines and
+  polygons, drag, add and remove positions, name and remove features, start a
+  FeatureCollection from an empty file, every change written into the text in
+  the file's own layout as one undo step — and an
+  in-place **hex editor** for arbitrarily large files, with **010 Editor binary
+  templates**: the file's structures and fields as a tree beside the bytes —
+  names, values, offsets, sizes, types, comments — picked automatically from 307
+  bundled templates (or your own), coloured onto the bytes, and editable in
+  place — plus a **data inspector** reading the bytes at the cursor as every
+  integer width, floats, LEB128, UTF-8/UTF-16, time_t/FILETIME/DOS dates and
+  GUIDs in either byte order, each one editable.
 - **Multi rename** — batch-rename selected files with a masked, live two-column
   preview, counter, case transform and search-and-replace.
 - **Search** — one dialog for the editor (F7/F4) *and* the viewer (F7): literal,
@@ -150,7 +179,11 @@ The installed executable is named **`rc`** for quick typing.
   directory, view format, sort, filter, marks and cursor, and local tabs come
   back on the next run. The strip only appears once a panel has more than one.
 - **Find file**, **Compare directories**, **Find duplicates**, and a
-  side-by-side **Compare files** diff with in-place merging.
+  side-by-side **Compare files** diff with in-place merging — binary files are
+  compared byte by byte instead, as hex and ASCII side by side, paged from disk
+  however large, every difference coloured and stepped through while a scan
+  finds them in the background, and the binary template's field under the
+  cursor named.
 - **Synchronize directories** — mirror one panel's tree onto the other, in
   **one-way** (optionally deleting whatever the source doesn't have) or
   **two-way** (newer file wins) mode. The plan is **previewed in full** — every
@@ -193,11 +226,16 @@ The installed executable is named **`rc`** for quick typing.
   to and **F3**). Each confirms what the file really is before claiming it, so a
   `.db` that isn't one opens the way it always did. All read-only, and they say
   so before a transfer starts.
-- **Remote filesystems** — SFTP, SCP and FTP/FTPS, each mounted into a panel;
-  copy/move/delete works transparently across local, remote and archive panels.
+- **Remote filesystems** — SFTP, SCP, FTP and **FTPS** (explicit TLS: certificates
+  the system trusts are accepted, and a self-signed one is shown by its SHA-256
+  and pinned once you trust it, the way `known_hosts` works), each mounted into a
+  panel; copy/move/delete works transparently across local, remote and archive
+  panels.
   On an **SFTP/SCP** panel, the command line and **Ctrl-O** run a shell
   on the **remote host** over the same SSH connection — its output on the same
-  console backdrop, no second login.
+  console backdrop, no second login. Hosts from **`~/.ssh/config`** are offered
+  in the connect form and the command palette, and their `HostName`, `User`,
+  `Port`, `IdentityFile` and **`ProxyJump`** chains are honoured.
 - **3D view** — a panel format that draws the directory the *other* panel is in. Two styles,
   chosen in Settings → Panels: **Cubes**, a tree of boxes joined by lines, and
   **Spare no expense**, an homage to IRIX's *fsn* — pale platforms standing on a
@@ -309,7 +347,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `F7` | Search (`n` repeats) |
 | `f` | Follow the file as it grows (`tail -f`) |
 | `b` | Git blame column; `Enter` opens the cursor line's commit |
-| `F8` | (Markdown) toggle Raw / Render — (CSV/TSV) toggle Table / Raw — (image) toggle Image / Raw — (model) toggle Model / Raw — (audio) toggle Audio / Raw — (map) toggle Density / Bytes — (binary) toggle demangled / raw names |
+| `F8` | (Markdown) toggle Raw / Render — (CSV/TSV) toggle Table / Raw — (image) toggle Image / Raw — (model) toggle Model / Raw — (audio) toggle Audio / Raw — (map) toggle Density / Bytes — (binary) toggle demangled / raw names — (certificates) toggle Certs / Raw |
 | `Space` / `s` | (audio) play / pause — stop |
 | `← →` / `PgUp PgDn` / `Home End` | (audio) seek 5 s / 30 s / to either end; click or drag on the picture to seek |
 | `+` / `-` / `↑ ↓` | (audio) volume |
@@ -337,8 +375,12 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `F9` | Pulldown menu |
 | `Shift-F9` | Toggle word wrap |
 | `Ctrl-F9` | Toggle in-place hex editor |
-| `Alt-E` / `Alt-Shift-E` | (JSON) next / previous syntax error |
-| `Alt-M` | Show the file's GeoJSON on a world map (drag/wheel to pan and zoom, click a feature, `Enter` to go to it) |
+| `F5` / `Shift-F5` (hex) | Choose / rerun the binary template |
+| `F6` (hex) | The template variable under the cursor (tree: `Enter` edits, `←`/`→` close/open) |
+| `F8` (hex) | Data inspector: the bytes at the cursor as numbers, characters, dates, GUIDs (`Enter` edits, `b` switches byte order) |
+| `Alt-E` / `Alt-Shift-E` | (JSON, TOML, YAML, XML) next / previous syntax error |
+| `Alt-F` | (JSON) pretty-print; Format → JSON also minifies and sorts keys |
+| `Alt-M` | Show the file's GeoJSON on a world map (drag/wheel to pan and zoom, click a feature, `Enter` to go to it); `e` edits it: `1`/`2`/`3` draw a point/line/polygon, drag positions, `Del` removes, `Ctrl-Z` undoes |
 | `Alt-G` | Toggle the spreadsheet grid (CSV/TSV): `Enter` or typing edits a cell, `F5`/`F6` insert a row/column, `F8`/`Shift-F8` delete one, `F3` toggles the header row |
 | `Ins` | Toggle insert / overwrite |
 | `Ctrl-C` / `Ctrl-X` / `Ctrl-V` | Copy / cut block to clipboard, paste |
@@ -483,11 +525,21 @@ draws audio files; it just cannot play them.
 Configuration lives in your platform config directory
 (`~/.config/rat-commander/` on Linux): **`config.toml`** (written from the
 Settings dialog), **`themes.toml`** (editable color themes), **`lang/`**
-(one editable TOML per UI language), and **`menu`** (the F2 user menu, in
+(one editable TOML per UI language), **`templates/`** (the hex editor's binary
+templates, editable, plus your own), and **`menu`** (the F2 user menu, in
 Midnight Commander format). See the
 **[user manual](doc/MANUAL.md#configuration)** for details.
 
 ---
+
+## Third-party content
+
+The binary templates in `assets/templates/` come from SweetScape's public
+template repository, whose terms place them in the public domain; a few carry
+their own notes (see `assets/templates/README.md`). The JSON Schemas in `assets/schemas/` are
+separate works bundled unmodified under their own licenses — Apache-2.0
+(SchemaStore, compose-spec) and MIT (GitLab CI); see
+`assets/schemas/README.md`.
 
 ## License
 
@@ -495,3 +547,10 @@ GNU General Public License, version 2 (GPL-2.0-only). See the `LICENSE` file.
 
 The built-in world map is made from [Natural Earth](https://www.naturalearthdata.com/)
 data, which is in the public domain; `assets/world/make_world.py` rebuilds it.
+
+The bundled binary templates come from SweetScape's
+[010 Editor template repository](https://www.sweetscape.com/010editor/repository/templates/),
+whose contributors release them into the public domain; a few carry their own
+notes in their headers, kept intact. `assets/templates/README.md` lists them
+with their authors, and `assets/templates/fetch_templates.py` fetches them
+again.

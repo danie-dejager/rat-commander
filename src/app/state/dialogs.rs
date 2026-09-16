@@ -43,6 +43,9 @@ impl AppState {
     }
 
     pub(in crate::app::state) async fn handle_dialog_result(&mut self, res: DialogResult) -> Flow {
+        // The GeoJSON map edits the editor's text as it goes, whatever the
+        // key or click that did it went on to do.
+        self.apply_geo_edits();
         // Settings reopens on the tab it was closed on, whether by OK or Cancel.
         if !matches!(res, DialogResult::None)
             && let Some(Dialog::Form(fd)) = &self.dialog
@@ -297,6 +300,24 @@ impl AppState {
                 }
             }
             Submit::EditorPasteOutput(cmd) => self.editor_paste_output(cmd).await,
+            Submit::TrustCertificate { host_port, sha256 } => {
+                let pinned = crate::vfs::remote::tls::pins_file()
+                    .ok_or_else(|| std::io::Error::other("no configuration directory"))
+                    .and_then(|path| crate::vfs::remote::tls::add_pin(&path, &host_port, &sha256));
+                match (pinned, self.pending_connect.take()) {
+                    (Err(e), _) => self.show_error(format!("Cannot save the certificate: {e}")),
+                    (Ok(()), Some((side, creds))) => self.connect_remote(side, creds).await,
+                    (Ok(()), None) => {}
+                }
+            }
+            Submit::HexDiffGoto(text) => match crate::bt::interp::edit::parse_int(&text) {
+                Some(off) if off >= 0 => {
+                    if let Some(hd) = self.hexdiff.as_mut() {
+                        hd.goto(off.min(u64::MAX as i128) as u64);
+                    }
+                }
+                _ => self.show_error(format!("Not an offset: {text}")),
+            },
             Submit::EditorSort { reverse, ignore_case, unique } => {
                 if let Some(ed) = self.editor.as_mut() {
                     ed.sort_block(reverse, ignore_case, unique);
@@ -309,11 +330,19 @@ impl AppState {
                 self.diffview = None;
             }
             Submit::DiffDiscardQuit => self.diffview = None,
-            Submit::EditorDiscardQuit => {
-                self.record_editor_position();
-                self.editor = None;
-                self.reload_all().await;
+            Submit::EditorDiscardQuit => self.close_editor().await,
+            Submit::EditorTemplate(info) => {
+                if let Some(ed) = self.editor.as_mut() {
+                    ed.set_template(info.map(|i| *i));
+                }
             }
+            Submit::EditorEditTemplate(info) => match info.path.clone() {
+                Some(path) => self.open_template_editor(path, None),
+                None => self.show_error(
+                    "This template is built in: there is no template directory to edit it in",
+                ),
+            },
+            Submit::EditorNewTemplate(name) => self.create_template(name),
             Submit::Select { select, pattern, files_only, case_sensitive, shell } => {
                 self.apply_select(select, &pattern, files_only, case_sensitive, shell)
             }

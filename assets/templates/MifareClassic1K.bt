@@ -1,0 +1,107 @@
+//------------------------------------------------
+//--- 010 Editor v10.0 Binary Template
+//
+//      File: MifareClassic1K.bt
+//   Authors: Haicaji
+//   Version: 1.0
+//   Purpose: Analysis Mifare Classic 1K (S50) dump File
+//  Category: Electronics
+//   History: 
+//   1.0   2025-11-27 Haicaji: Change background colors for UID, KeyA&B, and Access Bits.
+//------------------------------------------------
+
+//------------------------------------------------
+// 颜色配置区域
+//------------------------------------------------
+
+// Key A 背景色: 
+local int COLOR_KEY_A_BG = 0xEEEEAF; 
+// Key B 背景色: 
+local int COLOR_KEY_B_BG = 0x60A4F4; 
+// 控制位 (ACS) 背景色: 
+local int COLOR_ACS_BG   = 0x8080F0; 
+// UID 背景色: 
+local int COLOR_UID_BG   = 0x006699; 
+
+// 默认密钥 (FF FF FF FF FF FF) 的字体颜色
+local int COLOR_DEFAULT_KEY_TEXT = cRed; 
+
+//------------------------------------------------
+// 数据结构定义
+//------------------------------------------------
+
+// 1. 定义 KEY 结构体
+typedef struct {
+    UBYTE val[6] <format=hex>;
+} MIF_KEY;
+
+// 2. 辅助函数：判断密钥字体颜色
+int GetKeyFgColor(MIF_KEY &k) {
+    local int i;
+    // 检查结构体内的6个字节
+    for( i = 0; i < 6; i++ ) {
+        if( k.val[i] != 0xFF ) {
+            return cNone; 
+        }
+    }
+    // 如果全都是FF，返回顶部定义的颜色变量(红色)
+    return COLOR_DEFAULT_KEY_TEXT; 
+}
+
+// 定义普通的 16 字节数据块
+typedef struct {
+    UBYTE data[16] <format=hex>;
+} DATA_BLOCK;
+
+// 定义第 0 扇区第 0 块 (厂商块/UID)
+typedef struct {
+    // [修改] 移除了 fgcolor=cWhite，现在使用默认字体颜色
+    UBYTE UID[4] <format=hex, bgcolor=COLOR_UID_BG, comment="卡片UID">;
+    UBYTE BCC <format=hex, comment="校验位">;
+    UBYTE SAK <format=hex, comment="选卡确认">;
+    UBYTE ATQA[2] <format=hex, comment="卡片类型">;
+    UBYTE ManufacturerData[8] <format=hex>;
+} MANUFACTURER_BLOCK;
+
+// 定义扇区尾块 (包含密钥和控制位)
+typedef struct {
+    // 使用 MIF_KEY 结构体并绑定颜色函数
+    MIF_KEY KeyA <fgcolor=GetKeyFgColor, bgcolor=COLOR_KEY_A_BG, comment="密钥 A">;
+    
+    // [修改] 移除了 fgcolor=cWhite，现在使用默认字体颜色
+    UBYTE AccessBits[4] <format=hex, bgcolor=COLOR_ACS_BG, comment="控制位">;
+    
+    // 使用 MIF_KEY 结构体并绑定颜色函数
+    MIF_KEY KeyB <fgcolor=GetKeyFgColor, bgcolor=COLOR_KEY_B_BG, comment="密钥 B">;
+} SECTOR_TRAILER;
+
+// 定义普通扇区结构 (3个数据块 + 1个尾块)
+typedef struct (int sectorIndex) {
+    if (sectorIndex == 0) {
+        MANUFACTURER_BLOCK manufacturer_block <name="厂商块 (Block 0)">;
+        DATA_BLOCK block[2] <name="数据块">; 
+    } else {
+        DATA_BLOCK block[3] <name="数据块">;
+    }
+     
+    SECTOR_TRAILER trailer <name="扇区尾块 (Keys & Access Bits)">;
+     
+} SECTOR <read=ReadSectorName>;
+
+// 显示扇区名称的辅助函数
+string ReadSectorName( SECTOR &s ) {
+    string str;
+    SPrintf( str, "Sector %d", startof(s) / 64 ); 
+    return str;
+}
+
+//------------------------------------------------
+// 主执行入口
+//------------------------------------------------
+LittleEndian(); 
+
+// M1卡通常有16个扇区
+local int i;
+for( i = 0; i < 16; i++ ) {
+    SECTOR sector(i);
+}

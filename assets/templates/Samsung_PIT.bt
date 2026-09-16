@@ -1,0 +1,85 @@
+//------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+//
+//      File: Samsung_PIT.bt
+//   Authors: B. Kerler
+//   Version: 1.0
+//   Purpose: Parse Samsung PIT file (Partition Information Table)
+//  Category: Operating System
+// File Mask: *
+//  ID Bytes: 76 98 34 12
+//   History: 
+//   1.0   2023-09-18 B. Kerler: 1.0 Initial release
+//------------------------------------------------
+
+struct PIT_Header
+{
+    unsigned int magic;
+    unsigned int entries;
+    unsigned char identifier_port[8];
+    unsigned char identifier_chipset[8];
+    unsigned int lun_count;
+};
+
+enum comm_type_t
+{
+    AP = 0,
+    CP = 1
+};
+
+enum device_type_t
+{
+    ONENAND = 0,
+    NAND = 1,
+    EMMC = 2,
+    SPI = 3,
+    IDE = 4,
+    NAND_X16 = 5,
+    NOR = 6,
+    NAND_WB1 = 7,
+    UFS = 8
+};
+
+enum partition_type_t
+{
+    BCT = 1,
+    BOOTLOADER = 2,
+    PARTITION_TABLE = 3,
+    NVDATA = 4,
+    DATA = 5,
+    MBR = 6,
+    EBR = 7,
+    GP1 = 8,
+    GPT = 9
+};
+
+enum filesystem_type_t
+{
+    BASIC = 1,
+    ENHANCED = 2,
+    EXT2 = 3,
+    YAFFS2 = 4,
+    EXT4 = 6,
+    F2FS = 7
+};
+
+struct PIT_Entry
+{
+    comm_type_t comm_type;
+    device_type_t device_type;
+    unsigned int id<format=hex>;
+    partition_type_t partition_type;
+    filesystem_type_t filesystem_type;
+    unsigned int block_offset<format=hex>;
+    unsigned int block_count<format=hex>;
+    unsigned int ufs_lun;
+    unsigned int file_size_abandoned;
+    unsigned char partition_name[0x20];
+    unsigned char filename[0x2A];
+    unsigned char option[0x16];
+};
+
+LittleEndian();
+FSeek(0);
+PIT_Header header;
+PIT_Entry entries[header.entries];

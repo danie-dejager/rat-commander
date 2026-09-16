@@ -4,6 +4,8 @@
 //! blocks highlighted and connected across the gutter. The user can copy a
 //! change from one side to the other (Ctrl-←/→) in memory and save with F2.
 
+pub mod hex;
+pub mod hexrender;
 pub mod render;
 
 use crate::vfs::VfsPath;

@@ -32,6 +32,8 @@ pub struct ConfirmDialog {
     pub(crate) danger: bool,
     /// Optional box-width override (for menus with many/long buttons).
     width: Option<u16>,
+    /// Optional box-height override (for a message of several lines).
+    height: Option<u16>,
 }
 
 impl ConfirmDialog {
@@ -53,6 +55,7 @@ impl ConfirmDialog {
             focus: 0,
             danger: false,
             width: None,
+            height: None,
         }
     }
 
@@ -69,6 +72,7 @@ impl ConfirmDialog {
             focus: 0,
             danger: false,
             width: None,
+            height: None,
         }
     }
 
@@ -223,6 +227,7 @@ impl ConfirmDialog {
             focus: 0,
             danger: false,
             width: None,
+            height: None,
         }
     }
 
@@ -525,6 +530,45 @@ impl ConfirmDialog {
         )
     }
 
+    /// An FTPS server's certificate isn't trusted: trust it for that server
+    /// from now on, or not. When another certificate was trusted for it
+    /// before, the prompt is a warning and Cancel has the focus.
+    pub fn untrusted_certificate(f: &crate::vfs::remote::tls::CertFailure) -> Self {
+        let sha =
+            f.sha256.as_bytes().chunks(32).map(|c| String::from_utf8_lossy(c)).collect::<Vec<_>>();
+        let lead = if f.pinned_other {
+            "This is NOT the certificate trusted before for this server. It may have been replaced — or someone may be intercepting the connection."
+        } else {
+            "Trust this certificate for this server from now on?"
+        };
+        let message = format!(
+            "{} presented a certificate that isn't trusted: {}.\n\n{}\nIssued by {}\nValid until {}\nSHA-256 {}\n        {}\n\n{lead}",
+            f.host_port,
+            f.reason,
+            f.subject,
+            f.issuer,
+            f.not_after,
+            sha.first().map(|s| s.as_ref()).unwrap_or(""),
+            sha.get(1).map(|s| s.as_ref()).unwrap_or(""),
+        );
+        let title = if f.pinned_other { "Certificate changed" } else { "Untrusted certificate" };
+        let mut d = Self::yes_no(
+            title,
+            message,
+            Submit::TrustCertificate { host_port: f.host_port.clone(), sha256: f.sha256.clone() },
+            "Trust",
+            "Cancel",
+            None,
+        );
+        d.width = Some(76);
+        d.height = Some(16);
+        if f.pinned_other {
+            d.danger = true;
+            d.focus = 1;
+        }
+        d
+    }
+
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
         match key.code {
             KeyCode::Esc => DialogResult::Cancel,
@@ -598,7 +642,7 @@ impl ConfirmDialog {
     /// and drawing agree (the danger variant is a touch larger).
     pub(crate) fn box_rect(&self, area: Rect) -> Rect {
         let (w, h) = if self.danger { (58u16, 9u16) } else { (54u16, 7u16) };
-        let w = self.width.unwrap_or(w);
+        let (w, h) = (self.width.unwrap_or(w), self.height.unwrap_or(h));
         centered(area, w.min(area.width.saturating_sub(4)), h)
     }
 

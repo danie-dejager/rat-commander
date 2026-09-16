@@ -103,10 +103,7 @@ impl AudioInfo {
 
 /// Open `path` for decoding: the container reader, the track to decode, and
 /// any metadata that came before the container (ID3 tags).
-pub(crate) fn open(
-    path: &Path,
-    hint: &str,
-) -> Option<(Box<dyn FormatReader>, Track, Vec<Tag>)> {
+pub(crate) fn open(path: &Path, hint: &str) -> Option<(Box<dyn FormatReader>, Track, Vec<Tag>)> {
     let file = File::open(path).ok()?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut h = Hint::new();

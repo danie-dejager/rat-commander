@@ -101,6 +101,13 @@ fn draw_body(f: &mut Frame, state: &mut AppState) {
         }
         return;
     }
+    if let Some(hd) = state.hexdiff.as_mut() {
+        crate::diff::hexrender::render(f, area, hd, &theme);
+        if let Some(d) = &mut state.dialog {
+            d.render(f, area, &theme, state.gfx.as_mut());
+        }
+        return;
+    }
     if let Some(te) = state.theme_editor.as_mut() {
         theme_editor::render::render(f, area, te, &theme);
         if let Some(d) = &mut state.dialog {

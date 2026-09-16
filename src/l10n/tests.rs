@@ -86,7 +86,10 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
     let git_keys: Vec<&str> = crate::ui::menu::GIT_MENU_KEYS.iter().map(|(k, _)| *k).collect();
     // The item label keys of each menu (mirroring `ui::menu`). The `&`
     // accelerator letter must be unique within a menu, in every language.
-    let editor_menus: Vec<&[&str]> = crate::editor::menu::MENU_KEYS.to_vec();
+    let mut editor_menus: Vec<&[&str]> = crate::editor::menu::MENU_KEYS.to_vec();
+    // The hex editor's binary-templates submenu is a menu of its own.
+    editor_menus.push(crate::editor::menu::TEMPLATE_MENU_KEYS);
+    editor_menus.push(crate::editor::menu::JSON_MENU_KEYS);
     let menus: &[&[&str]] = &[
         &[
             "&View",
@@ -151,6 +154,7 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
             "&Reverse order",
             "SFT&P connection...",
             "F&TP connection...",
+            "FTPS c&onnection...",
             "S&CP connection...",
             "Go &local (keep session)",
         ],

@@ -1,0 +1,567 @@
+//------------------------------------------------
+//--- 010 Editor Binary Template
+//
+//      File: PDF.bt
+//   Authors: Didier Stevens, Christian Mehlmauer, Peter Wyatt
+//   Version: 0.3.4
+//   Purpose: Template for PDF (Portable Document Format) files.
+//  Category: Document
+// File Mask: *.pdf, *.fdf
+//  ID Bytes: 25 50 44 46 2D, 25 46 44 46 2D  // %PDF-, %FDF-
+//   History:
+//   0.3.4 2025-01-21 Peter Wyatt, PDF Association: Correct for PDF 1.0, FDF and dictionary end token immediately before endobj
+//   0.3.3 2023-09-07 Peter Wyatt, PDF Association: Corrected bug and validate xref entries.
+//   0.3.2 2023-09-05 Peter Wyatt, PDF Association: Fixed bugs for not-quite-right PDFs
+//   0.3.1 2023-09-04 Peter Wyatt, PDF Association: Robustness for malformed PDFs.
+//   0.3   2023-08-30 Peter Wyatt, PDF Association: Completely rewritten.
+//   0.2.1 2023-08-28 SweetScape: Fixes for whitespace detection.
+//   0.2   2016-05-19 Christian Mehlmauer: Parsing of XREFs
+//   0.1   2016-01-28 SweetScape: Updated header for repository submission.
+//   0.0.1 DS: First public release.
+//
+//	Source code put in public domain by Didier Stevens, no Copyright
+//	https://DidierStevens.com
+//	Use at your own risk
+//
+//	History:
+//		2010/08/03: start development with 010 Editor v3.0.6
+//		2010/08/04: continue
+//		2010/08/05: continue
+//		2010/08/06: refactoring, cleanup
+//------------------------------------------------
+RequiresVersion( 14 );
+
+// Global variables
+local int iKeywordCount = 0;
+
+local int xrefCount = 0; 
+local int xrefEntryCount = 0;
+local int eofCount = 0;
+
+// Regex results
+local TFindResults tfrHeaders;
+local TFindResults tfrObjs;
+local TFindResults tfrStreams;
+local TFindResults tfrEndstreams;
+local TFindResults tfrEndobjs;
+local TFindResults tfrXrefs;
+local TFindResults tfrXrefEntries;
+local TFindResults tfrTrailers;
+local TFindResults tfrStartxrefs;
+local TFindResults tfrEOFs;
+
+// PDF specific whitespace
+int IsPDFWhitespace(CHAR ch) {
+    return ((ch == ' ') || (ch == '\t') || (ch == '\r') || (ch == '\n') || (ch == '\f') || (ch == '\0'));
+}
+
+// Structures
+
+// PDF Indirect Object (everything, including streams)
+typedef struct (int iDigitsObjectNum, int iWs1Len, int iDigitsGenNum, int iWs2Len, int iBodyLength, int bIsStream, int iStreamLength, int iWs3Len) {
+	BYTE ObjectNum[iDigitsObjectNum]  <format=decimal, style=sHeading2Accent>; // Object Number
+	BYTE ws1[iWs1Len]  <hidden=true>;
+	BYTE GenerationNum[iDigitsGenNum] <format=decimal, style=sHeading2Accent>; // Generation Number
+	BYTE ws2[iWs2Len]  <hidden=true>;
+	BYTE obj[3];                       // "obj" keyword
+    if (iBodyLength < 0) iBodyLength = 0;
+	BYTE ObjectBody[iBodyLength];
+	if (bIsStream) {
+		CHAR Stream[6];                // "stream" keyword
+        if (iStreamLength > 0)
+	        BYTE StreamData[iStreamLength] <style=sData>; // ... binary(?) stream data...
+		CHAR EndStream[9];             // "endstream" keyword
+        CHAR ws3[iWs3Len] <hidden=true>;
+    }
+	BYTE EndObject[6];                 // "endobj" keyword
+} PDFObject <read=ReadPDFObj, name="PDF Indirect object", comment=CheckObject>;
+
+string ReadPDFObj(PDFObject &sPDFObj)
+{
+	local string sResult;
+	SPrintf(sResult, "%s %s obj %s", sPDFObj.ObjectNum, sPDFObj.GenerationNum, sPDFObj.ObjectBody);
+	return sResult;
+}
+
+// Object/stream comment 
+string CheckObject(PDFObject &sPDFObj)
+{
+    local string s = "";
+    if (exists(sPDFObj.Stream))
+        s = "Stream";
+    return s;
+}
+
+
+// PDF Header "%PDF-x.y" comment - up to end of the line
+typedef struct (int iHeaderSize) {
+	CHAR Header[5];
+    CHAR Version[3];
+    if (iHeaderSize > 8)
+        BYTE comment[iHeaderSize - 8];
+} PDFHeader <read=ReadPDFHeader, name="PDF File Header comment", comment=CheckHeader, style=sHeading1>;
+
+string ReadPDFHeader(PDFHeader &sPDFhdr)
+{
+	local string sResult;
+	SPrintf(sResult, "%s%s", sPDFhdr.Header, sPDFhdr.Version);
+	return sResult;
+}
+
+string CheckHeader(PDFHeader &sPDFhdr)
+{
+	if (((sPDFhdr.Version[0] == '1') && ((sPDFhdr.Version[2] >= '0') && (sPDFhdr.Version[2] <= '7'))) ||
+        ((sPDFhdr.Version[0] == '2') && (sPDFhdr.Version[2] == '0')) &&
+        (sPDFhdr.Version[1] == '.')) {
+        return "Valid PDF version";
+    }
+    else
+        return "Invalid PDF version!";
+}
+
+
+// "xref" keyword
+typedef struct (int iXRefSize) {
+	CHAR xref[iXRefSize];
+} PDFXRef <read="xref", name="Conventional cross reference table">;
+
+
+// 20-byte cross-reference entry (free or in-use)
+// NOTE: because of bad PDFs this is kept less than the official 20 bytes!
+typedef struct (int iXRefEntrySize) {
+	CHAR offset[10]    <style=sHeading3Accent>;
+    CHAR space1        <hidden=true>;
+	CHAR generation[5];
+    CHAR space2        <hidden=true>;
+    CHAR f_or_n;
+} PDFXRefEntry <read=ReadPDFXrefEntry, comment=CheckXrefEntry, name="Conventional cross reference table entry">;
+
+string ReadPDFXrefEntry(PDFXRefEntry &sPDFxrefEntry)
+{
+	local string sResult;
+	SPrintf(sResult, "%10s %5s %c", sPDFxrefEntry.offset, sPDFxrefEntry.generation, sPDFxrefEntry.f_or_n);
+	return sResult;
+}
+
+string CheckXrefEntry(PDFXRefEntry &sPDFxrefEntry)
+{
+    local string sResult = "";
+    local int64 first10 = Atoi(sPDFxrefEntry.offset);
+    local int   genNum = Atoi(sPDFxrefEntry.generation);
+	if (((first10 <= 0) || (first10 > FileSize())) && (sPDFxrefEntry.f_or_n == 'n'))
+        sResult = sResult + "Invalid offset for in-use object! ";
+	if (genNum < 0)
+        sResult = sResult + "Invalid generation number! ";
+    if ((first10 == 0) && ((genNum != 65535) || (sPDFxrefEntry.f_or_n != 'f')))
+        sResult = sResult + "Invalid start of free list (object 0, generation wasn't 65535)! ";
+    else if ((genNum != 65535) && (sPDFxrefEntry.f_or_n == 'f'))
+        sResult = sResult + "Invalid free list object (generation wasn't 65535)! ";
+    if (sPDFxrefEntry.f_or_n == 'n') {
+        local int64 locn = FTell();
+        local string s = ReadString(first10, 20); // 20 bytes is a reasonable guess for "X Y obj"
+        FSeek(locn);
+        local int fetchedObjNum;
+        local int fetchedGenNum;
+        local string fetchedObjKeyword;
+        local int res;
+        res = SScanf(s, "%d %d %3s", fetchedObjNum, fetchedGenNum, fetchedObjKeyword);
+        if ((res != 3) && (genNum != fetchedGenNum) && (fetchedObjKeyword != "obj"))
+            sResult = sResult + Str("Offset was not to 'X %d obj' but '%20s'! ", genNum, s);
+    }
+    return sResult;
+}
+
+
+// "trailer" keyword
+typedef struct (int iTrailerSize) {
+	CHAR trailer[iTrailerSize];
+} PDFTrailer <read="trailer", name="trailer dictionary", style=sHeading4>;
+
+
+// "startxref" keyword and following offset
+typedef struct (int iStartxrefSize, int iWS) {
+	CHAR startxref[9];
+    if (iWS > 0) BYTE space[iWS];
+    CHAR offset[iStartxrefSize - 9 - iWS];
+} PDFStartxref <read=ReadPDFStartxref, name="startxref with offset", comment=CheckStartxref, style=sSection1>;
+
+string ReadPDFStartxref(PDFStartxref &sPDFstartxref)
+{
+	local string sResult;
+	SPrintf(sResult, "startxref %s", sPDFstartxref.offset);
+	return sResult;
+}
+
+string CheckStartxref(PDFStartxref &sPDFstartxref)
+{
+    local int64 byteoffset = Atoi(sPDFstartxref.offset);
+	if ((byteoffset < 0) || (byteoffset > FileSize()))
+        return "Invalid startxref offset!";
+    else { 
+        local int64 locn = FTell();
+        local string s = ReadString(byteoffset, 4);
+        FSeek(locn);
+        if ((s[0] == 'x') && (s[1] == 'r') && (s[2] == 'e') && (s[3] == 'f'))
+	        return "";
+        else {
+	        SPrintf(s, "startxref offset %d was not 'xref': was '%4s'!", byteoffset, s);
+            return s;
+        }
+    }
+}
+
+// "%%EOF"
+typedef struct (int iEOFSize) {
+	CHAR EOF[iEOFSize];
+} PDFEOF <read="%%EOF", name="%%EOF end of file comment", style=sSection4>;
+
+
+///////////////////////////////////////////////////////////////////////////
+// Functions
+
+// Work out number of whitespace chars
+int CountWhitespace(int64 iStart) {
+	local int iIter = 0;
+	local BYTE bChar;
+
+    do {
+        bChar = ReadByte(iStart + iIter);
+        iIter++;
+    } while (bChar == ' ' || bChar == '\t' || bChar == '\r' || bChar == '\n' || bChar == '\f' || bChar == 0x00);
+    return iIter - 1;
+}
+
+
+// Decompose an Object ID (object number, whitespace, generation number)
+void DecomposeObjectID(int64 iStart, int &iObjectNbrLength, int &iWS1Length, int &iGenerationNbrLength, int &iWS2Length)
+{
+	local int iIter = 0;
+	local BYTE bChar;
+
+    do {
+        bChar = ReadByte(iStart + iIter);
+        iIter++;
+    } while (bChar >= '0' && bChar <= '9');
+    iIter--;
+    iObjectNbrLength = iIter;
+
+    do {
+        bChar = ReadByte(iStart + iIter);
+        iIter++;
+    } while (bChar == ' ' || bChar == '\t' || bChar == '\r' || bChar == '\n' || bChar == '\f' || bChar == 0x00);
+    iIter--;
+    iWS1Length = iIter - iObjectNbrLength;
+
+    do {
+        bChar = ReadByte(iStart + iIter);
+        iIter++;
+    } while (bChar >= '0' && bChar <= '9');
+    iIter--;
+    iGenerationNbrLength = iIter - (iObjectNbrLength + iWS1Length);
+
+    do {
+        bChar = ReadByte(iStart + iIter);
+        iIter++;
+    } while (bChar == ' ' || bChar == '\t' || bChar == '\r' || bChar == '\n' || bChar == '\f' || bChar == 0x00);
+    iIter--;
+    iWS2Length = iIter - (iObjectNbrLength + iWS1Length + iGenerationNbrLength);
+}
+
+
+// Finds all the PDF keywords in a PDF. Some keywords do NOT exist when cross reference streams or
+// object streams are being used. Everything except "%PDF-" header can occur multiple times (e.g.
+// in files with incremental updates). All PDF keywords are case sensitive. Use regex to give better
+// matches. CANNOT use ^ or $ as these do not match PDFs delimiters/whitespace.
+void FindAllKeywords(void)
+{
+	tfrHeaders = FindAll("%[PF]DF-\\d\\.\\d[^\\r\\n]*", true, false, FINDMETHOD_REGEX); // include PDF header version (2 x single digits)
+	tfrObjs = FindAll("(?<=[\\n\\r\\t \\f\\000])\\d+ \\d+ obj", true, false, FINDMETHOD_REGEX); // include object ID
+	tfrEndobjs = FindAll("(?<=[\\n\\r\\t \\f\\000>])endobj", true, false, FINDMETHOD_REGEX);
+	tfrStreams = FindAll("(?<=[\\n\\r\\t \\f\\000>])stream", true, false, FINDMETHOD_REGEX); // avoid matching "endstream"
+	tfrEndstreams = FindAll("(?<=[\\n\\r\\t \\f\\000])endstream", true, false, FINDMETHOD_REGEX);
+	tfrXrefs = FindAll("(?<=[\\n\\r\\t \\f\\000])xref", true, false, FINDMETHOD_REGEX); // avoid matching "startxref" by requiring PDF whitespace before
+	tfrTrailers = FindAll("(?<=[\\n\\r\\t \\f\\000])trailer", true, false, FINDMETHOD_REGEX);
+	tfrStartxrefs = FindAll("(?<=[\\n\\r\\t \\f\\000])startxref[\\n\\r\\t \\f\\000]+\\d+", true, false, FINDMETHOD_REGEX); // includes the offset
+    tfrXrefEntries = FindAll("(?<=[\\n\\r\\t \\f\\000])\\d{10} \\d{5} (f|n)[\\n\\r\\t \\f\\000]", true, false, FINDMETHOD_REGEX); 
+	tfrEOFs = FindAll("(?<=[\\n\\r\\t \\f\\000])%%EOF", true, false, FINDMETHOD_REGEX);
+
+	iKeywordCount = tfrHeaders.count + tfrObjs.count + tfrEndobjs.count + tfrStreams.count + 
+                    tfrEndstreams.count + tfrXrefs.count + tfrTrailers.count + tfrStartxrefs.count + tfrEOFs.count;
+}
+
+
+// Summarize the regex FindAll()s and do some basic sanity checks
+int PrintPDFDataAndValidate(void)
+{
+    local int ok = true;
+
+	Printf("Keyword counts:\n");
+	Printf("  %%PDF-x.y      = %5d\n", tfrHeaders.count);
+	Printf("  X Y obj       = %5d\n", tfrObjs.count);
+	Printf("  stream        = %5d\n", tfrStreams.count);
+	Printf("  endstream     = %5d\n", tfrEndstreams.count);
+	Printf("  endobj        = %5d\n", tfrEndobjs.count);
+	Printf("  xref          = %5d\n", tfrXrefs.count);
+	Printf("  xref entries  = %5d\n", tfrXrefEntries.count);
+	Printf("  trailer       = %5d\n", tfrTrailers.count);
+	Printf("  startxref     = %5d\n", tfrStartxrefs.count);
+	Printf("  %%%%EOF         = %5d\n", tfrEOFs.count);
+
+    if (tfrHeaders.count != 1) {
+        Printf("Incorrect number of PDF file headers (%d)! Should be just one.\n", tfrHeaders.count);
+    }
+
+    local int nNonBlank;
+    local int i;
+    if ((tfrHeaders.count > 0) && (tfrHeaders.start[0] != 0)) { 
+        Printf("PDF file header was not at the very start of file!\n");
+        local int64 nPreamble = tfrHeaders.start[0];
+        local CHAR  preamble[nPreamble];
+        ReadBytes(preamble, 0, nPreamble);
+        nNonBlank = 0;
+        for (i = 0; i < nPreamble; i++) {
+            if (!IsPDFWhitespace(preamble[i])) nNonBlank++;
+        }
+        if (nNonBlank > 0) {
+            Printf("There were %d non-blank bytes before the 1st '%%PDF-x.y' header! Possible polyglot?\n", nNonBlank);
+        }
+    }
+
+    if (tfrObjs.count != tfrEndobjs.count) {
+        Printf("Mismatched 'X Y obj'/'endobj'!\n");
+        ok = false;
+    }
+
+    if (tfrStreams.count != tfrEndstreams.count) {
+        Printf("Mismatched 'stream'/'endstream'!\n");
+        ok = false;
+    }
+
+    if (tfrStreams.count > tfrObjs.count) {
+        Printf("More streams than objects!\n");
+        ok = false;
+    }
+
+    if (tfrXrefs.count != tfrTrailers.count) {
+        Printf("Mismatched 'xref'/'trailer'!\n");
+        ok = false;
+    }
+
+    if ((tfrXrefs.count > 0) && (tfrXrefs.count != tfrStartxrefs.count)) {
+        Printf("Mismatched 'xref'/'startxref'! Might be a hybrid reference PDF...\n");
+    }
+
+    if (tfrTrailers.count != tfrStartxrefs.count) {
+        Printf("Mismatched 'trailer'/'startxref'! Might be a hybrid reference PDF...\n");
+    }
+
+    if (tfrEOFs.count == 0) {
+        Printf("No %%%%EOF marker!\n");
+    }
+
+    if (tfrEOFs.count != tfrXrefs.count) {
+        Printf("Mismatched %%%%EOF marker with conventional cross reference tables! Might be a hybrid reference PDF...\n");
+    }
+
+    if (tfrEOFs.count != tfrStartxrefs.count) {
+        Printf("Mismatched %%%%EOF marker with 'startxref'!\n");
+        ok = false;
+    }
+    
+    if (tfrEOFs.count > 0) {
+        // go to last %%EOF and check whats after it - could be a payload?
+        local int64 lastEOF = tfrEOFs.start[tfrEOFs.count - 1] + 5;
+        local int64 fileSize = FileSize();
+        local int64 excessLen = fileSize - lastEOF;
+        if (excessLen > 0) {
+            local CHAR  excess[excessLen];
+            ReadBytes(excess, lastEOF, excessLen);
+            nNonBlank = 0;
+            for (i = 0; i < excessLen; i++) {
+                if (!IsPDFWhitespace(excess[i])) nNonBlank++;
+            }
+            if (nNonBlank > 0) {
+                Printf("There were %d non-blank bytes after the very last '%%%%EOF'! Possible payload?\n", nNonBlank);
+            }
+        }
+    }
+
+    return ok;
+}
+
+
+/////////////////////////////////////////////////////////////////////////
+// Main
+
+FindAllKeywords();
+
+if (iKeywordCount == 0)
+{
+	Printf("Keywords not found! Probably not a valid PDF or FDF file?\n");
+	return;
+}
+
+if (!PrintPDFDataAndValidate()) {
+	Printf("PDF consistency validation FAILED!! PDF file is malformed!! pdf.bt may not work as intended!\n");
+	// return;
+}
+
+// Print all headers - should only be one but you never know...
+local int i; 
+for (i = 0; i < tfrHeaders.count; i++) {
+    FSeek(tfrHeaders.start[i]);
+    struct PDFHeader header(tfrHeaders.size[i]);
+}
+
+local int iLenObjNum;   // length of the object number
+local int ws1;          // whitespace between Object Number and Generation Number
+local int iLenGenNum;   // length of the generation number
+local int ws2;          // whitespace between Generation Number and "obj" keyword
+local int objectLen;    // length of the object body after "obj" keyword and before either "stream" or "endobj"
+local int stmLen;       // length of the stream body between "stream" and "endstream" keywords
+local int ws3;          // whitespace after "endstream" keyword, before "endobj" keyword
+
+local int64 nextXref;
+if (tfrXrefs.count > 0)
+    nextXref = tfrXrefs.start[0];
+else
+    nextXref = FileSize();
+
+//
+// In malformed, mailicous or polyglot PDFs sometimes the "X Y obj", "stream", "endstream" and "endobj" of 
+// objects can get mixed up and not be in this required order to define a "sane" object. In order not to
+// just give up on a PDFfile totally, try to keep this sequence and skip over each keyword. Hopefully just
+// 1 or 2 objects will be skipped before things get back on track...
+//
+// Track individually as the 1st "endobj" could be BEFORE the 1st "X Y obj", "stream" before "X Y obj", etc.
+// For non-stream objects: iObjectStart.start << iObjectEnd
+// For streams objects: iObjectStart.start << iStreamStart << iStreamEnd << iObjectEnd
+//
+local int iObjectStart = 0; // tracking "X Y obj" keywords in tfrObjs[] = start
+local int iStreamStart = 0; // tracking "stream" keywords in tfrStreams[]
+local int iStreamEnd = 0; // tracking "endstream" keywords in tfrEndstreams[]
+local int iObjectEnd = 0; // tracking "endobj" keywords in tfrEndobjs[] = end
+
+
+while (iObjectStart < tfrObjs.count) {
+    // For nice nesting in 010 Editor Template, group objects in a Body section
+    struct PDFBodySection {
+        do {
+            // Length of the object from "obj" to start of next "endobj"
+            while ((iObjectEnd < tfrEndobjs.count) && (tfrEndobjs.start[iObjectEnd] < tfrObjs.start[iObjectStart]))
+                iObjectEnd++;
+            if (iObjectEnd < tfrEndobjs.count) { // valid "endobj"
+                objectLen = tfrEndobjs.start[iObjectEnd] - (tfrObjs.start[iObjectStart] + tfrObjs.size[iObjectStart]);
+            
+                // work out byte counts for "X Y obj"
+                DecomposeObjectID(tfrObjs.start[iObjectStart], iLenObjNum, ws1, iLenGenNum, ws2);
+            
+                FSeek(tfrObjs.start[iObjectStart]);
+                // if next "stream" keyword starts BEFFORE next "endobj" keyword but is also AFTER the "X Y obj",
+                // then the stream belongs within this object. Nest it nicely.
+                while ((iStreamStart < tfrStreams.count) && (tfrStreams.start[iStreamStart] < tfrObjs.start[iObjectStart]))
+                    iStreamStart++;
+                while ((iStreamEnd < tfrEndstreams.count) && (tfrEndstreams.start[iStreamEnd] < tfrStreams.start[iStreamStart]))
+                    iStreamEnd++;
+                if ((iStreamStart < tfrStreams.count) && // valid "stream"
+                    (iStreamEnd < tfrEndstreams.count) &&  // valid "endstream"
+                    (tfrStreams.start[iStreamStart] < tfrEndstreams.start[iStreamEnd]) && // "stream" before "endstream"
+                    (tfrEndstreams.start[iStreamEnd] < tfrEndobjs.start[iObjectEnd])) // "endstream" before "endobj
+                {
+                    stmLen = tfrEndstreams.start[iStreamEnd] - (tfrStreams.start[iStreamStart] + 6);
+                    ws3 = tfrEndobjs.start[iObjectEnd] - (tfrEndstreams.start[iStreamEnd] + 9);
+                    objectLen = objectLen - (stmLen + 6 + 9) - 1;
+                    PDFObject object(iLenObjNum, ws1, iLenGenNum, ws2, objectLen, true, stmLen, ws3);
+                    iStreamStart++;
+                    iStreamEnd++;
+                }
+                else { // normal non-stream indirect object
+                    PDFObject object(iLenObjNum, ws1, iLenGenNum, ws2, objectLen, false, 0, 0);
+                }
+                iObjectStart++;
+                iObjectEnd++;
+            }
+        }
+        while ((iObjectStart < tfrObjs.count) && (tfrObjs.start[iObjectStart] < nextXref));
+    } BodySection <name="PDF Body Section", style=sHeading2>;
+
+    if ((iObjectStart < tfrObjs.count) && (tfrObjs.start[iObjectStart] > nextXref)) {
+        // Need to output xref, trailer, startxref, %%EOF before next object
+        FSeek(tfrXrefs.start[xrefCount]);
+        struct PDFXrefTable {
+            PDFXRef xref(tfrXrefs.size[xrefCount]);
+    
+            while (tfrObjs.start[iObjectStart] > tfrXrefEntries.start[xrefEntryCount]) {
+                FSeek(tfrXrefEntries.start[xrefEntryCount]);
+                PDFXRefEntry xrefentry(tfrXrefEntries.size[xrefEntryCount]);
+                xrefEntryCount++;
+            } 
+        } xrefTable <name="Conventional cross reference table">;
+    
+        if (tfrObjs.start[iObjectStart] > tfrTrailers.start[xrefCount]) {
+            FSeek(tfrTrailers.start[xrefCount]);
+            PDFTrailer trailer(tfrTrailers.size[xrefCount]);
+        }
+
+        if (tfrObjs.start[iObjectStart] > tfrStartxrefs.start[xrefCount]) {
+            ws1 = CountWhitespace(tfrStartxrefs.start[xrefCount] + 9);
+            FSeek(tfrStartxrefs.start[xrefCount]);
+            PDFStartxref startxref(tfrStartxrefs.size[xrefCount], ws1);
+        }
+
+        if ((eofCount < tfrEOFs.count) && (tfrObjs.start[iObjectStart] > tfrEOFs.start[eofCount])) { 
+            FSeek(tfrEOFs.start[eofCount]);
+            PDFEOF eof(tfrEOFs.size[eofCount]);
+            eofCount++;
+        }
+
+        // Update cutoff to next xref
+        xrefCount++;
+        if (xrefCount < tfrXrefs.count)
+            nextXref = tfrXrefs.start[xrefCount];
+        else
+            nextXref = FileSize();
+    }
+}
+
+// Do all remaing conventional trailer, startxref and %%EOFs. Loop until done.
+// Handle mismatched keywords.
+local int trailerCount = xrefCount;
+local int startxrefCount = xrefCount;
+do {
+    struct PDFxrefTable {
+        if (xrefCount < tfrXrefs.count) {
+            FSeek(tfrXrefs.start[xrefCount]);
+            PDFXRef tfrXrefs(tfrXrefs.size[xrefCount]);
+            xrefCount++;
+        }
+
+        while ((xrefEntryCount < tfrXrefEntries.count) && 
+               (trailerCount < tfrTrailers.count) && 
+               (tfrXrefEntries.start[xrefEntryCount] < tfrTrailers.start[trailerCount])) {
+            FSeek(tfrXrefEntries.start[xrefEntryCount]);
+            PDFXRefEntry xrefentry(tfrXrefEntries.size[xrefEntryCount]);
+            xrefEntryCount++;
+        } 
+    } xrefTable <name="Conventional cross reference table", style=sHeading3>;
+    
+    if (trailerCount < tfrTrailers.count) {
+        FSeek(tfrTrailers.start[trailerCount]);
+        PDFTrailer trailer(tfrTrailers.size[trailerCount]);
+        trailerCount++;
+    }
+    
+    if (startxrefCount < tfrStartxrefs.count) {
+        ws1 = CountWhitespace(tfrStartxrefs.start[startxrefCount] + 9);
+        FSeek(tfrStartxrefs.start[startxrefCount]);
+        PDFStartxref startxref(tfrStartxrefs.size[startxrefCount], ws1);
+        startxrefCount++;
+    }
+    
+    if (eofCount < tfrEOFs.count) {
+        FSeek(tfrEOFs.start[eofCount]);
+        PDFEOF eof(tfrEOFs.size[eofCount]);
+        eofCount++;
+    }
+} while ((trailerCount < tfrTrailers.count) || (startxrefCount < tfrStartxrefs.count) ||
+         (xrefCount < tfrXrefs.count) || (eofCount < tfrEOFs.count));

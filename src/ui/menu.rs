@@ -213,6 +213,7 @@ impl MenuBarState {
                 sep(),
                 item("SFT&P connection...", MenuAction::Connect(side, Protocol::Sftp)),
                 item("F&TP connection...", MenuAction::Connect(side, Protocol::Ftp)),
+                item("FTPS c&onnection...", MenuAction::Connect(side, Protocol::Ftps)),
                 item("S&CP connection...", MenuAction::Connect(side, Protocol::Scp)),
                 item("Go &local (keep session)", MenuAction::Disconnect(side))
                     .disabled(!side_remote[side]),

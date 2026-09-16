@@ -1,0 +1,159 @@
+//------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+//
+//      File: Webp.bt
+//   Authors: HearHellacopters
+//   Version: 1.0
+//   Purpose: Webp image format.
+//  Category: Image
+// File Mask: *.webp
+//  ID Bytes: 52 49 46 46
+//   History: 
+//   1.0   2023-09-28 HearHellacopters: Initial release.
+//------------------------------------------------
+
+typedef struct VP8 {
+        char Magic[4];
+        int ChunkSize;
+        local int read_size<hidden=true> = 0; 
+        BitfieldDisablePadding();
+        int frame_tag : 24;
+        read_size += 3;
+        local int key_frame = frame_tag & 0x1;
+        local int version = (frame_tag >> 1) & 0x7;
+        local int show_frame = (frame_tag >> 4) & 0x1;
+        local int first_part_size = (frame_tag >> 5) & 0x7FFFF;
+        int start_code : 24<comment="should be 2752925">;
+        int horizontal_size_code : 16;
+        local int width = horizontal_size_code & 0x3FFF;
+        local int horizontal_scale = horizontal_size_code >> 14;
+        int vertical_size_code : 16;
+        local int height = vertical_size_code & 0x3FFF;
+        local int vertical_scale = vertical_size_code >> 14;
+        read_size += 7;
+        byte data[ChunkSize - read_size];
+}VP8Data <open=true>;
+
+typedef struct VP8L {
+        char Magic[4];
+        int ReadSize;
+        local int read_size<hidden=true> = 0; 
+        byte signature<comment="should be 47">; 
+        read_size += 1;
+        BitfieldDisablePadding();
+        int ReadWidth : 14;
+        local int width = ReadWidth+1;
+        int ReadHeight : 14;
+        local int height = ReadHeight+1;
+        byte alpha_is_used : 1;
+        byte version_number : 3;
+        BitfieldEnablePadding();
+        read_size += 4;
+        byte data[ReadSize - read_size];
+}VP8LData <open=true>;
+
+typedef struct VP8X {
+    char Magic[4];
+    int ReadSize;
+    BigEndian(); 
+    byte Rsv: 2<name="Reserved">,
+         I: 1<name="ICC profile">,
+         L: 1<name="Alpha">,
+         E: 1<name="Exif">,
+         X: 1<name="XMP">,
+         A: 1<name="Animation">,
+         R: 1<name="Reserved">;
+    BitfieldDisablePadding();
+    LittleEndian(); 
+    int Rsv2 :24;
+    int ReadWidth :24<hidden=true>; 
+    int ReadHeight :24<hidden=true>; 
+    local int width = ReadWidth +1;
+    local int height = ReadHeight +1;
+    BitfieldEnablePadding();
+    if(I)
+    {
+        char ICCP[4]<comment="Should be ICCP">;
+        int ICCPChunkSize;
+        byte ICCPData[ICCPChunkSize];
+    }
+    if(L)
+    {
+        char ALPH[4]<comment="Should be ALPH">;
+        int ALPHChunkSize;
+        byte ALPHData[ALPHChunkSize];
+    }
+    if(A)
+    {
+        char ANI[4]<comment="Should be ANIM or ANIF">;
+        int ANIChunkSize;
+        if(ANI == "ANIM")
+        {
+            uint BGColor;
+            ushort LoopCount;
+            byte ANIMData[ANIChunkSize];
+        }
+        if(ANI == "ANIF")
+        {
+            BitfieldDisablePadding();
+            int FrameX :24; 
+            int FrameY :24; 
+            int ReadFrameWidth :24<hidden=true>; 
+            int ReadFrameHeight :24<hidden=true>; 
+            local int Framewidth = ReadFrameWidth +1;
+            local int Frameheight = ReadFrameHeight +1;
+            int Duration :24; 
+            byte Rsv3:6;
+            byte B: 1<name="Blending">;
+            byte D: 1<name="Disposal">;
+            byte FrameData[16];
+            byte ANIFData[ANIChunkSize];
+        }
+        
+    }
+    char ExtFormatTest[4]<hidden=true>;
+    FSkip(-4);
+    if(ExtFormatTest == "VP8 ")
+    {
+        VP8 Data<open=true>;
+    }   
+    if(ExtFormatTest == "VP8L")
+    {
+        VP8LData Data<open=true>;
+    } 
+    if(E)
+    {
+        char EXIF[4]<comment="Should be EXIF">;
+        int EXIFChunkSize;
+        byte EXIFData[EXIFChunkSize];
+    }
+    if(X)
+    {
+        char XMP[4]<comment="Should be XMP ">;
+        int XMPChunkSize;
+        byte XMPMetaData[XMPChunkSize];
+    }
+    
+}VP8XData <open=true>;
+
+    
+struct HEADER {
+    char Magic[4];
+    int ReadSize<hidden=true>;
+    local int FileSize = ReadSize+8;
+    char Payload[4];
+    char FormatStr[4]<hidden=true>;
+    FSkip(-4);
+    if(FormatStr == "VP8 "){
+        local string format = "Lossy"; 
+        VP8 VP8data<open=true>;
+    } else
+    if(FormatStr == "VP8L"){
+        local string format = "Lossless"; 
+        VP8L VP8Ldata<open=true>;
+    } else
+    if(FormatStr == "VP8X"){
+        local string format = "Extended"; 
+        VP8X VP8Xdata<open=true>;
+    }
+}Header <open=true>;

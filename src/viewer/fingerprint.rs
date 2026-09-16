@@ -91,7 +91,8 @@ pub fn analyze(len: u64, read: impl Fn(u64, u64) -> Vec<u8>) -> Fingerprint {
     }
     // Never more cells than bytes, so a 40-byte file gets 40 cells rather than
     // 4096 cells of which all but 40 are empty.
-    let n = CELLS.min(len as usize).max(1);
+    // (Compared as u64: on a 32-bit target `len as usize` would wrap.)
+    let n = (CELLS as u64).min(len).max(1) as usize;
     let mut cells = Vec::with_capacity(n);
     for i in 0..n {
         let start = (i as u128 * len as u128 / n as u128) as u64;

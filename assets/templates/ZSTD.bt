@@ -1,0 +1,109 @@
+//------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+//
+//      File: ZSTD.bt
+//   Authors: Nordgaren
+//   Version: 1.0
+//   Purpose: Parse zstd compressed blob frames
+//  Category: Archive
+// File Mask: *.zst
+//  ID Bytes: 28 B5 2F FD, [+1] 2A 4D 18
+//   History: 
+//   1.0   2024-07-29 NG: Initial release.
+//------------------------------------------------
+
+typedef struct {
+    char Dictionary_ID_flag : 2;
+    char Content_Checksum_flag : 1;
+    char Reserved_bit : 1;
+    char Unused_bit : 1;   
+    char Single_Segment_flag : 1;
+    char Frame_Content_Size_flag : 2;
+} Frame_Header_Descriptor;
+
+typedef struct { 
+    char Mantissa : 3;
+    char Exponent : 5;
+} Window_Descriptor;
+
+typedef struct {
+        Frame_Header_Descriptor frameHeaderDescriptor;
+        if (!frameHeaderDescriptor.Single_Segment_flag) { 
+            Window_Descriptor windowDescriptor;
+        }
+        if (frameHeaderDescriptor.Dictionary_ID_flag > 0) {
+            char Dictionary_ID[1 << (frameHeaderDescriptor.Dictionary_ID_flag - 1)];
+        }
+        
+        local int frameContentSizeFlag = frameHeaderDescriptor.Frame_Content_Size_flag; 
+        switch (frameContentSizeFlag) {
+            case 0:
+                if (frameHeaderDescriptor.Single_Segment_flag) {
+                    char Frame_Content_Size <format=hex>;    
+                }
+                break;
+            case 1:
+                short Frame_Content_Size <format=hex>;
+                Frame_Content_Size += 256;
+                break;
+            case 2:
+                int Frame_Content_Size <format=hex>;
+                break;
+            case 3:
+                int64 Frame_Content_Size <format=hex>;
+                break;
+            default:
+                Assert(false, "Frame_Content_Size_flag invalid value");
+        }
+} Frame_Header;
+
+typedef struct {
+  BitfieldDisablePadding();
+  int Last_Block : 1;
+  int Block_Type : 2;
+  int Block_Size : 21 <format=hex>;
+  BitfieldEnablePadding();
+} Block_Header;
+
+typedef struct {
+  Block_Header blockHeader;
+  char blockContent[blockHeader.Block_Size];
+} Block;
+
+typedef struct {
+    int Magic_Number <format=hex>; Assert(magicNumber == 0xFD2FB528);
+    Frame_Header frameHeader;
+    Block block;
+    while (!block.blockHeader.Last_Block) {
+        Block block;
+    }
+    
+    if (frameHeader.frameHeaderDescriptor.Content_Checksum_flag) {
+        int contentChecksum;   
+    }
+} ZstandardFrame;
+
+typedef struct {
+       int Magic_Number <format=hex>; Assert(magicNumber >= 0x184D2A50 && magicNumber <= 0x184D2A5F);
+       int Frame_Size;
+       char User_Data[Frame_Size];
+} ZskippableFrame;
+
+typedef struct {
+    local int magicNumber = 0;
+    while (!FEof()) {
+        magicNumber = ReadInt64();
+        if (magicNumber == 0xFD2FB528) {
+            ZstandardFrame standardFrame;
+        } else if (magicNumber >= 0x184D2A50 && magicNumber <= 0x184D2A5F) {
+            ZskippableFrame skippableFrame;
+        } else {
+            break;
+        }
+    }
+    
+} ZSTDFile;
+
+/**** PARSING CODE ****/
+ZSTDFile file;
+

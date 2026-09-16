@@ -1,0 +1,115 @@
+//------------------------------------------------
+//--- 010 Editor v15.0 Binary Template
+//
+//      File: Foxpro_memo.bt
+//   Authors: A. Auerswald
+//   Version: 1.0.0
+//   Purpose: Parses files in Visual FoxPro Memo format (DCT, FPT, FRT, LBT, MNT, PJT, SCT, TBK, VCT)
+//  Category: Database
+// File Mask: *.dct,*.fpt,*.frt,*.lbt,*.mnt,*.pjt,*.sct,*.tbk,*.vct
+//  ID Bytes:
+//   History:
+//   1.0.0 2024-08-23 AA: initial version
+//------------------------------------------------
+
+/*
+memo file types:
+
+DCT     Database memo
+FPT     Table memo
+FRT     Report memo
+LBT     Label memo
+MNT     Menu memo
+PJT     Project memo
+SCT     Form memo
+TBK     Memo backup
+VCT     Visual class library memo
+*/
+RequiresVersion(15);
+BigEndian();
+
+
+string readSignature (uint dataType) {
+    local string s;
+    switch (dataType) {
+        // Picture. This normally indicates that file is produced on a
+        // MacIntosh, since pictures on the DOS/Windows platform are "objects".
+        case 0x0: s = "Picture"; break;
+        case 0x1: s = "Memo"; break;
+        case 0x2: s = "Object"; break;
+        default:
+            s = "Unknown";
+    }
+    return s;
+}
+
+
+typedef struct {
+    // in some tested FRT and LBT files, the memo length of the first block did not
+    // match the actual length. one solution is to consider the following bytes as 
+    // part of the block and to increase the block length including the block header
+    // to a multiple of the block size. all these artificially extended blocks are
+    // an area with a total of 256 bytes. no documentation of this special block is
+    // known. because the size is not correct, it is also not possible to calculate
+    // the garbage or padding area of this special block.
+    struct BlockHeader {
+        uint32 signature <bgcolor=0x965249, comment="indicates the type of data in the block", read=readSignature>;
+        uint32 length <bgcolor=0x5C5F93, comment="Length of memo (in bytes)">;
+    } blockHeader;
+
+    if (blockHeader.length > 0) {
+        // blocksize padding
+        // prevent number overflow with larger values and modulo with blocksize,
+        // as blocksize is uint16 (see header)!
+        local uint32 blockSize32 <hidden=true> = header.blockSize;
+        // memo length + sizeof signature + sizeof length
+        local uint32 x <hidden=true> = 8 + blockHeader.length;
+        local uint32 padding_size <hidden=true> = (blockSize32 - (x % blockSize32)) % blockSize32;
+        local uint32 blockLength <hidden=true> = blockHeader.length;
+
+        // now it's getting ugly…
+        // position of the potential next block
+        local uint64 nextBlock <hidden=true> = FTell() + blockLength + padding_size;
+        local uint8 isStrangeBlock <hidden=true> = 0;
+
+        // read the first 4 bytes of the potential next block(s).
+        // the value is normally 0, 1 or 2!
+        while (nextBlock < fileSize && ReadUInt(nextBlock) > 2) {
+            nextBlock += blockSize32;
+            blockLength += blockSize32;
+            isStrangeBlock = 1; // mark this block
+        }
+
+        if (isStrangeBlock && padding_size > 0) {
+            // add the wrong padding size to the memo text…
+            blockLength += padding_size;
+            // and reset the padding size
+            padding_size = 0;
+        }
+
+        // memo text
+        char MemoText[blockLength] <bgcolor=(isStrangeBlock ? 0x559AB6 : 0x79A7AF), comment="Memo text">;
+
+        // there are actually files where the padding of the last block is
+        // simply missing (only for table memos?). therefore only add the calculated
+        // padding size if it does not exceed the file size.
+        if (padding_size > 0 && FTell() < fileSize) {
+            char padding[padding_size] <fgcolor=cDkGray, bgcolor=cSilver, hidden=true, comment="blocksize padding / garbage">;
+        }
+    }
+} MemoBlock;
+
+local uint64 fileSize <hidden=true> = FileSize();
+
+struct Header {
+    uint32 nextFreeBlock <bgcolor=0x0000ff>;
+    char unused1[2] <fgcolor=cDkGray, bgcolor=cSilver>;
+    uint16 blockSize <bgcolor=0x0099ff>;
+    char unused[504] <fgcolor=cDkGray, bgcolor=cSilver>;
+} header;
+
+//Assert((FileSize() == header.nextFreeBlock * header.blockSize));
+
+while( !FEof() ) {
+    MemoBlock block;
+}

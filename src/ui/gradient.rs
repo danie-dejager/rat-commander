@@ -12,7 +12,7 @@
 //! than a slice of one screen-wide ramp.
 //!
 //! Identifying an element by the color it painted is what keeps this cheap, and
-//! five rules keep it honest:
+//! six rules keep it honest:
 //!
 //! * the bars and the pulldown menus claim only the cells they were drawn on
 //!   ([`mark_zone`]), so a cursor gradient can't spill onto a menu bar that
@@ -22,6 +22,10 @@
 //!   element's flat color is not mistaken for an unpainted one;
 //! * the claim made last wins, just as the paint laid down last does, so a
 //!   dropdown opened over the cursor bar gets its own ramp on that row;
+//! * a surface — a dialog box, the editor's page — is claimed whole
+//!   ([`mark_surface`]), and its background ramps across all of it, so a row
+//!   drawn right across it (a divider, a full-width cursor bar) doesn't cut the
+//!   ramp in two with each half starting over;
 //! * a foreground (frame) gradient only repaints box-drawing glyphs, never text
 //!   that happens to use the border color;
 //! * elements of one zone a theme paints in *the same* color are
@@ -46,6 +50,9 @@ enum Claim {
     Zone(GradZone, Rect),
     /// Already ramped by its own renderer (see [`mark_painted`]).
     Painted(Rect),
+    /// One surface of an element, drawn over whatever was there (see
+    /// [`mark_surface`]).
+    Surface(GradRole, Rect),
 }
 
 thread_local! {
@@ -84,18 +91,46 @@ pub fn mark_painted(area: Rect) {
     }
 }
 
+/// Claim `area` as one surface of `role` — a dialog box, the editor's page — so
+/// its background ramps across the whole of it.
+///
+/// Without the claim a ramp spans the connected cells still carrying the flat
+/// color, and anything drawn right across the surface splits those in two: the
+/// divider above the Settings help text, where a theme frames its dialogs in a
+/// color of their own, or the template tree's cursor bar running the width of
+/// the editor. Each half would take a ramp of its own, the lower one starting
+/// over from the first color.
+///
+/// The claim also takes the area back from the zones drawn beneath it, as a
+/// pulldown menu does, so a dialog reaching over a bar ramps on that row too.
+pub fn mark_surface(role: GradRole, area: Rect) {
+    if area.width > 0 && area.height > 0 {
+        CLAIMS.with(|c| c.borrow_mut().push(Claim::Surface(role, area)));
+    }
+}
+
 /// The zone a cell belongs to, by the last claim covering it (whatever was
 /// drawn there last): `None` when its renderer already ramped it, else the zone
 /// it was claimed for, else the body.
 fn zone_at(claims: &[Claim], x: u16, y: u16) -> Option<GradZone> {
     let area = |c: &Claim| match *c {
-        Claim::Zone(_, r) | Claim::Painted(r) => r,
+        Claim::Zone(_, r) | Claim::Painted(r) | Claim::Surface(_, r) => r,
     };
     match claims.iter().rev().find(|c| area(c).contains((x, y).into())) {
         Some(Claim::Painted(_)) => None,
         Some(Claim::Zone(zone, _)) => Some(*zone),
+        Some(Claim::Surface(role, _)) => Some(role.zone()),
         None => Some(GradZone::Body),
     }
+}
+
+/// The surface of `role` holding all of `bounds`, if one was claimed — the one
+/// drawn last, should a dialog open over another.
+fn surface_around(claims: &[Claim], role: GradRole, bounds: Rect) -> Option<Rect> {
+    claims.iter().rev().find_map(|c| match *c {
+        Claim::Surface(r, area) if r == role && area.union(bounds) == area => Some(area),
+        _ => None,
+    })
 }
 
 /// Whether `symbol` is a box-drawing glyph — the frames, corners and column
@@ -174,7 +209,8 @@ pub fn apply(f: &mut Frame, area: Rect, theme: &Theme) {
     }
 
     // 2. Repaint each connected region with the ramp across its own bounds, so
-    //    every dialog, button and bar carries a full gradient of its own.
+    //    every dialog, button and bar carries a full gradient of its own — or
+    //    across the surface it is a piece of, where one was claimed.
     let mut seen = vec![false; w * h];
     let mut stack: Vec<usize> = Vec::new();
     let mut region: Vec<usize> = Vec::new();
@@ -211,15 +247,21 @@ pub fn apply(f: &mut Frame, area: Rect, theme: &Theme) {
                 visit(i + w);
             }
         }
-        let bounds = Rect::new(x0 as u16, y0 as u16, (x1 - x0 + 1) as u16, (y1 - y0 + 1) as u16);
         let target = &targets[tagged as usize];
+        let bounds = Rect::new(
+            area.x + x0 as u16,
+            area.y + y0 as u16,
+            (x1 - x0 + 1) as u16,
+            (y1 - y0 + 1) as u16,
+        );
+        let span = surface_around(&claims, target.role, bounds).unwrap_or(bounds);
         let buf = f.buffer_mut();
         for &i in &region {
-            let (x, y) = ((i % w) as u16, (i / w) as u16);
-            let Some(color) = theme.grad_color_in(target.role, x, y, bounds) else {
+            let (x, y) = (area.x + (i % w) as u16, area.y + (i / w) as u16);
+            let Some(color) = theme.grad_color_in(target.role, x, y, span) else {
                 continue;
             };
-            let Some(cell) = buf.cell_mut((area.x + x, area.y + y)) else {
+            let Some(cell) = buf.cell_mut((x, y)) else {
                 continue;
             };
             match target.paint {
@@ -532,6 +574,86 @@ mod tests {
         );
     }
 
+    /// A theme whose panel background ramps black → white down its region.
+    fn vertical_ramp_theme() -> Theme {
+        let mut spec = ramp_spec();
+        spec.panel_bg = Color::Rgb(0, 0, 0);
+        spec.gradients.panel_bg = Some(GradientSpec {
+            direction: GradientDir::Vertical,
+            ..GradientSpec::new(Color::Rgb(255, 255, 255))
+        });
+        Theme::from_spec(&spec, true)
+    }
+
+    #[test]
+    fn a_surface_cut_in_two_keeps_one_ramp() {
+        // A divider or a full-width cursor bar drawn right across a surface
+        // splits its flat color in two. Each half used to take a ramp of its
+        // own, the lower one starting over from black.
+        let theme = vertical_ramp_theme();
+        let black = Style::default().bg(Color::Rgb(0, 0, 0));
+        let surface = Rect::new(0, 0, 20, 6);
+        let cut = Rect::new(0, 2, 20, 1);
+        let draw = |f: &mut Frame| {
+            fill(f, surface, black);
+            fill(f, cut, Style::default().bg(Color::Rgb(200, 0, 0)));
+        };
+        let split = painted(&theme, draw);
+        assert_eq!(bg_at(&split, 4, 3), Color::Rgb(0, 0, 0), "the case guarded here: a restart");
+
+        let whole = painted(&theme, |f| {
+            mark_surface(GradRole::PanelBg, surface);
+            draw(f);
+        });
+        for y in [0, 1, 3, 4, 5] {
+            assert_eq!(
+                bg_at(&whole, 4, y),
+                theme.grad_color_in(GradRole::PanelBg, 4, y, surface).unwrap(),
+                "row {y} sits where it would on the uncut surface"
+            );
+        }
+        assert_eq!(bg_at(&whole, 4, 2), Color::Rgb(200, 0, 0), "the cut itself is left alone");
+    }
+
+    #[test]
+    fn an_element_inside_a_surface_keeps_its_own_ramp() {
+        let black = Color::Rgb(0, 0, 0);
+        let mut spec = ramp_spec();
+        spec.dialog_bg = Color::Rgb(0, 0, 160);
+        spec.button_bg = black;
+        spec.gradients.dialog_bg = Some(GradientSpec::new(Color::Rgb(0, 160, 0)));
+        spec.gradients.button_bg = Some(GradientSpec::new(Color::Rgb(255, 255, 255)));
+        let theme = Theme::from_spec(&spec, true);
+        let (dialog, button) = (Rect::new(0, 0, 20, 6), Rect::new(12, 4, 6, 1));
+        let buf = painted(&theme, |f| {
+            mark_surface(GradRole::DialogBg, dialog);
+            fill(f, dialog, Style::default().bg(Color::Rgb(0, 0, 160)));
+            fill(f, button, Style::default().bg(black));
+        });
+        assert_eq!(bg_at(&buf, button.x, 4), black, "the button's ramp starts at the button");
+        assert_eq!(bg_at(&buf, button.right() - 1, 4), Color::Rgb(255, 255, 255));
+    }
+
+    #[test]
+    fn a_dialog_reaching_over_a_bar_ramps_on_that_row_too() {
+        // In a window too small for it, a dialog covers the menu bar's row. The
+        // bar claimed that row first, and the dialog's cells on it stayed flat.
+        let black = Color::Rgb(0, 0, 0);
+        let mut spec = ramp_spec();
+        spec.dialog_bg = black;
+        spec.gradients.dialog_bg = Some(GradientSpec::new(Color::Rgb(255, 255, 255)));
+        let theme = Theme::from_spec(&spec, true);
+        let (bar, dialog) = (Rect::new(0, 0, 20, 1), Rect::new(2, 0, 16, 6));
+        let buf = painted(&theme, |f| {
+            mark_zone(GradZone::Menubar, bar);
+            fill(f, bar, Style::default().bg(Color::Rgb(0, 160, 160)));
+            mark_surface(GradRole::DialogBg, dialog);
+            fill(f, dialog, Style::default().bg(black));
+        });
+        assert_eq!(bg_at(&buf, dialog.right() - 1, 0), bg_at(&buf, dialog.right() - 1, 3));
+        assert_eq!(bg_at(&buf, dialog.right() - 1, 0), Color::Rgb(255, 255, 255));
+    }
+
     #[test]
     fn a_theme_without_gradients_leaves_the_frame_untouched() {
         let theme = Theme::from_spec(&ramp_spec(), true);
@@ -545,13 +667,7 @@ mod tests {
 
     #[test]
     fn a_vertical_ramp_runs_down_the_region() {
-        let mut spec = ramp_spec();
-        spec.panel_bg = Color::Rgb(0, 0, 0);
-        spec.gradients.panel_bg = Some(GradientSpec {
-            direction: GradientDir::Vertical,
-            ..GradientSpec::new(Color::Rgb(255, 255, 255))
-        });
-        let theme = Theme::from_spec(&spec, true);
+        let theme = vertical_ramp_theme();
         let region = Rect::new(0, 0, 20, 6);
         let buf = painted(&theme, |f| fill(f, region, Style::default().bg(Color::Rgb(0, 0, 0))));
         assert_eq!(bg_at(&buf, 4, 0), Color::Rgb(0, 0, 0));

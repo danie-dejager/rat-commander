@@ -1,0 +1,1278 @@
+//------------------------------------------------
+//--- 010 Editor v16.0 Binary Template
+//
+//      File: OMF51.bt
+//   Authors: Galen Tackett, with assistance from claud.ai
+//   Version: 1.7
+//   Purpose: Parse Intel OMF-51 object files with ARM Keil extensions
+//            and C8051Fxxx banking support
+//   Category: Object File
+//   History: 
+//   1.7  2026-01-20 Galen Tackett: Initial version for Sweetscape repo
+//   1.6  2026-01-15 Hide valid checksums, assert on invalid; hide known recordType
+//   1.5  2026-01-15 Add read= functions to surface inner struct info
+//   1.4  2026-01-15 Add hidden= for reserved fields, Assert() for critical errors
+//   1.3  2026-01-15 Use 010 Editor built-in Checksum function
+//   1.2  2026-01-15 Enhanced Scope DEF parsing to show banked procedures
+//   1.1  2026-01-15 Corrected Segment DEF format - added unused byte, base address
+//   1.0  2025-01-12 Initial version with banking, DEPLST, debug support
+
+RequiresVersion(16,0,0);
+
+LittleEndian();
+
+
+typedef ubyte td_u8;
+typedef ushort td_u16;
+typedef uint td_u32;
+typedef int64 td_int64H <hidden=true>;
+typedef local td_int64H tdl_int64H;
+typedef int td_intH <hidden=true>;
+typedef local td_intH tdl_intH;
+// Checksum byte - hidden when valid, asserts on invalid
+// recordLength is in scope from parent struct
+typedef struct {
+    tdl_int64H csPos = FTell();
+    // checksum is at offset (recordLength + 2) from record start
+    tdl_int64H recStart = csPos - recordLength - 2;
+    // Total bytes: type(1) + length(2) + data(recordLength-1) + checksum(1) = recordLength + 3
+    tdl_intH sum = Checksum(CHECKSUM_BYTE, recStart, recordLength + 3);
+    tdl_intH isValid = ((sum & 0xFF) == 0);
+    
+    ubyte value <format=hex>;
+    
+    Assert(isValid, Str("Checksum error at offset 0x%X: expected sum=0, got 0x%02X", csPos, sum & 0xFF));
+} td_ChecksumByte <read=ReadChecksum, name="Checksum", hidden=true>;
+
+string ReadChecksum(td_ChecksumByte &cs) {
+    local string s;
+    SPrintf(s, "%02Xh %s", cs.value, cs.isValid ? "(OK)" : "(BAD)");
+    return s;
+}
+typedef ushort td_RecordLength <format=decimal, name="Record Length">;
+
+//=============================================================================
+// Record Types - Intel Standard + Keil Extensions
+//=============================================================================
+
+typedef enum <ubyte>
+{
+    // Intel Standard OMF-51 Record Types (even values)
+    rt_Module_HDR       = 0x02,
+    rt_Module_END       = 0x04,
+    rt_Content          = 0x06,
+    rt_Fixup            = 0x08,
+    rt_Segment_DEF      = 0x0E,
+    rt_Scope_DEF        = 0x10,
+    rt_Debug_Item       = 0x12,
+    rt_Public_DEF       = 0x16,
+    rt_External_DEF     = 0x18,
+    rt_LIB_ModLocs      = 0x26,
+    rt_LIB_ModName      = 0x28,
+    rt_LIB_DICTNRY      = 0x2A,
+    rt_LIB_Header       = 0x2C,
+
+    // Keil Variants (Intel type | 0x01) - use 2-byte segment IDs
+    rt_Content_Keil         = 0x07,
+    rt_Fixup_Keil           = 0x09,
+    rt_Segment_DEF_Keil     = 0x0F,     // Contains banking info in info byte
+    rt_Scope_DEF_Keil       = 0x11,     // Also used for Bank 1 procedures!
+    rt_Debug_Item_Keil      = 0x13,     // Also used for Bank 3 procedures!
+    rt_Public_DEF_Keil      = 0x17,
+    rt_External_DEF_Keil    = 0x19,
+
+    // Keil-Specific Record Types (not Intel variants)
+    rt_TypeData20           = 0x20,     // Type-related data
+    rt_LinkerDebug22        = 0x22,     // Debug data from BL51/LX51 linker
+    rt_CompilerDebug23      = 0x23,     // Debug data from C51/CX51 compiler
+    rt_ModuleSrcFile24      = 0x24,     // Source file name for module
+    rt_Unknown2E            = 0x2E,     // Unknown content
+    
+    // Keil Debug Data Records
+    rt_DebugData60          = 0x60,     // Debug group header?
+    rt_SrcBrowserFiles61    = 0x61,     // Source browser file list
+    rt_DebugData62          = 0x62,     // Symbol definition (debug group start)
+    rt_DebugData63          = 0x63,     // Symbol metadata (byte 8 = count of 0x64 records)
+    rt_DebugData64          = 0x64,     // File/line references
+    
+    // DEPLST - Dependency List (from OMF-166, used by Keil though they call it AMAKE)
+    rt_DEPLST               = 0x70,     // Build info with timestamps
+    rt_Unknown72            = 0x72,
+    
+    // Extended OMF (Simplicity Studio 5 / newer Keil) - 0x80+ range
+    // These are not yet fully documented
+    rt_Extended80           = 0x80,
+    rt_Extended8E           = 0x8E,     // Extended Segment DEF?
+    rt_Extended90           = 0x90,     // Extended Scope DEF?
+    rt_Extended96           = 0x96,     // Extended Public DEF?
+    rt_Extended98           = 0x98,     // Extended External DEF?
+} td_RecordType <format=hex, name="Record Type">;
+
+//=============================================================================
+// TRN ID - Translator ID (identifies toolchain)
+//=============================================================================
+
+typedef enum <ubyte> {
+    TRN_ASM51   = 0xFD,     // Intel ASM51 or Keil A51 assembler
+    TRN_PLM_51  = 0xFE,     // PL/M-51 compiler
+    TRN_RL51    = 0xFF      // Intel RL51 or Keil BL51/LX51 linker
+} td_TRNID <format=hex, name="Translator ID">;
+
+//=============================================================================
+// Segment Types
+//=============================================================================
+
+typedef enum <ubyte> {
+    SegType_CODE    = 0,    // Program code (CODE space)
+    SegType_XDATA   = 1,    // External data (XDATA space)
+    SegType_DATA    = 2,    // Internal data (DATA space, directly addressable)
+    SegType_IDATA   = 3,    // Internal data (IDATA space, indirectly addressable)
+    SegType_BIT     = 4     // Bit-addressable data
+} td_SegType <name="Segment Type">;
+
+//=============================================================================
+// Relocation Types
+//=============================================================================
+
+typedef enum <ubyte> {
+    Reloc_ABS           = 0,    // Absolute (non-relocatable)
+    Reloc_UNIT          = 1,    // Relocatable on unit boundary
+    Reloc_BITADDRESSABLE= 2,    // Must be in bit-addressable area
+    Reloc_INPAGE        = 3,    // Must fit in 256-byte page
+    Reloc_INBLOCK       = 4,    // Must fit in 2KB block
+    Reloc_PAGE          = 5     // Base address on 256-byte boundary
+} td_RelocType <name="Relocation Type">;
+
+//=============================================================================
+// Scope Types - Including Keil-specific procedure banking (0x10-0x13)
+//=============================================================================
+//
+// Scope types 0x10-0x13 indicate BANKED PROCEDURES in Keil's linked executables.
+// The bank number is encoded in the low nibble: bank = scope_type & 0x0F
+//   0x10 = Procedure in Bank 0
+//   0x11 = Procedure in Bank 1
+//   0x12 = Procedure in Bank 2
+//   0x13 = Procedure in Bank 3
+//
+
+typedef enum <ubyte> {
+    // Standard Intel Scope Types
+    Scope_ModuleBegin       = 0x00,     // Module start (first debug record)
+    Scope_DoBegin           = 0x01,     // DO block start
+    Scope_ProcedureBegin    = 0x02,     // Procedure/function start
+    Scope_ModuleEnd         = 0x03,     // Module end
+    Scope_DoEnd             = 0x04,     // DO block end
+    Scope_ProcedureEnd      = 0x05,     // Procedure/function end
+    
+    // Keil Banking Scope Types (for linked executables)
+    // Low nibble = bank number (0-3)
+    Scope_BankedProc_Bank0  = 0x10,     // Procedure in Bank 0 (common)
+    Scope_BankedProc_Bank1  = 0x11,     // Procedure in Bank 1
+    Scope_BankedProc_Bank2  = 0x12,     // Procedure in Bank 2
+    Scope_BankedProc_Bank3  = 0x13,     // Procedure in Bank 3
+} td_ScopeType <format=hex, name="Scope Type">;
+
+//=============================================================================
+// Segment DEF Record Format (0x0F - Keil)
+//=============================================================================
+//
+//
+//   Offset  Size  Description
+//   ------  ----  -----------
+//   +0      2     Segment ID (little-endian, Keil uses 2 bytes, Intel only used the low byte)
+//   +2      1     Info byte (type, banking flags)
+//   +3      1     Relocation type
+//   +4      1     Unused (always 0x00)
+//   +5      2     Base address
+//   +7      2     Segment size
+//   +9      1     Name length (N)
+//   +10     N     Name (ASCII)
+//
+// Total entry size: 10 + N bytes per segment
+//
+//=============================================================================
+// Segment DEF Info Byte - Banking Flags
+//=============================================================================
+//
+// The info byte in Keil Segment DEF (0x0F) records encodes:
+//   Bits 0-2 (0x07): Segment type (CODE, XDATA, DATA, IDATA, BIT)
+//   Bit 3    (0x08): Absolute flag
+//   Bit 6    (0x40): Banking enabled (Keil extension for MCU's with banking, e.g. CIP-51)
+//   Bits 0-1 (0x03): Bank number (0-3 for CIP-51) when banking enabled
+//
+//
+
+typedef struct {
+    td_u8 raw <format=hex, name="Raw Info Byte">;
+} td_SegDefInfoByte <read=ReadSegDefInfo>;
+
+string ReadSegDefInfo(td_SegDefInfoByte &info) {
+    local string result;
+    local ubyte seg_type = info.raw & 0x07;
+    local ubyte is_absolute = (info.raw & 0x08) != 0;
+    local ubyte is_banked = (info.raw & 0x40) != 0;
+    local ubyte bank_num = info.raw & 0x03;
+    
+    // Segment type name
+    switch (seg_type) {
+        case 0: result = "CODE"; break;
+        case 1: result = "XDATA"; break;
+        case 2: result = "DATA"; break;
+        case 3: result = "IDATA"; break;
+        case 4: result = "BIT"; break;
+        default: SPrintf(result, "Type%d", seg_type); break;
+    }
+    
+    if (is_absolute) {
+        result += " ABS";
+    }
+    
+    if (is_banked && (seg_type < 3)) {  // Banking only for CODE, probably XDATA, possibly DATA
+        SPrintf(result, "%s BANK%d", result, bank_num);
+    }
+    
+    return result;
+}
+
+//=============================================================================
+// DEPLST Dependency Types
+//=============================================================================
+
+typedef enum <ubyte> {
+    // Compiler/Assembler context (C51, A51)
+    Dep_Output      = 0x00,     // Output file (.OBJ)
+    Dep_Source      = 0x01,     // Source file (.c, .a51)
+    Dep_Include     = 0x02,     // Include file (.h)
+    Dep_Library     = 0x03,     // Library file (.lib)
+    Dep_Other       = 0x04,     // Other file
+    
+    // Linker context (BL51, L51) - same values, different meanings
+    // 0x00 = Output executable
+    // 0x03 = Linker script (.lnp)
+    // 0x04 = Input files (.obj and .lib)
+} td_DeplstDepType <format=hex, name="Dependency Type">;
+
+//=============================================================================
+// File Type Detection
+//=============================================================================
+
+typedef enum <int> {
+    ft_Empty    = -1,
+    ft_Unknown  = 0,
+    ft_ObjFile  = 0x02,     // rt_Module_HDR
+    ft_LibFile  = 0x2C      // rt_LIB_Header
+} td_FileType <format=hex>;
+
+//=============================================================================
+// Helper Functions
+//=============================================================================
+
+// Check if record type is a known Intel or Keil type
+int isKnownRecordType(ubyte rt) {
+    switch (rt) {
+        // Intel Standard
+        case 0x02: case 0x04: case 0x06: case 0x08:
+        case 0x0E: case 0x10: case 0x12: case 0x16:
+        case 0x18: case 0x26: case 0x28: case 0x2A: case 0x2C:
+        // Keil Variants
+        case 0x07: case 0x09: case 0x0F: case 0x11:
+        case 0x13: case 0x17: case 0x19:
+        // Keil-Specific
+        case 0x20: case 0x22: case 0x23: case 0x24: case 0x2E:
+        case 0x60: case 0x61: case 0x62: case 0x63: case 0x64:
+        case 0x70: case 0x72:
+        // Extended
+        case 0x80: case 0x8E: case 0x90: case 0x96: case 0x98:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+// Check if record type is a Keil variant (odd values of Intel types)
+int isKeilVariantType(td_RecordType rt) {
+    // Keil variants are odd values in range 0x07-0x19
+    if (rt >= 0x07 && rt <= 0x19 && (rt & 1) == 1) {
+        return 1;
+    }
+    return 0;
+}
+
+// Get the Intel base type for a Keil variant
+td_RecordType getBaseRecordType(td_RecordType rt) {
+    if (isKeilVariantType(rt)) {
+        return rt & 0xFE;   // Clear low bit
+    }
+    return rt;
+}
+
+// Check if scope type indicates a banked procedure
+int isBankedProcedure(td_ScopeType st) {
+    return (st >= 0x10 && st <= 0x13);
+}
+
+// Extract bank number from banked procedure scope type
+int getBankNumber(td_ScopeType st) {
+    if (isBankedProcedure(st)) {
+        return st & 0x0F;
+    }
+    return -1;  // Not banked
+}
+
+// Extract bank number from Segment DEF info byte
+int getBankFromSegDefInfo(ubyte info) {
+    if ((info & 0x40) != 0) {   // Banking enabled
+        return info & 0x03;
+    }
+    return -1;  // Not banked
+}
+
+// Check if Segment DEF has banking enabled
+int isSegmentBanked(ubyte info) {
+    return (info & 0x40) != 0;
+}
+
+// Get segment type from Segment DEF info byte
+td_SegType getSegmentType(ubyte info) {
+    return info & 0x07;
+}
+
+//=============================================================================
+// Counted String (Pascal-style, length-prefixed)
+//=============================================================================
+
+typedef struct {
+    td_u8 length;
+    if (length > 0) {
+        char text[length];
+    }
+} td_CountedString <read=ReadCountedString>;
+
+string ReadCountedString(td_CountedString &s) {
+    if (s.length > 0) {
+        return s.text;
+    }
+    return "";
+}
+
+//=============================================================================
+// Extended String (supports >255 chars via 0x00 marker)
+//=============================================================================
+//
+// Format:
+//   Standard: <1-byte length> <string bytes>
+//   Extended: 0x00 <2-byte length LE> <string bytes>
+//
+
+typedef struct {
+    td_u8 first_byte;
+    if (first_byte == 0x00) {
+        // Extended format
+        td_u16 ext_length;
+        if (ext_length > 0) {
+            char text[ext_length];
+        }
+    } else {
+        // Standard format
+        if (first_byte > 0) {
+            char text[first_byte];
+        }
+    }
+} td_ExtendedString <read=ReadExtendedString>;
+
+string ReadExtendedString(td_ExtendedString &s) {
+    if (s.first_byte == 0x00) {
+        if (s.ext_length > 0) {
+            return s.text;
+        }
+    } else if (s.first_byte > 0) {
+        return s.text;
+    }
+    return "";
+}
+
+// Get the actual length of an extended string
+int GetExtendedStringLength(td_ExtendedString &s) {
+    if (s.first_byte == 0x00) {
+        return s.ext_length;
+    }
+    return s.first_byte;
+}
+
+//=============================================================================
+// Global Variables for Analysis
+//=============================================================================
+
+local int g_TotalRecords = 0;
+local int g_IntelRecords = 0;
+local int g_KeilRecords = 0;
+local int g_ChecksumErrors = 0;
+local int g_BankedSegments = 0;
+local int g_BankedProcedureCount = 0;
+local string g_ModuleName = "";
+local string g_BankedProcedureSummary;
+local int g_HasDEPLST = 0;
+local int g_IsLinkedFile = 0;  // 1 = linked executable, 0 = object file
+
+//=============================================================================
+// Checksum Validation
+//=============================================================================
+
+int ValidateChecksum(int64 startPos, int recordLen) {
+    local int i;
+    local int sum = 0;
+    local ubyte b;
+    
+    // Sum all bytes: type + length(2) + data + checksum
+    for (i = 0; i < recordLen + 3; i++) {
+        b = ReadUByte(startPos + i);
+        sum += b;
+    }
+    
+    return (sum & 0xFF) == 0;
+}
+
+//=============================================================================
+// DEPLST Record - Dependency List (0x70)
+//=============================================================================
+//
+// DEPLST Format:
+//   0xFF (invocation marker)
+//   Counted string (invocation command line)
+//   Dependency entries until end of record:
+//     - 1 byte: dependency type (0=output, 1=source, 2=include, 3=lib, 4=other)
+//     - 1 byte: mark (usually 0x00)
+//     - 4 bytes: Unix timestamp (little-endian)
+//     - Counted string: filename
+//   Checksum
+//
+
+typedef struct {
+    td_DeplstDepType depType <comment="Dependency type">;
+    td_u8 mark <format=hex, comment="Marker byte">;
+    td_u32 timestamp <comment="Unix-style timestamp">;
+    td_CountedString filename <comment="Dependency filename">;
+} DEPLST_Dependency <read=ReadDeplstDep, optimize=false>;
+
+string ReadDeplstDep(DEPLST_Dependency &d) {
+    local string typeStr;
+    switch (d.depType) {
+        case 0: typeStr = "OUT"; break;
+        case 1: typeStr = "SRC"; break;
+        case 2: typeStr = "INC"; break;
+        case 3: typeStr = "LIB"; break;
+        default: typeStr = "OTH"; break;
+    }
+    return typeStr + ": " + ReadCountedString(d.filename);
+}
+
+string ReadInvocationMarker(ubyte &m) {
+    local string s;
+    SPrintf(s, "0x%02X (expected 0xFF)", m);
+    return s;
+}
+
+typedef struct {
+    local int64 dataStart = FTell();
+    local td_u16 dataLen = recordLength - 1;  // -1 for checksum
+    
+    // First byte is 0xFF (invocation marker)
+    local ubyte markerVal = ReadUByte(FTell());
+    td_u8 invocationMarker <format=hex, hidden=(markerVal == 0xFF), read=ReadInvocationMarker, comment="Should be 0xFF">;
+    
+    // Invocation string (standard counted string, NOT extended)
+    td_ExtendedString invocationString <comment="Compiler/linker command line">;  // 2026 01 12 GT changed to td_ExtendedString
+    
+    // Read dependency entries until end of data
+    while (FTell() < dataStart + dataLen) {
+        DEPLST_Dependency dep;
+    }
+    
+    td_ChecksumByte checksum;
+} DEPLST_Record <read=ReadDEPLST, bgcolor=0xFFE0E0>;
+
+string ReadDEPLST(DEPLST_Record &r) {
+    return "DEPLST: " + ReadExtendedString(r.invocationString);
+}
+
+//=============================================================================
+// Module HDR Record (0x02)
+//=============================================================================
+
+typedef struct {
+    local int64 startPos = FTell() - 3;
+    
+    td_CountedString moduleName <comment="Module name">;
+    td_TRNID trnId <comment="Translator ID">;
+    local ubyte reservedVal = ReadUByte(FTell());
+    td_u8 reserved <format=hex, hidden=(reservedVal == 0), comment="Reserved">;
+    td_ChecksumByte checksum;
+} ModuleHDR_Record <read=ReadModuleHDR, bgcolor=0xE0FFE0>;
+
+string ReadModuleHDR(ModuleHDR_Record &r) {
+    return "Module: " + ReadCountedString(r.moduleName);
+}
+
+//=============================================================================
+// Module END Record (0x04)
+//=============================================================================
+
+typedef struct {
+    local int64 startPos = FTell() - 3;
+    
+    td_CountedString moduleName <comment="Module name">;
+    local uint reserved1Val = ReadUShort(FTell());
+    td_u16 reserved1 <hidden=(reserved1Val == 0), comment="Reserved">;
+    td_u8 regMask <format=binary, comment="Register mask">;
+    local ubyte reserved2Val = ReadUByte(FTell());
+    td_u8 reserved2 <hidden=(reserved2Val == 0), comment="Reserved">;
+    td_ChecksumByte checksum;
+} ModuleEND_Record <read=ReadModuleEND, bgcolor=0xE0FFE0>;
+
+string ReadModuleEND(ModuleEND_Record &r) {
+    return "End: " + ReadCountedString(r.moduleName);
+}
+
+//=============================================================================
+// Content Record - Intel (0x06) and Keil (0x07)
+//=============================================================================
+
+typedef struct (int isKeil) {
+    local int64 startPos = FTell() - 3;
+    local td_u16 dataLen = recordLength - 1;
+    
+    if (isKeil) {
+        td_u16 segmentId <format=hex, comment="Segment ID (2-byte Keil)">;
+        td_u16 offset <format=hex, comment="Offset in segment">;
+        local int contentLen = dataLen - 4;
+    } else {
+        td_u8 segmentId <format=hex, comment="Segment ID (1-byte Intel)">;
+        td_u16 offset <format=hex, comment="Offset in segment">;
+        local int contentLen = dataLen - 3;
+    }
+    
+    if (contentLen > 0) {
+        td_u8 content[contentLen] <format=hex, comment="Code/data bytes">;
+    }
+    
+    td_ChecksumByte checksum;
+} Content_Record <read=ReadContent, bgcolor=0xE0E0FF>;
+
+string ReadContent(Content_Record &r) {
+    local string s;
+    SPrintf(s, "Content: Seg %02X @ %04X (%d bytes)", r.segmentId, r.offset, r.contentLen);
+    return s;
+}
+
+//=============================================================================
+// Fixup Record - Intel (0x08) and Keil (0x09)
+//=============================================================================
+
+typedef struct (int isKeil) {
+    local int64 startPos = FTell() - 3;
+    local td_u16 dataLen = recordLength - 1;
+    
+    if (isKeil) {
+        td_u16 segmentId <format=hex, comment="Segment ID (2-byte Keil)">;
+    } else {
+        td_u8 segmentId <format=hex, comment="Segment ID (1-byte Intel)">;
+    }
+    
+    // Fixup data - complex format, just read as bytes for now
+    local int fixupLen = dataLen - (isKeil ? 2 : 1);
+    if (fixupLen > 0) {
+        td_u8 fixupData[fixupLen] <format=hex, comment="Fixup entries">;
+    }
+    
+    td_ChecksumByte checksum;
+} Fixup_Record <read=ReadFixup, bgcolor=0xFFFFE0>;
+
+string ReadFixup(Fixup_Record &r) {
+    local string s;
+    SPrintf(s, "Fixup: Seg %02X", r.segmentId);
+    return s;
+}
+
+//=============================================================================
+// Segment DEF Record - Intel (0x0E) and Keil (0x0F) with Banking
+//=============================================================================
+
+// Keil segment entry (0x0F) - has unused byte and base address
+typedef struct {
+    td_u16 segId <format=hex, comment="Segment ID">;
+    td_SegDefInfoByte info <comment="Info byte with banking flags">;
+    td_u8 relocType <comment="Relocation type">;
+    local ubyte unusedVal = ReadUByte(FTell());
+    td_u8 unused <format=hex, hidden=(unusedVal == 0), comment="Unused">;
+    td_u16 baseAddress <format=hex, comment="Base address">;
+    td_u16 segmentSize <format=hex, comment="Segment size">;
+    td_CountedString segmentName <comment="Segment name">;
+    
+    // Check for banking
+    local int banked = isSegmentBanked(info.raw);
+    local int bank = banked ? getBankFromSegDefInfo(info.raw) : -1;
+} SegmentEntry_Keil <read=ReadSegDefKeil, optimize=false>;
+
+string ReadSegDefKeil(SegmentEntry_Keil &s) {
+    local string result;
+    local string bankStr = "";
+    if (s.banked) {
+        SPrintf(bankStr, " [BANK %d]", s.bank);
+    }
+    SPrintf(result, "Seg %02X: %s @ 0x%04X (0x%04X bytes)%s", 
+            s.segId, ReadCountedString(s.segmentName), s.baseAddress, s.segmentSize, bankStr);
+    return result;
+}
+
+// Intel segment entry (0x0E) - no unused byte or base address
+typedef struct {
+    td_u8 segId <format=hex, comment="Segment ID">;
+    td_SegDefInfoByte info <comment="Info byte with banking flags">;
+    td_u8 relocType <comment="Relocation type">;
+    td_u16 segmentSize <format=hex, comment="Segment size">;
+    td_CountedString segmentName <comment="Segment name">;
+    
+    // Check for banking
+    local int banked = isSegmentBanked(info.raw);
+    local int bank = banked ? getBankFromSegDefInfo(info.raw) : -1;
+} SegmentEntry_Intel <read=ReadSegDefIntel, optimize=false>;
+
+string ReadSegDefIntel(SegmentEntry_Intel &s) {
+    local string result;
+    local string bankStr = "";
+    if (s.banked) {
+        SPrintf(bankStr, " [BANK %d]", s.bank);
+    }
+    SPrintf(result, "Seg %02X: %s (0x%04X bytes)%s", 
+            s.segId, ReadCountedString(s.segmentName), s.segmentSize, bankStr);
+    return result;
+}
+
+typedef struct (int isKeil) {
+    local int64 startPos = FTell() - 3;
+    local td_u16 dataLen = recordLength - 1;
+    local int pos = 0;
+    
+    // Parse segment definitions using appropriate struct type
+    if (isKeil) {
+        while (pos < dataLen - 1) {
+            SegmentEntry_Keil segment;
+            pos = FTell() - (startPos + 3);
+        }
+    } else {
+        while (pos < dataLen - 1) {
+            SegmentEntry_Intel segment;
+            pos = FTell() - (startPos + 3);
+        }
+    }
+    
+    td_ChecksumByte checksum;
+} SegmentDEF_Record <read=ReadSegmentDEF, bgcolor=0xFFE0FF>;
+
+string ReadSegmentDEF(SegmentDEF_Record &r) {
+    local string s;
+    local int count = 0;
+    local int i;
+    // Count segments by checking if segment array exists
+    while (exists(r.segment[count])) count++;
+    if (count == 0) {
+        return "SegDEF: (empty)";
+    } else if (count == 1) {
+        // Show single segment name
+        if (exists(r.segment[0].segmentName)) {
+            SPrintf(s, "SegDEF: %s", ReadCountedString(r.segment[0].segmentName));
+        } else {
+            s = "SegDEF: 1 segment";
+        }
+    } else {
+        SPrintf(s, "SegDEF: %d segments", count);
+    }
+    return s;
+}
+
+//=============================================================================
+// Scope DEF Record (0x10, 0x11) with Banking Detection
+//=============================================================================
+//
+// Scope DEF format for linked executables (Intel format, record type 0x10):
+//   - Banked procedures (scope_type 0x10-0x13): scope_type + name_len + name
+//   - Other scopes: scope_type + name_len + name (same format)
+//
+// Banking: scope types 0x10-0x13 indicate banked procedures
+//   Bank number = scope_type & 0x0F
+//
+
+// Scope entry for Intel format (linked executables)
+typedef struct {
+    td_u8 scopeType <format=hex, comment="Scope type (0x10-0x13 = banked proc)">;
+    td_CountedString symbolName <comment="Symbol/procedure name">;
+    
+    // Check for banking
+    local int isBanked = (scopeType >= 0x10 && scopeType <= 0x13);
+    local int bank = isBanked ? (scopeType & 0x0F) : -1;
+    
+    // Track banked procedures for summary
+    if (isBanked && g_BankedProcedureCount < 50) {
+        local string procEntry;
+        SPrintf(procEntry, "    BANK %d: %s\n", bank, ReadCountedString(symbolName));
+        g_BankedProcedureSummary += procEntry;
+        g_BankedProcedureCount++;
+    }
+} ScopeEntry_Intel <read=ReadScopeEntryIntel, optimize=false>;
+
+string ReadScopeEntryIntel(ScopeEntry_Intel &s) {
+    local string result;
+    local string typeStr;
+    
+    switch (s.scopeType) {
+        case 0x00: typeStr = "ModBegin"; break;
+        case 0x02: typeStr = "ProcBegin"; break;
+        case 0x03: typeStr = "ModEnd"; break;
+        case 0x05: typeStr = "ProcEnd"; break;
+        case 0x10: typeStr = "BANK0"; break;
+        case 0x11: typeStr = "BANK1"; break;
+        case 0x12: typeStr = "BANK2"; break;
+        case 0x13: typeStr = "BANK3"; break;
+        default: SPrintf(typeStr, "Type%02X", s.scopeType); break;
+    }
+    
+    SPrintf(result, "%s: %s", typeStr, ReadCountedString(s.symbolName));
+    return result;
+}
+
+// Scope entry for Keil format (object files) - has segment ID
+typedef struct {
+    td_u8 scopeType <format=hex, comment="Scope type">;
+    td_u16 segId <format=hex, comment="Segment ID">;
+    td_CountedString symbolName <comment="Symbol name">;
+    
+    // Check for banking
+    local int isBanked = (scopeType >= 0x10 && scopeType <= 0x13);
+    local int bank = isBanked ? (scopeType & 0x0F) : -1;
+} ScopeEntry_Keil <read=ReadScopeEntryKeil, optimize=false>;
+
+string ReadScopeEntryKeil(ScopeEntry_Keil &s) {
+    local string result;
+    local string typeStr;
+    
+    switch (s.scopeType) {
+        case 0x00: typeStr = "ModBegin"; break;
+        case 0x02: typeStr = "ProcBegin"; break;
+        case 0x03: typeStr = "ModEnd"; break;
+        case 0x05: typeStr = "ProcEnd"; break;
+        case 0x10: typeStr = "BANK0"; break;
+        case 0x11: typeStr = "BANK1"; break;
+        case 0x12: typeStr = "BANK2"; break;
+        case 0x13: typeStr = "BANK3"; break;
+        default: SPrintf(typeStr, "Type%02X", s.scopeType); break;
+    }
+    
+    SPrintf(result, "%s: %s (Seg %02X)", typeStr, ReadCountedString(s.symbolName), s.segId);
+    return result;
+}
+
+typedef struct (int isKeil) {
+    local int64 startPos = FTell() - 3;
+    local td_u16 dataLen = recordLength - 1;  // -1 for checksum
+    local int pos = 0;
+    
+    // Parse scope entries using appropriate struct type
+    if (isKeil) {
+        // Keil format has segment ID
+        while (pos < dataLen - 1) {
+            ScopeEntry_Keil entry;
+            pos = FTell() - (startPos + 3);
+            // Safety check to prevent infinite loop
+            if (pos <= 0) break;
+        }
+    } else {
+        // Intel format (linked executable) - no segment ID
+        while (pos < dataLen - 1) {
+            ScopeEntry_Intel entry;
+            pos = FTell() - (startPos + 3);
+            // Safety check to prevent infinite loop
+            if (pos <= 0) break;
+        }
+    }
+    
+    td_ChecksumByte checksum;
+} ScopeDEF_Record <read=ReadScopeDEF, bgcolor=0xE0FFFF>;
+
+string ReadScopeDEF(ScopeDEF_Record &r) {
+    local string s;
+    local int count = 0;
+    while (exists(r.entry[count])) count++;
+    if (count == 0) {
+        return "ScopeDEF: (empty)";
+    } else if (count == 1) {
+        // Show single entry
+        if (exists(r.entry[0].symbolName)) {
+            SPrintf(s, "ScopeDEF: %s", ReadCountedString(r.entry[0].symbolName));
+        } else {
+            s = "ScopeDEF: 1 entry";
+        }
+    } else {
+        SPrintf(s, "ScopeDEF: %d entries", count);
+    }
+    return s;
+}
+
+//=============================================================================
+// Debug Item Record (0x12, 0x13)
+//=============================================================================
+
+typedef struct (int isKeil) {
+    local int64 startPos = FTell() - 3;
+    local td_u16 dataLen = recordLength - 1;
+    
+    // Debug item format varies - read as raw bytes for now
+    if (dataLen > 0) {
+        td_u8 debugData[dataLen] <format=hex, comment="Debug data">;
+    }
+    
+    td_ChecksumByte checksum;
+} DebugItem_Record <bgcolor=0xFFD0D0>;
+
+//=============================================================================
+// Public DEF Record - Intel (0x16) and Keil (0x17)
+//=============================================================================
+
+typedef struct (int isKeil) {
+    local int64 startPos = FTell() - 3;
+    local td_u16 dataLen = recordLength - 1;
+    local int pos = 0;
+    
+    // Parse public definitions
+    while (pos < dataLen - 1) {
+        struct {
+            if (isKeil) {
+                td_u16 segId <format=hex, comment="Segment ID">;
+            } else {
+                td_u8 segId <format=hex, comment="Segment ID">;
+            }
+            td_u8 symInfo <format=hex, comment="Symbol info">;
+            td_u16 offset <format=hex, comment="Offset in segment">;
+            local ubyte reservedVal = ReadUByte(FTell());
+            td_u8 reserved <hidden=(reservedVal == 0), comment="Reserved">;
+            td_CountedString symbolName <comment="Public symbol name">;
+        } pub <read=ReadPublic, optimize=false>;
+        
+        pos = FTell() - (startPos + 3);
+    }
+    
+    td_ChecksumByte checksum;
+} PublicDEF_Record <read=ReadPublicDEF, bgcolor=0xD0FFD0>;
+
+string ReadPublicDEF(PublicDEF_Record &r) {
+    local string s;
+    local int count = 0;
+    while (exists(r.pub[count])) count++;
+    if (count == 0) {
+        return "PublicDEF: (empty)";
+    } else if (count == 1) {
+        if (exists(r.pub[0].symbolName)) {
+            SPrintf(s, "PublicDEF: %s", ReadCountedString(r.pub[0].symbolName));
+        } else {
+            s = "PublicDEF: 1 symbol";
+        }
+    } else {
+        SPrintf(s, "PublicDEF: %d symbols", count);
+    }
+    return s;
+}
+
+string ReadPublic(struct pub &p) {
+    local string s;
+    SPrintf(s, "%s @ Seg%02X:%04X", ReadCountedString(p.symbolName), p.segId, p.offset);
+    return s;
+}
+
+//=============================================================================
+// External DEF Record - Intel (0x18) and Keil (0x19)
+//=============================================================================
+
+typedef struct (int isKeil) {
+    local int64 startPos = FTell() - 3;
+    local td_u16 dataLen = recordLength - 1;
+    local int pos = 0;
+    
+    // Parse external definitions
+    while (pos < dataLen - 1) {
+        struct {
+            td_u8 extInfo <format=hex, comment="External info">;
+            local ubyte reservedVal = ReadUByte(FTell());
+            td_u8 reserved <hidden=(reservedVal == 0), comment="Reserved">;
+            td_CountedString symbolName <comment="External symbol name">;
+        } ext <read=ReadExternal, optimize=false>;
+        
+        pos = FTell() - (startPos + 3);
+    }
+    
+    td_ChecksumByte checksum;
+} ExternalDEF_Record <read=ReadExternalDEF, bgcolor=0xD0D0FF>;
+
+string ReadExternalDEF(ExternalDEF_Record &r) {
+    local string s;
+    local int count = 0;
+    while (exists(r.ext[count])) count++;
+    if (count == 0) {
+        return "ExternalDEF: (empty)";
+    } else if (count == 1) {
+        if (exists(r.ext[0].symbolName)) {
+            SPrintf(s, "ExternalDEF: %s", ReadCountedString(r.ext[0].symbolName));
+        } else {
+            s = "ExternalDEF: 1 symbol";
+        }
+    } else {
+        SPrintf(s, "ExternalDEF: %d symbols", count);
+    }
+    return s;
+}
+
+string ReadExternal(struct ext &e) {
+    return ReadCountedString(e.symbolName);
+}
+
+//=============================================================================
+// Keil Debug Records (0x20, 0x22, 0x23, 0x24, 0x2E)
+//=============================================================================
+
+typedef struct {
+    local int64 startPos = FTell() - 3;
+    local td_u16 dataLen = recordLength - 1;
+    
+    if (dataLen > 0) {
+        td_u8 debugData[dataLen] <format=hex>;
+    }
+    
+    td_ChecksumByte checksum;
+} KeilDebug_Record <bgcolor=0xFFA0A0>;
+
+//=============================================================================
+// Debug Data Records (0x60-0x64)
+//=============================================================================
+
+typedef struct {
+    local int64 startPos = FTell() - 3;
+    local td_u16 dataLen = recordLength - 1;
+    
+    if (dataLen > 0) {
+        td_u8 data[dataLen] <format=hex>;
+    }
+    
+    td_ChecksumByte checksum;
+} DebugData_Record <bgcolor=0xFFC0C0>;
+
+//=============================================================================
+// Library Records (0x2C, 0x28, 0x26, 0x2A)
+//=============================================================================
+//
+// Library file structure:
+//   LIB_Header (0x2C) - module count and location of LIB_ModNames
+//   <module 1> ... <module N> - complete modules (HDR...END)
+//   LIB_ModNames (0x28) - names of all modules
+//   LIB_ModLocs (0x26) - file offsets of each module
+//   LIB_DICTNRY (0x2A) - public symbols grouped by module
+//
+
+// LIB_Header (0x2C) - First record in library file
+typedef struct {
+    td_u16 moduleCount <comment="Number of modules in library">;
+    td_u16 blockNumber <comment="Block number of LIB_ModNames">;
+    td_u16 byteNumber <comment="Byte number of LIB_ModNames">;
+    td_ChecksumByte checksum;
+} LIBHeader_Record <read=ReadLIBHeader, bgcolor=0xC0C0FF>;
+
+string ReadLIBHeader(LIBHeader_Record &r) {
+    local string s;
+    SPrintf(s, "LIB Header: %d modules", r.moduleCount);
+    return s;
+}
+
+// LIB_ModNames (0x28) - Module names in order
+typedef struct {
+    local int64 dataStart = FTell();
+    local td_u16 dataLen = recordLength - 1;
+    
+    // Read module names until end of data
+    while (FTell() < dataStart + dataLen) {
+        td_CountedString moduleName <comment="Module name">;
+    }
+    
+    td_ChecksumByte checksum;
+} LIBModNames_Record <read=ReadLIBModNames, bgcolor=0xC0C0FF>;
+
+string ReadLIBModNames(LIBModNames_Record &r) {
+    local string s;
+    local int count = 0;
+    while (exists(r.moduleName[count])) count++;
+    SPrintf(s, "LIB ModNames: %d modules", count);
+    return s;
+}
+
+// LIB_ModLocs (0x26) - File offsets of each module
+typedef struct {
+    local int64 dataStart = FTell();
+    local td_u16 dataLen = recordLength - 1;
+    
+    // Each entry is 4 bytes: block number (2) + byte number (2)
+    while (FTell() < dataStart + dataLen) {
+        struct {
+            td_u16 blockNumber <comment="Block number">;
+            td_u16 byteNumber <comment="Byte number">;
+            
+            // Calculate absolute file offset (block * 65536 + byte)
+            local uint64 fileOffset = (uint64)blockNumber * 65536 + byteNumber;
+        } location <read=ReadModLoc, optimize=false>;
+    }
+    
+    td_ChecksumByte checksum;
+} LIBModLocs_Record <read=ReadLIBModLocs, bgcolor=0xC0C0FF>;
+
+string ReadModLoc(struct location &loc) {
+    local string s;
+    SPrintf(s, "Offset: 0x%X", loc.fileOffset);
+    return s;
+}
+
+string ReadLIBModLocs(LIBModLocs_Record &r) {
+    local string s;
+    local int count = 0;
+    while (exists(r.location[count])) count++;
+    SPrintf(s, "LIB ModLocs: %d entries", count);
+    return s;
+}
+
+// LIB_DICTNRY (0x2A) - Public symbols grouped by module
+// Format: (public_name)* 0x00 repeated for each module
+typedef struct {
+    local int64 dataStart = FTell();
+    local td_u16 dataLen = recordLength - 1;
+    
+    // Read raw data - parsing is complex due to 0x00 separators
+    if (dataLen > 0) {
+        td_u8 data[dataLen] <format=hex, comment="Public symbols (0x00 separates modules)">;
+    }
+    
+    td_ChecksumByte checksum;
+} LIBDictionary_Record <read=ReadLIBDictionary, bgcolor=0xC0C0FF>;
+
+string ReadLIBDictionary(LIBDictionary_Record &r) {
+    return "LIB Dictionary";
+}
+
+// Generic fallback for unrecognized library record
+typedef struct {
+    local int64 startPos = FTell() - 3;
+    local td_u16 dataLen = recordLength - 1;
+    
+    if (dataLen > 0) {
+        td_u8 data[dataLen] <format=hex>;
+    }
+    
+    td_ChecksumByte checksum;
+} Library_Record <bgcolor=0xC0C0FF>;
+//=============================================================================
+// Generic Unknown Record
+//=============================================================================
+
+typedef struct {
+    local int64 startPos = FTell() - 3;
+    local td_u16 dataLen = recordLength - 1;
+    
+    if (dataLen > 0) {
+        td_u8 data[dataLen] <format=hex>;
+    }
+    
+    td_ChecksumByte checksum;
+} Unknown_Record <bgcolor=0xC0C0C0>;
+
+//=============================================================================
+// OMF-51 Record (generic wrapper)
+//=============================================================================
+
+typedef struct {
+    local int64 recordStart = FTell();
+    
+    // Hide recordType if it's a known type (shown in read= output)
+    local ubyte rtVal = ReadUByte(FTell());
+    local int rtKnown = isKnownRecordType(rtVal);
+    td_RecordType recordType <hidden=rtKnown>;
+    td_RecordLength recordLength;
+    
+    // Validate record doesn't extend past EOF
+    Assert(recordStart + recordLength + 3 <= FileSize(),
+        Str("Record at 0x%X extends past EOF (length %d, file size %d)",
+            recordStart, recordLength, FileSize()));
+    
+    // Determine if this is a Keil variant
+    local int isKeil = isKeilVariantType(recordType);
+    
+    // Update statistics
+    g_TotalRecords++;
+    if (isKeil) g_KeilRecords++;
+    else g_IntelRecords++;
+    
+    // Parse based on record type
+    switch (recordType) {
+        case rt_DEPLST:
+            g_HasDEPLST = 1;
+            DEPLST_Record deplst;
+            break;
+            
+        case rt_Module_HDR:
+            ModuleHDR_Record modHdr;
+            g_ModuleName = ReadCountedString(modHdr.moduleName);
+            break;
+            
+        case rt_Module_END:
+            ModuleEND_Record modEnd;
+            break;
+            
+        case rt_Content:
+            Content_Record content(0);
+            g_IsLinkedFile = 1;  // Intel format suggests linked file
+            break;
+            
+        case rt_Content_Keil:
+            Content_Record contentK(1);
+            break;
+            
+        case rt_Fixup:
+            Fixup_Record fixup(0);
+            break;
+            
+        case rt_Fixup_Keil:
+            Fixup_Record fixupK(1);
+            break;
+            
+        case rt_Segment_DEF:
+            SegmentDEF_Record segDef(0);
+            break;
+            
+        case rt_Segment_DEF_Keil:
+            SegmentDEF_Record segDefK(1);
+            break;
+            
+        case rt_Scope_DEF:
+            ScopeDEF_Record scopeDef(0);
+            break;
+            
+        case rt_Scope_DEF_Keil:
+            ScopeDEF_Record scopeDefK(1);
+            break;
+            
+        case rt_Debug_Item:
+            DebugItem_Record debugItem(0);
+            break;
+            
+        case rt_Debug_Item_Keil:
+            DebugItem_Record debugItemK(1);
+            break;
+            
+        case rt_Public_DEF:
+            PublicDEF_Record pubDef(0);
+            break;
+            
+        case rt_Public_DEF_Keil:
+            PublicDEF_Record pubDefK(1);
+            break;
+            
+        case rt_External_DEF:
+            ExternalDEF_Record extDef(0);
+            break;
+            
+        case rt_External_DEF_Keil:
+            ExternalDEF_Record extDefK(1);
+            break;
+            
+        case rt_TypeData20:
+        case rt_LinkerDebug22:
+        case rt_CompilerDebug23:
+        case rt_ModuleSrcFile24:
+        case rt_Unknown2E:
+            KeilDebug_Record keilDebug;
+            break;
+            
+        case rt_DebugData60:
+        case rt_SrcBrowserFiles61:
+        case rt_DebugData62:
+        case rt_DebugData63:
+        case rt_DebugData64:
+            DebugData_Record debugData;
+            break;
+            
+        case rt_LIB_Header:
+        case rt_LIB_ModName:
+        case rt_LIB_ModLocs:
+        case rt_LIB_DICTNRY:
+            Library_Record libRec;
+            break;
+            
+        default:
+            // Unknown or extended record type
+            Unknown_Record unknown;
+            break;
+    }
+    
+} OMF51_Record <read=ReadOMF51Record, optimize=false>;
+
+string ReadOMF51Record(OMF51_Record &r) {
+    local string s;
+    local string typeName = EnumToString(r.recordType);
+    
+    if (typeName == "") {
+        SPrintf(s, "Unknown (0x%02X) - %d bytes", r.recordType, r.recordLength);
+    } else {
+        SPrintf(s, "%s - %d bytes", typeName, r.recordLength);
+    }
+    
+    return s;
+}
+
+//=============================================================================
+// Main Parsing Loop
+//=============================================================================
+
+// Check for valid OMF-51 file
+local ubyte firstByte = ReadUByte(0);
+Assert(firstByte == 0x02 || firstByte == 0x70 || firstByte == 0x2C,
+    Str("Invalid OMF-51 file: first byte 0x%02X (expected 0x02, 0x70, or 0x2C)", firstByte));
+
+// Parse all records
+while (!FEof()) {
+    OMF51_Record record;
+}
+
+//=============================================================================
+// Summary Report
+//=============================================================================
+
+Printf("\n");
+Printf("=============================================================================\n");
+Printf("OMF-51 FILE ANALYSIS REPORT\n");
+Printf("=============================================================================\n");
+Printf("Module Name: %s\n", g_ModuleName);
+Printf("File Type:   %s\n", g_IsLinkedFile ? "Linked Executable" : "Object File");
+Printf("Has DEPLST:  %s\n", g_HasDEPLST ? "Yes" : "No");
+Printf("\n");
+Printf("Record Statistics:\n");
+Printf("  Total Records:    %d\n", g_TotalRecords);
+Printf("  Intel Format:     %d\n", g_IntelRecords);
+Printf("  Keil Format:      %d\n", g_KeilRecords);
+Printf("\n");
+
+if (g_ChecksumErrors > 0) {
+    Printf("WARNING: %d checksum error(s) detected!\n", g_ChecksumErrors);
+}
+
+Printf("=============================================================================\n");
+Printf("Banking Information:\n");
+if (g_BankedProcedureCount > 0) {
+    Printf("  Banked Procedures Found: %d\n", g_BankedProcedureCount);
+    Printf("%s", g_BankedProcedureSummary);
+} else {
+    Printf("  No banked procedures found in Scope DEF records.\n");
+    Printf("  (Check Segment DEF records for info byte with bit 6 set)\n");
+}
+Printf("=============================================================================\n");

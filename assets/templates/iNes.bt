@@ -1,0 +1,151 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: iNes.bt
+//   Authors: Alexandre Frigon
+//   Version: 1.1
+//   Purpose: Get information from the nes emulator standard format iNes.
+// Reference: https://wiki.nesdev.com/w/index.php/NES_2.0
+//  Category: Game
+// File Mask: *.nes
+//  ID Bytes: 4E 45 53 1A
+//   History: 
+//   1.1   2021-12-12 Sean Mortara: Added additional header parsing.
+//   1.0   2018-10-28 Alexandre Frigon: Initial release.
+//------------------------------------------------
+
+BigEndian();
+
+string sizeFromBlock(byte blockSize, int unit) {
+    char buffer[];
+    SPrintf( buffer, "BlockSize = %d (%d bytes)", blockSize, blockSize * unit * 1024 );
+    return buffer;
+}
+
+string fun_prgRomSize(byte blockSize) {
+    return sizeFromBlock(blockSize, 16);
+}
+
+string fun_chrRomSize(byte blockSize) {
+    return sizeFromBlock(blockSize, 8);
+}
+
+typedef enum <byte> {
+    No=0,
+    Yes=1
+} boolType;
+
+typedef enum <byte> {
+    Horizontal=0,
+    Vertical=1
+} MirrorType;
+
+string fun_nesFileType(byte v ) {
+    if( v == 0b10 ) { return "NES 2.0 (0)"; }
+    char buffer[];
+    SPrintf( buffer, "iNES (%d)", v );
+    return buffer;
+}
+
+typedef enum <byte> {
+    NES=0,
+    VsSystem=1,
+    PlayChoice10=2,
+    Extended=3
+} csType;
+
+/*----------------------------------------------------------
+        BEGIN FILE PARSE
+------------------------------------------------------------*/
+
+struct INES {
+    struct HEADER {
+        
+        SetForeColor(cGreen);
+        BYTE magic[4] <format=hex, comment="4E45531Ah -> NES^", name="Magic">;
+        
+        SetForeColor(cPurple);
+        UBYTE prgSize <name="Program ROM Size", read=fun_prgRomSize, comment="Unit of 16KB">;
+        UBYTE chrSize <name="Character ROM Size", read=fun_chrRomSize, comment="Unit of 8KB">;
+        
+        struct FLAG6 {
+            BYTE lowerNibble : 4 <name="Lower Nibble", comment="Lower nybble of mapper number">;
+            boolType mirrorIgnoreBool : 1 <name="Ignore Mirror", comment="Ignore mirroring control or above mirroring bit; instead provide four-screen VRAM">;
+            boolType trainerBool : 1 <name="Trainer Boolean", comment="512-byte trainer at $7000-$71FF (stored before PRG data)">;
+            boolType batteryBool : 1 <name="Battery Boolean", comment="Cartridge contains battery-backed PRG RAM ($6000-7FFF) or other persistent memory">;
+            MirrorType mirrorDirection : 1 <name="Mirror Direction", comment="0: horizontal (vertical arrangement) (CIRAM A10 = PPU A11) | 1: vertical (horizontal arrangement) (CIRAM A10 = PPU A10)">;
+        } flag6 <name="Flag 6">;
+
+        struct FLAG7 {
+            BYTE upperNibble : 4 <name="Upper Nibble", comment="Upper nybble of mapper number">;
+            BYTE nesVersion : 2 <name="NES File Version", read=fun_nesFileType>;
+            csType consoleType : 2 <name="Console Type">;
+        } flag7 <name="Flag 7">;
+
+        if (header.flag7.nesVersion == 0b10) {
+            struct FLAG8 {
+                BYTE subMapper : 4 <name="Sub Mapper Number">;
+                BYTE mapper : 4 <name="Mapper Number">;
+            } flag8 <name="Flag 8">;
+
+            struct FLAG9 {
+                BYTE chrRomSize : 4 <name="CHR-ROM Size">;
+                BYTE prgRomSize : 4 <name="PRG-ROM Size">;
+            } flag9 <name="Flag 9">;
+
+            struct FLAG10 {
+                BYTE prgRamShiftCount : 4 <name="PRG-RAM Shift Count">;
+                BYTE prgNvramShiftCount : 4 <name="PRG-NVRAM/EEPROM Shift Count">;
+            } flag10 <name="Flag 10">;
+
+            struct FLAG11 {
+                BYTE chrRamShiftCount : 4 <name="CHR-RAM Shift Count">;
+                BYTE chrNvramShiftCount : 4 <name="CHR-NVRAM Shift Count">;
+            } flag11 <name="Flag 11">;
+
+            struct FLAG12 {
+                BYTE : 6;
+                BYTE timingMode: 2 <name="Timing Mode", comment="CPU/PPU timing mode">;
+            } flag12 <name="Flag 12">;
+
+            struct FLAG13 {
+                BYTE systemUpperNibble : 4 <name="System Upper Nibble">;
+                BYTE systemLowerNibble : 4 <name="System Lower Nibble">;
+            } flag13 <name="Flag 13">;
+
+            struct FLAG14 {
+                BYTE : 6;
+                BYTE miscRomCount: 2 <name="Misc ROM Count", comment="Number of miscellaneous ROMs present">;
+            } flag14 <name="Flag 14">;
+
+            struct FLAG15 {
+                BYTE : 2;
+                BYTE defaultExpansionDevice: 6 <name="Default Expansion", comment="Default Expansion Device">;
+            } flag15 <name="Flag 15">;
+
+        } else {
+            // Non NES 2.0 generic format
+            UBYTE ramSize <name="RAM size", read=fun_prgRomSize, comment="Unit of 8KB">;
+            BYTE flag9 <format=binary, comment="Not used - Reserved for NES 2.0 data.">;
+            BYTE flag10 <format=binary, comment="Not used - Reserved for NES 2.0 data.">;
+
+            SetForeColor(cNone);
+            BYTE padding[5] <name="Padding">;
+        }
+
+
+    } header <name="Header">;
+
+    SetForeColor(cYellow);
+    if (header.flag6.trainerBool) {
+        BYTE trainer[512] <name="Trainer Data">;
+    }
+
+    SetForeColor(cBlue);
+    BYTE prg[header.prgSize * 16 * 1024] <name="Program ROM">;
+
+    SetForeColor(cNone);
+    BYTE chr[header.chrSize * 8 * 1024] <name="Character ROM">;
+
+    SetForeColor(cRed);
+} file <name="iNES">;

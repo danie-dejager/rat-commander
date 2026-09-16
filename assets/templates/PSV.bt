@@ -1,0 +1,150 @@
+//------------------------------------------------
+//--- 010 Editor v8.0 Binary Template
+//
+//      File: PSV.bt
+//   Authors: devnoname120
+//   Version: 1
+//   Purpose: Template for exploring .psv files (archived Vita games).
+//  Category: Drives
+//  File Mask: *.psv
+//  ID Bytes: 50 53 56 00
+//   History: None
+//   1     2023-02-01 devnoname120: Initial version
+//  Format spec: https://gist.github.com/yifanlu/d546e687f751f951b1109ffc8dd8d903
+//  Source: https://gist.github.com/devnoname120/47da5187b29863d09793a373718d421d
+//------------------------------------------------
+
+/**
+ * Motivation: One unified .psv format for archiving (preserving) Vita games.
+ * The goal is to preserve as much of the original game structure while ensuring
+ * the all the information needed to decrypt and extract data can be derived
+ * from just the file and a hacked Vita.
+ *
+ * We want something akin to .nds or .3ds/.cia or .iso but for Vita games. The
+ * unique challenge is that Vita cart games require a per-cart key to decrypt
+ * and digital games require a similar key from activation. With just the raw
+ * game image, it is not possible to extract the game data.
+ *
+ * What's wrong with using .vpk? VPK is designed for homebrew. The patches to
+ * enable homebrew strips out a lot of the game executable metadata as well as
+ * change the system state to be different than a Vita running an original game.
+ * This leads to many subtle as well as major bugs (saves not working, some
+ * games require additional patches to run, saves are not compatible with
+ * non-hacked Vitas, etc).
+ *
+ * Why not just ZIP the original files? Why not strip PFS as well to make data
+ * mining/emulation easy? Why not make a compressed format? One reason is that
+ * by stripping more than necessary (like, for example PFS), we might be losing
+ * information that we currently do not think is important. An example of this
+ * is when SNES games are first dumped and Earthbound was not dumped properly
+ * and people did not know about the anti-piracy checks until much later. There
+ * may be, for example, games that do timing checks or checks on the file
+ * modification time or something. Either explicitly for anti-piracy or
+ * implicitly due to bad programming (a lot of older consoles are infamous for
+ * the latter case). By preserving as much of the original structure as
+ * possible, we ensure that we can somehow play these games in a future where no
+ * more Vitas exist.
+ *
+ * Different tools (data extraction, backup loaders, archival storage, etc)
+ * might require different use cases. Someone might for example want to strip
+ * PFS and compress the game data for more efficient storage. We invite them to
+ * extend this format though flags BUT just as you shouldn't store all your
+ * photos in level-9 compressed JPEG, your code in executables, or any data you
+ * care about in a lossy format, you should archive your games in its original
+ * form. You can easily go from a RAW image to a JPEG but you cannot go back.
+ */
+
+LittleEndian();
+
+#define PSV_MAGIC (0x00565350) // 'PSV\0'
+#define FLAG_TRIMMED (1 << 0)  // if set, the file is trimmed and 'image_size' is the actual size
+#define FLAG_DIGITAL (1 << 1)  // if set, RIF is present and an encrypted PKG file follows
+#define FLAG_COMPRESSED (1 << 2)  // undefined if set with `FLAG_TRIMMED` or `FLAG_DIGITAL`. if set, the data must start with a compression header (not currently defined)
+#define FLAG_LICENSE_ONLY (FLAG_TRIMMED | FLAG_DIGITAL) // if set, the actual PKG is NOT stored and only RIF is present. 'image_size' will be size of actual package.
+
+#define SD_DEFAULT_SECTOR_SIZE 0x200
+#define SD_SECTOR_ALIGNMENT 512
+
+typedef struct {
+  uint32 type; // 0x1 indicates header for digital content
+  uint32 flags; // 1 == game, 2 == DLC, etc (not yet specified)
+  uint64 license_size; // size of RIF that follows
+  uchar rif[license_size]; // rif file
+} digital_header_t;
+
+typedef struct {
+  uint32 type; // 0x2 indicates header for compression
+  uint32 compression_algorithm; // not yet specified
+  uint64 uncompressed_size;
+} compression_header_t;
+
+typedef union {
+  uint32 type;
+  digital_header_t;
+  compression_header_t;
+} opt_header_t;
+
+typedef struct {
+   uchar bytes[SD_DEFAULT_SECTOR_SIZE];
+} block_t;
+
+typedef struct {
+  uchar key[0x10];
+} key_t;
+
+
+typedef struct {
+  uchar signature[0x14];
+} signature_t;
+
+typedef struct {
+  uchar sha256[0x20];
+} sha256_t;
+
+string BufRead(uint32 nElem, uchar buf[]) {
+    string s;
+    local int i;
+    for (i=0; i<nElem; i++)    
+        SPrintf(s, "%s%x", s, buf[i]);
+    return s;
+}
+
+string KeyRead(key_t &key) {
+    return BufRead(sizeof(key), key.key);
+}
+
+string SignatureRead(signature_t &sig) {
+    return BufRead(sizeof(sig), sig.signature);
+}
+
+string Sha256Read(sha256_t &hash) {
+    return BufRead(sizeof(hash), hash.sha256);
+}
+
+
+struct {
+  local int back_color = GetBackColor();
+  SetBackColor(cLtAqua);
+  uint32 magic <fgcolor=cDkBlue>; // 'PSV\0'
+  uint32 version <fgcolor=cPurple>; // 0x00 = first version
+  uint32 flags <fgcolor=cBlue>; // see below
+  key_t key1 <fgcolor=cDkGreen, read=KeyRead>; // for klicensee decryption
+  key_t key2 <fgcolor=cDkGreen, read=KeyRead>; // for klicensee decryption
+  signature_t signature <fgcolor=cRed, read=SignatureRead>; // same as in RIF
+  sha256_t hash <fgcolor=0x00C0C0, read=Sha256Read>; // optional consistancy check. sha256 over complete data (including any trimmed bytes) if cart dump, sha256 over the pkg if digital dump.
+  uint64 image_size <fgcolor=cDkGray>; // if trimmed, this will be actual size
+  uint64 image_offset_sector; // image (dump/pkg) offset in multiple of 512 bytes. must be > 0 if an actual image exists. == 0 if no image is included.
+
+  if (flags & FLAG_DIGITAL)
+    digital_header_t digital_header;
+  if (flags & FLAG_COMPRESSED)
+    compression_header_t compression_header;
+  
+  SetBackColor(back_color);
+
+  // Alignment
+  uchar padding[SD_SECTOR_ALIGNMENT - (FTell() % SD_SECTOR_ALIGNMENT)] <fgcolor=cLtGray>;
+
+  local uint64 sizeInBlocks = image_size / SD_DEFAULT_SECTOR_SIZE;
+  block_t blocks[sizeInBlocks];
+} psv_file_header_t;

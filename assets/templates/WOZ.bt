@@ -1,0 +1,131 @@
+//------------------------------------------------
+//--- 010 Editor v15.0.1 Binary Template
+//
+//      File: WOZ.bt
+//   Authors: Antoine Neuenschwander
+//   Version: 1.0
+//   Purpose: Parses WOZ disk images
+//  Category: Drives
+// File Mask: *.woz
+//  ID Bytes: 57 4F 5A 32 //WOZ2
+//   History: 
+//   1.0   2024-12-28  AN: initial release
+// More information available at:
+//  https://applesaucefdc.com/woz/reference2/ 
+//------------------------------------------------
+
+
+local uint8 gDiskType <hidden=true> = 1 ;
+
+string CheckCRC(uint32 crc) {
+    if (crc == 0) {
+        return "CRC ignored";
+    }
+    int64 crc2 = Checksum(CHECKSUM_CRC32, FTell(), 0, -1, -1);
+    if (crc == crc2) {
+        return "CRC good";
+    } else {
+        return "CRC bad";
+    }
+}
+
+typedef struct {
+    char magic1[4] <name="Magic (1) ">;
+    uint32 magic2 <name="Magic (2)", format=hex>;
+    uint32 crc <name="CRC", comment=CheckCRC, format=hex>;
+} FILEHEADER <name="WOZ Header">;
+
+
+typedef struct {
+    local uint32 start <hidden=true>;
+    start = FTell();
+    uint8 infoVersion <name="INFO Version">;
+    uint8 diskType <name="Disk Type", read=(this==1?"5.25\"":this==2?"3.5\"":"unknown")>;
+    gDiskType = diskType;
+    uint8 writeProtected <name="Write Protected", read=(this==1?"yes":"no")>;
+    uint8 synchronized <name="Synchronized", read=(this==1?"yes":"no")>;
+    uint8 cleaned <name="Cleaned", read=(this==1?"yes":"no")>;
+    char creator[32] <name="Creator">;
+    if (infoVersion >= 2) { 
+        uint8 diskSides <name="Disk Sides">;
+        uint8 bootSectorFormat <name="Boot Sector Format", read=(this==1?"16 sector":this==2?"13 sector":this==3?"13/16 sector":"unknown")>;
+        uint8 optimalBitTiming <name="Optimal Bit Timing", read=Str("%d ns", this*125)>;
+        uint16 compatibleHardware <name="Compatible Hardware">;
+        uint16 requiredRam <name="Required RAM", read=(this==0?"unknown":Str("%d Kb", this))>;
+        uint16 largestTrack <name="Largest Track", read=(this==0?"N/A":Str("%d blocks", this))>;
+        if (infoVersion >= 3) {
+            uint16 fluxBlock <name="FLUX Block">;
+            uint16 largestFluxTrack <name="Largest Flux Track">;
+        }
+    }
+    uint8 padding[start+60-FTell()] <name="Padding">;
+} INFO <name="Info Data">;
+
+typedef struct {
+    local int i <hidden=true>;
+    if (gDiskType == 2) {
+        // 3.5": 40 tracks per side, two sides
+        for (i = 0; i < 40; i++) {
+            uint8 track0 <name="Side 0, Track ">;
+            uint8 track1 <name="Side 1, Track ">;
+        }
+    } else {
+        // 5.25": 35 tracks, 4 divisions per track, only a single side
+        for (i = 0; i < 35; i++) {
+            uint8 track0 <name="0.00, Track ">;
+            uint8 track1 <name="0.25, Track ">;
+            uint8 track2 <name="0.50, Track ">;
+            uint8 track3 <name="0.75, Track ">;   
+        }
+        uint8 padding[20] <name="Padding ">;
+    }
+} TMAP <name="Track Map">;
+
+
+typedef struct {
+    uint16 startBlock <name="Starting Block", comment=Str("File Offset: %d (0x%04x)", this << 9, this << 9)>;
+    uint16 blockCount <name="Block Count">;
+    uint32 bitCount <name="Bit Count">;
+} TRK <name="Track">;
+
+
+typedef struct {
+    TRK track[160] <name="Track ">;
+} TRKS <name="Unique Tracks">;
+
+
+typedef struct {
+    char id[4] <name="Chunk ID ">;
+    uint32 chunkSize <name="Chunk Size", format=decimal>;
+    if (id == "INFO") {
+        INFO info;
+    } else if (id == "TMAP") {
+        TMAP tmap;
+    } else if (id == "TRKS") {
+        TRKS trks;
+        uint8 bits[chunkSize-sizeof(TRKS)] <name="BITS">;
+    } else if (id == "FLUX") {
+        TMAP flux <name="Flux Map">;
+    } else if (id == "WRIT") {
+        // not implemented
+        uint8 data[chunkSize] <name="Data", comment="Not Implemented">;
+    } else if (id == "META") {
+        // not implemented
+        uint8 data[chunkSize] <name="data", comment="Not Implemented">;
+    } 
+} CHUNK <name=Str("%s Chunk ", this.id)>;
+
+
+LittleEndian();
+FILEHEADER fh <bgcolor=0xbdf7b7>;
+if (fh.magic1 != "WOZ2") {
+    Warning("Unknown file format. Template stopped.");
+    return -1;
+}
+while( !FEof() )
+{
+    CHUNK chunk;
+    if (chunk.chunkSize == 0) {
+        return 0;
+    }
+}

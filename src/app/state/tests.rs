@@ -475,6 +475,56 @@ async fn compare_dirs_marks_by_mode() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+#[tokio::test]
+async fn compare_files_opens_binary_files_byte_by_byte_and_text_files_line_by_line() {
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_cmpf_{}_{nanos}", std::process::id()));
+    let (da, db) = (root.join("a"), root.join("b"));
+    std::fs::create_dir_all(&da).unwrap();
+    std::fs::create_dir_all(&db).unwrap();
+    std::fs::write(da.join("fw.bin"), b"\x7fELF\x00\x01\x02\x03").unwrap();
+    std::fs::write(db.join("fw.bin"), b"\x7fELF\x00\x01\xff\x03").unwrap();
+    std::fs::write(da.join("notes.txt"), b"one\ntwo\n").unwrap();
+    std::fs::write(db.join("notes.txt"), b"one\nthree\n").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    for (side, dir) in [(0, &da), (1, &db)] {
+        st.panels[side].cwd = VfsPath::local(dir);
+        st.panels[side].backend = st.registry.local();
+        st.panels[side].reload().await.unwrap();
+    }
+    let point = |st: &mut AppState, name: &str| {
+        for p in &mut st.panels {
+            p.cursor = p.entries.iter().position(|e| e.name == name).unwrap();
+        }
+    };
+
+    point(&mut st, "fw.bin");
+    st.open_compare_files().await;
+    assert!(st.diffview.is_none(), "a binary file isn't split into lines");
+    let hd = st.hexdiff.as_mut().expect("the byte-by-byte view");
+    while hd.poll() {
+        std::thread::yield_now();
+    }
+    assert_eq!(hd.runs_status().0, 1);
+    // F5 asks for an offset, which moves the cursor.
+    let f5 = KeyEvent::new(KeyCode::F(5), KeyModifiers::NONE);
+    st.handle_key(f5).await;
+    assert!(matches!(st.dialog, Some(Dialog::Input(_))));
+    st.dialog = None;
+    st.handle_submit(Submit::HexDiffGoto("0x6".into())).await;
+    assert_eq!(st.hexdiff.as_ref().unwrap().cursor, 6);
+    st.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE)).await;
+    assert!(st.hexdiff.is_none());
+
+    point(&mut st, "notes.txt");
+    st.open_compare_files().await;
+    assert!(st.hexdiff.is_none() && st.diffview.is_some(), "text still diffs by line");
+    std::fs::remove_dir_all(&root).ok();
+}
+
 /// Run a spawned background task to completion, applying its events (and the
 /// final `DuplicatesFound`) to `st`.
 async fn drain_duplicates(st: &mut AppState, rx: &mut crate::util::async_bridge::AppReceiver) {
@@ -4059,6 +4109,31 @@ async fn f3_opens_a_binary_in_binary_mode_and_anything_else_as_text() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+#[tokio::test]
+async fn f3_on_a_certificate_shows_what_it_holds_and_a_readme_quoting_one_stays_text() {
+    let root = temp_dir("certview");
+    let bundle =
+        format!("{}{}", crate::certs::testdata::LEAF, crate::certs::testdata::INTERMEDIATE);
+    std::fs::write(root.join("fullchain.pem"), &bundle).unwrap();
+    std::fs::write(root.join("README.md"), format!("# TLS\n\nPaste this:\n\n{bundle}")).unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    let view = async |st: &mut AppState, name: &str| {
+        st.viewer = None;
+        st.panels[0].cursor = st.panels[0].entries.iter().position(|e| e.name == name).unwrap();
+        st.open_view().await;
+        st.viewer.as_ref().unwrap().active_certs().map(|c| c.report.summary.clone())
+    };
+    assert_eq!(view(&mut st, "fullchain.pem").await.as_deref(), Some("2 certificates"));
+    assert_eq!(view(&mut st, "README.md").await, None);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Follow mode is driven by the render loop's tick, which only runs when
 /// something asks for it — with the status widget and animations off, nothing
 /// else would, and a followed log would sit still.
@@ -5120,13 +5195,13 @@ async fn an_edited_json_file_is_checked_on_the_tick() {
     st.open_path_in_editor(file).await;
     let settle = |st: &mut AppState| {
         let deadline = Instant::now() + Duration::from_secs(5);
-        while st.editor.as_ref().is_some_and(|e| e.json_pending()) && Instant::now() < deadline {
+        while st.editor.as_ref().is_some_and(|e| e.check_pending()) && Instant::now() < deadline {
             st.on_tick();
             std::thread::sleep(Duration::from_millis(20));
         }
     };
     settle(&mut st);
-    assert!(st.editor.as_ref().unwrap().json_errors().is_empty(), "the file as saved is valid");
+    assert!(st.editor.as_ref().unwrap().check_errors().is_empty(), "the file as saved is valid");
     // Break it: a second member with no comma before it.
     let ed = st.editor.as_mut().unwrap();
     for code in [KeyCode::End, KeyCode::Left] {
@@ -5137,7 +5212,7 @@ async fn an_edited_json_file_is_checked_on_the_tick() {
     }
     assert!(st.wants_ticks(), "a check is due, so the tick keeps coming");
     settle(&mut st);
-    let errors = st.editor.as_ref().unwrap().json_errors();
+    let errors = st.editor.as_ref().unwrap().check_errors();
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert_eq!(errors[0].message, "Missing ',' after this value");
     std::fs::remove_dir_all(&dir).ok();
@@ -5199,7 +5274,7 @@ async fn the_geojson_map_opens_from_the_editor_and_goes_back_to_the_text() {
         "on the point object's brace"
     );
 
-    // A file without GeoJSON gets a message.
+    // A file without GeoJSON opens the map all the same, to draw on.
     let plain = dir.join("plain.json");
     std::fs::write(&plain, "{\"a\": [1, 2]}").unwrap();
     st.editor = None;
@@ -5216,7 +5291,60 @@ async fn the_geojson_map_opens_from_the_editor_and_goes_back_to_the_text() {
             break;
         }
     }
-    assert!(matches!(st.dialog, Some(Dialog::Message(_))));
+    assert!(matches!(st.dialog, Some(Dialog::GeoMap(_))));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// GeoJSON made from nothing: the map opened on an empty file draws a point
+/// into the editor's text, which becomes a FeatureCollection, and Ctrl-Z on
+/// the map takes it back out of the editor again.
+#[tokio::test]
+async fn features_drawn_on_the_map_are_written_into_the_editor() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let dir = temp_dir("geoedit");
+    let file = dir.join("new.geojson");
+    std::fs::write(&file, "").unwrap();
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(file).await;
+    st.apply_editor_signal(EditorSignal::OpenGeoMap).await;
+    loop {
+        let ev = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+            .await
+            .expect("read")
+            .expect("open");
+        let done = matches!(ev, AppEvent::GeoJsonRead { .. });
+        st.apply_event(ev).await;
+        if done {
+            break;
+        }
+    }
+    if let Some(Dialog::GeoMap(d)) = st.dialog.as_mut() {
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
+        t.draw(|f| d.render(f, f.area(), &theme, None)).unwrap();
+    }
+    let press = |code| KeyEvent::new(code, KeyModifiers::NONE);
+    // A point at the crosshair, from the keyboard.
+    st.handle_key(press(KeyCode::Char('1'))).await;
+    st.handle_key(press(KeyCode::Char(' '))).await;
+    let ed = st.editor.as_ref().unwrap();
+    assert!(ed.dirty);
+    let text = ed.contents();
+    assert!(text.starts_with("{\n  \"type\": \"FeatureCollection\",\n"), "{text}");
+    let doc = crate::geo::geojson::extract(&text);
+    assert_eq!(doc.objects[0].features.len(), 1);
+    assert_eq!(doc.errors, 0);
+    // Undone on the map, undone in the editor.
+    st.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::CONTROL)).await;
+    assert_eq!(st.editor.as_ref().unwrap().contents(), "");
+    st.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL)).await;
+    assert_eq!(st.editor.as_ref().unwrap().contents(), text);
+    // Closing the map keeps the edit, unsaved, in the editor.
+    st.handle_key(press(KeyCode::F(10))).await;
+    assert!(st.dialog.is_none());
+    assert_eq!(st.editor.as_ref().unwrap().contents(), text);
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -6297,7 +6425,8 @@ async fn the_details_view_plays_audio_until_the_cursor_moves_on() {
         .iter()
         .find(|(_, t)| *t == crate::audio::view::Transport::PlayPause)
         .expect("a play button was drawn");
-    let click = |kind| MouseEvent { kind, column: play.x + 1, row: play.y, modifiers: KeyModifiers::NONE };
+    let click =
+        |kind| MouseEvent { kind, column: play.x + 1, row: play.y, modifiers: KeyModifiers::NONE };
     st.handle_mouse(click(MouseEventKind::Down(MouseButton::Left))).await;
     st.handle_mouse(click(MouseEventKind::Up(MouseButton::Left))).await;
     assert!(st.details[1].audio.as_ref().unwrap().playing(), "the click pressed Play");
@@ -6325,4 +6454,91 @@ async fn the_details_view_plays_audio_until_the_cursor_moves_on() {
     assert!(!st.audio_out.active(), "moving the cursor off the file stopped it");
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Hex mode runs the file's binary template on the tick; the picker's choice
+/// replaces it; and editing a template opens it over the hex editor, which
+/// comes back — running the edited template — when that editor closes.
+#[tokio::test]
+async fn binary_templates_run_are_chosen_and_edited_over_the_hex_editor() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let dir = temp_dir("bttpl");
+    let file = dir.join("data.zip");
+    {
+        let f = std::fs::File::create(&file).unwrap();
+        let mut z = zip::ZipWriter::new(f);
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        z.start_file("a.txt", opts).unwrap();
+        std::io::Write::write_all(&mut z, b"template test").unwrap();
+        z.finish().unwrap();
+    }
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(file.clone()).await;
+    let ed = st.editor.as_mut().unwrap();
+    ed.handle_key(KeyEvent::new(KeyCode::F(9), KeyModifiers::CONTROL));
+    assert!(ed.is_hex());
+    let settle = |st: &mut AppState| {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while st.editor.as_ref().is_some_and(|e| e.template_pending()) && Instant::now() < deadline
+        {
+            st.on_tick();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    let screen = |st: &mut AppState| {
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 30)).unwrap();
+        let ed = st.editor.as_mut().unwrap();
+        t.draw(|f| crate::editor::render::render(f, f.area(), ed, &theme)).unwrap();
+        let b = t.backend().buffer();
+        (0..b.area.height)
+            .map(|y| (0..b.area.width).map(|x| b[(x, y)].symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert!(st.wants_ticks(), "a template run keeps the tick going");
+    settle(&mut st);
+    let ed = st.editor.as_ref().unwrap();
+    assert_eq!(ed.active_template().map(|i| i.file_name), Some("ZIP.bt".into()));
+    assert!(screen(&mut st).contains("record"));
+
+    // F5's picker lists the templates; "(No template)" hides the panel.
+    st.apply_editor_signal(EditorSignal::OpenTemplatePicker).await;
+    assert!(matches!(st.dialog, Some(Dialog::TemplatePicker(_))));
+    st.dialog = None;
+    st.handle_submit(Submit::EditorTemplate(None)).await;
+    assert!(!st.editor.as_ref().unwrap().template_panel());
+
+    // A template of the user's own, chosen, then edited.
+    let tpl = dir.join("Mine.bt");
+    std::fs::write(&tpl, "// File Mask: *.zip\nuint magic <format=hex>;\n").unwrap();
+    let mut info = crate::bt::header::parse_header("Mine.bt", &std::fs::read(&tpl).unwrap());
+    info.path = Some(tpl.clone());
+    st.handle_submit(Submit::EditorTemplate(Some(Box::new(info.clone())))).await;
+    settle(&mut st);
+    let s = screen(&mut st);
+    assert!(s.contains("magic") && s.contains("0x4034B50"), "{s}");
+
+    st.handle_submit(Submit::EditorEditTemplate(Box::new(info))).await;
+    assert_eq!(st.editor_stack.len(), 1, "the hex editor waits underneath");
+    let ed = st.editor.as_mut().unwrap();
+    assert!(!ed.is_hex() && ed.name == "Mine.bt");
+    ed.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::CONTROL));
+    for c in "ushort version;".chars() {
+        ed.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    }
+    st.apply_editor_signal(EditorSignal::Save { close_after: true }).await;
+    assert!(st.editor_stack.is_empty());
+    let ed = st.editor.as_ref().unwrap();
+    assert!(ed.is_hex(), "back in the hex editor");
+    settle(&mut st);
+    let s = screen(&mut st);
+    assert!(s.contains("version"), "the edited template ran: {s}");
+
+    // Closing the hex editor now leaves for the panels.
+    st.apply_editor_signal(EditorSignal::Close).await;
+    assert!(st.editor.is_none());
+    std::fs::remove_dir_all(&dir).ok();
 }

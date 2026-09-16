@@ -1,0 +1,81 @@
+//------------------------------------------------
+//      File: MIBIB.bt
+//   Authors: Nikita F.
+//   Version: 1
+//   Purpose: qcom mibib part parser
+//  Category: Operating System
+// File Mask: 
+//  ID Bytes: 
+//   History: first version based on qca u-boot 2016 src
+//   1     2024-11-07 Nikita F.: qcom mibib part parser based on qca uboot-2016 src
+//------------------------------------------------
+
+#define SMEM_PART_NAME_SZ   16
+#define SMEM_PARTS_MAX  32
+
+typedef unsigned char u8;
+typedef uint32 __le32;
+typedef uint16 __le16;
+
+local u8 SMEM_SYS_PTABLE_MAGIC[8] = {
+    0xaa, 0x73, 0xee, 0x55,
+    0xdb, 0xbd, 0x5e, 0xe3
+};
+
+local u8 SMEM_USR_PTABLE_MAGIC[8] = {
+    0x9a, 0x1b, 0x7d, 0xaa,
+    0xbc, 0x48, 0x7d, 0x1f
+};
+
+typedef struct smem_sys_partition_entry {
+    char name[SMEM_PART_NAME_SZ] <style=sSection1, comment="part name">;
+    __le32 start <style=sSection2, format=hex, comment="in blocks of 0x20000">;
+    __le32 size <style=sSection2Accent, format=hex, comment="in blocks of 0x20000">;
+    u8 attr1 <style=sSection3, format=hex>;
+    u8 attr2 <style=sSection3, format=hex>;
+    u8 attr3 <style=sSection3, format=hex>;
+    u8 flash_device <style=sSection3>;
+} smem_sys_partition_entry;
+
+typedef struct smem_usr_partition_entry {
+    char name[SMEM_PART_NAME_SZ] <style=sSection1, comment="part name">;
+    __le32 size <style=sSection2, format=hex, comment="in kilobytes">;
+    __le16 padding <style=sSection2Accent, format=hex, comment="in kilobytes">;
+    __le16 flash_device <style=sSection3>;
+    u8 attr1 <style=sSection3, format=hex>;
+    u8 attr2 <style=sSection3, format=hex>;
+    u8 attr3 <style=sSection3, format=hex>;
+    u8 attr4 <style=sSection3, format=hex>;
+} smem_usr_partition_entry;
+
+typedef struct smem_sys_ptable {
+    u8 magic[8] <style=sHeading1Accent>;
+    __le32 version;
+    __le32 numparts;
+    struct smem_sys_partition_entry parts[SMEM_PARTS_MAX];
+} smem_sys_ptable;
+
+typedef struct smem_usr_ptable {
+    u8 magic[8] <style=sHeading1Accent>;
+    __le32 version;
+    __le32 numparts;
+    struct smem_usr_partition_entry parts[SMEM_PARTS_MAX];
+} smem_usr_ptable;
+
+
+
+local u8 magic[8];
+
+LittleEndian();
+FSeek(0); 
+while( !FEof() ){
+    ReadBytes(magic, FTell(), sizeof(magic));
+
+    if(Memcmp(magic, SMEM_SYS_PTABLE_MAGIC, sizeof(magic)) == 0) {
+       smem_sys_ptable sys_ptable;
+    }
+    else if(Memcmp(magic, SMEM_USR_PTABLE_MAGIC, sizeof(magic)) == 0) {
+       smem_usr_ptable usr_ptable;
+    }
+    FSkip(sizeof(magic));    
+};

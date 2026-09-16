@@ -1,0 +1,30 @@
+//------------------------------------------------
+//--- 010 Editor v12.0 Binary Template
+//
+//      File: Hisi_Sec.bt
+//   Authors: Bjoern Kerler
+//   Version: 1.0
+//   Purpose: Parse Huawei Tee Sec Encrypted Trustlets V3.01
+//  Category: Operating System
+// File Mask: *
+//  ID Bytes: 5A 5A A5 A5
+//   History: 
+//   1.0   2021-10-09 Bjoern Kerler: Add sec version 3.01
+//------------------------------------------------
+#define ENCRYPTED_KEYINFO_LEN 256
+#define SIGNATURE_LEN_256 256
+#define SIGNATURE_LEN_512 512
+#define HEADER_SZ 16
+
+typedef struct header{
+    unsigned int magic1;
+    unsigned short magic2;
+    unsigned short version;
+    unsigned int contentLen;
+    unsigned int key_version;
+};
+
+header sechdr;
+unsigned char enckeyinfo[ENCRYPTED_KEYINFO_LEN];
+unsigned char signature[SIGNATURE_LEN_512];
+unsigned char encdata[FileSize()-SIGNATURE_LEN_512-ENCRYPTED_KEYINFO_LEN-HEADER_SZ];

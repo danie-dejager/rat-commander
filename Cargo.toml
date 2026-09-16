@@ -1,6 +1,6 @@
 [package]
 name = "rat-commander"
-version = "1.9.2"
+version = "1.9.3"
 edition = "2024"
 description = "A self-contained Norton/Midnight-Commander-style TUI file manager"
 license = "GPL-2.0-only"
@@ -89,6 +89,9 @@ notify = "8.2.0"
 portable-pty = "0.9.0"
 ratatui = "0.30.2"
 regex = "1.13.1"
+# 010 Editor template regexes (FindAll, RegExMatch) use lookbehind, which
+# `regex` lacks. Already compiled as part of the tree (syntect), so no new crate.
+fancy-regex = "0.16.2"
 ropey = "1.6.1"
 russh = "0.63.3"
 russh-sftp = "3.0.0"
@@ -100,7 +103,7 @@ sha2 = "0.11.0"
 # cross-compile builds working; bundles Sublime syntaxes + themes, and more
 # `.sublime-syntax`/theme files can be loaded later to extend it.
 syntect = { version = "5.3.0", default-features = false, features = ["default-fancy"] }
-suppaftp = { version = "12.0.0", default-features = false, features = ["tokio"] }
+suppaftp = { version = "12.0.0", default-features = false, features = ["tokio", "tokio-rustls-aws-lc-rs"] }
 tar = "0.4.46"
 thiserror = "2.0.20"
 tokio = { version = "1.53.1", features = ["full"] }
@@ -171,11 +174,23 @@ symphonia = { version = "0.5.5", default-features = false, features = ["all-form
 # Audio playback (the `audio` feature). `symphonia-all` is what switches on
 # rodio's own symphonia decoder; the codecs themselves are the ones above.
 rodio = { version = "0.22.2", default-features = false, features = ["playback", "symphonia-all"], optional = true }
+x509-parser = { version = "0.18.1", features = ["verify-aws"] }
+base64 = "0.22"
+rustls-native-certs = "0.8"
+saphyr-parser = "0.0.12"
+quick-xml = "0.41"
+jsonschema = { version = "0.56.0", default-features = false }
 
 [dev-dependencies]
 # Tests synthesise small ELF, COFF and Mach-O objects to analyse, rather than
 # carrying binary fixtures in the repository.
 object = { version = "0.40.0", default-features = false, features = ["write"] }
+
+# build.rs packs the vendored binary templates (assets/templates/*.bt) into one
+# zlib bundle the program embeds. The same flate2 as above — pure Rust, so the
+# cross-compiles run the build script on their host unchanged.
+[build-dependencies]
+flate2 = "1.1.10"
 
 # nix (chmod/chown/uid lookups, process signals) is Unix-only.
 [target.'cfg(unix)'.dependencies]

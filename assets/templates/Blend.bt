@@ -1,0 +1,208 @@
+//------------------------------------------------
+//--- 010 Editor v12.0.1 Binary Template
+//
+//   File: Blend.bt
+//   Authors: seesaw
+//   Version: 1.0
+//   Purpose: Parsing Blender file
+//   Category: CAD
+//   File Mask: *.blend
+//   ID Bytes: 42 4C 45 4E 44 45 52
+//   History: 
+//   1.0   2022-01-24 seesaw:Simple parsing, first version
+//------------------------------------------------
+
+local int64 pos_sdna<format=hex> = 0 ;
+local int warnings = 0;
+local string temp_warning;
+
+void PrintWarning(string message) {
+    Warning(temp_warning);
+
+    // Ensure new-line, "Warning" statuses should not have them
+    SPrintf(temp_warning, "%s\n", message);
+    Printf(temp_warning);
+
+    // Hack to trigger a more generic "look at warnings in output"
+    warnings++;
+}
+
+enum <uchar> POINTERSIZE {
+    POINTERSIZE_32 = 0x5F,
+    POINTERSIZE_64 = 0x2d,
+};
+
+enum <uchar> ENDIAN {
+    LITTLE = 0x76,
+    BIG = 0x56,
+};
+
+typedef struct
+{
+    char identifier[7];
+    if(Strcmp(identifier, "BLENDER")) {
+        PrintWarning("Invalid Blender file");
+    }
+    POINTERSIZE pointer_size;
+    if(Strcmp(EnumToString(pointer_size), "") == 0) {
+        PrintWarning("Invalid point size");
+    }
+    ENDIAN endian;
+    if(Strcmp(EnumToString(endian), "") == 0) {
+        PrintWarning("Invalid endian");
+    }
+    if(endian == LITTLE)
+        LittleEndian();
+    else
+        BigEndian();
+    char versionNumber[3];
+} Header;
+
+typedef struct {
+    char code[4];
+    uint32 size;
+    uint64 old_memory_address <format=hex>;
+    int32  SDNAindex;
+    uint32 count;
+    if(code == "DNA1") {
+        pos_sdna = FTell();
+        struct {
+            char Item[size];
+        } DNAData;
+    } else {
+        struct 
+        {
+            char Item[size];
+        } blockData;
+    }
+}Block32  <read=ReadBlock32>;
+
+string ReadBlock32( Block32 &b )
+{
+    string s;
+    SPrintf( s, "%s.%d_%d>", b.code, b.size, b.count);
+    return s;
+}
+
+typedef struct {
+    char code[4];
+    uint32 size;
+    uint64 old_memory_address <format=hex>;
+    int32  SDNAindex;
+    uint32 count;
+    if(code == "DNA1") {
+        pos_sdna = FTell();
+        struct {
+            char Item[size];
+        } DNAData;
+    } else {
+        struct 
+        {
+            char Item[size];
+        } blockData;
+    }
+}Block64  <read=ReadBlock64>;
+
+string ReadBlock64( Block64 &b )
+{
+    string s;
+    SPrintf( s, "%s.%d_%d>", b.code, b.size, b.count);
+    return s;
+}
+
+void Align4(int64 pos)
+{
+    local int64 cur = FTell();
+    local int64 t = (cur - pos) % 4;
+    if(t != 0)
+        FSkip(4 - t);
+}
+
+typedef struct {
+    char identifier[4];
+    uint32 count;
+    struct {
+        string name <optimize=false>;
+    } name[count] <read=name, optimize=false>;
+}DNANames;
+
+typedef struct {
+    char identifier[4];
+    uint32 count;
+    struct {
+        string type <optimize=false>;
+    }type[count] <read=type, optimize=false>;
+}DNATypes;
+
+typedef struct DNALengthes(DNATypes& type) {
+    char identifier[4];
+    ushort length [type.count];
+}DNALengthes;
+
+typedef struct {
+    uint16 itype <read=sdna.types.type[this].type>;
+    ushort fields_count;
+    struct {
+        ushort field_type <read=sdna.types.type[this].type>;
+        ushort field_name <read=sdna.names.name[this].name>;
+    } fields[fields_count]<optimize=false>;
+}DNAStructure <read=ReadStructure, optimize=false>;
+
+string ReadStructure(DNAStructure& s )
+{
+    string ss;
+    string sf = "";
+    SPrintf( ss, "struct %s {", sdna.types.type[s.itype].type);
+    local int i = 0;
+    while(i < s.fields_count) {
+        sf = "";
+        SPrintf( sf, "%s %s;\n", sdna.types.type[s.fields[i].field_type].type,
+            sdna.names.name[s.fields[i].field_name].name);
+        ss += sf;
+        i++;
+    }
+    ss += "}";
+    return ss;
+}
+
+typedef struct {
+    char identifier[4];
+    uint32 count;
+    DNAStructure structure[count] <optimize=false>;
+
+}DNAStructures<optimize=false>;
+
+
+Header header;
+
+if(header.pointer_size == POINTERSIZE_32) {
+    while( !FEof() )
+    {
+        Block32 block <optimize=false>;
+    }
+} else if(header.pointer_size == POINTERSIZE_64) {
+    while( !FEof() )
+    {
+        Block64 block <optimize=false>;
+    }
+}
+
+FSeek(pos_sdna);
+
+struct {
+    local int64 pos = FTell();
+    char identifier[4];
+    DNANames names;
+    Align4(pos);
+    DNATypes types;
+    Align4(pos);
+    DNALengthes lengthes(types);
+    Align4(pos);
+    DNAStructures structures;
+} sdna;
+
+// This will make the template show "Template executed successfully."
+if(warnings != 0) {
+    SPrintf(temp_warning, "%d warnings found, template may not have run successfully!", warnings);
+    return temp_warning;
+}

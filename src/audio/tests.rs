@@ -4,7 +4,9 @@ use super::view::{AudioHits, Transport};
 use super::widget;
 use super::*;
 use crate::config::AudioDisplay;
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::crossterm::event::{
+    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::layout::Rect;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -50,7 +52,12 @@ fn sine_info(tag: &str, secs: f32) -> AudioInfo {
 }
 
 fn left_down(col: u16, row: u16) -> MouseEvent {
-    MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: col, row, modifiers: KeyModifiers::NONE }
+    MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: col,
+        row,
+        modifiers: KeyModifiers::NONE,
+    }
 }
 
 fn mouse(kind: MouseEventKind, col: u16, row: u16) -> MouseEvent {
@@ -315,8 +322,10 @@ fn the_drawn_buttons_answer_clicks() {
     let theme = crate::ui::theme::Theme::default();
     let mut term = Terminal::new(TestBackend::new(90, 12)).unwrap();
     let area = Rect { x: 0, y: 0, width: 90, height: 12 };
-    term.draw(|f| widget::render(f, area, &v, &theme, None, crate::ui::graphics::Slot::ViewerAudio))
-        .unwrap();
+    term.draw(|f| {
+        widget::render(f, area, &v, &theme, None, crate::ui::graphics::Slot::ViewerAudio)
+    })
+    .unwrap();
     let hits = v.hits();
     let kinds: Vec<Transport> = hits.buttons.iter().map(|(_, t)| *t).collect();
     assert_eq!(
@@ -358,9 +367,23 @@ fn the_drawn_buttons_answer_clicks() {
 
 #[test]
 fn waveform_bins_merge_by_extremes() {
-    let bins = [WaveBin { min: -0.2, max: 0.1, rms: 0.1 }, WaveBin { min: -0.1, max: 0.4, rms: 0.3 }];
-    let a = Analysis { wave: bins.to_vec(), wave_hop: 10, frames_done: 20, done: true, sample_rate: 20, ..Default::default() };
-    let pal = raster::Palette { bg: (0, 0, 0), wave: (9, 9, 9), core: (99, 99, 99), axis: (1, 1, 1), head: (2, 2, 2) };
+    let bins =
+        [WaveBin { min: -0.2, max: 0.1, rms: 0.1 }, WaveBin { min: -0.1, max: 0.4, rms: 0.3 }];
+    let a = Analysis {
+        wave: bins.to_vec(),
+        wave_hop: 10,
+        frames_done: 20,
+        done: true,
+        sample_rate: 20,
+        ..Default::default()
+    };
+    let pal = raster::Palette {
+        bg: (0, 0, 0),
+        wave: (9, 9, 9),
+        core: (99, 99, 99),
+        axis: (1, 1, 1),
+        head: (2, 2, 2),
+    };
     // One pixel column over both bins: the envelope spans both extremes.
     let img = raster::waveform(&a, 1, 101, &pal);
     let top = (0..101).find(|&y| img.get_pixel(0, y)[0] > 1).unwrap();

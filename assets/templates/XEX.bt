@@ -1,0 +1,759 @@
+//--------------------------------------------------------------------------------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+//
+//      File: XEX.bt
+//   Authors: Hyper (linktr.ee/hyperbx)
+//   Version: 1.0.5
+//   Purpose: Parse Xbox 360 executable files.
+//  Category: Executable
+// File Mask: *.xex, *.xexp
+//  ID Bytes: 58 45 58 // XEX
+//   History:
+//   1.0.5   2024-09-13 Hyper: Mapped import functions as an array of thunks instead of pairs.
+//   1.0.4   2024-09-08 Hyper: Fixed import library string table reader alignment.
+//   1.0.3   2024-08-23 Hyper: Fixed XEX_HEADER_ORIGINAL_PE_NAME reading out of bounds.
+//   1.0.2   2024-01-27 Hyper: Fixed XEX1 security info struct.
+//   1.0.1   2024-01-21 Hyper: Fixed page descriptor section type enum,
+//                             updated naming convention for virtual addresses,
+//                             and resolved import functions as id/impl pairs.
+//   1.0.0   2024-01-21 Hyper: Initial release.
+//
+// References:
+// - https://github.com/xenia-project/xenia/blob/master/src/xenia/kernel/util/xex2_info.h
+// - https://github.com/GerbilSoft/rom-properties/blob/master/src/libromdata/Console/xbox360_xex_structs.h
+// - https://github.com/GerbilSoft/rom-properties/blob/master/src/libromdata/Console/xbox360_common_structs.h
+//--------------------------------------------------------------------------------------------------------------------------
+
+local int _primaryHeaderColour = cLtRed;
+local int _optionalHeaderColour = cYellow;
+local int _securityInfoColour = cGreen;
+local int _pageDescriptorColour = cLtGreen;
+local int _stringColour = cPurple;
+local int _unknownDataColour = cRed;
+local int _generalDataColour = cGray;
+
+BigEndian();
+
+enum EXexVersion
+{
+    XEX1 = 0x58455831,
+    XEX2 = 0x58455832
+}
+Version<format=hex>;
+
+FSeek(0);
+
+struct XexVersion
+{
+    uint QFE   : 8;
+    uint Build : 16;
+    uint Minor : 4;
+    uint Major : 4;
+};
+
+struct XexTitleID
+{
+    char A;
+    char B;
+    ushort ID;  
+};
+
+struct UInt128
+{
+    ubyte Data[0x10]<format=hex, open=suppress>;
+};
+
+struct XexOptionalHeader
+{
+    SetBackColor(_optionalHeaderColour);
+    
+    enum<uint> EXexOptionalHeaderType
+    {
+	    XEX_HEADER_RESOURCE_INFO		    =    0x2FF,
+	    XEX_HEADER_FILE_FORMAT_INFO		    =    0x3FF,
+	    XEX_HEADER_BASE_REFERENCE		    =    0x405, // TODO (low priority)
+	    XEX_HEADER_DELTA_PATCH_DESCRIPTOR   =    0x5FF,
+	    XEX_HEADER_DISC_PROFILE_ID		    =   0x4304,
+	    XEX_HEADER_BOUNDING_PATH		    =   0x80FF,
+	    XEX_HEADER_DEVICE_ID			    =   0x8105, // TODO (low priority)
+	    XEX_HEADER_ORIGINAL_BASE_ADDRESS    =  0x10001,
+	    XEX_HEADER_ENTRY_POINT			    =  0x10100,
+	    XEX_HEADER_IMAGE_BASE_ADDRESS	    =  0x10201,
+	    XEX_HEADER_IMPORT_LIBRARIES		    =  0x103FF,
+	    XEX_HEADER_CHECKSUM_TIMESTAMP	    =  0x18002,
+	    XEX_HEADER_ENABLED_FOR_CALLCAP	    =  0x18102, // TODO (low priority)
+	    XEX_HEADER_ENABLED_FOR_FASTCAP	    =  0x18200,
+	    XEX_HEADER_ORIGINAL_PE_NAME		    =  0x183FF,
+	    XEX_HEADER_STATIC_LIBRARIES		    =  0x200FF,
+	    XEX_HEADER_TLS_INFO			        =  0x20104,
+	    XEX_HEADER_DEFAULT_STACK_SIZE	    =  0x20200,
+	    XEX_HEADER_DEFAULT_FS_CACHE_SIZE    =  0x20301,
+	    XEX_HEADER_DEFAULT_HEAP_SIZE	    =  0x20401,
+	    XEX_HEADER_PAGE_HEAP_SIZE_AND_FLAGS =  0x28002, // TODO (low priority)
+	    XEX_HEADER_SYSTEM_FLAGS		        =  0x30000,
+	    XEX_HEADER_EXECUTION_ID		        =  0x40006,
+	    XEX_HEADER_SERVICE_ID_LIST		    =  0x401FF, // TODO
+	    XEX_HEADER_TITLE_WORKSPACE_SIZE	    =  0x40201,
+	    XEX_HEADER_GAME_RATINGS		        =  0x40310,
+	    XEX_HEADER_LAN_KEY			        =  0x40404,
+	    XEX_HEADER_XBOX_360_LOGO		    =  0x405FF,
+	    XEX_HEADER_MULTIDISC_MEDIA_IDS	    =  0x406FF,
+	    XEX_HEADER_ALTERNATE_TITLE_IDS	    =  0x407FF,
+	    XEX_HEADER_ADDITIONAL_TITLE_MEMORY  =  0x40801,
+	    XEX_HEADER_EXPORTS_BY_NAME		    = 0xE10402, // TODO (low priority)
+    }
+    Type<format=hex>;
+    
+    local byte lo = Type & 0xFF;
+    
+    // Traverse elsewhere for header data if the LOBYTE is non-zero.
+    if ((lo > 0x01 && lo < 0x7E) || lo == -1)
+    {
+        uint Offset<format=hex, hidden=true>;
+        
+        local ulong p = FTell();
+        FSeek(Offset);
+        
+        SetBackColor(_optionalHeaderColour);
+        
+        if (lo == -1)
+            uint HeaderSize<hidden=true>;
+        
+        switch (Type)
+        {
+            case XEX_HEADER_RESOURCE_INFO:
+            {
+                local int entrySize = HeaderSize / 16;
+                
+                local int i;
+                for (i = 0; i < entrySize; i++)
+                {
+                    struct XexResourceInfo
+                    {
+                        SetBackColor(_stringColour);
+                        char ResourceID[8]<open=suppress>;
+                        SetBackColor(_optionalHeaderColour);
+                        
+                        uint pResource<format=hex>;
+                        uint ResourceSize;
+                    }
+                    ResourceInfo;
+                }
+                
+                break;
+            }
+            
+            case XEX_HEADER_FILE_FORMAT_INFO:
+            {
+                enum<ushort> EXexEncryptionType
+                {
+                    XEX_ENCRYPTION_TYPE_NONE,
+                    XEX_ENCRYPTION_TYPE_NORMAL
+                }
+                EncryptionType;
+                
+                enum<ushort> EXexCompressionType
+                {
+                    XEX_COMPRESSION_TYPE_NONE,
+                    XEX_COMPRESSION_TYPE_BASIC,
+                    XEX_COMPRESSION_TYPE_NORMAL,
+                    XEX_COMPRESSION_TYPE_DELTA
+                }
+                CompressionType;
+                
+                switch (CompressionType)
+                {
+                    case XEX_COMPRESSION_TYPE_BASIC:
+                    {
+                        struct XexCompressionBasicInfo
+                        {
+                            uint DataSize<comment="Number of compressed bytes.">;
+                            uint ZeroSize<comment="Number of zero bytes to be inserted after the data bytes.">;   
+                        }
+                        CompressionInfo;
+                        
+                        break;
+                    }
+                    
+                    case XEX_COMPRESSION_TYPE_NORMAL:
+                    {
+                        struct XexCompressionNormalHeader
+                        {
+                            uint WindowSize<comment="LZX compression window size.">;
+                            
+                            struct XexCompressionNormalInfo
+                            {
+                                uint BlockSize;
+                                ubyte Hash[0x14]<open=suppress, comment="SHA-1">;
+                            }
+                            FirstBlock;
+                        }
+                        CompressionInfo;
+                        
+                        break;
+                    }
+                }
+                
+                break;
+            }
+            
+            case XEX_HEADER_DELTA_PATCH_DESCRIPTOR:
+            {
+                XexVersion TargetVersion;
+                XexVersion SourceVersion;
+                ubyte DigestSource[0x14]<format=hex, open=suppress>;
+                ubyte ImageKeySource[0x10]<format=hex, open=suppress>;
+                uint SizeOfTargetHeaders;
+                uint DeltaHeadersSourceOffset;
+                uint DeltaHeadersSourceSize;
+                uint DeltaHeadersTargetOffset;
+                uint DeltaImageSourceOffset;
+                uint DeltaImageSourceSize;
+                uint DeltaImageTargetOffset;
+                
+                struct XexDeltaPatchInfo
+                {
+                    uint OldAddress<format=hex>;
+                    uint NewAddress<format=hex>;
+                    ushort UncompressedSize;
+                    ushort CompressedSize;
+                    
+                    SetBackColor(_generalDataColour);
+                    ubyte Data[CompressedSize <= 0 ? UncompressedSize : CompressedSize]<format=hex, open=suppress>;
+                }
+                Info;
+                
+                break;
+            }
+            
+            case XEX_HEADER_DISC_PROFILE_ID:
+                UInt128 ProfileID;
+                break;
+                
+            case XEX_HEADER_BOUNDING_PATH:
+                char Path[HeaderSize];
+                break;
+            
+            case XEX_HEADER_IMPORT_LIBRARIES:
+            {
+                uint StringTableSize<hidden=true>;
+                uint StringTableCount<hidden=true>;
+                
+                local ulong stringTableOffset = FTell();
+                local ulong stringTableRead;
+                local ulong lastImportSize;
+                
+                local int i;
+                for (i = 0; i < StringTableCount; i++)
+                {
+                    struct XexImportLibrary
+                    {
+                        FSeek(stringTableOffset + stringTableRead);
+                        
+                        if (FTell() < stringTableOffset + StringTableSize)
+                        {
+                            SetBackColor(_stringColour); string Name<open=suppress>;
+                            stringTableRead += Strlen(Name) + 1;
+                            
+                            // Align string table reader.
+                            while ((stringTableRead % 4) != 0)
+                            {
+                                stringTableRead += Min(4 - (stringTableRead % 4), StringTableSize - stringTableRead);
+                            }
+                            
+                            FSeek(stringTableOffset + StringTableSize + lastImportSize);
+                        }
+                        
+                        SetBackColor(_optionalHeaderColour);
+                        
+                        uint Size<hidden=true>;
+                        ubyte NextImportDigest[0x14]<format=hex, open=suppress, comment="SHA-1">;
+                        uint ID<format=hex>;
+                        XexVersion Version;
+                        XexVersion MinVersion;
+                        ushort NameIndex<hidden=true>;
+                        ushort Count<hidden=true>;
+                        uint Thunks[Count]<open=suppress>;
+                    }
+                    ImportLibrary;
+                    
+                    lastImportSize += 40 + (ImportLibrary.Count * 4);
+                }
+                
+                break;   
+            }
+            
+            case XEX_HEADER_CHECKSUM_TIMESTAMP:
+                uint Checksum<format=hex>;
+                time_t Timestamp;
+                break;
+                
+            case XEX_HEADER_ORIGINAL_PE_NAME:
+                SetBackColor(_stringColour);
+                char Name[HeaderSize - 4]<open=suppress>;
+                SetBackColor(_optionalHeaderColour);
+                break;
+                
+            case XEX_HEADER_STATIC_LIBRARIES:
+            {
+                local int entrySize = HeaderSize / 16;
+                
+                local int i;
+                for (i = 0; i < entrySize; i++)
+                {
+                    struct XexStaticLibrary
+                    {
+                        SetBackColor(_stringColour);
+                        char Name[8]<open=suppress>;
+                        SetBackColor(_optionalHeaderColour);
+                        
+                        ushort MajorVersion;
+                        ushort MinorVersion;
+                        ushort Build;
+                        
+                        enum<ubyte> EXexApprovalType
+                        {
+                            XEX_APPROVAL_UNAPPROVED,
+                            XEX_APPROVAL_POSSIBLE,
+                            XEX_APPROVAL_APPROVED,
+                            XEX_APPROVAL_EXPIRED
+                        }
+                        ApprovalType;
+                        
+                        ubyte QFE;
+                    }
+                    StaticLibrary;   
+                }
+                
+                break;   
+            }
+                
+            case XEX_HEADER_TLS_INFO:
+                uint SlotCount;
+                uint pRawData<format=hex>;
+                uint DataSize;
+                uint RawDataSize;
+                break;
+                
+            case XEX_HEADER_EXECUTION_ID:
+                uint MediaID<format=hex>;
+                XexVersion Version;
+                XexVersion BaseVersion;
+                XexTitleID TitleID;
+                ubyte Platform;
+                ubyte ExecutableType;
+                ubyte DiscNumber;
+                ubyte DiscCount;
+                uint SaveGameID<format=hex>;
+                break;
+                
+            case XEX_HEADER_GAME_RATINGS:
+            {
+                enum<ubyte> EXexGameRatingsESRB
+                {
+	                XEX_GAME_RATINGS_ESRB_eC	  = 0,
+	                XEX_GAME_RATINGS_ESRB_E	      = 2,
+	                XEX_GAME_RATINGS_ESRB_E10	  = 4,
+	                XEX_GAME_RATINGS_ESRB_T	      = 6,
+	                XEX_GAME_RATINGS_ESRB_M	      = 8,
+	                XEX_GAME_RATINGS_ESRB_AO	  = 14,
+	                XEX_GAME_RATINGS_ESRB_UNRATED = 0xFF,
+                }
+                ESRB;
+                
+                enum<ubyte> EXexGameRatingsPEGI
+                {
+	                XEX_GAME_RATINGS_PEGI_3_PLUS  = 0,
+	                XEX_GAME_RATINGS_PEGI_7_PLUS  = 4,
+	                XEX_GAME_RATINGS_PEGI_12_PLUS = 9,
+	                XEX_GAME_RATINGS_PEGI_16_PLUS = 13,
+	                XEX_GAME_RATINGS_PEGI_18_PLUS = 14,
+	                XEX_GAME_RATINGS_PEGI_UNRATED = 0xFF,
+                }
+                PEGI;
+                
+                enum<ubyte> EXexGameRatingsPEGI_FI
+                {
+	                XEX_GAME_RATINGS_PEGI_FI_3_PLUS	 = 0,
+	                XEX_GAME_RATINGS_PEGI_FI_7_PLUS	 = 4,
+	                XEX_GAME_RATINGS_PEGI_FI_11_PLUS = 8,
+	                XEX_GAME_RATINGS_PEGI_FI_15_PLUS = 12,
+	                XEX_GAME_RATINGS_PEGI_FI_18_PLUS = 14,
+	                XEX_GAME_RATINGS_PEGI_FI_UNRATED = 0xFF,
+                }
+                PEGI_FI<comment="PEGI (Finland)">;
+                
+                enum<ubyte> EXexGameRatingsPEGI_PT
+                {
+	                XEX_GAME_RATINGS_PEGI_PT_4_PLUS	 = 1,
+	                XEX_GAME_RATINGS_PEGI_PT_6_PLUS	 = 3,
+	                XEX_GAME_RATINGS_PEGI_PT_12_PLUS = 9,
+	                XEX_GAME_RATINGS_PEGI_PT_16_PLUS = 13,
+	                XEX_GAME_RATINGS_PEGI_PT_18_PLUS = 14,
+	                XEX_GAME_RATINGS_PEGI_PT_UNRATED = 0xFF,
+                }
+                PEGI_PT<comment="PEGI (Portugal)">;
+                
+                enum<ubyte> EXexGameRatingsBBFC
+                {
+	                XEX_GAME_RATINGS_BBFC_UNIVERSAL	= 1,
+	                XEX_GAME_RATINGS_BBFC_PG		= 5,
+	                XEX_GAME_RATINGS_BBFC_3_PLUS	= 0,
+	                XEX_GAME_RATINGS_BBFC_7_PLUS	= 4,
+	                XEX_GAME_RATINGS_BBFC_12_PLUS	= 9,
+	                XEX_GAME_RATINGS_BBFC_15_PLUS	= 12,
+	                XEX_GAME_RATINGS_BBFC_16_PLUS	= 13,
+	                XEX_GAME_RATINGS_BBFC_18_PLUS	= 14,
+	                XEX_GAME_RATINGS_BBFC_UNRATED	= 0xFF,
+                }
+                BBFC;
+                
+                enum<ubyte> EXexGameRatingsCERO
+                {
+	                XEX_GAME_RATINGS_CERO_A	      = 0,
+	                XEX_GAME_RATINGS_CERO_B	      = 2,
+	                XEX_GAME_RATINGS_CERO_C	      = 4,
+	                XEX_GAME_RATINGS_CERO_D	      = 6,
+	                XEX_GAME_RATINGS_CERO_Z	      = 8,
+	                XEX_GAME_RATINGS_CERO_UNRATED = 0xFF,
+                }
+                CERO;
+                
+                enum<ubyte> EXexGameRatingsUSK
+                {
+	                XEX_GAME_RATINGS_USK_ALL	 = 0,
+	                XEX_GAME_RATINGS_USK_6_PLUS	 = 2,
+	                XEX_GAME_RATINGS_USK_12_PLUS = 4,
+	                XEX_GAME_RATINGS_USK_16_PLUS = 6,
+	                XEX_GAME_RATINGS_USK_18_PLUS = 8,
+	                XEX_GAME_RATINGS_USK_UNRATED = 0xFF,
+                }
+                USK;
+                
+                enum<ubyte> EXexGameRatingsOFLC_AU
+                {
+	                XEX_GAME_RATINGS_OFLC_AU_G		   = 0,
+	                XEX_GAME_RATINGS_OFLC_AU_PG		   = 2,
+	                XEX_GAME_RATINGS_OFLC_AU_M		   = 4,
+	                XEX_GAME_RATINGS_OFLC_AU_MA15_PLUS = 6,
+	                XEX_GAME_RATINGS_OFLC_AU_UNRATED   = 0xFF,
+                }
+                OFLC_AU<comment="OFLC (Australia)">;
+                
+                enum<ubyte> EXexGameRatingsOFLC_NZ
+                {
+	                XEX_GAME_RATINGS_OFLC_NZ_G		   = 0,
+	                XEX_GAME_RATINGS_OFLC_NZ_PG		   = 2,
+	                XEX_GAME_RATINGS_OFLC_NZ_M		   = 4,
+	                XEX_GAME_RATINGS_OFLC_NZ_MA15_PLUS = 6,
+	                XEX_GAME_RATINGS_OFLC_NZ_UNRATED   = 0xFF,
+                }
+                OFLC_NZ<comment="OFLC (New Zealand)">;
+                
+                enum<ubyte> EXexGameRatingsKMRB
+                {
+	                XEX_GAME_RATINGS_KMRB_ALL	  = 0,
+	                XEX_GAME_RATINGS_KMRB_12_PLUS = 2,
+	                XEX_GAME_RATINGS_KMRB_15_PLUS = 4,
+	                XEX_GAME_RATINGS_KMRB_18_PLUS = 6,
+	                XEX_GAME_RATINGS_KMRB_UNRATED = 0xFF,
+                }
+                KMRB;
+                
+                enum<ubyte> EXexGameRatingsBrazil
+                {
+	                XEX_GAME_RATINGS_BRAZIL_ALL		= 0,
+	                XEX_GAME_RATINGS_BRAZIL_12_PLUS	= 2,
+	                XEX_GAME_RATINGS_BRAZIL_14_PLUS	= 4,
+	                XEX_GAME_RATINGS_BRAZIL_16_PLUS	= 5,
+	                XEX_GAME_RATINGS_BRAZIL_18_PLUS	= 8,
+	                XEX_GAME_RATINGS_BRAZIL_UNRATED	= 0xFF,
+                }
+                Brazil;
+                
+                enum<ubyte> EXexGameRatingsFPB
+                {
+	                XEX_GAME_RATINGS_FPB_ALL     = 0,
+	                XEX_GAME_RATINGS_FPB_PG	     = 6,
+	                XEX_GAME_RATINGS_FPB_10_PLUS = 7,
+	                XEX_GAME_RATINGS_FPB_13_PLUS = 10,
+	                XEX_GAME_RATINGS_FPB_16_PLUS = 13,
+	                XEX_GAME_RATINGS_FPB_18_PLUS = 14,
+	                XEX_GAME_RATINGS_FPB_UNRATED = 0xFF,
+                }
+                FPB;
+                
+                break;   
+            }
+            
+            case XEX_HEADER_LAN_KEY:
+                ubyte Key[0x10]<format=hex, open=suppress>;
+                break;
+                
+            case XEX_HEADER_XBOX_360_LOGO:
+                ubyte Data[HeaderSize - 4]<format=hex, open=suppress>;
+                break;
+                
+            case XEX_HEADER_MULTIDISC_MEDIA_IDS:
+                UInt128 XGD2MediaID[HeaderSize / 16];
+                break;   
+                
+            case XEX_HEADER_ALTERNATE_TITLE_IDS:
+                uint TitleIDs[(HeaderSize / 4) - 1]<format=hex>;
+                break;
+                
+            default:
+            {
+                local ubyte isKnownHeader = EnumToString(Type) != "";
+                
+                if (!isKnownHeader)
+                    Printf("Encountered an unknown optional header!\n- Type: %x\n- Offset: 0x%x\n", Type, Offset);
+                
+                if (lo == -1)
+                {
+                    if (isKnownHeader)
+                        Printf("Encountered an unimplemented optional header!\n- Type: %x (%s)\n- Offset: 0x%x\n", Type, EnumToString(Type), Offset);
+                    
+                    uint Data[HeaderSize]<open=suppress>;
+                    
+                    break;
+                }
+                
+                /* Headers where the LOBYTE is not -1
+                   use the value as the total amount
+                   of DWORDs at this location. */
+                uint Data[lo]<open=suppress>;
+            }
+        }
+        
+        FSeek(p);
+    }
+    else
+    {
+        switch (Type)
+        {
+            case XEX_HEADER_SYSTEM_FLAGS:
+            {
+                enum<uint> EXexSystemFlags
+                {
+	                XEX_SYSTEM_FLAG_NO_FORCED_REBOOT			      = 0x00000001,
+	                XEX_SYSTEM_FLAG_FOREGROUND_TASKS			      = 0x00000002,
+	                XEX_SYSTEM_FLAG_NO_ODD_MAPPING				      = 0x00000004,
+	                XEX_SYSTEM_FLAG_HANDLE_MCE_INPUT			      = 0x00000008,
+	                XEX_SYSTEM_FLAG_RESTRICTED_HUD_FEATURES		      = 0x00000010,
+	                XEX_SYSTEM_FLAG_HANDLE_GAMEPAD_DISCONNECT         = 0x00000020,
+	                XEX_SYSTEM_FLAG_INSECURE_SOCKETS			      = 0x00000040,
+	                XEX_SYSTEM_FLAG_XBOX1_INTEROPERABILITY		      = 0x00000080,
+	                XEX_SYSTEM_FLAG_DASH_CONTEXT				      = 0x00000100,
+	                XEX_SYSTEM_FLAG_USES_GAME_VOICE_CHANNEL		      = 0x00000200,
+	                XEX_SYSTEM_FLAG_PAL50_INCOMPATIBLE			      = 0x00000400,
+	                XEX_SYSTEM_FLAG_INSECURE_UTILITY_DRIVE		      = 0x00000800,
+	                XEX_SYSTEM_FLAG_XAM_HOOKS				          = 0x00001000,
+	                XEX_SYSTEM_FLAG_ACCESS_PII				          = 0x00002000,
+	                XEX_SYSTEM_FLAG_CROSS_PLATFORM_SYSTEM_LINK	      = 0x00004000,
+	                XEX_SYSTEM_FLAG_MULTIDISC_SWAP				      = 0x00008000,
+	                XEX_SYSTEM_FLAG_MULTIDISC_INSECURE_MEDIA	      = 0x00010000,
+	                XEX_SYSTEM_FLAG_AP25_MEDIA				          = 0x00020000,
+	                XEX_SYSTEM_FLAG_NO_CONFIRM_EXIT			          = 0x00040000,
+	                XEX_SYSTEM_FLAG_ALLOW_BACKGROUND_DOWNLOAD	      = 0x00080000,
+	                XEX_SYSTEM_FLAG_CREATE_PERSISTABLE_RAMDRIVE	      = 0x00100000,
+	                XEX_SYSTEM_FLAG_INHERIT_PERSISTENT_RAMDRIVE	      = 0x00200000,
+	                XEX_SYSTEM_FLAG_ALLOW_HUD_VIBRATION			      = 0x00400000,
+	                XEX_SYSTEM_FLAG_ACCESS_UTILITY_PARTITIONS	      = 0x00800000,
+	                XEX_SYSTEM_FLAG_IPTV_INPUT_SUPPORTED		      = 0x01000000,
+	                XEX_SYSTEM_FLAG_PREFER_BIG_BUTTON_INPUT		      = 0x02000000,
+	                XEX_SYSTEM_FLAG_ALLOW_EXTENDED_SYSTEM_RESERVATION = 0x04000000,
+	                XEX_SYSTEM_FLAG_MULTIDISC_CROSS_TITLE			  = 0x08000000,
+	                XEX_SYSTEM_FLAG_INSTALL_INCOMPATIBLE			  = 0x10000000,
+	                XEX_SYSTEM_FLAG_ALLOW_AVATAR_GET_METADATA_BY_XUID = 0x20000000,
+	                XEX_SYSTEM_FLAG_ALLOW_CONTROLLER_SWAPPING		  = 0x40000000,
+	                XEX_SYSTEM_FLAG_DASH_EXTENSIBILITY_MODULE		  = 0x80000000
+                }
+                Flags;
+                
+                break;   
+            }
+            
+            default:
+            {
+                uint Data<format=hex>;
+                
+                if (EnumToString(Type) == "")
+                    Printf("Encountered an unknown optional header!\n- Type: %x\n- Offset: 0x%x\n", Type, FTell());
+                
+                break;   
+            }
+        }
+    }
+};
+
+enum<uint> EXexRegionCode
+{
+	XEX_REGION_NTSC_U		= 0x000000FF,
+	XEX_REGION_NTSC_J		= 0x0000FF00,
+	XEX_REGION_NTSC_J_OTHER = 0x0000FC00,
+	XEX_REGION_NTSC_J_JAPAN = 0x00000100,
+	XEX_REGION_NTSC_J_CHINA = 0x00000200,
+	XEX_REGION_PAL		    = 0x00FF0000,
+	XEX_REGION_PAL_OTHER	= 0x00FE0000,
+	XEX_REGION_PAL_AU_NZ	= 0x00010000,
+	XEX_REGION_OTHER		= 0xFF000000,
+	XEX_REGION_ALL		    = 0xFFFFFFFF
+};
+
+enum<uint> EXexImageFlags
+{
+	XEX_IMAGE_MANUFACTURING_UTILITY		   = 0x00000002,
+	XEX_IMAGE_MANUFACTURING_SUPPORT_TOOLS  = 0x00000004,
+	XEX_IMAGE_XGD2_MEDIA_ONLY			   = 0x00000008,
+	XEX_IMAGE_CARDEA_KEY			       = 0x00000100,
+	XEX_IMAGE_XEIKA_KEY			           = 0x00000200,
+	XEX_IMAGE_USERMODE_TITLE			   = 0x00000400,
+	XEX_IMAGE_USERMODE_SYSTEM			   = 0x00000800,
+	XEX_IMAGE_ORANGE0				       = 0x00001000,
+	XEX_IMAGE_ORANGE1				       = 0x00002000,
+	XEX_IMAGE_ORANGE2				       = 0x00004000,
+	XEX_IMAGE_IPTV_SIGNUP_APPLICATION	   = 0x00010000,
+	XEX_IMAGE_IPTV_TITLE_APPLICATION	   = 0x00020000,
+	XEX_IMAGE_KEYVAULT_PRIVILEGES_REQUIRED = 0x04000000,
+	XEX_IMAGE_ONLINE_ACTIVATION_REQUIRED   = 0x08000000,
+	XEX_IMAGE_PAGE_SIZE_4KB			       = 0x10000000, // Default is 64KB.
+	XEX_IMAGE_REGION_FREE			       = 0x20000000,
+	XEX_IMAGE_REVOCATION_CHECK_OPTIONAL	   = 0x40000000,
+	XEX_IMAGE_REVOCATION_CHECK_REQUIRED	   = 0x80000000
+};
+
+enum<uint> EXexMediaTypes
+{
+	XEX_MEDIA_HARDDISK		          = 0x00000001,
+	XEX_MEDIA_XGD1			          = 0x00000002,
+	XEX_MEDIA_DVD_CD			      = 0x00000004,
+	XEX_MEDIA_DVD_5			          = 0x00000008,
+	XEX_MEDIA_DVD_9			          = 0x00000010,
+	XEX_MEDIA_SYSTEM_FLASH		      = 0x00000020,
+	XEX_MEDIA_MEMORY_UNIT		      = 0x00000080,
+	XEX_MEDIA_USB_MASS_STORAGE_DEVICE = 0x00000100,
+	XEX_MEDIA_NETWORK			      = 0x00000200,
+	XEX_MEDIA_DIRECT_FROM_MEMORY	  = 0x00000400,
+	XEX_MEDIA_RAM_DRIVE		          = 0x00000800,
+	XEX_MEDIA_SVOD			          = 0x00001000,
+	XEX_MEDIA_INSECURE_PACKAGE	      = 0x01000000,
+	XEX_MEDIA_SAVEGAME_PACKAGE	      = 0x02000000,
+	XEX_MEDIA_LOCALLY_SIGNED_PACKAGE  = 0x04000000,
+	XEX_MEDIA_LIVE_SIGNED_PACKAGE	  = 0x08000000,
+	XEX_MEDIA_XBOX_PACKAGE		      = 0x10000000
+};
+
+enum<uint> EXexSectionType
+{
+    XEX_SECTION_CODE = 1,
+    XEX_SECTION_DATA = 2,
+    XEX_SECTION_READONLY_DATA = 3
+};
+
+struct XexPageDescriptor
+{
+    uint PageCount : 28;
+    EXexSectionType Type : 4;
+    ubyte DataDigest[0x14]<format=hex, open=suppress>;
+};
+
+struct Xex1SecurityInfo
+{
+    SetBackColor(_securityInfoColour);
+    
+    uint HeaderSize;
+    uint ImageSize;
+    ubyte RSASignature[0x100]<format=hex, open=suppress, comment="RSA-2048">;
+    ubyte ImageDigest[0x14]<format=hex, open=suppress, comment="SHA-1">;
+    ubyte ImportTableDigest[0x14]<format=hex, open=suppress, comment="SHA-1">;
+    uint BaseAddress<format=hex>;
+    UInt128 TitleKey<comment="AES-128">;
+    UInt128 XGD2MediaID;
+    EXexRegionCode RegionCode;
+    EXexImageFlags ImageFlags;
+    uint pExportTable<format=hex, comment="No export table if zero.">;
+    EXexMediaTypes AllowedMediaTypes;
+    uint PageDescriptorCount<hidden=true>;
+    
+    if (PageDescriptorCount != 0)
+    {
+        SetBackColor(_pageDescriptorColour);
+        XexPageDescriptor PageDescriptors[PageDescriptorCount]<open=suppress>;
+    }
+};
+
+struct Xex2SecurityInfo
+{
+    SetBackColor(_securityInfoColour);
+    
+    uint HeaderSize;
+    uint ImageSize;
+    ubyte RSASignature[0x100]<format=hex, open=suppress, comment="RSA-2048">;
+    
+    SetBackColor(_unknownDataColour);
+    uint Unknown<hidden=true>;
+    SetBackColor(_securityInfoColour);
+    
+    EXexImageFlags ImageFlags;
+    uint BaseAddress<format=hex>;
+    ubyte SectionDigest[0x14]<format=hex, open=suppress, comment="SHA-1">;
+    uint ImportTableCount<hidden=true>;
+    ubyte ImportTableDigest[0x14]<format=hex, open=suppress, comment="SHA-1">;
+    UInt128 XGD2MediaID;
+    UInt128 TitleKey<comment="AES-128">;
+    uint pExportTable<format=hex, comment="No export table if zero.">;
+    ubyte HeaderDigest[0x14]<format=hex, open=suppress, comment="SHA-1">;
+    EXexRegionCode RegionCode<format=hex>;
+    EXexMediaTypes AllowedMediaTypes;
+    uint PageDescriptorCount<hidden=true>;
+    
+    if (PageDescriptorCount != 0)
+    {
+        SetBackColor(_pageDescriptorColour);
+        XexPageDescriptor PageDescriptors[PageDescriptorCount]<open=suppress>;
+    }
+};
+
+struct XexHeader
+{
+    SetBackColor(_primaryHeaderColour);
+    
+    char Signature[4]<open=suppress>;
+    
+    enum<uint> EXexModuleFlags
+    {
+	    XEX_MODULE_TITLE			= 0x00000001,
+	    XEX_MODULE_EXPORTS_TO_TITLE = 0x00000002,
+	    XEX_MODULE_SYSTEM_DEBUGGER	= 0x00000004,
+	    XEX_MODULE_DLL_MODULE		= 0x00000008,
+	    XEX_MODULE_MODULE_PATCH     = 0x00000010,
+	    XEX_MODULE_PATCH_FULL		= 0x00000020,
+	    XEX_MODULE_PATCH_DELTA		= 0x00000040,
+	    XEX_MODULE_USER_MODE		= 0x00000080
+    }
+    ModuleFlags;
+
+    uint HeaderSize;
+    
+    SetBackColor(_unknownDataColour);
+    uint Reserved<hidden=true>;
+    SetBackColor(_primaryHeaderColour);
+    
+    uint SecurityInfoOffset;
+    uint OptionalHeaderCount;
+}
+Header;
+
+XexOptionalHeader OptionalHeaders[Header.OptionalHeaderCount]<optimize=false>;
+
+FSeek(Header.SecurityInfoOffset);
+
+if (Version == XEX1)
+{
+    Xex1SecurityInfo SecurityInfo;
+}
+else
+{
+    Xex2SecurityInfo SecurityInfo;
+}

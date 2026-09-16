@@ -665,6 +665,49 @@ fn two_button_confirm_still_works() {
 }
 
 #[test]
+fn ssh_config_hosts_follow_the_recent_ones_in_the_host_dropdown() {
+    use crate::vfs::remote::sshconfig::SshConfig;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    let cfg = SshConfig::parse(
+        "Host db\n  HostName db.internal\n  User dba\n  Port 2222\n  ProxyJump bastion\nHost old *.wild\n",
+        std::path::Path::new("/nowhere"),
+    );
+    let recent = vec![RemoteHistoryEntry {
+        protocol: "sftp".into(),
+        host: "old".into(),
+        port: 22,
+        user: "me".into(),
+        path: String::new(),
+        passive: true,
+        key_file: String::new(),
+    }];
+    let mut d = FormDialog::connect_with_config(Protocol::Sftp, 0, recent, &cfg);
+    d.handle_key(key(KeyCode::Down)); // open the dropdown
+    let theme = crate::ui::theme::Theme::mc();
+    let mut t = Terminal::new(TestBackend::new(100, 20)).unwrap();
+    t.draw(|f| d.render(f, f.area(), &theme, None)).unwrap();
+    let b = t.backend().buffer();
+    let screen: String = (0..b.area.height)
+        .flat_map(|y| (0..b.area.width).map(move |x| (x, y)))
+        .map(|p| b[p].symbol().to_string())
+        .collect();
+    assert!(screen.contains("db   dba@db.internal:2222 via bastion   (ssh config)"), "{screen}");
+    assert!(!screen.contains("wild"), "a wildcard isn't a host");
+    // The second entry (old is already a recent one): the alias goes in as the
+    // host, so the connection follows the config.
+    d.handle_key(key(KeyCode::Down));
+    d.handle_key(key(KeyCode::Enter));
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Connect(_, creds)) => {
+            assert_eq!((creds.host.as_str(), creds.port, creds.user.as_str()), ("db", 2222, "dba"));
+            assert_eq!(creds.key_file, "", "keys come from the config");
+        }
+        _ => panic!("expected a Connect submit"),
+    }
+}
+
+#[test]
 fn connect_history_dropdown_fills_fields() {
     let history = vec![
         RemoteHistoryEntry {
@@ -769,6 +812,72 @@ fn connect_form_field_six_is_pasv_for_ftp_and_a_key_file_for_ssh() {
         }
         _ => panic!("expected a Connect submit"),
     }
+}
+
+#[test]
+fn ftps_connects_like_ftp_with_its_own_history() {
+    let entry = |protocol: &str, host: &str| RemoteHistoryEntry {
+        protocol: protocol.into(),
+        host: host.into(),
+        port: 21,
+        user: "u".into(),
+        path: String::new(),
+        passive: true,
+        key_file: String::new(),
+    };
+    let mut d = FormDialog::connect(
+        Protocol::Ftps,
+        0,
+        vec![entry("ftp", "plain"), entry("ftps", "secure")],
+    );
+    assert!(d.title.starts_with("FTPS"), "{}", d.title);
+    // ↓ opens this protocol's history only: the FTPS server.
+    d.handle_key(key(KeyCode::Down));
+    d.handle_key(key(KeyCode::Enter));
+    // From the password field (where picking an entry leaves the focus), Tab
+    // on to the PASV checkbox, as on an FTP form, and untick it.
+    for _ in 0..2 {
+        d.handle_key(key(KeyCode::Tab));
+    }
+    d.handle_key(key(KeyCode::Char(' ')));
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Connect(_, creds)) => {
+            assert_eq!(
+                (creds.protocol, creds.host.as_str(), creds.port),
+                (Protocol::Ftps, "secure", 21)
+            );
+            assert!(!creds.passive, "the PASV box is there");
+        }
+        _ => panic!("expected a Connect submit"),
+    }
+    assert_eq!(
+        FormDialog::connect_from(&entry("ftps", "x"), 0).map(|d| d.title.starts_with("FTPS")),
+        Some(true)
+    );
+}
+
+#[test]
+fn a_changed_certificate_is_a_warning_with_cancel_first() {
+    let failure = crate::vfs::remote::tls::CertFailure {
+        host_port: "files.example:21".into(),
+        sha256: "AB".repeat(32),
+        subject: "CN=files.example".into(),
+        issuer: "CN=files.example".into(),
+        not_after: "2030-01-01 00:00:00 UTC".into(),
+        reason: "it is self-signed".into(),
+        pinned_other: false,
+    };
+    let d = ConfirmDialog::untrusted_certificate(&failure);
+    assert!(!d.danger && d.focus == 0);
+    assert!(d.message.contains("files.example:21") && d.message.contains(&"AB".repeat(16)));
+    let mut d = ConfirmDialog::untrusted_certificate(&crate::vfs::remote::tls::CertFailure {
+        pinned_other: true,
+        ..failure
+    });
+    assert!(d.danger);
+    assert_eq!(d.title, "Certificate changed");
+    // Enter on the focused Cancel doesn't trust it.
+    assert!(matches!(d.handle_key(key(KeyCode::Enter)), DialogResult::Cancel));
 }
 
 #[test]
@@ -1053,6 +1162,47 @@ fn render_form(d: &mut FormDialog) -> String {
         s.push('\n');
     }
     s
+}
+
+#[test]
+fn the_settings_help_text_continues_the_dialog_background_ramp() {
+    // A theme may frame its dialogs in a color of their own. The divider over the
+    // Settings help text belongs to that frame and runs the width of the box,
+    // cutting the dialog's background in two — and the help text below it used
+    // to start the ramp over.
+    use crate::ui::theme::{GradientDir, GradientSpec, Theme};
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::style::Color;
+    let mut spec = crate::ui::theme::active_specs().into_iter().next().unwrap();
+    spec.dialog_bg = Color::Rgb(0, 0, 0);
+    spec.dialog_border_bg = Color::Rgb(0, 0, 200);
+    spec.gradients = Default::default();
+    spec.gradients.dialog_bg = Some(GradientSpec {
+        direction: GradientDir::Vertical,
+        ..GradientSpec::new(Color::Rgb(255, 255, 255))
+    });
+    let theme = Theme::from_spec(&spec, true);
+    let mut d = FormDialog::settings(&crate::config::Config::default(), true);
+    let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    t.draw(|f| {
+        crate::ui::gradient::reset();
+        d.render(f, f.area(), &theme, None);
+        let area = f.area();
+        crate::ui::gradient::apply(f, area, &theme);
+    })
+    .unwrap();
+    let b = t.backend().buffer();
+    let (x, divider) = (0..24u16)
+        .flat_map(|y| (0..80u16).map(move |x| (x, y)))
+        .find(|&(x, y)| b[(x, y)].symbol() == "├")
+        .expect("the help divider");
+    let shade = |y| match b[(x + 2, y)].bg {
+        Color::Rgb(r, _, _) => r,
+        c => panic!("row {y} is not ramped: {c:?}"),
+    };
+    let (above, below) = (shade(divider - 1), shade(divider + 1));
+    assert!(below > above, "the ramp runs on under the divider: {above} above, {below} below");
 }
 
 #[test]

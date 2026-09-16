@@ -1,0 +1,131 @@
+//------------------------------------------------
+//--- 010 Editor v11.0 Binary Template
+//
+//      File: UE4Pak.bt
+//   Authors: LEaN
+//   Version: 1.2
+//   Purpose: UE4 package file version 9 (>=UE4 4.25)
+//  Category: Game
+// File Mask: *.pak
+//   History: 
+//   1.2    2021-09-15 LEaN:Fix compression detection
+//   1.1    2021-08-13 LEaN:Fix for Unicode Filenames
+//   1.0    2021-08-10 LEaN:Initial revision
+//------------------------------------------------
+
+LittleEndian();
+
+local int32 CheckIdentifier = 5A6F12E1h; //Magic at the start of the footer
+
+typedef struct {
+    string Name;
+} PAK_COMPRESSION_TYPE;
+
+typedef struct {
+    byte IndexIsEncrypted;
+    int32 Identifier;
+    int32 Version;
+    int64 IndexOffset;
+    int64 IndexSize;
+    byte IndexHash[20]; //Hash of the unencrypted but padded Index
+    FSkip(1);
+    local int i;
+    for(i = 0; i < 4; i++) {
+        if(ReadByte() != 0){
+            PAK_COMPRESSION_TYPE Compression;
+            FSkip(27);
+        }else{
+            break;
+        }
+    }
+} PAK_FOOTER;
+
+typedef struct {
+    int64 BlockStartOffset; //relative to data record start
+    int64 BlockEndOffset; //relative to data record start
+} PAK_RECORD_COMPRESSIONBLOCK;
+
+typedef struct {
+    int64 DataRecordOffset; //ONLY RELEVANT IN INDEX
+    int64 DataRecordSize;
+    int64 UncompressedSize;
+    int32 CompressionMethod; //Which compression to choose from footer. 0 = none
+    uchar RecordHash[20];
+    if(CompressionMethod != 0h){
+        int32 CompressionBlockCount; //Compressed in chunks with max 0x10000 size.
+        PAK_RECORD_COMPRESSIONBLOCK CompressionBlocks[CompressionBlockCount] <optimize=false>;
+    }
+    byte IsEncrypted;
+    int32 UncompressedCompressionBlockSize; //Last block is always the remaining size
+} PAK_RECORD_METADATA;
+
+typedef struct {
+    PAK_RECORD_METADATA Metadata;
+    FSkip(Metadata.DataRecordOffset);
+    byte Data[Metadata.DataRecordSize];
+} PAK_RECORD;
+
+typedef struct {
+    int32 FileNameSize;
+    if(FileNameSize < 0) //Unicode Name
+    {
+        wchar_t FileName[Abs(FileNameSize)];
+    }else{
+        char FileName[FileNameSize];    
+    }
+    
+    PAK_RECORD_METADATA Metadata;
+} PAK_INDEX_RECORD;
+
+typedef struct {
+    int32 MountPointSize;
+    if(MountPointSize < 0) //Unicode
+    {
+        wchar_t FileName[Abs(MountPointSize)];
+    }
+    else
+    {
+        char MountPoint[MountPointSize];
+    }
+    int32 RecordCount;
+    PAK_INDEX_RECORD IndexRecords[RecordCount] <optimize=false>;
+} PAK_INDEX;
+
+local int64 Size = FileSize();
+if(Size < 206){
+    Warning("Not a UE4 .pak v9 file");
+    Exit(-1);
+}
+FSkip(Size - 206);
+
+PAK_FOOTER Footer;
+
+if(Footer.Identifier != CheckIdentifier) {
+    Warning("Invalid identifier");
+    Exit(-1);
+}
+if(Footer.Version != 9) {
+    Warning("Invalid Version. Only for v9");
+    Exit(-1);
+}
+
+FSeek(Footer.IndexOffset);
+if(Footer.IndexIsEncrypted == 1) {
+    byte EncryptedIndexBuffer[Footer.IndexSize];
+    Warning("Index is AES encrypted. Please decrypt first.");
+    Exit(-1);
+}else{
+    local int pos = FTell();
+    byte IndexBuffer[Footer.IndexSize];
+    local uchar result[20];
+    ChecksumAlgArrayBytes(CHECKSUM_SHA1, result, IndexBuffer, Footer.IndexSize);
+    if(result != Footer.IndexHash)
+        Warning("Index hash mismatch");
+    FSeek(pos);
+    PAK_INDEX Index;
+    local int i;
+    for(i = 0; i < Index.RecordCount; i++) {
+        FSeek(Index.IndexRecords[i].Metadata.DataRecordOffset);
+        PAK_RECORD Record;
+    }
+}

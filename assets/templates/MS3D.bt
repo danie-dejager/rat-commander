@@ -1,0 +1,196 @@
+//------------------------------------------------
+//--- 010 Editor v14.0 Binary Template
+// 
+//      File: MS3D.bt
+//   Authors: Mete Ciragan, sapper, Corey Nguyen
+//            Original Format Specification from Mete Ciragan
+//            
+//   Version: 1.0
+//   Purpose: Parse MilkShape3D v1.8.5 Scene File
+//  Category: CAD
+// File Mask: *.ms3d
+//  ID Bytes: 4D 53 33 44 30 30 30 30 30 30 //MS3D000000
+//   History:  
+//   1.0   2023-11-11 Corey Nguyen: Initial release.
+//
+// More information available at:
+//  https://sappersblog.blogspot.com/2014/08/milkshape-3d-185-ms3d-file-format.html
+//------------------------------------------------
+
+local int w_version = 1;
+
+typedef struct ms3d_flags_t {
+    byte selected   : 1;
+    byte hidden     : 1;  
+    byte selected2  : 1;  
+    byte dirty      : 1;  
+    } ms3d_flags_t;
+
+typedef struct ms3d_flags2_t {
+    short selected   : 1;
+    short hidden     : 1;  
+    short selected2  : 1;  
+    short dirty      : 1;  
+    } ms3d_flags2_t;
+
+struct ms3d_header_t {
+    char id[10] <comment="always \"MS3D000000\"">;
+    int version <comment="4">;
+    };
+
+struct ms3d_vertex_t {
+    ms3d_flags_t flags;
+    float vertex[3];
+    char boneId <comment="-1 = no bone">;
+    byte referenceCount;
+    };
+
+struct ms3d_triangle_t {
+    ms3d_flags2_t flags;
+    short vertexIndices[3];
+    float vertexNormals[9];
+    float s[3];
+    float t[3];
+    byte smoothingGroup <comment="1 - 32">;
+    byte groupIndex;
+    };
+
+struct ms3d_group_t {
+    ms3d_flags_t flags;
+    char name[32];
+    short numtriangles;
+    short triangleIndices[numtriangles] <comment="the groups group the triangles">;
+    char materialIndex <comment="-1 = no material">;
+    };
+
+struct ms3d_material_t {
+    char name[32];
+    float ambient[4];
+    float diffuse[4];
+    float specular[4];
+    float emissive[4];
+    float shininess <comment="0.0f - 128.0f">;
+    float transparency <comment="0.0f - 1.0f">;
+    char mode <comment="0, 1, 2 is unused now">;
+    char texture[128];
+    char alphamap[128];
+    };
+
+struct ms3d_keyframe_rot_t {
+    float time <comment="time in seconds">;
+    float rotation[3] <comment="x, y, z Euler angles in radians">;
+    };
+
+struct ms3d_keyframe_pos_t {
+    float time <comment="time in seconds">;
+    float position[3] <comment="local position">;
+    };
+
+struct ms3d_joint_t {
+    ms3d_flags_t flags;
+    char name[32];
+    char parentName[32];
+    float rotation[3];
+    float position[3];
+    short numKeyFramesRot;
+    short numKeyFramesTrans;
+    if (numKeyFramesRot > 0) {ms3d_keyframe_rot_t keyFramesRot[numKeyFramesRot] <comment="local animation matrices">;}
+    if (numKeyFramesTrans > 0) {ms3d_keyframe_pos_t keyFramesTrans[numKeyFramesTrans] <comment="local animation matrices">;}
+    };
+
+struct ms3d_comment_t {
+    int index;
+    int commentLength;
+    char comment[commentLength];
+    };
+
+struct ms3d_vertex_ex_t {
+    char boneIds[3];
+    byte weights[3];
+    if (w_version == 2) {
+        unsigned int extra[1];
+        }
+    else if (w_version == 3) {
+        unsigned int extra[2];
+        }
+    };
+
+struct ms3d_joint_ex_t {
+    float color[3];
+    };
+
+struct ms3d_model_ex_t {
+    float jointSize;
+    int transparencyMode;
+    float alphaRef;
+    };
+
+struct ms3d_t {
+    ms3d_header_t header;
+    short nNumVertices;
+    ms3d_vertex_t vertices[nNumVertices];
+    short nNumTriangles;
+    ms3d_triangle_t triangles[nNumTriangles];
+    short nNumGroups;
+    ms3d_group_t groups[nNumGroups] <optimize=false>;
+    short nNumMaterials;
+    ms3d_material_t materials[nNumMaterials];
+    float fAnimationFPS;
+    float fCurrentTime;
+    int iTotalFrames;
+    short nNumJoints;
+    ms3d_joint_t joints[nNumJoints] <optimize=false>;
+    if (FTell() < FileSize()) {
+        int commentsVersion;
+        if (commentsVersion > 0) {
+            unsigned int nNumGroupComments;
+            if (nNumGroupComments > 0) {
+                ms3d_comment_t group_comments[nNumGroupComments] <optimize=false>;
+                }
+            int nNumMaterialComments;
+            if (nNumMaterialComments > 0) {
+                ms3d_comment_t material_comments[nNumMaterialComments] <optimize=false>;
+                }
+            int nNumJointComments;
+            if (nNumJointComments > 0) {
+                ms3d_comment_t joint_comments[nNumJointComments] <optimize=false>;
+                }
+            int nNumHasModelComment;
+            if (nNumHasModelComment > 0) {
+                int model_comment_length;
+                char model_comment[model_comment_length];
+                }
+            }
+        }
+    if (FTell() < FileSize()) {
+        int weightsVersion;
+        w_version = weightsVersion;
+        if (weightsVersion > 0 && nNumVertices > 0) {
+            ms3d_vertex_ex_t weights[nNumVertices] <optimize=false>;
+            }
+        }
+    if (FTell() < FileSize()) {
+        int jointsVersion;
+        if (jointsVersion > 0 && nNumJoints > 0) {
+            ms3d_joint_ex_t jointColors[nNumJoints] <optimize=false>;
+            }
+        }
+    if (FTell() < FileSize()) {
+        int modelsVersion;
+        if (modelsVersion > 0 && nNumMaterials > 0) {
+            ms3d_model_ex_t modelInfo[nNumMaterials] <optimize=false>;
+            }
+        }
+    };
+
+// Mesh Transformation:
+// 
+// 0. Build the transformation matrices from the rotation and position
+// 1. Multiply the vertices by the inverse of local reference matrix (lmatrix0)
+// 2. then translate the result by (lmatrix0 * keyFramesTrans)
+// 3. then multiply the result by (lmatrix0 * keyFramesRot)
+//
+// For normals skip step 2.
+
+
+ms3d_t ms3d;

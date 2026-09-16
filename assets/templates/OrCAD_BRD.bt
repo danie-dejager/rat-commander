@@ -1,0 +1,237 @@
+//-------------------------------------------------------------------------------------------------
+//--- 010 Editor v13.0 Binary Template
+//
+//      File: OrCAD_BRD.bt
+//    Author: RomanRom2
+//    E-mail: RomanRom2@gmail.com
+//   Website: https://sprinter.ru
+//   Version: 1.0
+//   Purpose: Parse OrCAD v2.10 database for PCB files.
+//            It probably allowed to any 16-bit OrCad versions 1.xx, 2.xx, 3.xx and 4.xx
+//  Category: CAD
+// File Mask: *.brd
+//  ID Bytes: 
+//   History: 
+//   1.0   2023-10-07 RomanRom2: Initial release
+// References:
+//   https://reverse.sprinter.ru/orcad210
+//-------------------------------------------------------------------------------------------------
+
+typedef enum <byte> {
+    R_0         = 0,
+    R_90        = 1,
+    R_180       = 2,
+    R_270       = 3,
+} TRotate;
+
+typedef enum <byte> {
+    Bottom      = 0,
+    Top         = 1,
+} TLayer;
+
+typedef enum <byte> {
+    Begin       = 0,
+    Continue    = 1,
+} TLineFlags;
+
+typedef struct THeader {
+    char        file_name[8];
+    short       unk1; // version? always ADh
+    short       comp_count <bgcolor=cLtPurple>; // real count + 1, why?
+    short       unk3;
+    short       unk4;
+    short       unk5;
+    short       unk6;
+    short       unk7;
+    short       unk8;
+    short       unk9;
+    short       unk10;
+    short       unk11;
+    short       texts_ofs <bgcolor=cWhite>;
+    short       texts_size <bgcolor=cWhite>; // in bytes
+    short       brd_points_count <bgcolor=cLtBlue>;
+    short       net_points_count <bgcolor=cBlue>;
+    short       unk16;
+    short       unk17;
+    short       unk18;
+    char        file_ext[4];
+};
+
+THeader hdr;
+
+
+
+
+// components
+// ================================================================================================
+SetBackColor( cLtPurple );
+struct TComponent {
+    char    timestamp[8];
+
+    byte        unk1; // version? always AAh
+    TRotate     rotate;         
+    TLayer      lines_layer;    
+    byte        unk3;
+    short       pos_x_left;
+    short       pos_x_right;
+    short       pos_y_bottom;
+    short       pos_y_top;
+    short       pos_x;
+    short       pos_y;
+    short       height;
+    short       width;
+    short       lines_ofs;
+    short       names_ofs;  
+    short       pads_ofs;
+    short       next_ofs1;
+    short       next_ofs2;
+    char        pattern[8] <bgcolor=cRed>;
+    short       next_ofs3;
+
+    // lines
+    SetBackColor( cLtYellow );
+    local int lines_count = (names_ofs - lines_ofs) / 6;
+    struct Tlines {
+        byte        unk1;
+        TLineFlags  flags;
+        short       pos_x;
+        short       pos_y;
+    } line[lines_count];
+
+    // names
+    SetBackColor( cLtGreen );
+    local short names_count = (pads_ofs - names_ofs) / 24;
+    struct TNames {
+        short       unk1;
+        short       unk2;
+        char        str[8] <bgcolor=cRed>;
+        short       unk4;
+        short       unk5;
+        short       unk6;
+        short       unk7;
+        short       pos_x;
+        short       pos_y;
+    } name[names_count] <comment = str>;
+
+    // pads
+    typedef enum <byte> {
+        SMD         = 1,
+        Plated      = 3,
+    } TPadsFlags;
+
+    SetBackColor( cGray );
+    local short pads_count = (next_ofs1 - pads_ofs) / 24;
+    struct TPad {
+        char        des[4];
+        char        net[8];
+        byte        shape;
+        short       height;
+        short       width;
+        TRotate     rotate;     
+        TPadsFlags  flags;      
+        byte        hole_dia;
+        short       pos_x;
+        short       pos_y;
+        local string des_net = des + net;
+    } pad[pads_count] <optimize=false, comment = des_net>;
+
+    local string name_pattern = name[0].str + pattern;
+
+} comp[hdr.comp_count-1] <optimize=false, comment = name_pattern>; 
+
+
+
+
+// text strings
+// ================================================================================================
+typedef enum <byte> {
+    Flipped     = 0,
+    NotFlipped  = 1,
+} TFlagsA;
+
+typedef enum <byte> {
+    NotVisible  = 0,
+    Visible     = 1,
+} TFlagsB;
+
+typedef struct {
+    BigEndian();                    
+    byte        raw <format=binary>;    
+    LittleEndian();                 
+    FSkip (-1);                     
+    BitfieldLeftToRight();
+    TFlagsA     PadType: 4;
+    TFlagsB     PinType: 4;
+} TTextsFlags;
+
+typedef struct {
+    char        unk[12];
+    byte        len;
+    short       size_h;
+    short       size_v;
+    TRotate     rotate;         
+    TLayer      layer;          
+    TTextsFlags flags;          
+    short       pos_x;
+    short       pos_y;
+    char        str[len];
+} TTextString;
+
+SetBackColor( cWhite );
+local int index;
+index = 0;
+do {
+    TTextString txt <comment = str>;
+    index = index + 24 + txt.len;
+}
+while (index < hdr.texts_size);
+
+
+
+
+// board points
+// ================================================================================================
+SetBackColor( cLtBlue );
+typedef struct {
+    TLineFlags  flags;
+    byte        unk2;
+    short       pos_x;
+    short       pos_y;
+    short       unk5;
+} TBoardPoint;
+
+TBoardPoint brd[hdr.brd_points_count];
+
+
+
+
+// net points
+// ================================================================================================
+typedef enum <byte> {
+    NetBegin        = 0,
+    NetContinue     = 1,
+    VIA_special     = 6,
+    VIA             = 7,
+} TNetPoiFlagsB;
+
+typedef struct {
+    BigEndian();                    
+    byte            raw <format=binary>;    
+    LittleEndian();                 
+    FSkip (-1);                     
+    BitfieldLeftToRight();
+    byte            layer: 4;
+    TNetPoiFlagsB   PinType: 4;
+} TNetPoiFlags;
+
+
+SetBackColor( cBlue );
+typedef struct {
+    TNetPoiFlags    flags;
+    byte            size;
+    short           pos_x;
+    short           pos_y;
+    short           net_id;
+} TNetPoint;
+
+TNetPoint net[hdr.net_points_count] <optimize=true>;
