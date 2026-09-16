@@ -19,6 +19,7 @@ mod geo;
 mod git;
 mod json;
 mod l10n;
+mod lint;
 mod mesh;
 mod mount;
 mod net;

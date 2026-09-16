@@ -58,6 +58,35 @@ pub fn options_for_name(name: &str) -> Option<Options> {
     None
 }
 
+/// `span` of `text` cut to its first line and made at least one character
+/// long (on a char boundary), so it can always be underlined.
+pub fn clip_to_line(text: &str, span: Range<usize>) -> Range<usize> {
+    let bytes = text.as_bytes();
+    let len = text.len();
+    let floor = |mut i: usize| {
+        while i > 0 && !text.is_char_boundary(i) {
+            i -= 1;
+        }
+        i
+    };
+    let mut start = floor(span.start.min(len));
+    let mut end = floor(span.end.min(len)).max(start);
+    if let Some(nl) = bytes[start..end].iter().position(|&b| b == b'\n') {
+        end = start + nl;
+    }
+    while end > start && bytes[end - 1] == b'\r' {
+        end -= 1;
+    }
+    if end <= start {
+        if start >= len {
+            // Nothing left to point at: the last character before it.
+            start = text[..start].char_indices().next_back().map_or(0, |(i, _)| i);
+        }
+        end = start + text[start..].chars().next().map_or(0, char::len_utf8);
+    }
+    start..end
+}
+
 /// One error: what is wrong, and the bytes it is about — never empty, and
 /// never crossing a line break, so it can be underlined where it stands.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -5195,13 +5195,13 @@ async fn an_edited_json_file_is_checked_on_the_tick() {
     st.open_path_in_editor(file).await;
     let settle = |st: &mut AppState| {
         let deadline = Instant::now() + Duration::from_secs(5);
-        while st.editor.as_ref().is_some_and(|e| e.json_pending()) && Instant::now() < deadline {
+        while st.editor.as_ref().is_some_and(|e| e.check_pending()) && Instant::now() < deadline {
             st.on_tick();
             std::thread::sleep(Duration::from_millis(20));
         }
     };
     settle(&mut st);
-    assert!(st.editor.as_ref().unwrap().json_errors().is_empty(), "the file as saved is valid");
+    assert!(st.editor.as_ref().unwrap().check_errors().is_empty(), "the file as saved is valid");
     // Break it: a second member with no comma before it.
     let ed = st.editor.as_mut().unwrap();
     for code in [KeyCode::End, KeyCode::Left] {
@@ -5212,7 +5212,7 @@ async fn an_edited_json_file_is_checked_on_the_tick() {
     }
     assert!(st.wants_ticks(), "a check is due, so the tick keeps coming");
     settle(&mut st);
-    let errors = st.editor.as_ref().unwrap().json_errors();
+    let errors = st.editor.as_ref().unwrap().check_errors();
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert_eq!(errors[0].message, "Missing ',' after this value");
     std::fs::remove_dir_all(&dir).ok();

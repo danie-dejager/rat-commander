@@ -21,7 +21,7 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
     // sideways as they come and go. Recorded before anything measures the text
     // area, so scrolling and the mouse see the narrower one.
     let gutter_w =
-        if ed.json_checked() && !ed.sheet_active() { JSON_GUTTER.min(body.width) } else { 0 };
+        if ed.checked() && !ed.sheet_active() { CHECK_GUTTER.min(body.width) } else { 0 };
     let gutter = Rect { width: gutter_w, ..body };
     let text_area = Rect { x: body.x + gutter_w, width: body.width - gutter_w, ..body };
     // One page for the background gradient, however the template tree or a
@@ -121,7 +121,7 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
         render_text(f, text_area, ed, theme)
     };
     if gutter_w > 0 {
-        render_json_gutter(f, gutter, ed, theme);
+        render_check_gutter(f, gutter, ed, theme);
     }
     render_footer(f, footer, ed, theme);
 
@@ -372,14 +372,14 @@ fn ensure_visible(ed: &mut EditorState) {
 }
 
 /// Columns the JSON error gutter takes: the mark and a space.
-const JSON_GUTTER: u16 = 2;
+const CHECK_GUTTER: u16 = 2;
 
 /// The mark a line with a JSON syntax error gets in the gutter.
 const ERROR_MARK: &str = "✗";
 
 /// The gutter beside a JSON file's text: a mark on each line an error starts
 /// on (on the first row of a wrapped line).
-fn render_json_gutter(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
+fn render_check_gutter(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
     let blank = Style::default().bg(theme.panel_bg);
     let mark = Style::default().fg(theme.error_fg).bg(theme.panel_bg).add_modifier(Modifier::BOLD);
     let total = ed.buf.len_lines();
@@ -388,7 +388,7 @@ fn render_json_gutter(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme
     for _ in 0..area.height {
         let row = match pos {
             Some((line, sub))
-                if line < total && sub == 0 && !ed.json_errors_on_line(line).is_empty() =>
+                if line < total && sub == 0 && !ed.check_errors_on_line(line).is_empty() =>
             {
                 Line::from(vec![Span::styled(ERROR_MARK, mark), Span::styled(" ", blank)])
             }
@@ -411,7 +411,7 @@ fn error_columns(
     line_start: usize,
     len: usize,
 ) -> Vec<(usize, usize)> {
-    ed.json_errors_on_line(line)
+    ed.check_errors_on_line(line)
         .iter()
         .filter_map(|d| {
             // A check of text that has changed since can point past the line.
@@ -450,9 +450,9 @@ fn render_status(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
     let width = area.width as usize;
     // A JSON file's errors: how many, and what the one at the cursor is — in
     // place of the character code and offset, which say little next to it.
-    let errors = ed.json_errors();
-    let explained = ed.json_error_at_cursor();
-    let spans = if ed.json_checked() && (!errors.is_empty() || explained.is_some()) {
+    let errors = ed.check_errors();
+    let explained = ed.check_error_at_cursor();
+    let spans = if ed.checked() && (!errors.is_empty() || explained.is_some()) {
         let bg = theme.menubar.bg.unwrap_or(theme.panel_bg);
         let alert = style.fg(crate::ui::theme::readable_on(theme.error_fg, bg));
         let count = format!("  {ERROR_MARK} {}", errors.len());

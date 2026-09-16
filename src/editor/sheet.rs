@@ -203,7 +203,7 @@ impl EditorState {
     /// syntax check. Run when a file is opened and when a buffer is saved under
     /// a new name.
     pub fn detect_kind(&mut self) {
-        self.detect_json();
+        self.detect_check();
         let is_sheet = crate::sheet::is_sheet_name(&self.name);
         if is_sheet && self.sheet.is_none() {
             self.sheet = Some(SheetGrid::new(&self.buf, &self.name));

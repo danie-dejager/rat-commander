@@ -179,10 +179,11 @@ pub enum MenuMode {
 /// these actions and the spreadsheet grid has no use for the ones that act on
 /// lines and marked blocks, so those are greyed out rather than silently doing
 /// nothing — and the grid's own row and column actions are greyed out
-/// everywhere else. `json` is whether the file is checked as JSON, which is
-/// what gives the error items something to move between; `template` whether
-/// hex mode is showing a binary template's variables.
-pub fn editor_menu(active: usize, mode: MenuMode, json: bool, template: bool) -> EditorMenu {
+/// everywhere else. `checked` is whether the file's syntax is checked (JSON,
+/// TOML, YAML, XML), which is what gives the error items something to move
+/// between; `template` whether hex mode is showing a binary template's
+/// variables.
+pub fn editor_menu(active: usize, mode: MenuMode, checked: bool, template: bool) -> EditorMenu {
     let hex = mode == MenuMode::Hex;
     // In hex mode the text buffer isn't the thing being edited, so everything
     // that reads or writes it is unavailable.
@@ -244,8 +245,8 @@ pub fn editor_menu(active: usize, mode: MenuMode, json: bool, template: bool) ->
             not_grid(item_key("&Prev bookmark", "Alt-I", EditorAction::BookmarkPrev)),
             not_grid(item_key("&Flush bookmarks", "Alt-O", EditorAction::BookmarkFlush)),
             sep(),
-            item_key("Next &error", "Alt-E", EditorAction::NextError).disabled(!json),
-            item_key("Pre&vious error", "Alt-Shift-E", EditorAction::PrevError).disabled(!json),
+            item_key("Next &error", "Alt-E", EditorAction::NextError).disabled(!checked),
+            item_key("Pre&vious error", "Alt-Shift-E", EditorAction::PrevError).disabled(!checked),
         ],
     };
 

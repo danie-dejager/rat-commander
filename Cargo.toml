@@ -177,6 +177,8 @@ rodio = { version = "0.22.2", default-features = false, features = ["playback", 
 x509-parser = { version = "0.18.1", features = ["verify-aws"] }
 base64 = "0.22"
 rustls-native-certs = "0.8"
+saphyr-parser = "0.0.12"
+quick-xml = "0.41"
 
 [dev-dependencies]
 # Tests synthesise small ELF, COFF and Mach-O objects to analyse, rather than

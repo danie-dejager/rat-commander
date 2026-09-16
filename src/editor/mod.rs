@@ -5,9 +5,9 @@
 //! async file save when the editor asks for it.
 
 pub mod buffer;
+mod check;
 pub mod hex;
 mod inspector;
-mod jsoncheck;
 pub mod menu;
 pub mod render;
 mod sheet;
@@ -172,8 +172,8 @@ pub struct EditorState {
     /// The spreadsheet grid over a CSV or TSV file (Alt-G switches it with the
     /// text), when the file is one — or when it was asked for.
     sheet: Option<sheet::SheetGrid>,
-    /// The live syntax check of a JSON file.
-    json: Option<jsoncheck::JsonCheck>,
+    /// The live syntax check of a JSON, TOML, YAML or XML file.
+    check: Option<check::SyntaxCheck>,
     /// The binary template run over the file in hex mode, and its panel.
     tpl: Option<template::TemplateState>,
     /// The template panel's rect, recorded by the renderer for the mouse.
@@ -201,7 +201,7 @@ pub const EDITOR_HELP: &[(&str, &str)] = &[
     ("Shift-F9", "Toggle word wrap"),
     ("Ctrl-F9", "Toggle hex editor"),
     ("Alt-G", "Spreadsheet grid / text (CSV, TSV)"),
-    ("Alt-E / Alt-Shift-E", "Next / previous JSON syntax error"),
+    ("Alt-E / Alt-Shift-E", "Next / previous syntax error (JSON, TOML, YAML, XML)"),
     ("Alt-M", "Show and edit the GeoJSON in the file on a map"),
     ("Hex: F5 / Shift-F5", "Choose / rerun the binary template"),
     ("Hex: F6", "Template variable at the cursor / back to the bytes"),
@@ -269,7 +269,7 @@ impl EditorState {
             bookmarks: std::collections::HashSet::new(),
             hl_dark: false,
             sheet: None,
-            json: None,
+            check: None,
             tpl: None,
             tpl_area: Rect::default(),
             insp: inspector::InspectorState::default(),
@@ -760,8 +760,7 @@ impl EditorState {
         } else {
             menu::MenuMode::Text
         };
-        self.menu =
-            Some(menu::editor_menu(active, mode, self.json_checked(), self.template_panel()));
+        self.menu = Some(menu::editor_menu(active, mode, self.checked(), self.template_panel()));
     }
 
     /// Whether the F9 menu is currently open (the renderer draws it over the
@@ -849,8 +848,8 @@ impl EditorState {
             A::BookmarkNext => self.bookmark_jump(true),
             A::BookmarkPrev => self.bookmark_jump(false),
             A::BookmarkFlush => self.bookmark_flush(),
-            A::NextError => self.jump_json_error(true),
-            A::PrevError => self.jump_json_error(false),
+            A::NextError => self.jump_error(true),
+            A::PrevError => self.jump_error(false),
 
             // -- Command --
             A::GotoLine => return EditorSignal::OpenGotoLine,
@@ -1300,7 +1299,7 @@ impl EditorState {
             self.enable_syntax(self.hl_dark);
         }
         self.sheet = None;
-        self.json = None;
+        self.check = None;
         // File → Open from hex mode opens the new file as text.
         self.hex = None;
         self.stop_templates();
@@ -1568,8 +1567,8 @@ impl EditorState {
             KeyCode::Char('o') if alt => self.bookmark_flush(),
             KeyCode::Char('g') if alt => self.toggle_sheet(),
             KeyCode::Char('m') if alt => return EditorSignal::OpenGeoMap,
-            KeyCode::Char('e') if alt && !shift => self.jump_json_error(true),
-            KeyCode::Char('e' | 'E') if alt => self.jump_json_error(false),
+            KeyCode::Char('e') if alt && !shift => self.jump_error(true),
+            KeyCode::Char('e' | 'E') if alt => self.jump_error(false),
 
             KeyCode::Up => {
                 self.pre_move(shift);

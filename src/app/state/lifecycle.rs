@@ -362,7 +362,7 @@ impl AppState {
         }
         // The editor's JSON check: start one once typing pauses, show its result.
         if let Some(ed) = self.editor.as_mut()
-            && ed.poll_json(Instant::now())
+            && ed.poll_check(Instant::now())
         {
             dirty = true;
         }
@@ -417,7 +417,7 @@ impl AppState {
             // background analysis for its result.
             || self.viewer.as_ref().is_some_and(|v| v.following() || v.analyzing() || v.audio_busy())
             // An edited JSON file is due a syntax check, or one is running.
-            || self.editor.as_ref().is_some_and(|e| e.json_pending())
+            || self.editor.as_ref().is_some_and(|e| e.check_pending())
             // A binary template is running over the hex editor's file, or due to.
             || self.editor.as_ref().is_some_and(|e| e.template_pending())
             // A binary compare is still scanning for differences.

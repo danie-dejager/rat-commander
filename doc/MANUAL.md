@@ -319,7 +319,8 @@ used to share now lives on `Alt-T`.
 - `Shift-F9` — Toggle word wrap
 - `Ctrl-F9` — Toggle the in-place hex editor
 - `Alt-G` — Toggle the spreadsheet grid (see *Spreadsheet grid* below)
-- `Alt-E` / `Alt-Shift-E` — (JSON files) Jump to the next / previous syntax error
+- `Alt-E` / `Alt-Shift-E` — (JSON, TOML, YAML and XML files) Jump to the next /
+  previous syntax error
 - `Alt-M` — Show and edit the GeoJSON in the file on a world map (see *GeoJSON map* below)
 - `Esc` / `F10` — Quit (prompts if modified)
 
@@ -1445,7 +1446,7 @@ the cursor on the cell holding the match. **Alt-G** switches to the text with
 the cursor on the cell that was selected, and back — for any file, so a table
 without a table's name can be edited as one too.
 
-**JSON syntax check.** A `.json` file — and `.geojson`, `.topojson`, JSON Lines
+**Syntax checks.** A `.json` file — and `.geojson`, `.topojson`, JSON Lines
 (`.jsonl`, `.ndjson`) and JSONC (`.jsonc`, and the `tsconfig.json`-style
 configuration files that allow comments) — is **checked as you type**. Once you
 pause for a quarter of a second the whole file is read again in the background,
@@ -1472,6 +1473,24 @@ end of the document. JSONC files may have comments and trailing commas; JSON
 Lines files may hold one document after another. A file with more than a
 thousand errors is not checked past the thousandth. JSON5 is a different
 language and is not checked.
+
+**TOML, YAML and XML** files are checked the same way — the same gutter,
+underlines, status line and **Alt-E** — each by its own rules:
+
+- **TOML** (`.toml`, `Cargo.lock`, `poetry.lock`, `uv.lock`): every error the
+  parser finds, which reads on past each one — a value that isn't one, a table
+  header left open, a key given twice, a table defined twice.
+- **YAML** (`.yaml`, `.yml`), read as YAML 1.2: the first syntax error (a YAML
+  parser can't tell what follows a broken indentation or an unclosed quote, so
+  it stops there), and before it **every key given twice in one mapping** —
+  which YAML forbids but many tools silently accept, keeping one of the two.
+- **XML** (`.xml`, `.svg`, `.xsd`, `.xsl`, `.csproj` and the other MSBuild files,
+  `.xaml`, `.kml`, `.gpx`, `.plist`, …): end tags that don't match — reported,
+  and read past, so the errors after one still show — elements never closed,
+  attributes given twice or malformed, a second root element or text outside
+  the root, and a fatal error such as an unterminated attribute, after which
+  the rest of the file can't be read. Only well-formedness is checked, not a
+  schema or DTD.
 
 **GeoJSON map (Alt-M).** Draws the GeoJSON in the file over a **map of the
 world** — a `.geojson` file, or GeoJSON anywhere inside a larger JSON document,

@@ -98,8 +98,9 @@ The installed executable is named **`rc`** for quick typing.
 - **Built-in editor (F4)** — `mcedit`-style block copy/move/delete, clipboard,
   search & replace, undo/redo, syntax highlighting, a **spreadsheet grid** for
   `.csv` / `.tsv` files (edit cells in a cell bar, insert and delete rows and
-  columns, every change one undo step and saved as plain text), a **live JSON
-  syntax check** that marks every error in the file as you type — in a gutter,
+  columns, every change one undo step and saved as plain text), a **live syntax
+  check** of JSON, TOML, YAML and XML files that marks every error as you type —
+  in a gutter,
   underlined, explained on the status line, `Alt-E` to the next one — a
   **GeoJSON map** (`Alt-M`) that draws the GeoJSON in a file, or nested anywhere
   in a larger JSON document, over a built-in vector map of the world (land,
@@ -372,7 +373,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `F5` / `Shift-F5` (hex) | Choose / rerun the binary template |
 | `F6` (hex) | The template variable under the cursor (tree: `Enter` edits, `←`/`→` close/open) |
 | `F8` (hex) | Data inspector: the bytes at the cursor as numbers, characters, dates, GUIDs (`Enter` edits, `b` switches byte order) |
-| `Alt-E` / `Alt-Shift-E` | (JSON) next / previous syntax error |
+| `Alt-E` / `Alt-Shift-E` | (JSON, TOML, YAML, XML) next / previous syntax error |
 | `Alt-M` | Show the file's GeoJSON on a world map (drag/wheel to pan and zoom, click a feature, `Enter` to go to it); `e` edits it: `1`/`2`/`3` draw a point/line/polygon, drag positions, `Del` removes, `Ctrl-Z` undoes |
 | `Alt-G` | Toggle the spreadsheet grid (CSV/TSV): `Enter` or typing edits a cell, `F5`/`F6` insert a row/column, `F8`/`Shift-F8` delete one, `F3` toggles the header row |
 | `Ins` | Toggle insert / overwrite |
