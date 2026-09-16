@@ -772,3 +772,7 @@ rtl = true
 
 # -- Editor: JWT --
 "D&ecode JWT at cursor" = "رمزگشایی JWT زیر مکان‌نما (&E)"
+
+# -- Remote: ssh config --
+"ssh config" = "پیکربندی ssh"
+"SSH host" = "میزبان SSH"

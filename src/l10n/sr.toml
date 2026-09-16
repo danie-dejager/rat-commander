@@ -768,3 +768,7 @@ code = "sr"
 
 # -- Editor: JWT --
 "D&ecode JWT at cursor" = "Dekodiraj JWT ispod kursora (&E)"
+
+# -- Remote: ssh config --
+"ssh config" = "ssh podešavanje"
+"SSH host" = "SSH host"

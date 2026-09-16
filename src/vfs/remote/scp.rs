@@ -3,7 +3,8 @@
 //! scp-based file managers), while transfers stream through `cat`.
 
 use super::{
-    Connection, RemoteCreds, SshHandle, parse_unix_listing_line, shell_quote, ssh_connect,
+    Connection, RemoteCreds, SshHandle, SshSession, parse_unix_listing_line, shell_quote,
+    ssh_connect,
 };
 use crate::util::{Error, Result};
 use crate::vfs::membuf::{pipe_download, pipe_upload};
@@ -13,7 +14,7 @@ use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 
 pub struct ScpFs {
-    handle: Arc<SshHandle>,
+    handle: Arc<SshSession>,
 }
 
 pub async fn connect(creds: &RemoteCreds) -> Result<Connection> {
@@ -25,7 +26,7 @@ pub async fn connect(creds: &RemoteCreds) -> Result<Connection> {
     } else {
         creds.path.clone()
     };
-    let label = format!("scp://{}@{}", creds.user, creds.host);
+    let label = format!("scp://{}@{}", handle.user, creds.host);
     Ok(Connection { backend: Arc::new(ScpFs { handle }), root, label })
 }
 

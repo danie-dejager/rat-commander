@@ -773,3 +773,7 @@ code = "de"
 
 # -- Editor: JWT --
 "D&ecode JWT at cursor" = "&JWT an Cursor dekodieren"
+
+# -- Remote: ssh config --
+"ssh config" = "SSH-Konfiguration"
+"SSH host" = "SSH-Host"

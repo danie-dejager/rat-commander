@@ -276,6 +276,16 @@ impl AppState {
             ));
         }
 
+        // -- The hosts ~/.ssh/config names: an SFTP connection form for each --
+        let ssh_config = crate::vfs::remote::sshconfig::SshConfig::load_user();
+        for (entry, label) in crate::ui::dialog::ssh_config_entries(&ssh_config, Protocol::Sftp) {
+            entries.push(PaletteEntry::new(
+                format!("{} {label}", crate::l10n::tr("SSH host")),
+                PaletteCategory::Connection,
+                PaletteAction::ConnectRemote(side, entry),
+            ));
+        }
+
         self.dialog = Some(Dialog::CommandPalette(CommandPaletteDialog::new(entries)));
     }
 

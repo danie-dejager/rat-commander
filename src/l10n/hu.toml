@@ -768,3 +768,7 @@ code = "hu"
 
 # -- Editor: JWT --
 "D&ecode JWT at cursor" = "JWT dekódolása a kurzornál (&E)"
+
+# -- Remote: ssh config --
+"ssh config" = "ssh-beállítás"
+"SSH host" = "SSH-gép"

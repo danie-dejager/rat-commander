@@ -768,3 +768,7 @@ code = "zh-Hant"
 
 # -- Editor: JWT --
 "D&ecode JWT at cursor" = "解碼游標處的 JWT(&E)"
+
+# -- Remote: ssh config --
+"ssh config" = "ssh 設定"
+"SSH host" = "SSH 主機"

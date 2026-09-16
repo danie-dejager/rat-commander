@@ -665,6 +665,49 @@ fn two_button_confirm_still_works() {
 }
 
 #[test]
+fn ssh_config_hosts_follow_the_recent_ones_in_the_host_dropdown() {
+    use crate::vfs::remote::sshconfig::SshConfig;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    let cfg = SshConfig::parse(
+        "Host db\n  HostName db.internal\n  User dba\n  Port 2222\n  ProxyJump bastion\nHost old *.wild\n",
+        std::path::Path::new("/nowhere"),
+    );
+    let recent = vec![RemoteHistoryEntry {
+        protocol: "sftp".into(),
+        host: "old".into(),
+        port: 22,
+        user: "me".into(),
+        path: String::new(),
+        passive: true,
+        key_file: String::new(),
+    }];
+    let mut d = FormDialog::connect_with_config(Protocol::Sftp, 0, recent, &cfg);
+    d.handle_key(key(KeyCode::Down)); // open the dropdown
+    let theme = crate::ui::theme::Theme::mc();
+    let mut t = Terminal::new(TestBackend::new(100, 20)).unwrap();
+    t.draw(|f| d.render(f, f.area(), &theme, None)).unwrap();
+    let b = t.backend().buffer();
+    let screen: String = (0..b.area.height)
+        .flat_map(|y| (0..b.area.width).map(move |x| (x, y)))
+        .map(|p| b[p].symbol().to_string())
+        .collect();
+    assert!(screen.contains("db   dba@db.internal:2222 via bastion   (ssh config)"), "{screen}");
+    assert!(!screen.contains("wild"), "a wildcard isn't a host");
+    // The second entry (old is already a recent one): the alias goes in as the
+    // host, so the connection follows the config.
+    d.handle_key(key(KeyCode::Down));
+    d.handle_key(key(KeyCode::Enter));
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Connect(_, creds)) => {
+            assert_eq!((creds.host.as_str(), creds.port, creds.user.as_str()), ("db", 2222, "dba"));
+            assert_eq!(creds.key_file, "", "keys come from the config");
+        }
+        _ => panic!("expected a Connect submit"),
+    }
+}
+
+#[test]
 fn connect_history_dropdown_fills_fields() {
     let history = vec![
         RemoteHistoryEntry {

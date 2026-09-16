@@ -224,7 +224,9 @@ The installed executable is named **`rc`** for quick typing.
   copy/move/delete works transparently across local, remote and archive panels.
   On an **SFTP/SCP** panel, the command line and **Ctrl-O** run a shell
   on the **remote host** over the same SSH connection — its output on the same
-  console backdrop, no second login.
+  console backdrop, no second login. Hosts from **`~/.ssh/config`** are offered
+  in the connect form and the command palette, and their `HostName`, `User`,
+  `Port`, `IdentityFile` and **`ProxyJump`** chains are honoured.
 - **3D view** — a panel format that draws the directory the *other* panel is in. Two styles,
   chosen in Settings → Panels: **Cubes**, a tree of boxes joined by lines, and
   **Spare no expense**, an homage to IRIX's *fsn* — pale platforms standing on a

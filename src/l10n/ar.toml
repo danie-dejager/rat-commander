@@ -772,3 +772,7 @@ rtl = true
 
 # -- Editor: JWT --
 "D&ecode JWT at cursor" = "فك ترميز JWT عند المؤشر (&E)"
+
+# -- Remote: ssh config --
+"ssh config" = "إعداد ssh"
+"SSH host" = "مضيف SSH"

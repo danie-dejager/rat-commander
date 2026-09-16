@@ -9,6 +9,7 @@ pub mod auth;
 pub mod ftp;
 pub mod scp;
 pub mod sftp;
+pub mod sshconfig;
 
 use crate::util::{Error, Result};
 use crate::vfs::VfsKind;
@@ -230,21 +231,229 @@ pub(crate) async fn open_shell_channel(
     Ok(RemoteShellChannel { channel })
 }
 
+/// Most jump hosts a connection goes through.
+const MAX_HOPS: usize = 8;
+
+/// One SSH connection on the way to a host: a jump host, or the host itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Hop {
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    /// The key files to try, in order.
+    pub keys: Vec<std::path::PathBuf>,
+    /// Whether the agent's keys may be tried (not with `IdentitiesOnly`).
+    pub agent: bool,
+    /// The name the host's key is looked up by in `known_hosts`.
+    pub key_host: String,
+    /// The host itself: the only hop the password is offered to.
+    pub last: bool,
+}
+
+/// The key files a host's settings name (those that exist), or the defaults.
+fn config_keys(
+    s: &sshconfig::HostSettings,
+    host: &str,
+    alias: &str,
+    port: u16,
+    user: &str,
+) -> Vec<std::path::PathBuf> {
+    if s.identity_files.is_empty() {
+        return auth::default_key_paths();
+    }
+    s.identity_files
+        .iter()
+        .map(|f| sshconfig::expand_tilde(&sshconfig::expand_tokens(f, host, alias, port, user)))
+        .filter(|p| p.is_file())
+        .collect()
+}
+
+/// The hops a connection with `creds` goes through, as `~/.ssh/config`
+/// (`cfg`) has it: its `ProxyJump` hosts in order, then the host. What the
+/// connect form says wins over the config, as the command line does over it
+/// for `ssh`: a user, a port other than the protocol's default, a key file.
+pub(crate) fn plan(creds: &RemoteCreds, cfg: &sshconfig::SshConfig) -> Result<Vec<Hop>> {
+    use sshconfig::{expand_tokens, jump_specs, local_user};
+    let alias = creds.host.trim();
+    let s = cfg.resolve(alias);
+    if s.proxy_jump.is_none()
+        && s.proxy_command.as_deref().is_some_and(|c| !c.eq_ignore_ascii_case("none"))
+    {
+        return Err(Error::other(format!(
+            "{alias}: ProxyCommand in ~/.ssh/config isn't supported — use ProxyJump"
+        )));
+    }
+    let port = if creds.port != creds.protocol.default_port() {
+        creds.port
+    } else {
+        s.port.unwrap_or(creds.port)
+    };
+    let user = match creds.user.trim() {
+        "" => s.user.clone().unwrap_or_else(local_user),
+        typed => typed.to_string(),
+    };
+    let host = s
+        .hostname
+        .as_deref()
+        .map_or_else(|| alias.to_string(), |h| expand_tokens(h, alias, alias, port, &user));
+    let explicit = creds.key_file.trim();
+    let keys = if explicit.is_empty() {
+        config_keys(&s, &host, alias, port, &user)
+    } else {
+        vec![sshconfig::expand_tilde(explicit)]
+    };
+    let agent = !(s.identities_only && explicit.is_empty() && !s.identity_files.is_empty());
+    let key_host = s.host_key_alias.clone().unwrap_or_else(|| host.clone());
+    let mut hops = Vec::new();
+    // A jump host's own ProxyJump is not followed: the list is the route.
+    for spec in s.proxy_jump.as_deref().map(jump_specs).unwrap_or_default() {
+        let js = cfg.resolve(&spec.host);
+        let jport = spec.port.or(js.port).unwrap_or(22);
+        let juser = spec.user.clone().or_else(|| js.user.clone()).unwrap_or_else(local_user);
+        let jhost = js.hostname.as_deref().map_or_else(
+            || spec.host.clone(),
+            |h| expand_tokens(h, &spec.host, &spec.host, jport, &juser),
+        );
+        hops.push(Hop {
+            keys: config_keys(&js, &jhost, &spec.host, jport, &juser),
+            agent: !(js.identities_only && !js.identity_files.is_empty()),
+            key_host: js.host_key_alias.clone().unwrap_or_else(|| jhost.clone()),
+            host: jhost,
+            port: jport,
+            user: juser,
+            last: false,
+        });
+    }
+    hops.push(Hop { host, port, user, keys, agent, key_host, last: true });
+    if hops.len() > MAX_HOPS + 1 {
+        return Err(Error::other(format!("{alias}: more than {MAX_HOPS} jump hosts")));
+    }
+    for (i, h) in hops.iter().enumerate() {
+        if hops[..i].iter().any(|o| o.host == h.host && o.port == h.port) {
+            return Err(Error::other(format!(
+                "{alias}: the route goes through {}:{} twice",
+                h.host, h.port
+            )));
+        }
+    }
+    Ok(hops)
+}
+
+/// An authenticated SSH connection, and the connections to the jump hosts it
+/// runs through — kept open for as long as it is.
+pub(crate) struct SshSession {
+    handle: SshHandle,
+    _jumps: Vec<SshHandle>,
+    /// The user logged in as.
+    pub user: String,
+}
+
+impl std::ops::Deref for SshSession {
+    type Target = SshHandle;
+
+    fn deref(&self) -> &SshHandle {
+        &self.handle
+    }
+}
+
 /// Open an SSH connection and authenticate (agent, then keys, then password —
-/// see [`auth::authenticate`]).
-pub(crate) async fn ssh_connect(creds: &RemoteCreds) -> Result<SshHandle> {
+/// see [`auth::authenticate`]), through the jump hosts `~/.ssh/config` names.
+pub(crate) async fn ssh_connect(creds: &RemoteCreds) -> Result<SshSession> {
+    let hops = plan(creds, &sshconfig::SshConfig::load_user())?;
+    connect_hops(&hops, creds).await
+}
+
+/// Connect along `hops`: each one reached through a tunnel on the one before,
+/// its host key checked and its user authenticated in turn.
+pub(crate) async fn connect_hops(hops: &[Hop], creds: &RemoteCreds) -> Result<SshSession> {
     let config = Arc::new(russh::client::Config::default());
-    let handler = HostKeyHandler { host: creds.host.clone(), port: creds.port };
-    let mut handle = russh::client::connect(config, (creds.host.as_str(), creds.port), handler)
-        .await
-        .map_err(|e| Error::other(format!("SSH connect failed: {e}")))?;
-    auth::authenticate(&mut handle, creds).await?;
-    Ok(handle)
+    let mut open: Vec<SshHandle> = Vec::new();
+    for hop in hops {
+        let handler = HostKeyHandler { host: hop.key_host.clone(), port: hop.port };
+        let via = |e: &dyn std::fmt::Display| match open.len() {
+            0 => format!("SSH connect failed: {e}"),
+            _ => format!("SSH connect to {} through a jump host failed: {e}", hop.host),
+        };
+        let mut handle = match open.last() {
+            None => russh::client::connect(config.clone(), (hop.host.as_str(), hop.port), handler)
+                .await
+                .map_err(|e| Error::other(via(&e)))?,
+            Some(prev) => {
+                let channel = prev
+                    .channel_open_direct_tcpip(hop.host.clone(), hop.port as u32, "127.0.0.1", 0)
+                    .await
+                    .map_err(|e| Error::other(via(&e)))?;
+                russh::client::connect_stream(config.clone(), channel.into_stream(), handler)
+                    .await
+                    .map_err(|e| Error::other(via(&e)))?
+            }
+        };
+        auth::authenticate(&mut handle, hop, creds).await.map_err(|e| {
+            if hop.last { e } else { Error::other(format!("jump host {}: {e}", hop.host)) }
+        })?;
+        open.push(handle);
+    }
+    let handle = open.pop().ok_or_else(|| Error::other("no host to connect to"))?;
+    let user = hops.last().map(|h| h.user.clone()).unwrap_or_default();
+    Ok(SshSession { handle, _jumps: open, user })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn creds(host: &str, port: u16, user: &str) -> RemoteCreds {
+        RemoteCreds {
+            protocol: Protocol::Sftp,
+            host: host.into(),
+            port,
+            user: user.into(),
+            password: String::new(),
+            path: String::new(),
+            passive: false,
+            key_file: String::new(),
+            key_passphrase: String::new(),
+        }
+    }
+
+    const CONFIG: &str = "Host db\n  HostName db.internal\n  User dba\n  Port 2222\n  ProxyJump ops@bastion,gw:2200\n  HostKeyAlias db-key\nHost bastion\n  HostName bastion.example.com\n  Port 22022\nHost loop\n  ProxyJump loop\nHost legacy\n  ProxyCommand nc -X 5 -x proxy:1080 %h %p\n";
+
+    #[test]
+    fn the_route_follows_the_config_and_the_form_overrides_it() {
+        let cfg = sshconfig::SshConfig::parse(CONFIG, std::path::Path::new("/nowhere"));
+        let hops = plan(&creds("db", 22, ""), &cfg).unwrap();
+        let route: Vec<(&str, u16, &str, bool)> =
+            hops.iter().map(|h| (h.host.as_str(), h.port, h.user.as_str(), h.last)).collect();
+        assert_eq!(
+            route,
+            vec![
+                ("bastion.example.com", 22022, "ops", false),
+                ("gw", 2200, sshconfig::local_user().as_str(), false),
+                ("db.internal", 2222, "dba", true),
+            ]
+        );
+        assert_eq!(hops[2].key_host, "db-key");
+        // A user and a port typed into the form win.
+        let hops = plan(&creds("db", 2022, "root"), &cfg).unwrap();
+        let last = hops.last().unwrap();
+        assert_eq!((last.port, last.user.as_str()), (2022, "root"));
+        // A host the config doesn't know is connected to as typed.
+        let hops = plan(&creds("plain.example", 22, "me"), &cfg).unwrap();
+        assert_eq!(hops.len(), 1);
+        assert_eq!(
+            (hops[0].host.as_str(), hops[0].key_host.as_str()),
+            ("plain.example", "plain.example")
+        );
+    }
+
+    #[test]
+    fn loops_and_proxy_commands_are_refused() {
+        let cfg = sshconfig::SshConfig::parse(CONFIG, std::path::Path::new("/nowhere"));
+        let err = plan(&creds("loop", 22, "u"), &cfg).unwrap_err().to_string();
+        assert!(err.contains("twice"), "{err}");
+        let err = plan(&creds("legacy", 22, "u"), &cfg).unwrap_err().to_string();
+        assert!(err.contains("ProxyCommand"), "{err}");
+    }
 
     #[test]
     fn parses_classic_ls_line() {

@@ -777,3 +777,7 @@ code = "en"
 
 # -- Editor: JWT --
 "D&ecode JWT at cursor" = "D&ecode JWT at cursor"
+
+# -- Remote: ssh config --
+"ssh config" = "ssh config"
+"SSH host" = "SSH host"

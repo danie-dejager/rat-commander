@@ -768,3 +768,7 @@ code = "hi"
 
 # -- Editor: JWT --
 "D&ecode JWT at cursor" = "कर्सर पर JWT डिकोड करें (&E)"
+
+# -- Remote: ssh config --
+"ssh config" = "ssh कॉन्फ़िग"
+"SSH host" = "SSH होस्ट"

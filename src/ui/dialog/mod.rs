@@ -55,7 +55,7 @@ pub use dirhistory::DirHistoryDialog;
 pub use drive::DriveDialog;
 pub use find::{FindDialog, FindParams};
 pub use flash::{FileBrowserDialog, FlashTargetDialog, ImageSaveDialog};
-pub use form::{FormDialog, SettingsTab};
+pub use form::{FormDialog, SettingsTab, ssh_config_entries};
 #[cfg(test)]
 pub(crate) use form::{HELP_ROWS, HELP_WIDTH, settings_help_texts};
 pub use geomap::GeoMapDialog;

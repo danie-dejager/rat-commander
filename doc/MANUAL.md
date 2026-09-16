@@ -1827,6 +1827,34 @@ SSH host keys are checked against `~/.ssh/known_hosts`: a matching key connects,
 an **unknown** host is trusted and **recorded** on first use, and a **changed**
 key is rejected as a possible machine-in-the-middle.
 
+**`~/.ssh/config`.** The hosts your SSH config names are offered in the SFTP and
+SCP connect forms' Host dropdown, after the recent servers — each shown as
+`alias   user@hostname:port via jump   (ssh config)` — and in the command palette
+as *SSH host* entries. Picking one fills in the **alias** as the host, and any
+host typed into the form is looked up in the config too, so a connection is set
+up the way `ssh alias` would set it up:
+
+- **HostName** is where it connects (with `%h` tokens expanded); **User** and
+  **Port** apply unless the form gives a user or a port other than the default,
+  as a command-line option would override them for `ssh`.
+- **IdentityFile** keys are tried, in order, instead of the default keys (unless
+  the form names a key file); `~` and the `%h %p %r %u %d %n` tokens are
+  expanded, and files that don't exist are skipped. **IdentitiesOnly yes** leaves
+  the agent's keys out.
+- **ProxyJump** routes the connection through one or more jump hosts, each looked
+  up in the config for its own HostName, User, Port, IdentityFile and
+  HostKeyAlias; every hop's host key is checked against `known_hosts` and every
+  hop authenticates in turn (the password is only offered to the host itself).
+  The jump connections stay open for as long as the panel's connection does.
+- **HostKeyAlias** is the name a host's key is looked up and recorded under.
+- **Include** files are read in place (relative to `~/.ssh`, wildcards allowed);
+  the first value found for a setting wins, as in `ssh`.
+
+Not supported: **ProxyCommand** (a host that needs one gets an error rather than
+a connection that bypasses the proxy — use `ProxyJump` where you can), **Match**
+blocks (skipped), and a different passphrase per key (one passphrase prompt
+applies to every encrypted key on the route).
+
 **Connections behave like drives.** Every open connection stays alive as a
 button in the picker, so you can switch a panel between **Local** and any server
 at will — like drive letters. The **Local** button returns a panel to the local

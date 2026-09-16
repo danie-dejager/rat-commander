@@ -768,3 +768,7 @@ code = "zh-Hans"
 
 # -- Editor: JWT --
 "D&ecode JWT at cursor" = "解码光标处的 JWT(&E)"
+
+# -- Remote: ssh config --
+"ssh config" = "ssh 配置"
+"SSH host" = "SSH 主机"

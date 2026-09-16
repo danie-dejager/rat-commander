@@ -633,9 +633,12 @@ pub enum GitForm {
     Reset,
 }
 
-/// Connect-form history dropdown state (recent servers).
+/// Connect-form history dropdown state (recent servers, then the hosts
+/// `~/.ssh/config` names).
 pub(crate) struct ConnectDropdown {
     history: Vec<crate::config::RemoteHistoryEntry>,
+    /// What the list shows for each entry.
+    labels: Vec<String>,
     pub(crate) open: bool,
     sel: usize,
     /// Click geometry recorded at render time: chevron, plus (rect, index) per
@@ -1162,6 +1165,20 @@ impl FormDialog {
         side: usize,
         history: Vec<crate::config::RemoteHistoryEntry>,
     ) -> Self {
+        let cfg = match protocol {
+            Protocol::Sftp | Protocol::Scp => crate::vfs::remote::sshconfig::SshConfig::load_user(),
+            Protocol::Ftp => Default::default(),
+        };
+        Self::connect_with_config(protocol, side, history, &cfg)
+    }
+
+    /// [`connect`](Self::connect), offering the hosts `cfg` names.
+    pub(crate) fn connect_with_config(
+        protocol: Protocol,
+        side: usize,
+        history: Vec<crate::config::RemoteHistoryEntry>,
+        cfg: &crate::vfs::remote::sshconfig::SshConfig,
+    ) -> Self {
         let mut fields = vec![
             Field::text("Host", ""),
             Field::text("Port", protocol.default_port().to_string()),
@@ -1178,9 +1195,17 @@ impl FormDialog {
             fields.push(Field::text("Key file (blank = agent / default keys)", ""));
         }
         let form = Form::new(fields);
-        // Only this protocol's recent connections.
-        let history: Vec<_> =
+        // Only this protocol's recent connections, then the config's hosts not
+        // among them.
+        let mut history: Vec<_> =
             history.into_iter().filter(|e| e.protocol == protocol.scheme_prefix()).collect();
+        let mut labels: Vec<String> = history.iter().map(|e| e.label()).collect();
+        for (entry, label) in ssh_config_entries(cfg, protocol) {
+            if !history.iter().any(|h| h.host == entry.host) {
+                history.push(entry);
+                labels.push(label);
+            }
+        }
         FormDialog {
             // The proto prefix stays literal; the word is translated (the title
             // is passed through `trd` again at render, harmlessly, for RTL shaping).
@@ -1193,6 +1218,7 @@ impl FormDialog {
             purpose: FormPurpose::Connect(protocol, side),
             connect: Some(ConnectDropdown {
                 history,
+                labels,
                 open: false,
                 sel: 0,
                 chevron: None,
@@ -2261,12 +2287,55 @@ impl FormDialog {
             };
             let row = Rect { x: list.x, y: list.y + vi as u16, width: list.width, height: 1 };
             let style = if idx == c.sel { sel_style } else { normal };
-            let text = crate::util::text::ellipsize(&entry.label(), list.width as usize);
+            let label = c.labels.get(idx).cloned().unwrap_or_else(|| entry.label());
+            let text = crate::util::text::ellipsize(&label, list.width as usize);
             let text = crate::util::text::pad_right(&text, list.width as usize);
             f.render_widget(Paragraph::new(Line::from(Span::styled(text, style))), row);
             c.entries.push((row, idx));
         }
     }
+}
+
+/// The hosts `~/.ssh/config` names as connect-form entries — the alias as the
+/// host, so a connection follows the config (its HostName, jump hosts, keys) —
+/// each with what a list shows for it: `db   dba@db.internal:2222 via bastion
+/// (ssh config)`.
+pub fn ssh_config_entries(
+    cfg: &crate::vfs::remote::sshconfig::SshConfig,
+    protocol: Protocol,
+) -> Vec<(crate::config::RemoteHistoryEntry, String)> {
+    use crate::vfs::remote::sshconfig::expand_tokens;
+    cfg.aliases()
+        .into_iter()
+        .map(|alias| {
+            let s = cfg.resolve(&alias);
+            let port = s.port.unwrap_or(protocol.default_port());
+            let user = s.user.clone().unwrap_or_default();
+            let target = s
+                .hostname
+                .as_deref()
+                .map_or_else(|| alias.clone(), |h| expand_tokens(h, &alias, &alias, port, &user));
+            let at = if user.is_empty() { String::new() } else { format!("{user}@") };
+            let via = s
+                .proxy_jump
+                .as_deref()
+                .filter(|j| !j.eq_ignore_ascii_case("none"))
+                .map(|j| format!(" via {j}"))
+                .unwrap_or_default();
+            let label =
+                format!("{alias}   {at}{target}:{port}{via}   ({})", crate::l10n::tr("ssh config"));
+            let entry = crate::config::RemoteHistoryEntry {
+                protocol: protocol.scheme_prefix().to_string(),
+                host: alias,
+                port,
+                user,
+                path: String::new(),
+                passive: true,
+                key_file: String::new(),
+            };
+            (entry, label)
+        })
+        .collect()
 }
 
 /// Geometry of a Choice field's dropdown box: its rect and how many option rows
