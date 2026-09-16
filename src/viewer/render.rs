@@ -47,7 +47,11 @@ pub fn render(
     if v.table_active() {
         v.ensure_table();
     }
-    if v.active_image().is_none() && v.active_model().is_none() && v.active_audio().is_none() {
+    if v.active_image().is_none()
+        && v.active_model().is_none()
+        && v.active_audio().is_none()
+        && v.active_certs().is_none()
+    {
         if v.mode == ViewMode::Text && !v.table_active() {
             v.extend_to_line(v.top + v.view_rows);
         }
@@ -67,6 +71,12 @@ pub fn render(
             gfx,
             crate::ui::graphics::Slot::ViewerAudio,
         );
+        render_footer(f, footer, v, theme);
+        return;
+    }
+    // A certificate or key file shows what it holds; F8 toggles to the raw text.
+    if v.active_certs().is_some() {
+        super::certs::render(f, content, v, theme);
         render_footer(f, footer, v, theme);
         return;
     }
@@ -747,6 +757,9 @@ fn render_image(
 }
 
 fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
+    if v.active_certs().is_some() {
+        return super::certs::render_header(f, area, v, theme);
+    }
     // In audio mode the header names the file, its format, which picture is
     // up, and where playback is.
     if let Some(a) = v.active_audio() {

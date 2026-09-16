@@ -4109,6 +4109,31 @@ async fn f3_opens_a_binary_in_binary_mode_and_anything_else_as_text() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+#[tokio::test]
+async fn f3_on_a_certificate_shows_what_it_holds_and_a_readme_quoting_one_stays_text() {
+    let root = temp_dir("certview");
+    let bundle =
+        format!("{}{}", crate::certs::testdata::LEAF, crate::certs::testdata::INTERMEDIATE);
+    std::fs::write(root.join("fullchain.pem"), &bundle).unwrap();
+    std::fs::write(root.join("README.md"), format!("# TLS\n\nPaste this:\n\n{bundle}")).unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    let view = async |st: &mut AppState, name: &str| {
+        st.viewer = None;
+        st.panels[0].cursor = st.panels[0].entries.iter().position(|e| e.name == name).unwrap();
+        st.open_view().await;
+        st.viewer.as_ref().unwrap().active_certs().map(|c| c.report.summary.clone())
+    };
+    assert_eq!(view(&mut st, "fullchain.pem").await.as_deref(), Some("2 certificates"));
+    assert_eq!(view(&mut st, "README.md").await, None);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Follow mode is driven by the render loop's tick, which only runs when
 /// something asks for it — with the status widget and animations off, nothing
 /// else would, and a followed log would sit still.

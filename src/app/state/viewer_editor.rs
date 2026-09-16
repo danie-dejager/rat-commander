@@ -545,6 +545,7 @@ impl AppState {
                     // text. F4 reaches Binary mode from there.
                     if hit.is_none() {
                         open_binary(&mut v, &path.path).await;
+                        open_certs(&mut v, &path.path).await;
                     }
                     // A supported image opens showing the decoded image fullscreen
                     // (it falls back to the raw text/hex view if it can't decode).

@@ -81,6 +81,15 @@ The installed executable is named **`rc`** for quick typing.
   opens the hex view at a row's bytes, and *Find all* narrows every list to one
   term. Analysis runs in the background; a file that does not parse opens as
   text.
+- **Certificates and keys (F3 on a `.pem`, `.crt`, `.key`, `.csr` …)** — X.509
+  certificates, certificate requests and private and public keys, PEM (whole
+  bundles) or DER, laid out field by field: subject, issuer, validity with the
+  **days until expiry** (red once expired, amber within 30 days), SANs, key type
+  and size, key usage, fingerprints and SPKI pins. The **Chain** tab checks
+  which certificate issued which, **verifies each signature** against its
+  issuer and says whether they are in the order a server must send them; a
+  private key is matched to its certificate without decrypting anything, and
+  its key material is never shown. F8 switches to the raw text.
 - **Built-in editor (F4)** — `mcedit`-style block copy/move/delete, clipboard,
   search & replace, undo/redo, syntax highlighting, a **spreadsheet grid** for
   `.csv` / `.tsv` files (edit cells in a cell bar, insert and delete rows and
@@ -322,7 +331,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `F7` | Search (`n` repeats) |
 | `f` | Follow the file as it grows (`tail -f`) |
 | `b` | Git blame column; `Enter` opens the cursor line's commit |
-| `F8` | (Markdown) toggle Raw / Render — (CSV/TSV) toggle Table / Raw — (image) toggle Image / Raw — (model) toggle Model / Raw — (audio) toggle Audio / Raw — (map) toggle Density / Bytes — (binary) toggle demangled / raw names |
+| `F8` | (Markdown) toggle Raw / Render — (CSV/TSV) toggle Table / Raw — (image) toggle Image / Raw — (model) toggle Model / Raw — (audio) toggle Audio / Raw — (map) toggle Density / Bytes — (binary) toggle demangled / raw names — (certificates) toggle Certs / Raw |
 | `Space` / `s` | (audio) play / pause — stop |
 | `← →` / `PgUp PgDn` / `Home End` | (audio) seek 5 s / 30 s / to either end; click or drag on the picture to seek |
 | `+` / `-` / `↑ ↓` | (audio) volume |

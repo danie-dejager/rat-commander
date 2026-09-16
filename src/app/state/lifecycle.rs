@@ -860,6 +860,7 @@ impl AppState {
                                 // An executable from an archive or a remote
                                 // host opens in Binary mode, as a local one does.
                                 open_binary(&mut v, &temp).await;
+                                open_certs(&mut v, &temp).await;
                                 // Audio from an archive or a remote host is
                                 // drawn and played from the temp copy.
                                 if let Some(av) = load_view_audio(

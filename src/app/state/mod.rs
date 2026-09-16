@@ -753,6 +753,39 @@ async fn open_binary(v: &mut crate::viewer::ViewerState, path: &Path) {
     }
 }
 
+/// Show what a certificate or key file holds — unless the file opened as a
+/// binary. The file is read and parsed off the main thread.
+async fn open_certs(v: &mut crate::viewer::ViewerState, path: &Path) {
+    if v.is_binary_mode() {
+        return;
+    }
+    let (p, name) = (path.to_path_buf(), v.name.clone());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64);
+    let report = tokio::task::spawn_blocking(move || {
+        use std::io::Read;
+        let mut head = Vec::with_capacity(64);
+        let mut file = std::fs::File::open(&p).ok()?;
+        if file.metadata().ok()?.len() > crate::certs::MAX_BYTES {
+            return None;
+        }
+        file.by_ref().take(64).read_to_end(&mut head).ok()?;
+        if !crate::certs::sniff(&name, &head) {
+            return None;
+        }
+        let mut data = head;
+        file.read_to_end(&mut data).ok()?;
+        crate::certs::inspect(&name, &data, now)
+    })
+    .await
+    .ok()
+    .flatten();
+    if let Some(r) = report {
+        v.set_certs(r);
+    }
+}
+
 /// Stream `path` from `backend` to the local `temp` file, emitting throttled
 /// progress and honoring `cancel`. Returns `Ok(true)` when complete, `Ok(false)`
 /// when cancelled, or `Err` on I/O failure. The caller cleans up `temp`.

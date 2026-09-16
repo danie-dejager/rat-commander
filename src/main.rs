@@ -5,6 +5,7 @@ mod activity;
 mod app;
 mod audio;
 mod bt;
+mod certs;
 mod config;
 mod console;
 mod details;
