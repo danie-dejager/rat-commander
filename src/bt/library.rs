@@ -8,13 +8,19 @@
 
 use super::bundle;
 use super::header::{self, Origin, TemplateInfo};
+use super::interp::{Interp, Limits};
+use super::source::ByteSource;
 use crate::util::checksum::ChecksumKind;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::SystemTime;
+
+/// The stack a template runs on: its recursion goes deep.
+pub const RUN_STACK: usize = if cfg!(target_pointer_width = "64") { 256 << 20 } else { 32 << 20 };
 
 /// The manifest file, inside the template directory.
 pub const MANIFEST: &str = ".rc-manifest.toml";
@@ -240,6 +246,38 @@ pub fn invalidate() {
     if let Ok(mut cache) = CACHE.lock() {
         *cache = None;
     }
+}
+
+/// A finished template run: the interpreter holding the tree it built, why the
+/// run stopped early (`ZIP.bt:120: …`) if it did, and every file it read.
+pub type Ran = (Interp, Option<String>, Vec<PathBuf>);
+
+/// Run template `info` over `src`, the bytes of a file named `name`, on this
+/// thread — one with a [`RUN_STACK`]. `Err` when the template can't be read
+/// or compiled.
+pub fn run(
+    info: &TemplateInfo,
+    src: Box<dyn ByteSource>,
+    name: &str,
+    cancel: Arc<AtomicBool>,
+    progress: Arc<AtomicU64>,
+) -> Result<Ran, String> {
+    let text = read_source(info).ok_or_else(|| "the template can't be read".to_string())?;
+    let (prog, deps) = compile(info, text)?;
+    let mut interp = Interp::new(Arc::new(prog), src, name, Limits::run());
+    interp.set_cancel(cancel, progress);
+    let error = interp.run().map(|(msg, pos)| {
+        if pos.line == 0 { msg } else { format!("{}: {msg}", interp.prog.pos_text(pos)) }
+    });
+    interp.limits = Limits::display();
+    Ok((interp, error, deps))
+}
+
+/// The installed template that fits a file named `file_name` whose first bytes
+/// are `head`, as [`auto_pick`] chooses.
+pub fn pick_for(file_name: &str, head: &[u8]) -> Option<TemplateInfo> {
+    let templates = discover();
+    auto_pick(&templates, file_name, head).map(|i| templates[i].clone())
 }
 
 /// The source of a template: its file, or the bundle's copy.

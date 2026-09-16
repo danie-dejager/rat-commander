@@ -6,8 +6,8 @@
 use super::{Interp, Stop};
 use crate::bt::ast::{Prim, TypeKind};
 #[cfg(test)]
-use crate::bt::tree::{ArrayKind, ROOT};
-use crate::bt::tree::{F_ENUM, F_HIDDEN, Format, NONE, NodeKind, NodeRef};
+use crate::bt::tree::ROOT;
+use crate::bt::tree::{ArrayKind, F_ENUM, F_HIDDEN, Format, NONE, NodeKind, NodeRef};
 use crate::bt::value::Value;
 use std::collections::HashMap;
 
@@ -77,6 +77,52 @@ impl Interp {
             (None, _, i) if i != NONE => format!("{base}[{i}]"),
             _ => base,
         }
+    }
+
+    /// Where offset `off` is in the tree, as the path of declared names down to
+    /// the innermost variable covering it: `record[2].frCompression`, with the
+    /// index of the element for an array. Empty when no variable covers it.
+    /// On-demand structs on the way down are opened, as the tree would.
+    pub fn field_path(&mut self, off: u64) -> String {
+        let mut path = self.tree.path_at(off);
+        while let Some(&last) = path.last() {
+            let pending =
+                matches!(&self.tree.node(last.id).kind, NodeKind::Struct { pending: Some(_) });
+            if !pending {
+                break;
+            }
+            self.open_node(last);
+            path = self.tree.path_at(off);
+        }
+        let mut parts: Vec<String> = Vec::new();
+        for (k, r) in path.iter().enumerate() {
+            let n = self.tree.node(r.id);
+            // An element of the array just before it: that array's name, indexed.
+            if let Some(parent) = k.checked_sub(1).map(|p| path[p])
+                && let NodeKind::Array { elem_size, kind, .. } = self.tree.node(parent.id).kind
+            {
+                let i = match kind {
+                    ArrayKind::Optimized if elem_size > 0 => (r.shift - parent.shift) / elem_size,
+                    _ => n.index as u64,
+                };
+                if let Some(last) = parts.last_mut() {
+                    last.push_str(&format!("[{i}]"));
+                }
+                continue;
+            }
+            let name = self.prog.name(n.name);
+            parts.push(if n.dup != NONE { format!("{name}[{}]", n.dup) } else { name.to_string() });
+        }
+        // A byte of an array of numbers: the element holding it.
+        if let (Some(r), Some(last)) = (path.last(), parts.last_mut())
+            && let NodeKind::Array { kind: ArrayKind::Scalar, elem_size, .. } =
+                self.tree.node(r.id).kind
+            && elem_size > 0
+        {
+            let start = self.tree.node(r.id).start + r.shift;
+            last.push_str(&format!("[{}]", (off - start) / elem_size));
+        }
+        parts.join(".")
     }
 
     /// The comment shown for node `r`.

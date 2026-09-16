@@ -449,3 +449,21 @@ fn byte_arrays_show_as_text_or_hex() {
     assert_eq!(it.row_value(&mut cache, pad), "00 00 00");
     assert_eq!(it.row_value(&mut cache, name), "\"abc\"");
 }
+
+#[test]
+fn a_byte_is_named_by_the_path_to_its_field() {
+    let src = r#"
+        struct ENTRY { ushort id; uint crc; };
+        struct HEADER { char magic[4]; ENTRY entries[3]; } header;
+        uchar pad;
+        uchar pad;
+    "#;
+    let (mut it, err) = run(src, &[0u8; 32]);
+    assert!(err.is_none(), "{err:?}");
+    assert_eq!(it.field_path(1), "header.magic[1]");
+    assert_eq!(it.field_path(4), "header.entries[0].id");
+    assert_eq!(it.field_path(16), "header.entries[2].id");
+    assert_eq!(it.field_path(19), "header.entries[2].crc");
+    assert_eq!(it.field_path(23), "pad[1]");
+    assert_eq!(it.field_path(30), "", "no variable covers it");
+}

@@ -162,7 +162,8 @@ The installed executable is named **`rc`** for quick typing.
   side-by-side **Compare files** diff with in-place merging — binary files are
   compared byte by byte instead, as hex and ASCII side by side, paged from disk
   however large, every difference coloured and stepped through while a scan
-  finds them in the background.
+  finds them in the background, and the binary template's field under the
+  cursor named.
 - **Synchronize directories** — mirror one panel's tree onto the other, in
   **one-way** (optionally deleting whatever the source doesn't have) or
   **two-way** (newer file wins) mode. The plan is **previewed in full** — every

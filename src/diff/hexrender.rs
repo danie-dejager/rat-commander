@@ -124,7 +124,8 @@ pub fn render(f: &mut Frame, area: Rect, v: &mut HexDiffView, theme: &Theme) {
 
     let normal = Style::default().fg(theme.text_fg).bg(theme.panel_bg);
     f.render_widget(Paragraph::new("").style(normal), body);
-    render_status(f, status, v, theme);
+    let field = v.field();
+    render_status(f, status, v, field, theme);
 
     let data = v.rows(v.top, rows * BYTES_PER_ROW as usize);
     let offset_style = Style::default().fg(theme.header_fg).bg(theme.panel_bg);
@@ -221,7 +222,8 @@ pub fn render(f: &mut Frame, area: Rect, v: &mut HexDiffView, theme: &Theme) {
     render_footer(f, footer, v, theme);
 }
 
-fn render_status(f: &mut Frame, area: Rect, v: &HexDiffView, theme: &Theme) {
+/// The status row; `field` names the first file's field at the cursor.
+fn render_status(f: &mut Frame, area: Rect, v: &HexDiffView, field: Option<String>, theme: &Theme) {
     let trd = crate::l10n::trd;
     let (n, capped, inside) = v.runs_status();
     let plus = if capped { "+" } else { "" };
@@ -233,8 +235,9 @@ fn render_status(f: &mut Frame, area: Rect, v: &HexDiffView, theme: &Theme) {
     };
     let [la, lb] = v.lens();
     let sizes = if la != lb { format!("   {} {la} / {lb}", trd("Size")) } else { String::new() };
+    let field = field.map(|f| format!("   {f}")).unwrap_or_default();
     let tail = format!(
-        "   {n}{plus} {}{pos}{scanning}   {} 0x{:X}{sizes} ",
+        "   {n}{plus} {}{pos}{scanning}   {} 0x{:X}{sizes}{field} ",
         trd("diff(s)"),
         trd("Offset"),
         v.cursor
@@ -317,10 +320,12 @@ mod tests {
                 s.split_once('x').and_then(|(a, b)| Some((a.parse().ok()?, b.parse().ok()?)))
             })
             .unwrap_or((160, 30));
-        let names = [a.display().to_string(), b.display().to_string()];
+        let file_name = |p: &std::path::Path| p.file_name().unwrap().to_string_lossy().into_owned();
+        let names = [file_name(&a), file_name(&b)];
         let mut v = HexDiffView::open(names, [Origin::File(a), Origin::File(b)]).unwrap();
-        while v.poll() {
-            std::thread::yield_now();
+        while v.busy() {
+            v.poll();
+            std::thread::sleep(std::time::Duration::from_millis(2));
         }
         let _ = screen(&mut v, w, h);
         let steps: usize =

@@ -8,9 +8,9 @@
 
 use super::{EditorSignal, EditorState, hex};
 use crate::bt::header::TemplateInfo;
+use crate::bt::interp::Interp;
 use crate::bt::interp::display::LazyCache;
 use crate::bt::interp::edit::EditTarget;
-use crate::bt::interp::{Interp, Limits};
 use crate::bt::library;
 use crate::bt::source::{ByteSource, FileSource};
 use crate::bt::tree::{ArrayKind, F_HIDDEN, F_OPEN, F_SUPPRESS, NodeKind, NodeRef, ROOT};
@@ -38,8 +38,6 @@ const QUIET: Duration = Duration::from_millis(500);
 const AUTO_RERUN_UNDER: Duration = Duration::from_secs(1);
 /// Array elements listed at a time; a "more" row lists the next batch.
 const CHUNK: u64 = 1000;
-/// The worker's stack: a template's recursion runs on it.
-const WORKER_STACK: usize = if cfg!(target_pointer_width = "64") { 256 << 20 } else { 32 << 20 };
 /// The stack callbacks evaluated for drawing run on.
 const DISPLAY_STACK: usize = if cfg!(target_pointer_width = "64") { 64 << 20 } else { 16 << 20 };
 
@@ -213,37 +211,33 @@ fn execute(
         TemplateChoice::Off => return Outcome::NoTemplate,
         TemplateChoice::Chosen(i) => *i,
         TemplateChoice::Auto => {
-            let templates = library::discover();
             let mut head = vec![0u8; crate::bt::header::ID_WINDOW];
             let n = FileSource::open(file, overlay.clone())
                 .map(|mut s| s.read_at(0, &mut head))
                 .unwrap_or(0);
             head.truncate(n);
-            match library::auto_pick(&templates, file_name, &head) {
-                Some(i) => templates[i].clone(),
+            match library::pick_for(file_name, &head) {
+                Some(info) => info,
                 None => return Outcome::NoTemplate,
             }
         }
-    };
-    let Some(text) = library::read_source(&info) else {
-        return Outcome::Failed(info, "the template can't be read".into());
-    };
-    let (prog, deps) = match library::compile(&info, text) {
-        Ok(p) => p,
-        Err(e) => return Outcome::Failed(info, e),
     };
     let src = match FileSource::open(file, overlay) {
         Ok(s) => s,
         Err(e) => return Outcome::Failed(info, e.to_string()),
     };
-    let mut interp =
-        Interp::new(Arc::new(prog), Box::new(src), &file.display().to_string(), Limits::run());
-    interp.set_cancel(cancel, progress);
-    let error = interp.run().map(|(msg, pos)| {
-        if pos.line == 0 { msg } else { format!("{}: {msg}", interp.prog.pos_text(pos)) }
-    });
-    interp.limits = Limits::display();
-    Outcome::Ran(Run { interp: Box::new(interp), info, error, took: started.elapsed(), rev, deps })
+    let name = file.display().to_string();
+    match library::run(&info, Box::new(src), &name, cancel, progress) {
+        Ok((interp, error, deps)) => Outcome::Ran(Run {
+            interp: Box::new(interp),
+            info,
+            error,
+            took: started.elapsed(),
+            rev,
+            deps,
+        }),
+        Err(e) => Outcome::Failed(info, e),
+    }
 }
 
 /// The rows under open node `r`.
@@ -444,7 +438,7 @@ impl EditorState {
         let (c2, p2) = (cancel.clone(), progress.clone());
         let spawned = std::thread::Builder::new()
             .name("bt-run".into())
-            .stack_size(WORKER_STACK)
+            .stack_size(library::RUN_STACK)
             .spawn(move || {
                 let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     execute(choice, &file, &name, overlay, rev, c2, p2)
@@ -618,7 +612,7 @@ impl EditorState {
         let Some(t) = self.tpl.as_mut() else { return };
         let choice = t.choice.clone();
         let outcome = std::thread::Builder::new()
-            .stack_size(WORKER_STACK)
+            .stack_size(library::RUN_STACK)
             .spawn(move || {
                 execute(
                     choice,

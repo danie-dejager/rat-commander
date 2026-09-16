@@ -5,7 +5,12 @@
 //!
 //! Bytes are compared at the same offset: a byte inserted in one file shifts
 //! everything after it, and the rest reads as different.
+//!
+//! The binary template that fits the first file runs over it too, so the
+//! status line can name the field the cursor is in.
 
+use crate::bt::interp::Interp;
+use crate::bt::library;
 use crate::bt::source::{ByteSource, FileSource};
 use ratatui::crossterm::event::{
     KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -16,6 +21,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use tokio::sync::oneshot::{self, error::TryRecvError};
 
 pub const BYTES_PER_ROW: u64 = 16;
 /// How much of a file's start decides whether it is binary.
@@ -71,18 +77,63 @@ impl Source {
     /// The bytes from `off` on, up to `n` (fewer at the end).
     fn read(&mut self, off: u64, n: usize) -> Vec<u8> {
         let mut buf = vec![0u8; n];
-        let got = match self {
-            Source::File(f) => f.read_at(off, &mut buf),
-            Source::Mem(d) => {
-                let start = usize::try_from(off).unwrap_or(usize::MAX).min(d.len());
-                let k = (d.len() - start).min(n);
-                buf[..k].copy_from_slice(&d[start..start + k]);
-                k
-            }
-        };
+        let got = self.read_at(off, &mut buf);
         buf.truncate(got);
         buf
     }
+}
+
+impl ByteSource for Source {
+    fn len(&self) -> u64 {
+        Source::len(self)
+    }
+
+    fn read_at(&mut self, off: u64, buf: &mut [u8]) -> usize {
+        match self {
+            Source::File(f) => f.read_at(off, buf),
+            Source::Mem(d) => {
+                let start = usize::try_from(off).unwrap_or(usize::MAX).min(d.len());
+                let k = (d.len() - start).min(buf.len());
+                buf[..k].copy_from_slice(&d[start..start + k]);
+                k
+            }
+        }
+    }
+}
+
+/// The template run over the first file, for naming fields.
+enum Fields {
+    Running(oneshot::Receiver<Option<Named>>),
+    Ready(Box<Named>),
+}
+
+/// A run's interpreter, and the template's file name.
+type Named = (Interp, String);
+
+/// Run the template that fits `name`'s bytes from `origin`, on a thread of
+/// its own: what it built, or `None` when nothing fits or it failed.
+fn start_fields(name: &str, origin: &Origin, cancel: Arc<AtomicBool>) -> Option<Fields> {
+    let mut src = Source::open(origin).ok()?;
+    let name = name.to_string();
+    let (tx, rx) = oneshot::channel();
+    std::thread::Builder::new()
+        .name("hexdiff-template".into())
+        .stack_size(library::RUN_STACK)
+        .spawn(move || {
+            let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut head = vec![0u8; crate::bt::header::ID_WINDOW];
+                let n = src.read_at(0, &mut head);
+                head.truncate(n);
+                let info = library::pick_for(&name, &head)?;
+                let progress = Arc::new(AtomicU64::new(0));
+                let (interp, ..) =
+                    library::run(&info, Box::new(src), &name, cancel, progress).ok()?;
+                Some((interp, info.file_name))
+            }));
+            let _ = tx.send(run.ok().flatten());
+        })
+        .ok()?;
+    Some(Fields::Running(rx))
 }
 
 /// What the scan has found so far, shared with its thread.
@@ -226,6 +277,9 @@ pub struct HexDiffView {
     sources: [Source; 2],
     lens: [u64; 2],
     scan: Arc<Scan>,
+    fields: Option<Fields>,
+    /// Stops the template run when the view closes.
+    stop: Arc<AtomicBool>,
     /// The scan has finished and been drawn so.
     seen_finished: bool,
     pub cursor: u64,
@@ -244,6 +298,7 @@ pub struct HexDiffView {
 impl Drop for HexDiffView {
     fn drop(&mut self) {
         self.scan.cancel.store(true, Ordering::Relaxed);
+        self.stop.store(true, Ordering::Relaxed);
     }
 }
 
@@ -252,7 +307,8 @@ impl HexDiffView {
     pub fn open(names: [String; 2], origins: [Origin; 2]) -> io::Result<Self> {
         let sources = [Source::open(&origins[0])?, Source::open(&origins[1])?];
         let lens = [sources[0].len(), sources[1].len()];
-        let v = Self::new(names, sources, lens);
+        let mut v = Self::new(names, sources, lens);
+        v.fields = start_fields(&v.names[0], &origins[0], v.stop.clone());
         let shared = v.scan.clone();
         std::thread::Builder::new().name("hexdiff-scan".into()).spawn(move || {
             if let Err(e) = run_scan(&origins[0], &origins[1], lens, &shared) {
@@ -270,6 +326,8 @@ impl HexDiffView {
             sources,
             lens,
             scan,
+            fields: None,
+            stop: Arc::new(AtomicBool::new(false)),
             seen_finished: false,
             cursor: 0,
             top: 0,
@@ -290,9 +348,22 @@ impl HexDiffView {
         self.lens
     }
 
-    /// Whether the scan is still going (the view wants ticks).
+    /// Whether the scan or the template is still going (the view wants ticks).
     pub fn busy(&self) -> bool {
-        !self.seen_finished
+        !self.seen_finished || matches!(self.fields, Some(Fields::Running(_)))
+    }
+
+    /// The field of the first file the cursor is in, by the template that
+    /// fits it: `ZIP.bt: record[0].frCompression`.
+    pub fn field(&mut self) -> Option<String> {
+        let cursor = self.cursor;
+        if cursor >= self.lens[0] {
+            return None;
+        }
+        let Some(Fields::Ready(named)) = &mut self.fields else { return None };
+        let (interp, template) = &mut **named;
+        let path = interp.field_path(self.cursor);
+        (!path.is_empty()).then(|| format!("{template}: {path}"))
     }
 
     /// How far the scan has got, in percent.
@@ -321,8 +392,19 @@ impl HexDiffView {
     /// On the tick: follow the scan, and take a step that was waiting on it.
     /// Returns whether there is anything new to draw.
     pub fn poll(&mut self) -> bool {
+        let mut changed = false;
+        if let Some(Fields::Running(rx)) = self.fields.as_mut() {
+            match rx.try_recv() {
+                Ok(named) => {
+                    self.fields = named.map(|n| Fields::Ready(Box::new(n)));
+                    changed = true;
+                }
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Closed) => self.fields = None,
+            }
+        }
         if self.seen_finished {
-            return false;
+            return changed;
         }
         if let Some(forward) = self.waiting {
             self.step(forward);
@@ -471,6 +553,30 @@ mod tests {
 
     fn runs(v: &HexDiffView) -> Vec<(u64, u64)> {
         v.scan.runs.lock().unwrap().clone()
+    }
+
+    #[test]
+    fn the_status_names_the_field_by_the_first_files_template() {
+        let zip = |text: &[u8]| {
+            let mut z = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            let opts = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            z.start_file("hello.txt", opts).unwrap();
+            std::io::Write::write_all(&mut z, text).unwrap();
+            z.finish().unwrap().into_inner()
+        };
+        let names = ["old.zip".to_string(), "new.zip".to_string()];
+        let mut v = HexDiffView::open(names, [mem(&zip(b"hello")), mem(&zip(b"jello"))]).unwrap();
+        let started = std::time::Instant::now();
+        while v.busy() && started.elapsed() < std::time::Duration::from_secs(30) {
+            v.poll();
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        v.goto(8);
+        assert_eq!(v.field().as_deref(), Some("ZIP.bt: record.frCompression"));
+        // Past the first file's end there is nothing to name.
+        v.cursor = v.lens()[0];
+        assert_eq!(v.field(), None);
     }
 
     #[test]

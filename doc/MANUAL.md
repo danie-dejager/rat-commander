@@ -905,7 +905,10 @@ under 64 MiB.
 A scan in the background finds the **runs** of differences (differences less
 than 16 bytes apart count as one run); the status line shows how many it has
 found, which one the cursor is in, how far it has got, and the two sizes when
-they differ. Bytes are compared at the same offset: a byte inserted in one file
+they differ. When a binary template fits the first file (see *Binary
+templates*), it runs over that file in the background too, and the status line
+names the field the cursor is in — `ZIP.bt: record.frCompression` — so a
+difference reads as the field it changes. Bytes are compared at the same offset: a byte inserted in one file
 moves everything after it, and the rest of the file shows as different.
 
 - `↑ ↓ ← →` / `PgUp PgDn` — Move; `Home` / `End` — start / end of the row;
