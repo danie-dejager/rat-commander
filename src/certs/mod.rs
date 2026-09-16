@@ -10,6 +10,7 @@
 pub mod chain;
 pub mod der;
 pub mod keys;
+pub mod ssh;
 #[cfg(test)]
 pub mod testdata;
 pub mod x509;
@@ -75,6 +76,7 @@ pub enum Tab {
     Certificates,
     Requests,
     Keys,
+    Entries,
     Chain,
 }
 
@@ -85,6 +87,7 @@ impl Tab {
             Tab::Certificates => "Certificates",
             Tab::Requests => "Requests",
             Tab::Keys => "Keys",
+            Tab::Entries => "Entries",
             Tab::Chain => "Chain",
         }
     }
@@ -150,10 +153,14 @@ fn named_like_one(name: &str) -> bool {
 }
 
 /// Whether a file named `name` starting with `head` is worth inspecting: by
-/// its name, or by beginning (blank lines aside) with a PEM block.
+/// its name, or by beginning (blank lines aside) with a PEM block or an SSH
+/// key.
 pub fn sniff(name: &str, head: &[u8]) -> bool {
     let start = head.iter().position(|b| !b.is_ascii_whitespace()).map_or(&[][..], |i| &head[i..]);
-    named_like_one(name) || start.starts_with(b"-----BEGIN ")
+    named_like_one(name)
+        || ssh::named_like_one(name)
+        || start.starts_with(b"-----BEGIN ")
+        || ssh::sniff(&String::from_utf8_lossy(start))
 }
 
 #[derive(Default)]
@@ -161,11 +168,15 @@ struct Found {
     certs: Vec<(Vec<u8>, Option<usize>)>,
     requests: Vec<(Vec<u8>, Option<usize>)>,
     keys: Vec<keys::KeyInfo>,
+    ssh: ssh::Found,
 }
 
 impl Found {
     fn is_empty(&self) -> bool {
-        self.certs.is_empty() && self.requests.is_empty() && self.keys.is_empty()
+        self.certs.is_empty()
+            && self.requests.is_empty()
+            && self.keys.is_empty()
+            && self.ssh.is_empty()
     }
 
     fn add_block(&mut self, b: Block) {
@@ -180,6 +191,7 @@ impl Found {
                     self.requests.push((b.der, Some(b.line)));
                 }
             }
+            "OPENSSH PRIVATE KEY" => ssh::private_key(&b.der, b.line, &mut self.ssh),
             label => {
                 if let Some(mut k) = keys::parse(label, &b.headers, &b.der) {
                     k.line = Some(b.line);
@@ -204,12 +216,17 @@ impl Found {
 /// or `None` when it holds no certificate or key.
 pub fn inspect(name: &str, data: &[u8], now: i64) -> Option<Report> {
     let mut found = Found::default();
-    match std::str::from_utf8(data) {
-        Ok(text) if text.contains("-----BEGIN ") => {
+    if let Ok(text) = std::str::from_utf8(data) {
+        if text.contains("-----BEGIN ") {
             pem_blocks(text).into_iter().for_each(|b| found.add_block(b));
         }
-        _ if named_like_one(name) => found.add_der(data),
-        _ => {}
+        let kind = ssh::lines_kind(name);
+        if kind != ssh::Lines::Keys || text.lines().any(ssh::sniff) {
+            ssh::read_lines(kind, text, now, &mut found.ssh);
+        }
+    }
+    if found.is_empty() && named_like_one(name) {
+        found.add_der(data);
     }
     (!found.is_empty()).then(|| report(&found, now))
 }
@@ -296,12 +313,52 @@ fn report(found: &Found, now: i64) -> Report {
         rows.iter_mut().skip(1).for_each(|r| r.line = k.line);
         key_rows.extend(rows);
     }
+    // SSH keys and certificates go on after the others, numbered on from them.
+    let numbered = |rows: &[Row], n: usize| -> Vec<Row> {
+        let mut rows = rows.to_vec();
+        if let Some(head) = rows.first_mut() {
+            head.label = Label::Text(format!("#{n}"));
+        }
+        rows
+    };
+    for (i, (sum, rows, _)) in found.ssh.keys.iter().enumerate() {
+        summary.push(sum.clone());
+        key_rows.extend(numbered(rows, found.keys.len() + i + 1));
+    }
+    for (i, (sum, rows)) in found.ssh.certs.iter().enumerate() {
+        let n = certs.len() + i + 1;
+        let mut sum = sum.clone();
+        sum.value = format!("#{n} {}", sum.value);
+        summary.push(sum);
+        cert_rows.extend(numbered(rows, n));
+    }
+    let entry_count = found.ssh.entries.len() - found.ssh.unreadable;
+    if let Some(kind) = found.ssh.entries_kind {
+        let label = if kind == ssh::Lines::KnownHosts { "Known hosts" } else { "Authorized keys" };
+        let mut row = Row::new(label, format!("{entry_count} keys"));
+        if found.ssh.unreadable > 0 {
+            row.value.push_str(&format!(", {} lines can't be read", found.ssh.unreadable));
+            row.tone = Tone::Bad;
+        }
+        summary.push(row);
+    }
+    let entry_rows: Vec<Row> = found.ssh.entries.concat();
 
+    let private = found.keys.iter().filter(|k| k.private).count()
+        + found.ssh.keys.iter().filter(|k| k.2).count();
+    let public = found.keys.len() + found.ssh.keys.len() - private;
+    let entries = match found.ssh.entries_kind {
+        Some(ssh::Lines::KnownHosts) => plural(entry_count, "known host", "known hosts"),
+        Some(_) => plural(entry_count, "authorized key", "authorized keys"),
+        None => None,
+    };
     let text: Vec<String> = [
         plural(certs.len(), "certificate", "certificates"),
+        plural(found.ssh.certs.len(), "SSH certificate", "SSH certificates"),
         plural(requests.len(), "request", "requests"),
-        plural(found.keys.iter().filter(|k| k.private).count(), "private key", "private keys"),
-        plural(found.keys.iter().filter(|k| !k.private).count(), "public key", "public keys"),
+        plural(private, "private key", "private keys"),
+        plural(public, "public key", "public keys"),
+        entries,
     ]
     .into_iter()
     .flatten()
@@ -312,6 +369,7 @@ fn report(found: &Found, now: i64) -> Report {
         (Tab::Certificates, cert_rows),
         (Tab::Requests, request_rows),
         (Tab::Keys, key_rows),
+        (Tab::Entries, entry_rows),
         (Tab::Chain, chain_rows),
     ]
     .into_iter()
@@ -370,6 +428,37 @@ mod tests {
         let secret = &key_der[7..39];
         let hexed = x509::hex(secret);
         assert!(r.tabs.iter().flat_map(|(_, rows)| rows).all(|row| !row.value.contains(&hexed)));
+    }
+
+    #[test]
+    fn ssh_files_are_taken_by_name_or_content_and_numbered_with_the_rest() {
+        assert!(sniff("id_ed25519", b"-----BEGIN OPENSSH PRIVATE KEY-----"));
+        assert!(sniff("known_hosts", b"|1|abc"));
+        assert!(sniff("deploy", testdata::SSH_ED25519_PUB.as_bytes()));
+        assert!(!sniff("install.sh", b"#!/bin/sh\nssh-keygen -t ed25519\n"));
+
+        let keys = format!("{}{}", testdata::SSH_ED25519_KEY, testdata::SSH_RSA_PUB);
+        let r = inspect("keys.txt", keys.as_bytes(), MARCH_2025).unwrap();
+        assert_eq!(r.summary, "1 private key, 1 public key");
+        let heads: Vec<&Label> =
+            tab(&r, Tab::Keys).iter().filter(|x| x.depth == 0).map(|x| &x.label).collect();
+        assert_eq!(heads, vec![&Label::Text("#1".into()), &Label::Text("#2".into())]);
+
+        let r = inspect("ca.pub", testdata::SSH_CA_PUB.as_bytes(), MARCH_2025).unwrap();
+        let fp = tab(&r, Tab::Keys).iter().find(|x| x.label == Label::Key("Fingerprint")).unwrap();
+        assert_eq!(fp.value, testdata::SSH_CA_FP);
+
+        let r =
+            inspect("authorized_keys", testdata::AUTHORIZED_KEYS.as_bytes(), MARCH_2025).unwrap();
+        assert_eq!(r.summary, "2 authorized keys");
+        let sum = &tab(&r, Tab::Summary)[0];
+        assert_eq!((sum.value.as_str(), sum.tone), ("2 keys, 1 lines can't be read", Tone::Bad));
+        assert_eq!(tab(&r, Tab::Entries).iter().filter(|x| x.depth == 0).count(), 3);
+
+        let cert = format!("{}{}", testdata::LEAF, testdata::SSH_CERT);
+        let r = inspect("mixed.pem", cert.as_bytes(), MARCH_2025).unwrap();
+        assert_eq!(r.summary, "1 certificate, 1 SSH certificate");
+        assert!(tab(&r, Tab::Summary)[1].value.starts_with("#2 alice-2025"));
     }
 
     #[test]

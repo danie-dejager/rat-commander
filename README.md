@@ -89,7 +89,11 @@ The installed executable is named **`rc`** for quick typing.
   which certificate issued which, **verifies each signature** against its
   issuer and says whether they are in the order a server must send them; a
   private key is matched to its certificate without decrypting anything, and
-  its key material is never shown. F8 switches to the raw text.
+  its key material is never shown. **SSH** files too: OpenSSH private keys
+  (fingerprint and encryption, readable without the passphrase), public keys,
+  OpenSSH certificates (principals, validity, signing CA and whether its
+  signature holds), and every line of `authorized_keys` and `known_hosts`.
+  F8 switches to the raw text.
 - **Built-in editor (F4)** — `mcedit`-style block copy/move/delete, clipboard,
   search & replace, undo/redo, syntax highlighting, a **spreadsheet grid** for
   `.csv` / `.tsv` files (edit cells in a cell bar, insert and delete rows and

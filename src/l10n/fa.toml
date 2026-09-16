@@ -755,3 +755,17 @@ rtl = true
 "Keys" = "کلیدها"
 "Chain" = "زنجیره"
 "Certs" = "گواهی"
+
+# -- Viewer: SSH keys --
+"Entries" = "ورودی‌ها"
+"Fingerprint" = "اثرانگشت"
+"Hosts" = "میزبان‌ها"
+"Marker" = "نشانه"
+"Key ID" = "شناسه کلید"
+"Principals" = "اصل‌ها"
+"Critical options" = "گزینه‌های حیاتی"
+"Extensions" = "افزونه‌ها"
+"Signed by" = "امضاشده توسط"
+"SSH certificate" = "گواهی SSH"
+"Authorized keys" = "کلیدهای مجاز"
+"Known hosts" = "میزبان‌های شناخته‌شده"

@@ -755,3 +755,17 @@ rtl = true
 "Keys" = "المفاتيح"
 "Chain" = "السلسلة"
 "Certs" = "شهادات"
+
+# -- Viewer: SSH keys --
+"Entries" = "الإدخالات"
+"Fingerprint" = "البصمة"
+"Hosts" = "المضيفون"
+"Marker" = "العلامة"
+"Key ID" = "معرّف المفتاح"
+"Principals" = "الأسماء المخوّلة"
+"Critical options" = "الخيارات الحرجة"
+"Extensions" = "الامتدادات"
+"Signed by" = "موقّع من"
+"SSH certificate" = "شهادة SSH"
+"Authorized keys" = "المفاتيح المخوّلة"
+"Known hosts" = "المضيفون المعروفون"

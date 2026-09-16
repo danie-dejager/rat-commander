@@ -277,7 +277,7 @@ used to share now lives on `Alt-T`.
   narrow and widen the column; a click picks a cell
 - In the **binary view**: `Tab` / `Shift-Tab` or `1`–`7` switch lists, `Enter`
   opens the hex view at the highlighted row, `Esc` drops a *Find all* filter
-- In the **certificate view**: `Tab` / `Shift-Tab` or `1`–`5` switch tabs,
+- In the **certificate view**: `Tab` / `Shift-Tab` or `1`–`6` switch tabs,
   `Enter` goes to the highlighted row's line in the raw text, `Esc` drops a
   *Find all* filter
 - `↑ ↓` / `PgUp PgDn` / `Home End` — Scroll (in a **model view**: `← → ↑ ↓`
@@ -1169,13 +1169,14 @@ loading it into an editor.
   costs bounded memory.
 - **Certificates and keys** — **F3** on a certificate or key file shows what it
   holds rather than base64. A file is taken for one by its name (`.pem`,
-  `.crt`, `.cer`, `.der`, `.csr`, `.p10`, `.key`, `.pub`, `ca-bundle…`) or by
-  beginning with a PEM block, so a README that quotes a certificate stays text.
+  `.crt`, `.cer`, `.der`, `.csr`, `.p10`, `.key`, `.pub`, `ca-bundle…`,
+  `id_…`, `…-cert.pub`, `authorized_keys`, `known_hosts`) or by beginning with a
+  PEM block or an SSH key, so a README that quotes a certificate stays text.
   PEM files may hold any number of blocks with text around them; DER files are
   read by their name. Files over 4 MiB are not inspected.
 
-  Up to five tabs, only those with something in them. **Tab** / **Shift-Tab**
-  step through them, **1**–**5** jump straight to one, and a click on a title
+  Up to six tabs, only those with something in them. **Tab** / **Shift-Tab**
+  step through them, **1**–**6** jump straight to one, and a click on a title
   opens it:
 
   | Tab | What it holds |
@@ -1183,7 +1184,9 @@ loading it into an editor.
   | Summary | One row per certificate, request and key: who a certificate is for and when it expires, what a key is |
   | Certificates | Each certificate field by field: subject, issuer, serial number, validity, public key type and size, signature algorithm, subject alternative names, basic constraints, key usage and extended key usage, key identifiers, CRL distribution points, OCSP and CA-issuer addresses, SHA-256 and SHA-1 fingerprints, and the SPKI SHA-256 pin |
   | Requests | Each certificate request: its subject, key, the names and extensions it asks for, and whether its signature was made with its own key |
-  | Keys | Each private or public key: its algorithm and size, how it is stored (PKCS#1, PKCS#8, SEC1, SubjectPublicKeyInfo), how an encrypted one is encrypted, its SPKI SHA-256 pin, and the certificate in the file it belongs to |
+  | Certificates (SSH) | Each OpenSSH certificate: user or host, key ID, serial number, the principals it is valid for (flagged when it lists none, which means any), validity, its key and the signing CA's fingerprints, whether the CA's signature holds, critical options and extensions |
+  | Keys | Each private or public key: its algorithm and size, how it is stored (PKCS#1, PKCS#8, SEC1, SubjectPublicKeyInfo, OpenSSH), how an encrypted one is encrypted, its SPKI SHA-256 pin or SSH fingerprint, and the certificate in the file it belongs to |
+  | Entries | Each line of an `authorized_keys` file (its key, fingerprint, comment and options) or a `known_hosts` file (its hosts — or that they are hashed — any `@cert-authority` or `@revoked` marker, and its key), with lines that can't be read marked |
   | Chain | Whether each certificate is followed by its issuer, and for each one who issued it and whether that issuer's key verifies its signature |
 
   Values that need attention are coloured: a certificate that has **expired**
@@ -1194,7 +1197,8 @@ loading it into an editor.
 
   A private key is matched to its certificate by its public key, which RSA and
   SEC1 keys store beside the private one — nothing is decrypted, and **no key
-  material is shown**. An encrypted key shows only how it is encrypted. The
+  material is shown**. An OpenSSH private key keeps its public half
+  unencrypted, so its fingerprint shows even when it has a passphrase. An encrypted key shows only how it is encrypted. The
   chain is checked **within the file only**: whether the system trusts the root,
   whether the certificate fits a host name, and whether it has been revoked are
   not looked at, and the Chain tab says so.

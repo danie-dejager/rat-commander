@@ -158,3 +158,89 @@ pub const LEAF_SHA256: &str = "81:CC:86:9A:0E:EA:DE:B3:BF:9C:E2:8D:56:3D:C4:24:1
 
 /// The SPKI SHA-256 pin of [`RSA_KEY`], as `openssl pkey -pubout | openssl dgst` gives it.
 pub const RSA_PIN: &str = "8VVsrKbkrjoigX8Bm/fxBVlxbbVmfufi8sPazD8yC4U=";
+
+/// An unencrypted OpenSSH Ed25519 key, comment `alice@laptop`.
+pub const SSH_ED25519_KEY: &str = "\
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACDchXG0Po7iGQ8fMtP28IYg9T+XHvRT12ZAHhbATveoWwAAAJApfERYKXxE
+WAAAAAtzc2gtZWQyNTUxOQAAACDchXG0Po7iGQ8fMtP28IYg9T+XHvRT12ZAHhbATveoWw
+AAAEAZv3qeZ8Rzu9kMmOZlXifzuvKYdc7hnt458s/sBJK1VNyFcbQ+juIZDx8y0/bwhiD1
+P5ce9FPXZkAeFsBO96hbAAAADGFsaWNlQGxhcHRvcAE=
+-----END OPENSSH PRIVATE KEY-----
+";
+
+/// [`SSH_ED25519_KEY`]'s public key.
+pub const SSH_ED25519_PUB: &str = "\
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINyFcbQ+juIZDx8y0/bwhiD1P5ce9FPXZkAeFsBO96hb alice@laptop
+";
+
+/// A 2048-bit OpenSSH RSA key encrypted with a passphrase, comment `bob@server`.
+pub const SSH_RSA_KEY: &str = "\
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0AAAAGAAAABBv0bAomt
+huMQj3hCJy4qoyAAAAGAAAAAEAAAEXAAAAB3NzaC1yc2EAAAADAQABAAABAQCzlu0NueuN
+R/Bkfi4uXBqmcK38v7kESxZRq6IXeH0kIidgttWeZT9COAzqaylpBf74FThg4fld4eEDKV
+i7pZVTWI1ktaWpzsQwLZ0QNmNWMVoGT0gHuEZtSB9hAlWkDj94LTNMuBAoIYNpjqrSMVkt
+b79qgtjfmfYJdYj+US1wpjT4gUiTyK4JlINeGwsYH6Zcy6ODtMd660i34RSgSkp5lHYAg/
+lFjmiHz6vVssUywhpY1ngVDoZbfzSJwm3eaVpZmNBAqdxFtZycFSHDp3heaj/+ZIetqZp/
+v6kFX1PDUROebtx39IeIULsAN5LIY+GFEJMiu48oxa4jNIQxoubXAAADwPbwq/t2uDXthU
+uAFjtz/WCQ6nqTLdrleqxcb/ikA8eNQJcnu2wtd4W+ktVX+SA0KLfz+V5cRV/2w7esw6p/
+9Ff/FoG1qpDn9jj/cnGAfamEa8GjG0XVw4XpsuCwskP3hIJFGyHmepmAw3emya4HltAZEd
+jaKAp4hrpUiXtWDoK1/vq25GSwA0zxDhVOl/KV4xV79dS6CUh0A9qSHh8zk8W8073J8yHK
+kmsGRnijDkFukUOaRLTvSOkrVDRNtb/kei1oe4ifU8wqgS0Jy0QGh1ea1nXzirXwYzvFxQ
+8aygJ6qVqWp/LjLYoRuQ2XbBQwoTk9wsIyz/D0WyuJtpATpamAiy7fMGsgmhQTiF4Hwx04
+sMVZ/iIXeh+yPOcJoyO3jkOe4PlxeVQnyvuKbq5UqIsHZyVkHP18vRjhl5CRJGLwAuB5eX
+iGQthXda1YxINLQ0HPaAgILNwluTHcWgC4NDVuuJR3VUUjZWdJXjcogi/cqfAqXQ25cVkm
+D2n1syDLmjp9QiCVlXizGq8YapzRey9Lk89X34kC9QytutYN/+k4Xazrq3gowo6oMr+vUN
+wSVQzYrOdaSNdH7m2aUL3BhZ6GKuDx6xsuQDQmqsq/VlX3Fla6Sd6yTizG+PAz10YmJhoO
+sI8BPO2pMMMxGMrH8IHjqG2rvU4vrFiA6MjPHzXlp+Ya+usDVWN3f25I3iAl4nQsyFQ2LW
+QMZOdUZJhZQggadUj5tIUjtl9m67/0yjNcnxG15wDkj6cEyXIe7bb84roOOJ0lepk4GmAu
+w+RSYwuG+nZcSVtGez4RuOQKtn2NjxTJ0RPwRF1bknViecu2Td1FnQX8IIrFRxcjiyeBQ9
+j6Jdpbf77+XpY+pVOL0xkYdw3KhM6us9inl7D+OfiiHrEinVU4HrV4z4Zhwu7MAz+NupuF
+b8t9Dz306qiGf3x1JOrSjMqLQRotJPTRPAE1HxzDCgA7ZuCEHHw4td24LVuaTN8hJf5ANT
+p2py8gcPRawxYvaD6CLYVfJ0l5HgEiAQkVRctSqQNuR8TPnmEFuL06s8f6AmqTxWU7ydWS
+iaewuWyuz8kr/H1awL6xK0TrNGvwUVo2oncfGChcCu7H1PCBjh4hdqNY+71ugs00vu7ywj
+SCHZaZftVPF/l/VqCVrWtKufwAFv2KJ66aw0bgHa8MoOiSD6iQeUp8JQGYZbrLtFFwMxp6
+d9jsvmEjkSQPDrX4khNf1VN8yAw0baq3WqNPsmJzg955M7+n4IDmwNCwtvfKAAUVfclIAP
+pv+SWYyA==
+-----END OPENSSH PRIVATE KEY-----
+";
+
+/// [`SSH_RSA_KEY`]'s public key.
+pub const SSH_RSA_PUB: &str = "\
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCzlu0NueuNR/Bkfi4uXBqmcK38v7kESxZRq6IXeH0kIidgttWeZT9COAzqaylpBf74FThg4fld4eEDKVi7pZVTWI1ktaWpzsQwLZ0QNmNWMVoGT0gHuEZtSB9hAlWkDj94LTNMuBAoIYNpjqrSMVktb79qgtjfmfYJdYj+US1wpjT4gUiTyK4JlINeGwsYH6Zcy6ODtMd660i34RSgSkp5lHYAg/lFjmiHz6vVssUywhpY1ngVDoZbfzSJwm3eaVpZmNBAqdxFtZycFSHDp3heaj/+ZIetqZp/v6kFX1PDUROebtx39IeIULsAN5LIY+GFEJMiu48oxa4jNIQxoubX bob@server
+";
+
+/// A user certificate for [`SSH_ED25519_PUB`], key ID `alice-2025`, serial 42,
+/// principals `alice` and `deploy`, valid 2025-01-01 to 2025-04-01, signed by [`SSH_CA_PUB`].
+pub const SSH_CERT: &str = "\
+ssh-ed25519-cert-v01@openssh.com AAAAIHNzaC1lZDI1NTE5LWNlcnQtdjAxQG9wZW5zc2guY29tAAAAIG5AfTtfNVUlWXWP8c3JukC/CfHE6IZgWS9dh5Tz72rpAAAAINyFcbQ+juIZDx8y0/bwhiD1P5ce9FPXZkAeFsBO96hbAAAAAAAAACoAAAABAAAACmFsaWNlLTIwMjUAAAATAAAABWFsaWNlAAAABmRlcGxveQAAAABndIWAAAAAAGfrLIAAAAAAAAAAZAAAABVwZXJtaXQtWDExLWZvcndhcmRpbmcAAAAAAAAAF3Blcm1pdC1hZ2VudC1mb3J3YXJkaW5nAAAAAAAAAApwZXJtaXQtcHR5AAAAAAAAAA5wZXJtaXQtdXNlci1yYwAAAAAAAAAAAAAAMwAAAAtzc2gtZWQyNTUxOQAAACA48tS84lFAZ2omSc055onJKlXL0GcJB2lplskbEauzjQAAAFMAAAALc3NoLWVkMjU1MTkAAABAfPgYVtISgD3OuEQ0uAptHpYD0zT2LEE51QtDlWsf+InVvEV87nEuQwcFLorguBQxxS5qLPsYmkeqTb1xOTpkBQ== alice@laptop
+";
+
+/// The CA key that signed [`SSH_CERT`].
+pub const SSH_CA_PUB: &str = "\
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDjy1LziUUBnaiZJzTnmickqVcvQZwkHaWmWyRsRq7ON rat test CA
+";
+
+/// An `authorized_keys` file: a key with options, a comment, a blank line, a
+/// plain key and a line that isn't a key.
+pub const AUTHORIZED_KEYS: &str = "\
+command=\"/usr/bin/backup\",no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINyFcbQ+juIZDx8y0/bwhiD1P5ce9FPXZkAeFsBO96hb alice@laptop
+# a comment line
+
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCzlu0NueuNR/Bkfi4uXBqmcK38v7kESxZRq6IXeH0kIidgttWeZT9COAzqaylpBf74FThg4fld4eEDKVi7pZVTWI1ktaWpzsQwLZ0QNmNWMVoGT0gHuEZtSB9hAlWkDj94LTNMuBAoIYNpjqrSMVktb79qgtjfmfYJdYj+US1wpjT4gUiTyK4JlINeGwsYH6Zcy6ODtMd660i34RSgSkp5lHYAg/lFjmiHz6vVssUywhpY1ngVDoZbfzSJwm3eaVpZmNBAqdxFtZycFSHDp3heaj/+ZIetqZp/v6kFX1PDUROebtx39IeIULsAN5LIY+GFEJMiu48oxa4jNIQxoubX bob@server
+not a key at all
+";
+
+/// A `known_hosts` file: two hashed host names and a `@cert-authority` line.
+pub const KNOWN_HOSTS: &str = "\
+|1|HP5mgD5CyvJSS3zyRtRzU5wPG58=|Xb5PKFMhSpkV3KmEHoxFEBashL0= ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINyFcbQ+juIZDx8y0/bwhiD1P5ce9FPXZkAeFsBO96hb
+|1|M0sEdGSpmrw54zr1Qi27OwA9oEY=|93eiWxMu38LvnWUT3Oypjsvy2L8= ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINyFcbQ+juIZDx8y0/bwhiD1P5ce9FPXZkAeFsBO96hb
+@cert-authority *.example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDjy1LziUUBnaiZJzTnmickqVcvQZwkHaWmWyRsRq7ON
+";
+
+/// `ssh-keygen -l`'s fingerprints of [`SSH_ED25519_PUB`], [`SSH_RSA_PUB`] and [`SSH_CA_PUB`].
+pub const SSH_ED25519_FP: &str = "SHA256:3r8hHgdZMEwKA5LQngnKcDCIWNMMgKFkKmp+ZvD6AdI";
+pub const SSH_RSA_FP: &str = "SHA256:g5nu5l+45pT8+eP/4DXSbyrN0W6ci4LpOoXGJlTKEMo";
+pub const SSH_CA_FP: &str = "SHA256:6bxYsgZ8FkPX7JlM8bWpyFXHqFjH2kvqYjA+CF6SKyg";
