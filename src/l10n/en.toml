@@ -784,3 +784,9 @@ code = "en"
 
 # -- Remote: FTPS --
 "FTPS c&onnection..." = "FTPS c&onnection..."
+
+# -- Editor: JSON tools --
+"&JSON" = "&JSON"
+"&Pretty-print" = "&Pretty-print"
+"&Minify" = "&Minify"
+"&Sort keys" = "&Sort keys"

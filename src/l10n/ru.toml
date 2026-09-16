@@ -775,3 +775,9 @@ code = "ru"
 
 # -- Remote: FTPS --
 "FTPS c&onnection..." = "Соединение FTPS… (&O)"
+
+# -- Editor: JSON tools --
+"&JSON" = "JSON (&J)"
+"&Pretty-print" = "Отформатировать (&P)"
+"&Minify" = "Минифицировать (&M)"
+"&Sort keys" = "Сортировать ключи (&S)"

@@ -101,7 +101,9 @@ The installed executable is named **`rc`** for quick typing.
   columns, every change one undo step and saved as plain text), a **live syntax
   check** of JSON, TOML, YAML and XML files that marks every error as you type —
   in a gutter,
-  underlined, explained on the status line, `Alt-E` to the next one — a
+  underlined, explained on the status line, `Alt-E` to the next one — JSON
+  **pretty-printing** (`Alt-F`), minifying and key sorting that keep the key
+  order, the numbers as written and a JSONC file's comments — a
   **GeoJSON map** (`Alt-M`) that draws the GeoJSON in a file, or nested anywhere
   in a larger JSON document, over a built-in vector map of the world (land,
   lakes, borders, rivers and cities from Natural Earth) with pan, zoom and
@@ -374,6 +376,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `F6` (hex) | The template variable under the cursor (tree: `Enter` edits, `←`/`→` close/open) |
 | `F8` (hex) | Data inspector: the bytes at the cursor as numbers, characters, dates, GUIDs (`Enter` edits, `b` switches byte order) |
 | `Alt-E` / `Alt-Shift-E` | (JSON, TOML, YAML, XML) next / previous syntax error |
+| `Alt-F` | (JSON) pretty-print; Format → JSON also minifies and sorts keys |
 | `Alt-M` | Show the file's GeoJSON on a world map (drag/wheel to pan and zoom, click a feature, `Enter` to go to it); `e` edits it: `1`/`2`/`3` draw a point/line/polygon, drag positions, `Del` removes, `Ctrl-Z` undoes |
 | `Alt-G` | Toggle the spreadsheet grid (CSV/TSV): `Enter` or typing edits a cell, `F5`/`F6` insert a row/column, `F8`/`Shift-F8` delete one, `F3` toggles the header row |
 | `Ins` | Toggle insert / overwrite |

@@ -775,3 +775,9 @@ code = "zh-Hant"
 
 # -- Remote: FTPS --
 "FTPS c&onnection..." = "FTPS 連線…(&O)"
+
+# -- Editor: JSON tools --
+"&JSON" = "JSON(&J)"
+"&Pretty-print" = "美化格式(&P)"
+"&Minify" = "壓縮(&M)"
+"&Sort keys" = "排序鍵(&S)"

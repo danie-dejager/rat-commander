@@ -97,6 +97,14 @@ pub enum EditorAction {
     NewTemplate,
     /// Stop using a template for this file.
     CloseTemplate,
+    /// The JSON submenu's parent item.
+    JsonMenu,
+    /// Pretty-print the JSON document.
+    JsonPretty,
+    /// Write the JSON document on one line.
+    JsonMinify,
+    /// Sort every object's keys.
+    JsonSortKeys,
     /// Show or hide the hex editor's data inspector.
     ToggleInspector,
 
@@ -182,8 +190,14 @@ pub enum MenuMode {
 /// everywhere else. `checked` is whether the file's syntax is checked (JSON,
 /// TOML, YAML, XML), which is what gives the error items something to move
 /// between; `template` whether hex mode is showing a binary template's
-/// variables.
-pub fn editor_menu(active: usize, mode: MenuMode, checked: bool, template: bool) -> EditorMenu {
+/// variables; `json` whether the file is JSON, for the JSON tools.
+pub fn editor_menu(
+    active: usize,
+    mode: MenuMode,
+    checked: bool,
+    template: bool,
+    json: bool,
+) -> EditorMenu {
     let hex = mode == MenuMode::Hex;
     // In hex mode the text buffer isn't the thing being edited, so everything
     // that reads or writes it is unavailable.
@@ -286,6 +300,8 @@ pub fn editor_menu(active: usize, mode: MenuMode, checked: bool, template: bool)
             not_grid(item_key("&Format paragraph", "Alt-P", EditorAction::FormatParagraph)),
             not_grid(item_key("&Sort...", "Alt-T", EditorAction::SortBlock)),
             not_grid(item_key("&Paste output of...", "Alt-U", EditorAction::PasteOutput)),
+            item_sub("&JSON", "▶", EditorAction::JsonMenu, json_items())
+                .disabled(!json || mode != MenuMode::Text),
             sep(),
             grid_only(item_key("Insert &row", "F5", EditorAction::SheetInsertRow)),
             grid_only(item_key("Delete ro&w", "F8", EditorAction::SheetDeleteRow)),
@@ -321,6 +337,19 @@ fn template_items(template: bool) -> Vec<Item> {
         shown(item("C&lose template", EditorAction::CloseTemplate)),
     ]
 }
+
+/// The JSON submenu (Format → JSON). [`JSON_MENU_KEYS`] mirrors its label keys.
+fn json_items() -> Vec<Item> {
+    vec![
+        item_key("&Pretty-print", "Alt-F", EditorAction::JsonPretty),
+        item("&Minify", EditorAction::JsonMinify),
+        item("&Sort keys", EditorAction::JsonSortKeys),
+    ]
+}
+
+/// The JSON submenu's label keys, for the l10n accelerator test.
+#[allow(dead_code)] // read by the l10n and editor-menu tests
+pub const JSON_MENU_KEYS: &[&str] = &["&Pretty-print", "&Minify", "&Sort keys"];
 
 /// The binary-templates submenu's label keys, for the l10n accelerator test.
 #[allow(dead_code)] // read by the l10n and editor-menu tests
@@ -392,6 +421,7 @@ pub const MENU_KEYS: &[&[&str]] = &[
         "&Format paragraph",
         "&Sort...",
         "&Paste output of...",
+        "&JSON",
         "Insert &row",
         "Delete ro&w",
         "Insert &column",
@@ -407,7 +437,7 @@ mod tests {
 
     #[test]
     fn accelerators_are_unique_within_each_menu() {
-        let m = editor_menu(0, MenuMode::Text, false, false);
+        let m = editor_menu(0, MenuMode::Text, false, false, false);
         for (mi, menu) in m.menus().iter().enumerate() {
             let mut seen = Vec::new();
             for it in &menu.items {
@@ -426,7 +456,7 @@ mod tests {
     fn menu_keys_mirror_the_built_menus() {
         // The l10n accelerator test reads MENU_KEYS; if a menu gains an item and
         // the list isn't updated, that test would quietly stop covering it.
-        let m = editor_menu(0, MenuMode::Text, false, false);
+        let m = editor_menu(0, MenuMode::Text, false, false, false);
         assert_eq!(m.menus().len(), MENU_KEYS.len());
         for (mi, menu) in m.menus().iter().enumerate() {
             let built = menu.items.iter().filter(|it| !it.action.is_separator()).count();
@@ -436,7 +466,7 @@ mod tests {
 
     #[test]
     fn hex_mode_greys_out_the_text_only_actions() {
-        let m = editor_menu(0, MenuMode::Hex, false, false);
+        let m = editor_menu(0, MenuMode::Hex, false, false, false);
         let find = |a: EditorAction| find_item(&m, a);
         assert!(!find(EditorAction::Undo).selectable(), "undo needs the text buffer");
         assert!(!find(EditorAction::FormatParagraph).selectable());
@@ -448,9 +478,21 @@ mod tests {
     }
 
     #[test]
+    fn the_json_submenu_is_for_json_text_and_mirrors_its_keys() {
+        let plain = editor_menu(0, MenuMode::Text, false, false, false);
+        assert!(!find_item(&plain, EditorAction::JsonMenu).selectable());
+        let json = editor_menu(0, MenuMode::Text, true, false, true);
+        let parent = find_item(&json, EditorAction::JsonMenu);
+        assert!(parent.selectable());
+        assert_eq!(parent.submenu.len(), JSON_MENU_KEYS.len());
+        let hex = editor_menu(0, MenuMode::Hex, false, false, true);
+        assert!(!find_item(&hex, EditorAction::JsonMenu).selectable());
+    }
+
+    #[test]
     fn the_template_submenu_is_for_hex_mode_and_mirrors_its_keys() {
-        let text = editor_menu(0, MenuMode::Text, false, false);
-        let hex = editor_menu(0, MenuMode::Hex, false, true);
+        let text = editor_menu(0, MenuMode::Text, false, false, false);
+        let hex = editor_menu(0, MenuMode::Hex, false, true, false);
         assert!(!find_item(&text, EditorAction::TemplateMenu).selectable());
         let parent = find_item(&hex, EditorAction::TemplateMenu);
         assert!(parent.selectable());
@@ -464,7 +506,7 @@ mod tests {
             }
         }
         // Without a template running, only choosing, rerunning and making one work.
-        let bare = editor_menu(0, MenuMode::Hex, false, false);
+        let bare = editor_menu(0, MenuMode::Hex, false, false, false);
         let sub = &find_item(&bare, EditorAction::TemplateMenu).submenu;
         let usable = |a: EditorAction| sub.iter().find(|i| i.action == a).unwrap().selectable();
         assert!(usable(EditorAction::ChooseTemplate) && usable(EditorAction::NewTemplate));
@@ -473,8 +515,8 @@ mod tests {
 
     #[test]
     fn the_error_items_need_a_json_file() {
-        let plain = editor_menu(0, MenuMode::Text, false, false);
-        let json = editor_menu(0, MenuMode::Text, true, false);
+        let plain = editor_menu(0, MenuMode::Text, false, false, false);
+        let json = editor_menu(0, MenuMode::Text, true, false, false);
         assert!(!find_item(&plain, EditorAction::NextError).selectable());
         assert!(find_item(&json, EditorAction::NextError).selectable());
         assert!(find_item(&json, EditorAction::PrevError).selectable());
@@ -490,8 +532,8 @@ mod tests {
 
     #[test]
     fn the_grid_greys_out_line_actions_and_offers_its_own() {
-        let grid = editor_menu(0, MenuMode::Sheet, false, false);
-        let text = editor_menu(0, MenuMode::Text, false, false);
+        let grid = editor_menu(0, MenuMode::Sheet, false, false, false);
+        let text = editor_menu(0, MenuMode::Text, false, false, false);
         for a in
             [EditorAction::SheetInsertRow, EditorAction::SheetDeleteCol, EditorAction::SheetHeader]
         {

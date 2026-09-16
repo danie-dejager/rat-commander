@@ -321,6 +321,7 @@ used to share now lives on `Alt-T`.
 - `Alt-G` — Toggle the spreadsheet grid (see *Spreadsheet grid* below)
 - `Alt-E` / `Alt-Shift-E` — (JSON, TOML, YAML and XML files) Jump to the next /
   previous syntax error
+- `Alt-F` — (JSON files) Pretty-print the document
 - `Alt-M` — Show and edit the GeoJSON in the file on a world map (see *GeoJSON map* below)
 - `Esc` / `F10` — Quit (prompts if modified)
 
@@ -372,6 +373,8 @@ Beyond the F-key actions, the menus offer:
 - **Format** — Insert the date and time, re-wrap the current paragraph to the
   configured line length, sort the marked block's lines (with reverse,
   ignore-case and remove-duplicates options), and paste a shell command's output.
+  In a JSON file, **JSON** opens a submenu to pretty-print, minify or sort the
+  keys of the document.
   In the **spreadsheet grid**, insert and delete rows and columns, and choose
   whether the first row is the header; these are greyed out elsewhere, and the
   items that work on lines and marked blocks are greyed out in the grid.
@@ -1473,6 +1476,21 @@ end of the document. JSONC files may have comments and trailing commas; JSON
 Lines files may hold one document after another. A file with more than a
 thousand errors is not checked past the thousandth. JSON5 is a different
 language and is not checked.
+
+**JSON tools.** In a JSON file, **Alt-F** (or Format → JSON → *Pretty-print*)
+lays the whole document out one value to a line, indented by the editor's tab
+setting (spaces, or a tab when *Fill tabs with spaces* is off); *Minify* writes
+it on one line with no spaces; *Sort keys* sorts every object's keys, at every
+depth (by what the key says, so `"\u0061"` sorts as `a`), and lays it out as
+pretty-printing does. Nothing else about the document changes: keys stay in
+their order (except when sorting), numbers and strings are kept exactly as
+written — `1.0e+2` is not turned into `100`, and escapes stay escapes — and in
+JSONC files the comments stay with the member they are about (a comment on a
+member's line stays at the end of that line, and moves with it when sorting);
+minifying drops them, and says so. A JSON Lines file stays one document to a
+line. The tools refuse a document that has syntax errors, since what it means
+would be a guess. The rewrite is one step for **Ctrl-Z**, and the cursor stays
+on the token it was on.
 
 **TOML, YAML and XML** files are checked the same way — the same gutter,
 underlines, status line and **Alt-E** — each by its own rules:

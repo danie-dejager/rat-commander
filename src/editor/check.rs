@@ -80,6 +80,11 @@ impl EditorState {
         }
     }
 
+    /// The language the file is checked as.
+    pub(super) fn check_lang(&self) -> Option<Lang> {
+        self.check.as_ref().map(|c| c.lang)
+    }
+
     /// Whether this file is checked.
     pub(crate) fn checked(&self) -> bool {
         self.check.is_some() && self.hex.is_none()

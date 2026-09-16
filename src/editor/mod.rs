@@ -8,6 +8,7 @@ pub mod buffer;
 mod check;
 pub mod hex;
 mod inspector;
+mod jsontools;
 pub mod menu;
 pub mod render;
 mod sheet;
@@ -202,6 +203,7 @@ pub const EDITOR_HELP: &[(&str, &str)] = &[
     ("Ctrl-F9", "Toggle hex editor"),
     ("Alt-G", "Spreadsheet grid / text (CSV, TSV)"),
     ("Alt-E / Alt-Shift-E", "Next / previous syntax error (JSON, TOML, YAML, XML)"),
+    ("Alt-F", "Pretty-print JSON (Format → JSON: minify, sort keys)"),
     ("Alt-M", "Show and edit the GeoJSON in the file on a map"),
     ("Hex: F5 / Shift-F5", "Choose / rerun the binary template"),
     ("Hex: F6", "Template variable at the cursor / back to the bytes"),
@@ -760,7 +762,13 @@ impl EditorState {
         } else {
             menu::MenuMode::Text
         };
-        self.menu = Some(menu::editor_menu(active, mode, self.checked(), self.template_panel()));
+        self.menu = Some(menu::editor_menu(
+            active,
+            mode,
+            self.checked(),
+            self.template_panel(),
+            self.is_json(),
+        ));
     }
 
     /// Whether the F9 menu is currently open (the renderer draws it over the
@@ -874,7 +882,10 @@ impl EditorState {
                     },
                 }
             }
-            A::TemplateMenu => {}
+            A::TemplateMenu | A::JsonMenu => {}
+            A::JsonPretty => self.json_tool(crate::json::format::Tool::Pretty),
+            A::JsonMinify => self.json_tool(crate::json::format::Tool::Minify),
+            A::JsonSortKeys => self.json_tool(crate::json::format::Tool::SortKeys),
             A::ChooseTemplate => return EditorSignal::OpenTemplatePicker,
             A::RerunTemplate => {
                 if let Some(t) = self.tpl.as_mut()
@@ -1567,6 +1578,9 @@ impl EditorState {
             KeyCode::Char('o') if alt => self.bookmark_flush(),
             KeyCode::Char('g') if alt => self.toggle_sheet(),
             KeyCode::Char('m') if alt => return EditorSignal::OpenGeoMap,
+            KeyCode::Char('f') if alt && !shift => {
+                self.json_tool(crate::json::format::Tool::Pretty)
+            }
             KeyCode::Char('e') if alt && !shift => self.jump_error(true),
             KeyCode::Char('e' | 'E') if alt => self.jump_error(false),
 

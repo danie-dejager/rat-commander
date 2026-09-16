@@ -775,3 +775,9 @@ code = "sr"
 
 # -- Remote: FTPS --
 "FTPS c&onnection..." = "FTPS veza… (&O)"
+
+# -- Editor: JSON tools --
+"&JSON" = "JSON (&J)"
+"&Pretty-print" = "Čitljivo formatiraj (&P)"
+"&Minify" = "Minifikuj (&M)"
+"&Sort keys" = "Sortiraj ključeve (&S)"

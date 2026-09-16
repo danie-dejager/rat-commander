@@ -775,3 +775,9 @@ code = "hi"
 
 # -- Remote: FTPS --
 "FTPS c&onnection..." = "FTPS कनेक्शन… (&O)"
+
+# -- Editor: JSON tools --
+"&JSON" = "JSON (&J)"
+"&Pretty-print" = "सुंदर प्रारूप (&P)"
+"&Minify" = "संक्षिप्त करें (&M)"
+"&Sort keys" = "कुंजियाँ क्रमबद्ध करें (&S)"

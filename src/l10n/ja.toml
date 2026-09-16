@@ -775,3 +775,9 @@ code = "ja"
 
 # -- Remote: FTPS --
 "FTPS c&onnection..." = "FTPS 接続…(&O)"
+
+# -- Editor: JSON tools --
+"&JSON" = "JSON(&J)"
+"&Pretty-print" = "整形(&P)"
+"&Minify" = "圧縮(&M)"
+"&Sort keys" = "キーを並べ替え(&S)"

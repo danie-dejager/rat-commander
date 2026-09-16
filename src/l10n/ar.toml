@@ -779,3 +779,9 @@ rtl = true
 
 # -- Remote: FTPS --
 "FTPS c&onnection..." = "اتصال FTPS… (&O)"
+
+# -- Editor: JSON tools --
+"&JSON" = "JSON (&J)"
+"&Pretty-print" = "تنسيق مقروء (&P)"
+"&Minify" = "تصغير (&M)"
+"&Sort keys" = "ترتيب المفاتيح (&S)"

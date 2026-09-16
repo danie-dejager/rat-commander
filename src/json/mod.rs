@@ -14,6 +14,7 @@
 //! checker needs none of it, and a reader that does want the data (the GeoJSON
 //! map) keeps only what it is looking for, instead of a copy of the whole file.
 
+pub mod format;
 mod parser;
 
 pub use parser::parse;
