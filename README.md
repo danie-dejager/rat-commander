@@ -90,7 +90,10 @@ The installed executable is named **`rc`** for quick typing.
   **GeoJSON map** (`Alt-M`) that draws the GeoJSON in a file, or nested anywhere
   in a larger JSON document, over a built-in vector map of the world (land,
   lakes, borders, rivers and cities from Natural Earth) with pan, zoom and
-  click-to-pick, in pixels or braille, and an
+  click-to-pick, in pixels or braille — and **edits** it: draw points, lines and
+  polygons, drag, add and remove positions, name and remove features, start a
+  FeatureCollection from an empty file, every change written into the text in
+  the file's own layout as one undo step — and an
   in-place **hex editor** for arbitrarily large files, with **010 Editor binary
   templates**: the file's structures and fields as a tree beside the bytes —
   names, values, offsets, sizes, types, comments — picked automatically from 307
@@ -344,7 +347,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `F5` / `Shift-F5` (hex) | Choose / rerun the binary template |
 | `F6` (hex) | The template variable under the cursor (tree: `Enter` edits, `←`/`→` close/open) |
 | `Alt-E` / `Alt-Shift-E` | (JSON) next / previous syntax error |
-| `Alt-M` | Show the file's GeoJSON on a world map (drag/wheel to pan and zoom, click a feature, `Enter` to go to it) |
+| `Alt-M` | Show the file's GeoJSON on a world map (drag/wheel to pan and zoom, click a feature, `Enter` to go to it); `e` edits it: `1`/`2`/`3` draw a point/line/polygon, drag positions, `Del` removes, `Ctrl-Z` undoes |
 | `Alt-G` | Toggle the spreadsheet grid (CSV/TSV): `Enter` or typing edits a cell, `F5`/`F6` insert a row/column, `F8`/`Shift-F8` delete one, `F3` toggles the header row |
 | `Ins` | Toggle insert / overwrite |
 | `Ctrl-C` / `Ctrl-X` / `Ctrl-V` | Copy / cut block to clipboard, paste |

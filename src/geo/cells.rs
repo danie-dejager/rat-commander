@@ -103,6 +103,23 @@ pub fn render(f: &mut Frame, area: Rect, scene: &Scene, pal: &CellPalette) {
         mark_line(&mut cov, id, &mut |c| draw::features(c, &p, doc, Part::Stroke, 1.0, include));
     }
     mark_line(&mut cov, SELECTED, &mut |c| draw::features(c, &p, doc, Part::Stroke, 1.4, picked));
+    if let Some(o) = scene.overlay {
+        // The line of the feature being drawn, out to the pointer.
+        let path = o.path();
+        mark_line(&mut cov, SELECTED, &mut |c| {
+            let lo = path.iter().map(|q| q[0]).fold(f64::INFINITY, f64::min);
+            let hi = path.iter().map(|q| q[0]).fold(f64::NEG_INFINITY, f64::max);
+            for off in p.copies(lo, hi) {
+                let xy = |q: &[f64; 2]| p.xy(q[0] + off, q[1]);
+                for pair in path.windows(2) {
+                    c.add_segment(xy(&pair[0]), xy(&pair[1]), 1.4);
+                }
+                if o.closed && path.len() >= 3 {
+                    c.add_segment(xy(&path[path.len() - 1]), xy(&path[0]), 1.0);
+                }
+            }
+        });
+    }
 
     // Cell by cell: the background most of its dots have, the line dots in
     // braille over it.
@@ -186,6 +203,29 @@ pub fn render(f: &mut Frame, area: Rect, scene: &Scene, pal: &CellPalette) {
         }
     }
 
+    // The editing handles, over everything else.
+    if let Some(o) = scene.overlay {
+        let mut mark = |q: &[f64; 2], ch: char, colour: Color| {
+            for off in p.copies(q[0], q[0]) {
+                let (x, y) = p.xy(q[0] + off, q[1]);
+                let (cx, cy) = ((x / 2.0).floor(), (y / 4.0).floor());
+                if cx >= 0.0 && cy >= 0.0 && (cx as usize) < cols && (cy as usize) < rows {
+                    let cell = &mut cells[cy as usize][cx as usize];
+                    *cell = (ch, cell.1.fg(colour));
+                }
+            }
+        };
+        o.midpoints.iter().for_each(|q| mark(q, '·', pal.label));
+        o.vertices.iter().filter(|v| !v.1).for_each(|v| mark(&v.0, '■', pal.label));
+        o.sketch.iter().for_each(|q| mark(q, '■', pal.selected));
+        o.vertices.iter().filter(|v| v.1).for_each(|v| mark(&v.0, '◆', pal.selected));
+        if o.crosshair {
+            let (cx, cy) = (cols / 2, rows / 2);
+            let cell = &mut cells[cy][cx];
+            *cell = ('┼', cell.1.fg(pal.label));
+        }
+    }
+
     let lines: Vec<Line> = cells
         .into_iter()
         .map(|row| {
@@ -238,6 +278,7 @@ mod tests {
             doc: &doc,
             object: None,
             selected: Some((0, 0)),
+            overlay: None,
         };
         let theme = crate::ui::theme::Theme::mc();
         let pal = CellPalette::from_theme(&theme);

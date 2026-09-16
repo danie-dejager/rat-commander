@@ -8,6 +8,7 @@
 pub mod cells;
 pub mod cover;
 pub mod draw;
+pub mod edit;
 pub mod geojson;
 pub mod palette;
 pub mod view;

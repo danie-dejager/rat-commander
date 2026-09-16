@@ -317,7 +317,7 @@ used to share now lives on `Alt-T`.
 - `Ctrl-F9` — Toggle the in-place hex editor
 - `Alt-G` — Toggle the spreadsheet grid (see *Spreadsheet grid* below)
 - `Alt-E` / `Alt-Shift-E` — (JSON files) Jump to the next / previous syntax error
-- `Alt-M` — Show the GeoJSON in the file on a world map (see *GeoJSON map* below)
+- `Alt-M` — Show and edit the GeoJSON in the file on a world map (see *GeoJSON map* below)
 - `Esc` / `F10` — Quit (prompts if modified)
 
 While **Shift** or **Ctrl** is held, the F-key bar relabels the keys those
@@ -1422,6 +1422,55 @@ down per cell, the land and sea as each cell's background and the lines as the
 dots — which a 16-colour terminal can show too. Its colours come from the
 active theme. The file is read in the background, so even a large GeoJSON file
 brings the dialog up at once.
+
+*Editing GeoJSON on the map.* **Edit features** (or `e`) turns the map into an
+editor of the GeoJSON, with a row of tools above the bottom line; `e` again, or
+**Stop editing**, turns it off. Every change is made to the editor's text the
+moment it is made, as one undo step of its own, and nothing else in the file is
+touched: a moved position rewrites only its geometry's `coordinates`, a new
+feature is added to the end of its collection's `features`, a removed one takes
+its comma with it. What is written follows the layout around it — all on one
+line or indented (with spaces or tabs, and as deep), with or without spaces
+after commas, a position or a number to a line — and the numbers of positions
+that were not moved stay exactly as they were written, altitude included. New
+positions are rounded to what the zoom can point at, never finer than seven
+decimal places. Close the map and save the file as usual; `Ctrl-Z` in the
+editor takes the changes back too.
+
+- **Positions.** The picked feature shows a square handle on each of its
+  positions and a dot in the middle of each segment. Drag a handle to move the
+  position, drag (or click) a dot to add one there; a click selects a position,
+  `[` / `]` step through them, `Shift`+arrows move the selected one a cell,
+  `Insert` adds one after it, and `Del` (or a right click on a handle) removes
+  it. A line keeps at least two positions and a polygon three: a hole or one
+  part of a Multi… geometry left smaller than that goes as a whole. With no
+  position selected, `Del` removes the picked feature. A feature with too many
+  positions to show at the zoom asks to be zoomed in on first.
+- **Drawing.** `1`, `2` and `3` (or **Point**, **Line**, **Polygon**) draw a new
+  feature: a click places each position — `Space` places one at the crosshair in
+  the middle of the map, for drawing from the keyboard with the arrow keys
+  panning — and `Enter`, a click back on the last position, or for a polygon a
+  click on the first, finishes it. `Backspace` takes back the last position and
+  `Esc` cancels. The tool stays on for the next feature until `Esc` or its key
+  again. The new feature has empty properties and is picked when done.
+- **Where new features go.** Into the collection chosen in the list, or the
+  one the picked feature is in, or the file's first FeatureCollection; the top
+  row shows which (`→ $.parks`). A file with none gets one: an empty file becomes
+  a FeatureCollection, a file that is a single Feature or geometry becomes a
+  FeatureCollection holding it and the new feature, a file of features one to a
+  line (GeoJSON Lines) gets another line, and any other JSON gets a new
+  FeatureCollection at the editor's cursor, which has to be where a value can
+  go — after a `:`, a `[` or a comma — and not inside GeoJSON already there; a
+  `null` at the cursor is replaced. `c` (**New collection**) makes an empty one
+  the same way, to draw into.
+- **Names.** `r` (**Rename**) types a name for the picked feature, written to
+  the naming property it already has (`name`, `title`, `label`…) or as a new
+  `name` in its properties.
+- **Undo.** `Ctrl-Z` and `Ctrl-Y` step back and forth through the changes made
+  on the map — in the map and in the editor's text together.
+
+`Esc` steps back out: from a feature being drawn, from the tool, from a
+selected position, then out of editing, and then closes the map.
 
 **Hex editor (Ctrl-F9).** Toggles an in-place offset / hex / ASCII editor. Only the
 visible window is read and only changed bytes are written back, so arbitrarily

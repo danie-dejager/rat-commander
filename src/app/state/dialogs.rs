@@ -43,6 +43,9 @@ impl AppState {
     }
 
     pub(in crate::app::state) async fn handle_dialog_result(&mut self, res: DialogResult) -> Flow {
+        // The GeoJSON map edits the editor's text as it goes, whatever the
+        // key or click that did it went on to do.
+        self.apply_geo_edits();
         // Settings reopens on the tab it was closed on, whether by OK or Cancel.
         if !matches!(res, DialogResult::None)
             && let Some(Dialog::Form(fd)) = &self.dialog

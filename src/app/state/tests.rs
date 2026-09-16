@@ -5199,7 +5199,7 @@ async fn the_geojson_map_opens_from_the_editor_and_goes_back_to_the_text() {
         "on the point object's brace"
     );
 
-    // A file without GeoJSON gets a message.
+    // A file without GeoJSON opens the map all the same, to draw on.
     let plain = dir.join("plain.json");
     std::fs::write(&plain, "{\"a\": [1, 2]}").unwrap();
     st.editor = None;
@@ -5216,7 +5216,60 @@ async fn the_geojson_map_opens_from_the_editor_and_goes_back_to_the_text() {
             break;
         }
     }
-    assert!(matches!(st.dialog, Some(Dialog::Message(_))));
+    assert!(matches!(st.dialog, Some(Dialog::GeoMap(_))));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// GeoJSON made from nothing: the map opened on an empty file draws a point
+/// into the editor's text, which becomes a FeatureCollection, and Ctrl-Z on
+/// the map takes it back out of the editor again.
+#[tokio::test]
+async fn features_drawn_on_the_map_are_written_into_the_editor() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let dir = temp_dir("geoedit");
+    let file = dir.join("new.geojson");
+    std::fs::write(&file, "").unwrap();
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(file).await;
+    st.apply_editor_signal(EditorSignal::OpenGeoMap).await;
+    loop {
+        let ev = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+            .await
+            .expect("read")
+            .expect("open");
+        let done = matches!(ev, AppEvent::GeoJsonRead { .. });
+        st.apply_event(ev).await;
+        if done {
+            break;
+        }
+    }
+    if let Some(Dialog::GeoMap(d)) = st.dialog.as_mut() {
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
+        t.draw(|f| d.render(f, f.area(), &theme, None)).unwrap();
+    }
+    let press = |code| KeyEvent::new(code, KeyModifiers::NONE);
+    // A point at the crosshair, from the keyboard.
+    st.handle_key(press(KeyCode::Char('1'))).await;
+    st.handle_key(press(KeyCode::Char(' '))).await;
+    let ed = st.editor.as_ref().unwrap();
+    assert!(ed.dirty);
+    let text = ed.contents();
+    assert!(text.starts_with("{\n  \"type\": \"FeatureCollection\",\n"), "{text}");
+    let doc = crate::geo::geojson::extract(&text);
+    assert_eq!(doc.objects[0].features.len(), 1);
+    assert_eq!(doc.errors, 0);
+    // Undone on the map, undone in the editor.
+    st.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::CONTROL)).await;
+    assert_eq!(st.editor.as_ref().unwrap().contents(), "");
+    st.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL)).await;
+    assert_eq!(st.editor.as_ref().unwrap().contents(), text);
+    // Closing the map keeps the edit, unsaved, in the editor.
+    st.handle_key(press(KeyCode::F(10))).await;
+    assert!(st.dialog.is_none());
+    assert_eq!(st.editor.as_ref().unwrap().contents(), text);
     std::fs::remove_dir_all(&dir).ok();
 }
 

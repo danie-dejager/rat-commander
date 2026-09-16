@@ -381,8 +381,8 @@ impl AppState {
         let (rope, cursor, name) = (ed.text_snapshot(), ed.cursor_byte(), ed.name.clone());
         self.geo_gen = self.geo_gen.wrapping_add(1);
         let generation = self.geo_gen;
-        self.dialog =
-            Some(Dialog::GeoMap(Box::new(GeoMapDialog::loading(name, generation, cursor))));
+        let dialog = GeoMapDialog::loading(name, generation, cursor, rope.clone());
+        self.dialog = Some(Dialog::GeoMap(Box::new(dialog)));
         let tx = self.tx.clone();
         tokio::spawn(async move {
             let doc = tokio::task::spawn_blocking(move || {
@@ -395,24 +395,26 @@ impl AppState {
         });
     }
 
-    /// The GeoJSON for the map dialog has been read: show it, or say there is
-    /// none — unless the dialog it was for has gone.
+    /// The GeoJSON for the map dialog has been read: show it — or, when there
+    /// is none, the empty map to draw the first feature on — unless the dialog
+    /// it was for has gone.
     pub(in crate::app::state) fn apply_geojson(
         &mut self,
         generation: u64,
         doc: crate::geo::geojson::GeoDoc,
     ) {
         let Some(Dialog::GeoMap(d)) = self.dialog.as_mut() else { return };
-        if !d.awaits(generation) {
-            return;
-        }
-        if doc.objects.is_empty() {
-            self.dialog = Some(Dialog::Message(MessageDialog::info(
-                "GeoJSON map",
-                crate::l10n::tr("No GeoJSON found in this file"),
-            )));
-        } else {
+        if d.awaits(generation) {
             d.set_doc(doc);
+        }
+    }
+
+    /// Make the edits the GeoJSON map has made in the editor's text.
+    pub(in crate::app::state) fn apply_geo_edits(&mut self) {
+        let Some(Dialog::GeoMap(d)) = self.dialog.as_mut() else { return };
+        let edits = d.take_edits();
+        if let Some(ed) = self.editor.as_mut() {
+            edits.into_iter().for_each(|e| ed.apply_map_edit(e));
         }
     }
 

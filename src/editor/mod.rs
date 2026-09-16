@@ -197,7 +197,7 @@ pub const EDITOR_HELP: &[(&str, &str)] = &[
     ("Ctrl-F9", "Toggle hex editor"),
     ("Alt-G", "Spreadsheet grid / text (CSV, TSV)"),
     ("Alt-E / Alt-Shift-E", "Next / previous JSON syntax error"),
-    ("Alt-M", "Show the GeoJSON in the file on a map"),
+    ("Alt-M", "Show and edit the GeoJSON in the file on a map"),
     ("Hex: F5 / Shift-F5", "Choose / rerun the binary template"),
     ("Hex: F6", "Template variable at the cursor / back to the bytes"),
     ("Hex: Tab / Shift-Tab", "Hex / ASCII column / template tree, as F6"),
@@ -508,6 +508,49 @@ impl EditorState {
     /// The cursor as a byte offset into the text.
     pub fn cursor_byte(&self) -> usize {
         self.buf.snapshot().char_to_byte(self.cursor.min(self.buf.len_chars()))
+    }
+
+    /// Make an edit of the GeoJSON map's: a replacement as an undo step of its
+    /// own, or an undo or redo of one. The cursor stays on the text it was on.
+    pub fn apply_map_edit(&mut self, edit: crate::geo::edit::TextEdit) {
+        use crate::geo::edit::TextEdit;
+        let (start, end, len) = match &edit {
+            TextEdit::Replace { start, end, text } => (*start, *end, text.len()),
+            TextEdit::Undo { start, end, len } | TextEdit::Redo { start, end, len } => {
+                (*start, *end, *len)
+            }
+        };
+        let (s, e) = (self.buf.byte_to_char(start), self.buf.byte_to_char(end));
+        match edit {
+            TextEdit::Replace { text, .. } => {
+                self.buf.break_undo_group();
+                self.buf.replace_range(s, e, &text);
+                self.buf.break_undo_group();
+            }
+            TextEdit::Undo { .. } => {
+                if self.buf.undo().is_none() {
+                    return;
+                }
+            }
+            TextEdit::Redo { .. } => {
+                if self.buf.redo().is_none() {
+                    return;
+                }
+            }
+        }
+        let new_end = self.buf.byte_to_char(start + len);
+        self.cursor = if self.cursor >= e {
+            self.cursor - e + new_end
+        } else {
+            self.cursor.min(s)
+        };
+        self.dirty = true;
+        self.goal_col = None;
+        self.clear_marks();
+        let line = self.buf.char_to_line(s);
+        if let Some(hl) = self.hl.as_mut() {
+            hl.invalidate(line);
+        }
     }
 
     /// Put the cursor at byte offset `byte` of the text, centred on screen.
