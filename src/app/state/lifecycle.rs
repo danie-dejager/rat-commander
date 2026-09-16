@@ -104,6 +104,7 @@ impl AppState {
             timeline: None,
             sizes_focus: None,
             diffview: None,
+            hexdiff: None,
             mountview: None,
             netview: None,
             theme_editor: None,
@@ -372,6 +373,12 @@ impl AppState {
         {
             dirty = true;
         }
+        // A binary compare's scan moving on, or a step that waited for it.
+        if let Some(hd) = self.hexdiff.as_mut()
+            && hd.poll()
+        {
+            dirty = true;
+        }
         // Spin the "working…" dialog while a privileged op runs.
         if let Some(Dialog::Busy(b)) = self.dialog.as_mut() {
             b.tick();
@@ -413,6 +420,8 @@ impl AppState {
             || self.editor.as_ref().is_some_and(|e| e.json_pending())
             // A binary template is running over the hex editor's file, or due to.
             || self.editor.as_ref().is_some_and(|e| e.template_pending())
+            // A binary compare is still scanning for differences.
+            || self.hexdiff.as_ref().is_some_and(|h| h.busy())
             // A Details view's audio is still being analysed, or is playing.
             || self.details.iter().any(|d| d.audio.as_ref().is_some_and(|a| a.busy()))
             // A debounced panel reload is still waiting to fire.

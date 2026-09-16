@@ -2,6 +2,7 @@
 
 use crate::app::event::{AppEvent, FetchKind};
 use crate::config::Config;
+use crate::diff::hex::HexDiffSignal;
 use crate::diff::{DiffSignal, DiffView};
 use crate::disk::{DiskSignal, DiskView};
 use crate::editor::{EditorSignal, EditorState};
@@ -216,6 +217,8 @@ pub struct AppState {
     sizes_focus: Option<std::path::PathBuf>,
     /// The full-screen side-by-side file comparison view, when open.
     pub diffview: Option<DiffView>,
+    /// The full-screen byte-by-byte comparison of two binary files, when open.
+    pub hexdiff: Option<Box<crate::diff::hex::HexDiffView>>,
     /// The full-screen disk-mounter tool, when open.
     pub mountview: Option<MountView>,
     /// The full-screen network-connections explorer, when open (Linux).

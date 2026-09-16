@@ -1114,6 +1114,31 @@ impl AppState {
         else {
             return self.show_error("Put the cursor on a file in both panels to compare");
         };
+        use crate::diff::hex::{HexDiffView, Origin};
+        // Two local files are compared byte by byte, paged from disk, when
+        // either is binary or too large to load as text.
+        if lp.scheme == "file" && rp.scheme == "file" {
+            let paths = [lp.path.clone(), rp.path.clone()];
+            let probe = paths.clone();
+            let binary = tokio::task::spawn_blocking(move || {
+                probe.iter().try_fold(false, |any, p| {
+                    let big = std::fs::metadata(p)?.len() > MAX_VIEW_BYTES as u64;
+                    Ok::<_, std::io::Error>(any || big || crate::diff::hex::file_is_binary(p)?)
+                })
+            })
+            .await;
+            match binary {
+                Ok(Ok(true)) => {
+                    let [a, b] = paths;
+                    return match HexDiffView::open([ln, rn], [Origin::File(a), Origin::File(b)]) {
+                        Ok(v) => self.hexdiff = Some(Box::new(v)),
+                        Err(e) => self.show_error(format!("Cannot compare: {e}")),
+                    };
+                }
+                Ok(Err(e)) => return self.show_error(format!("Cannot compare: {e}")),
+                Ok(Ok(false)) | Err(_) => {}
+            }
+        }
         let lback = self.panels[0].backend.clone();
         let rback = self.panels[1].backend.clone();
         let ldata = match load_file(&lback, &lp).await {
@@ -1124,6 +1149,18 @@ impl AppState {
             Ok(d) => d,
             Err(e) => return self.show_error(format!("Cannot read {rn}: {e}")),
         };
+        // Binary files read from elsewhere are compared in memory — as long as
+        // they were read whole.
+        if crate::diff::hex::is_binary(&ldata) || crate::diff::hex::is_binary(&rdata) {
+            if ldata.len() > MAX_VIEW_BYTES || rdata.len() > MAX_VIEW_BYTES {
+                return self.show_error("These files are too large to compare here: copy them to a local directory first");
+            }
+            let origins = [Origin::Mem(ldata.into()), Origin::Mem(rdata.into())];
+            return match HexDiffView::open([ln, rn], origins) {
+                Ok(v) => self.hexdiff = Some(Box::new(v)),
+                Err(e) => self.show_error(format!("Cannot compare: {e}")),
+            };
+        }
         self.diffview = Some(DiffView::new(ln, lp, &ldata, rn, rp, &rdata));
     }
 

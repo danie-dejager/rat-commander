@@ -300,6 +300,14 @@ impl AppState {
                 }
             }
             Submit::EditorPasteOutput(cmd) => self.editor_paste_output(cmd).await,
+            Submit::HexDiffGoto(text) => match crate::bt::interp::edit::parse_int(&text) {
+                Some(off) if off >= 0 => {
+                    if let Some(hd) = self.hexdiff.as_mut() {
+                        hd.goto(off.min(u64::MAX as i128) as u64);
+                    }
+                }
+                _ => self.show_error(format!("Not an offset: {text}")),
+            },
             Submit::EditorSort { reverse, ignore_case, unique } => {
                 if let Some(ed) = self.editor.as_mut() {
                     ed.sort_block(reverse, ignore_case, unique);

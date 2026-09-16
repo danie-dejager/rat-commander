@@ -67,6 +67,12 @@ impl AppState {
             return Flow::Continue;
         }
 
+        // A binary compare: the wheel scrolls, a click puts the cursor on a byte.
+        if let Some(hd) = self.hexdiff.as_mut() {
+            hd.handle_mouse(ev);
+            return Flow::Continue;
+        }
+
         // The disk manager handles its own clicks (cursor + double-click menus).
         if self.mountview.is_some() {
             let sig = self.mountview.as_mut().unwrap().handle_mouse(ev);
@@ -331,6 +337,7 @@ impl AppState {
             || self.netview.is_some()
             || self.procview.is_some()
             || self.diffview.is_some()
+            || self.hexdiff.is_some()
         {
             return false;
         }

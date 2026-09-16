@@ -891,6 +891,31 @@ selected changes between them.
   back to disk. **Esc** closes (prompting save / discard / cancel when there are
   unsaved changes).
 
+**Binary files.** When either file is binary (it has a NUL byte among its
+first 8 KiB) — or, for local files, too large to load as text — the two are
+compared **byte by byte** instead, in a read-only view: offsets on the left,
+then each file's hex and ASCII side by side (only the hex on a narrower
+terminal, one file above the other on a narrow one), one cursor on both.
+Every byte that differs is coloured, as is the offset of a row holding one; a
+file shorter than the other shows blank cells past its end. Local files are
+read from disk a page at a time, so files of any size can be compared; binary
+files from an archive or a remote connection are read into memory and must be
+under 64 MiB.
+
+A scan in the background finds the **runs** of differences (differences less
+than 16 bytes apart count as one run); the status line shows how many it has
+found, which one the cursor is in, how far it has got, and the two sizes when
+they differ. Bytes are compared at the same offset: a byte inserted in one file
+moves everything after it, and the rest of the file shows as different.
+
+- `↑ ↓ ← →` / `PgUp PgDn` — Move; `Home` / `End` — start / end of the row;
+  `Ctrl-Home` / `Ctrl-End` — start / end of the files
+- `Ctrl-↓` / `n` — Next difference; `Ctrl-↑` / `N` — previous. Asked for
+  before the scan gets there, the step waits for it.
+- `F5` / `g` — Go to an offset (`0x1F0`, `1F0h` or decimal)
+- the mouse wheel scrolls; a click puts the cursor on a byte
+- `Esc` / `F10` / `q` — Close
+
 
 ## Checksum a file
 

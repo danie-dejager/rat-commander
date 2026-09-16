@@ -190,6 +190,8 @@ pub enum Submit {
     EditorGotoOffset(usize),
     /// Jump the editor to a line (the text typed into its "go to line" prompt).
     EditorGotoLine(String),
+    /// Move the binary compare's cursor to the offset typed.
+    HexDiffGoto(String),
     /// Use this binary template in the hex editor, or none.
     EditorTemplate(Option<Box<crate::bt::header::TemplateInfo>>),
     /// Open this binary template for editing.

@@ -475,6 +475,56 @@ async fn compare_dirs_marks_by_mode() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+#[tokio::test]
+async fn compare_files_opens_binary_files_byte_by_byte_and_text_files_line_by_line() {
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_cmpf_{}_{nanos}", std::process::id()));
+    let (da, db) = (root.join("a"), root.join("b"));
+    std::fs::create_dir_all(&da).unwrap();
+    std::fs::create_dir_all(&db).unwrap();
+    std::fs::write(da.join("fw.bin"), b"\x7fELF\x00\x01\x02\x03").unwrap();
+    std::fs::write(db.join("fw.bin"), b"\x7fELF\x00\x01\xff\x03").unwrap();
+    std::fs::write(da.join("notes.txt"), b"one\ntwo\n").unwrap();
+    std::fs::write(db.join("notes.txt"), b"one\nthree\n").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    for (side, dir) in [(0, &da), (1, &db)] {
+        st.panels[side].cwd = VfsPath::local(dir);
+        st.panels[side].backend = st.registry.local();
+        st.panels[side].reload().await.unwrap();
+    }
+    let point = |st: &mut AppState, name: &str| {
+        for p in &mut st.panels {
+            p.cursor = p.entries.iter().position(|e| e.name == name).unwrap();
+        }
+    };
+
+    point(&mut st, "fw.bin");
+    st.open_compare_files().await;
+    assert!(st.diffview.is_none(), "a binary file isn't split into lines");
+    let hd = st.hexdiff.as_mut().expect("the byte-by-byte view");
+    while hd.poll() {
+        std::thread::yield_now();
+    }
+    assert_eq!(hd.runs_status().0, 1);
+    // F5 asks for an offset, which moves the cursor.
+    let f5 = KeyEvent::new(KeyCode::F(5), KeyModifiers::NONE);
+    st.handle_key(f5).await;
+    assert!(matches!(st.dialog, Some(Dialog::Input(_))));
+    st.dialog = None;
+    st.handle_submit(Submit::HexDiffGoto("0x6".into())).await;
+    assert_eq!(st.hexdiff.as_ref().unwrap().cursor, 6);
+    st.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE)).await;
+    assert!(st.hexdiff.is_none());
+
+    point(&mut st, "notes.txt");
+    st.open_compare_files().await;
+    assert!(st.hexdiff.is_none() && st.diffview.is_some(), "text still diffs by line");
+    std::fs::remove_dir_all(&root).ok();
+}
+
 /// Run a spawned background task to completion, applying its events (and the
 /// final `DuplicatesFound`) to `st`.
 async fn drain_duplicates(st: &mut AppState, rx: &mut crate::util::async_bridge::AppReceiver) {

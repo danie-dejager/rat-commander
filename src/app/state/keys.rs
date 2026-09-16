@@ -104,6 +104,7 @@ impl AppState {
             && self.procview.is_none()
             && self.diskview.is_none()
             && self.diffview.is_none()
+            && self.hexdiff.is_none()
             && self.mountview.is_none()
             && self.netview.is_none()
             && self.theme_editor.is_none()
@@ -184,6 +185,22 @@ impl AppState {
                 }
                 DiffSignal::ConfirmQuit => {
                     self.dialog = Some(Dialog::Confirm(ConfirmDialog::diff_quit()));
+                }
+            }
+            return Flow::Continue;
+        }
+        if let Some(hd) = self.hexdiff.as_mut() {
+            match hd.handle_key(key) {
+                HexDiffSignal::Stay => {}
+                HexDiffSignal::Close => self.hexdiff = None,
+                HexDiffSignal::Goto => {
+                    let at = format!("0x{:X}", hd.cursor);
+                    self.dialog = Some(Dialog::Input(InputDialog::new(
+                        "Goto",
+                        "Offset",
+                        at,
+                        InputPurpose::HexDiffGoto,
+                    )));
                 }
             }
             return Flow::Continue;
