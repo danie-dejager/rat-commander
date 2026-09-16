@@ -1,6 +1,7 @@
 //! Cross-cutting utilities: error type, formatting, async plumbing.
 
 pub mod async_bridge;
+pub mod bundle;
 pub mod bytes;
 pub mod checksum;
 pub mod clipboard;

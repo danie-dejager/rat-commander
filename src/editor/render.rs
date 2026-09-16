@@ -374,7 +374,10 @@ fn ensure_visible(ed: &mut EditorState) {
 /// Columns the JSON error gutter takes: the mark and a space.
 const CHECK_GUTTER: u16 = 2;
 
-/// The mark a line with a JSON syntax error gets in the gutter.
+/// The mark a line with only schema errors gets in the gutter.
+const SCHEMA_MARK: &str = "!";
+
+/// The mark a line with a syntax error gets in the gutter.
 const ERROR_MARK: &str = "✗";
 
 /// The gutter beside a JSON file's text: a mark on each line an error starts
@@ -382,17 +385,22 @@ const ERROR_MARK: &str = "✗";
 fn render_check_gutter(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
     let blank = Style::default().bg(theme.panel_bg);
     let mark = Style::default().fg(theme.error_fg).bg(theme.panel_bg).add_modifier(Modifier::BOLD);
+    let warn = Style::default().fg(theme.hotkey_fg).bg(theme.panel_bg).add_modifier(Modifier::BOLD);
     let total = ed.buf.len_lines();
     let mut pos = Some((ed.top_line, if ed.wrap() { ed.top_sub } else { 0 }));
     let mut lines = Vec::with_capacity(area.height as usize);
     for _ in 0..area.height {
-        let row = match pos {
-            Some((line, sub))
-                if line < total && sub == 0 && !ed.check_errors_on_line(line).is_empty() =>
-            {
-                Line::from(vec![Span::styled(ERROR_MARK, mark), Span::styled(" ", blank)])
-            }
-            _ => Line::from(Span::styled(" ".repeat(area.width as usize), blank)),
+        // A syntax error marks the line ✗; a schema error only, !.
+        let on_line = match pos {
+            Some((line, 0)) if line < total => ed.check_errors_on_line(line),
+            _ => &[],
+        };
+        let row = if on_line.iter().any(|d| !d.schema) {
+            Line::from(vec![Span::styled(ERROR_MARK, mark), Span::styled(" ", blank)])
+        } else if !on_line.is_empty() {
+            Line::from(vec![Span::styled(SCHEMA_MARK, warn), Span::styled(" ", blank)])
+        } else {
+            Line::from(Span::styled(" ".repeat(area.width as usize), blank))
         };
         lines.push(row);
         pos = pos.and_then(
@@ -404,31 +412,34 @@ fn render_check_gutter(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Them
     f.render_widget(Paragraph::new(lines).style(blank), area);
 }
 
-/// The columns of `line` a JSON error underlines, as `[from, to)` char columns.
+/// The columns of `line` an error underlines, as `[from, to)` char columns and
+/// whether it is a schema error — syntax errors first, so they win where both
+/// cover a character.
 fn error_columns(
     ed: &EditorState,
     line: usize,
     line_start: usize,
     len: usize,
-) -> Vec<(usize, usize)> {
-    ed.check_errors_on_line(line)
+) -> Vec<(usize, usize, bool)> {
+    let mut cols: Vec<(usize, usize, bool)> = ed
+        .check_errors_on_line(line)
         .iter()
         .filter_map(|d| {
             // A check of text that has changed since can point past the line.
             let from = d.start.checked_sub(line_start)?;
-            (from < len.max(1)).then(|| (from, (d.end - line_start).min(len.max(from + 1))))
+            (from < len.max(1))
+                .then(|| (from, (d.end - line_start).min(len.max(from + 1)), d.schema))
         })
-        .collect()
+        .collect();
+    cols.sort_by_key(|c| c.2);
+    cols
 }
 
-/// How a character a JSON error covers is drawn: in the error colour,
-/// underlined in it too.
-fn error_style(theme: &Theme, bg: ratatui::style::Color) -> Style {
-    Style::default()
-        .fg(theme.error_fg)
-        .bg(bg)
-        .add_modifier(Modifier::UNDERLINED)
-        .underline_color(theme.error_fg)
+/// How a character an error covers is drawn: in the error colour (the warning
+/// colour for a schema error), underlined in it too.
+fn error_style(theme: &Theme, bg: ratatui::style::Color, schema: bool) -> Style {
+    let color = if schema { theme.hotkey_fg } else { theme.error_fg };
+    Style::default().fg(color).bg(bg).add_modifier(Modifier::UNDERLINED).underline_color(color)
 }
 
 fn render_status(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
@@ -454,8 +465,15 @@ fn render_status(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
     let explained = ed.check_error_at_cursor();
     let spans = if ed.checked() && (!errors.is_empty() || explained.is_some()) {
         let bg = theme.menubar.bg.unwrap_or(theme.panel_bg);
-        let alert = style.fg(crate::ui::theme::readable_on(theme.error_fg, bg));
-        let count = format!("  {ERROR_MARK} {}", errors.len());
+        let schema = errors.iter().filter(|d| d.schema).count();
+        let syntax = errors.len() - schema;
+        let color = if syntax > 0 { theme.error_fg } else { theme.hotkey_fg };
+        let alert = style.fg(crate::ui::theme::readable_on(color, bg));
+        let count = match (syntax, schema) {
+            (s, 0) => format!("  {ERROR_MARK} {s}"),
+            (0, n) => format!("  {SCHEMA_MARK} {n}"),
+            (s, n) => format!("  {ERROR_MARK} {s}  {SCHEMA_MARK} {n}"),
+        };
         let message = explained.map_or(String::new(), |d| format!("  {}", d.message));
         let head_w = unicode_width::UnicodeWidthStr::width(position.as_str());
         let tail = pad_right(&format!("{count}{message} "), width.saturating_sub(head_w));
@@ -562,8 +580,10 @@ fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Op
                 let (dch, marker) = display_char(chars[ci], ci >= trail_from, ed.show_tabs());
                 if block.map(|(s, e)| abs >= s && abs < e).unwrap_or(false) {
                     (dch, block_style)
-                } else if errors.iter().any(|&(a, b)| ci >= a && ci < b) {
-                    (dch, error_style(theme, line_bg))
+                } else if let Some(&(_, _, schema)) =
+                    errors.iter().find(|&&(a, b, _)| ci >= a && ci < b)
+                {
+                    (dch, error_style(theme, line_bg, schema))
                 } else if marker {
                     (dch, Style::default().fg(theme.panel_border).bg(line_bg))
                 } else {
@@ -723,8 +743,10 @@ fn render_text_wrapped(
                 let (dch, marker) = display_char(chars[ci], ci >= trail_from, ed.show_tabs());
                 if block.map(|(s, e)| abs >= s && abs < e).unwrap_or(false) {
                     (dch, block_style)
-                } else if errors.iter().any(|&(a, b)| ci >= a && ci < b) {
-                    (dch, error_style(theme, line_bg))
+                } else if let Some(&(_, _, schema)) =
+                    errors.iter().find(|&&(a, b, _)| ci >= a && ci < b)
+                {
+                    (dch, error_style(theme, line_bg, schema))
                 } else if marker {
                     (dch, Style::default().fg(theme.panel_border).bg(line_bg))
                 } else {

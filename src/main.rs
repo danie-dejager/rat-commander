@@ -30,6 +30,7 @@ mod proc;
 mod receive;
 mod rename;
 mod saver;
+mod schema;
 mod send;
 mod sheet;
 mod shell;

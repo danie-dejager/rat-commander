@@ -100,8 +100,11 @@ The installed executable is named **`rc`** for quick typing.
   `.csv` / `.tsv` files (edit cells in a cell bar, insert and delete rows and
   columns, every change one undo step and saved as plain text), a **live syntax
   check** of JSON, TOML, YAML and XML files that marks every error as you type —
-  in a gutter,
-  underlined, explained on the status line, `Alt-E` to the next one — JSON
+  in a gutter, underlined, explained on the status line, `Alt-E` to the next
+  one — and **JSON Schema validation** of JSON, YAML and TOML files marked the
+  same way (schemas bundled for docker-compose, GitHub Actions workflows and
+  actions, Dependabot, GitLab CI, `Cargo.toml`, `package.json` and
+  `tsconfig.json`, or named in the file, or mapped in your config) — JSON
   **pretty-printing** (`Alt-F`), minifying and key sorting that keep the key
   order, the numbers as written and a JSONC file's comments — a
   **GeoJSON map** (`Alt-M`) that draws the GeoJSON in a file, or nested anywhere
@@ -528,6 +531,15 @@ Midnight Commander format). See the
 **[user manual](doc/MANUAL.md#configuration)** for details.
 
 ---
+
+## Third-party content
+
+The binary templates in `assets/templates/` come from SweetScape's public
+template repository, whose terms place them in the public domain; a few carry
+their own notes (see `assets/templates/README.md`). The JSON Schemas in `assets/schemas/` are
+separate works bundled unmodified under their own licenses — Apache-2.0
+(SchemaStore, compose-spec) and MIT (GitLab CI); see
+`assets/schemas/README.md`.
 
 ## License
 

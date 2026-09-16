@@ -179,6 +179,7 @@ base64 = "0.22"
 rustls-native-certs = "0.8"
 saphyr-parser = "0.0.12"
 quick-xml = "0.41"
+jsonschema = { version = "0.56.0", default-features = false }
 
 [dev-dependencies]
 # Tests synthesise small ELF, COFF and Mach-O objects to analyse, rather than

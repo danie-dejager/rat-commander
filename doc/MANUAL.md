@@ -1510,6 +1510,44 @@ underlines, status line and **Alt-E** — each by its own rules:
   the rest of the file can't be read. Only well-formedness is checked, not a
   schema or DTD.
 
+**JSON Schema.** Once a JSON, YAML or TOML file's syntax is right, it is also
+checked against its **JSON Schema**, and what the schema doesn't allow is
+marked the same way — with a `!` in the gutter and an underline in the warning
+colour rather than the error colour, a `! n` count on the status line, and
+**Alt-E** stepping through these too. An unknown or misspelt key is marked
+where the key is, a missing required one at the object that lacks it, and a
+value of the wrong type or outside the allowed set at the value. The schema is,
+in this order:
+
+1. The one the file names: `"$schema": "…"` at the top of a JSON document, a
+   `# yaml-language-server: $schema=…` comment in YAML, or `#:schema …` in TOML
+   (comments are looked for in the first 20 lines). It may be the URL of a
+   bundled schema, a `file://` URL, or a path relative to the file; a file that
+   names any other URL is not validated.
+2. The one your mapping gives the file: `schemas/schemas.toml` in the
+   configuration directory (`~/.config/rat-commander/schemas/schemas.toml` on
+   Linux), with a `[[map]]` table per rule, shown below. The first rule with a
+   matching glob wins.
+3. The bundled one for a well-known file: **Compose** (`docker-compose.yml`,
+   `compose.yaml` and their `compose.*.yaml` variants),
+   **GitHub Actions** workflows (`.github/workflows/*.yml`) and `action.yml`,
+   **Dependabot** (`.github/dependabot.yml`), **GitLab CI** (`.gitlab-ci.yml`),
+   `Cargo.toml`, `package.json` and `tsconfig.json` / `jsconfig.json`.
+
+```toml
+[[map]]
+files = ["**/deploy/*.yaml"]    # globs matched against the absolute path;
+                                # * stops at a /, ** does not
+schema = "deploy.schema.json"   # beside schemas.toml, a bundled URL, or "none"
+```
+
+Nothing is fetched from the network: a schema's references to other bundled
+schemas and to local files are followed, and a reference to anything else is
+taken as allowing anything. Files over 4 MiB are not validated, and at most 200
+schema errors are shown. The bundled schemas are those published by SchemaStore
+and the Compose Specification (Apache-2.0) and GitLab (MIT); their sources and
+licenses are listed in `assets/schemas/README.md`.
+
 **GeoJSON map (Alt-M).** Draws the GeoJSON in the file over a **map of the
 world** — a `.geojson` file, or GeoJSON anywhere inside a larger JSON document,
 such as the `geometry` in an API response. Every piece of GeoJSON the file holds

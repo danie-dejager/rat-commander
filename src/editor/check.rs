@@ -1,4 +1,6 @@
-//! The live syntax check of a JSON, TOML, YAML or XML file being edited.
+//! The live syntax check of a JSON, TOML, YAML or XML file being edited — and,
+//! once a JSON, YAML or TOML file's syntax is right, its validation against the
+//! JSON Schema it has (see [`crate::schema`]).
 //!
 //! The check runs on a thread of its own, against a snapshot of the buffer
 //! taken once typing has paused for a moment ([`QUIET`]): a rope clone is
@@ -23,6 +25,8 @@ pub(crate) struct CharDiag {
     pub end: usize,
     pub line: usize,
     pub message: String,
+    /// A schema error rather than a syntax error.
+    pub schema: bool,
 }
 
 /// The check's state for one editor.
@@ -53,16 +57,23 @@ impl SyntaxCheck {
     }
 }
 
-/// Check `rope` as `lang`, with the errors in char terms.
-fn check(rope: &ropey::Rope, lang: Lang) -> Vec<CharDiag> {
+/// Check `rope` as `lang` — validating it against its schema when its syntax
+/// is right — with the errors in char terms. `path` is the file, when it is a
+/// local one (a schema is looked for beside it, or by its path).
+fn check(rope: &ropey::Rope, lang: Lang, path: Option<&std::path::Path>) -> Vec<CharDiag> {
     let text = rope.to_string();
-    let mut diags: Vec<CharDiag> = lint::check(lang, &text)
+    let syntax = lint::check(lang, &text);
+    let schema =
+        if syntax.is_empty() { crate::schema::validate(lang, &text, path) } else { Vec::new() };
+    let to_chars = |d: lint::Diagnostic, schema: bool| {
+        let start = rope.byte_to_char(d.span.start);
+        let end = rope.byte_to_char(d.span.end).max(start + 1);
+        CharDiag { start, end, line: rope.char_to_line(start), message: d.message, schema }
+    };
+    let mut diags: Vec<CharDiag> = syntax
         .into_iter()
-        .map(|d| {
-            let start = rope.byte_to_char(d.span.start);
-            let end = rope.byte_to_char(d.span.end).max(start + 1);
-            CharDiag { start, end, line: rope.char_to_line(start), message: d.message }
-        })
+        .map(|d| to_chars(d, false))
+        .chain(schema.into_iter().map(|d| to_chars(d, true)))
         .collect();
     diags.sort_by_key(|d| d.start);
     diags
@@ -125,10 +136,12 @@ impl EditorState {
         if j.worker.is_none() && j.diags_rev != rev && now.duration_since(j.changed_at) >= QUIET {
             let rope = self.buf.snapshot();
             let lang = j.lang;
+            let path =
+                (self.path.scheme == "file" && !self.unnamed).then(|| self.path.path.clone());
             let (tx, rx) = oneshot::channel();
             let spawned = std::thread::Builder::new()
                 .name("syntax-check".into())
-                .spawn(move || drop(tx.send(check(&rope, lang))));
+                .spawn(move || drop(tx.send(check(&rope, lang, path.as_deref()))));
             if spawned.is_ok() {
                 j.worker = Some((rev, rx));
             }
@@ -141,7 +154,8 @@ impl EditorState {
     pub(crate) fn check_now(&mut self) {
         let rev = self.buf.revision();
         if let Some(j) = self.check.as_mut() {
-            j.diags = check(&self.buf.snapshot(), j.lang);
+            let path = (self.path.scheme == "file").then(|| self.path.path.clone());
+            j.diags = check(&self.buf.snapshot(), j.lang, path.as_deref());
             j.diags_rev = rev;
             j.worker = None;
         }
@@ -293,6 +307,31 @@ mod tests {
 
     fn row(b: &ratatui::buffer::Buffer, y: u16) -> String {
         (0..b.area.width).map(|x| b[(x, y)].symbol().to_string()).collect()
+    }
+
+    #[test]
+    fn schema_errors_are_marked_apart_from_syntax_errors() {
+        let theme = crate::ui::theme::Theme::mc();
+        let text = "[package]\nname = \"x\"\nversion = \"0.1.0\"\nedition = 2024\n";
+        let mut e =
+            EditorState::new("Cargo.toml".into(), VfsPath::local("/tmp/r/Cargo.toml"), text);
+        e.check_now();
+        let errs = e.check_errors().to_vec();
+        assert!(errs.iter().all(|d| d.schema) && !errs.is_empty(), "{errs:?}");
+        let b = draw(&mut e, 70, 8);
+        // The edition must be a string: line 4 (screen row 4) is marked !.
+        assert!(row(&b, 4).starts_with("! "), "{:?}", row(&b, 4));
+        let x = row(&b, 4).chars().position(|c| c == '2').unwrap() as u16;
+        assert_eq!(b[(x, 4)].fg, theme.hotkey_fg, "underlined in the warning colour");
+        assert!(row(&b, 0).contains(&format!("! {}", errs.len())), "{:?}", row(&b, 0));
+        // A syntax error hides the schema's: the document can't be read for it.
+        let mut broken = EditorState::new(
+            "Cargo.toml".into(),
+            VfsPath::local("/tmp/r/Cargo.toml"),
+            "[package\nedition = 2024\n",
+        );
+        broken.check_now();
+        assert!(broken.check_errors().iter().all(|d| !d.schema));
     }
 
     #[test]
