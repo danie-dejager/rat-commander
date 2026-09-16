@@ -765,3 +765,6 @@ code = "nl"
 "SSH certificate" = "SSH-certificaat"
 "Authorized keys" = "Geautoriseerde sleutels"
 "Known hosts" = "Bekende hosts"
+
+# -- Editor: JWT --
+"D&ecode JWT at cursor" = "JWT onder de cursor decoderen (&E)"

@@ -765,3 +765,6 @@ code = "hi"
 "SSH certificate" = "SSH प्रमाणपत्र"
 "Authorized keys" = "अधिकृत कुंजियाँ"
 "Known hosts" = "ज्ञात होस्ट"
+
+# -- Editor: JWT --
+"D&ecode JWT at cursor" = "कर्सर पर JWT डिकोड करें (&E)"

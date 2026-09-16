@@ -765,3 +765,6 @@ code = "sr"
 "SSH certificate" = "SSH sertifikat"
 "Authorized keys" = "Ovlašćeni ključevi"
 "Known hosts" = "Poznati hostovi"
+
+# -- Editor: JWT --
+"D&ecode JWT at cursor" = "Dekodiraj JWT ispod kursora (&E)"

@@ -70,6 +70,8 @@ pub enum EditorSignal {
     },
     /// Ask for a name and start a new binary template for this file.
     NewTemplate,
+    /// Show this text: the JWT at the cursor, decoded.
+    ShowJwt(String),
 }
 
 /// Which of the editor's file actions a browser was opened for.
@@ -860,6 +862,19 @@ impl EditorState {
             A::ToggleSheet => self.toggle_sheet(),
             A::RefreshScreen => return EditorSignal::RefreshScreen,
             A::GeoMap => return EditorSignal::OpenGeoMap,
+            A::DecodeJwt => {
+                let (line, col) = self.cursor_line_col();
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs() as i64);
+                match crate::certs::jwt::token_at(&self.buf.line_text(line), col) {
+                    None => self.status = "No JWT at the cursor".to_string(),
+                    Some(token) => match crate::certs::jwt::decode(&token, now) {
+                        Ok(text) => return EditorSignal::ShowJwt(text),
+                        Err(e) => self.status = format!("Not a JWT: {e}"),
+                    },
+                }
+            }
             A::TemplateMenu => {}
             A::ChooseTemplate => return EditorSignal::OpenTemplatePicker,
             A::RerunTemplate => {
@@ -2508,6 +2523,24 @@ mod tests {
         let p = std::env::temp_dir().join(format!("rc_edhex_{}_{nanos}", std::process::id()));
         std::fs::write(&p, bytes).unwrap();
         p
+    }
+
+    #[test]
+    fn the_jwt_under_the_cursor_decodes_into_a_dialog() {
+        let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+        let mut e = EditorState::new(
+            "req.http".into(),
+            VfsPath::local_cwd(),
+            &format!("GET /\nAuthorization: Bearer {token}\n"),
+        );
+        e.cursor = e.buf.line_to_char(1) + 30;
+        match e.run_menu_action(EditorAction::DecodeJwt) {
+            EditorSignal::ShowJwt(text) => assert!(text.contains("John Doe"), "{text}"),
+            _ => panic!("no JWT decoded"),
+        }
+        e.cursor = 1;
+        assert!(matches!(e.run_menu_action(EditorAction::DecodeJwt), EditorSignal::Stay));
+        assert_eq!(e.status, "No JWT at the cursor");
     }
 
     #[test]

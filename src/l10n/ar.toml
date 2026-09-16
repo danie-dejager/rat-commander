@@ -769,3 +769,6 @@ rtl = true
 "SSH certificate" = "شهادة SSH"
 "Authorized keys" = "المفاتيح المخوّلة"
 "Known hosts" = "المضيفون المعروفون"
+
+# -- Editor: JWT --
+"D&ecode JWT at cursor" = "فك ترميز JWT عند المؤشر (&E)"

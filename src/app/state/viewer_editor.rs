@@ -119,6 +119,9 @@ impl AppState {
             // The screen is repainted from scratch on the next frame.
             EditorSignal::RefreshScreen => self.force_clear = true,
             EditorSignal::OpenGeoMap => self.open_geo_map(),
+            EditorSignal::ShowJwt(text) => {
+                self.dialog = Some(Dialog::GitOutput(GitOutputDialog::plain("JWT", &text)));
+            }
             EditorSignal::OpenTemplatePicker => self.open_template_picker(),
             EditorSignal::EditTemplate { path, line } => self.open_template_editor(path, line),
             EditorSignal::NewTemplate => {

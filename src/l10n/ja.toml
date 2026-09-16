@@ -765,3 +765,6 @@ code = "ja"
 "SSH certificate" = "SSH 証明書"
 "Authorized keys" = "許可された鍵"
 "Known hosts" = "既知のホスト"
+
+# -- Editor: JWT --
+"D&ecode JWT at cursor" = "カーソル位置の JWT をデコード(&E)"

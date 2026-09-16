@@ -765,3 +765,6 @@ code = "cs"
 "SSH certificate" = "Certifikát SSH"
 "Authorized keys" = "Autorizované klíče"
 "Known hosts" = "Známí hostitelé"
+
+# -- Editor: JWT --
+"D&ecode JWT at cursor" = "Dekódovat JWT pod kurzorem (&E)"

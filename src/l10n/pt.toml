@@ -765,3 +765,6 @@ code = "pt"
 "SSH certificate" = "Certificado SSH"
 "Authorized keys" = "Chaves autorizadas"
 "Known hosts" = "Anfitriões conhecidos"
+
+# -- Editor: JWT --
+"D&ecode JWT at cursor" = "Descodificar o JWT sob o cursor (&E)"

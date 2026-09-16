@@ -774,3 +774,6 @@ code = "en"
 "SSH certificate" = "SSH certificate"
 "Authorized keys" = "Authorized keys"
 "Known hosts" = "Known hosts"
+
+# -- Editor: JWT --
+"D&ecode JWT at cursor" = "D&ecode JWT at cursor"

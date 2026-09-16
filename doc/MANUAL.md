@@ -360,8 +360,11 @@ Beyond the F-key actions, the menus offer:
   JSON file, **Next error** and **Previous error** step through its syntax
   errors.
 - **Command** — Go to line, jump to the matching bracket, and the syntax /
-  word-wrap / hex-mode / spreadsheet toggles, the **GeoJSON map**, plus a screen
-  repaint. In hex mode, **Binary templates** opens a submenu to choose a
+  word-wrap / hex-mode / spreadsheet toggles, the **GeoJSON map**, **Decode JWT
+  at cursor** (the JSON Web Token under the cursor — in a header, a log line, a
+  config file — shown with its header and claims pretty-printed, `iat` / `nbf` /
+  `exp` read as dates with how long until or since it expires; the signature is
+  not checked), plus a screen repaint. In hex mode, **Binary templates** opens a submenu to choose a
   template, run it again, jump to the variable under the cursor, edit the
   template, start a new one, or stop using one, and **Data inspector** shows or
   hides the inspector.

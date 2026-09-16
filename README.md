@@ -93,7 +93,8 @@ The installed executable is named **`rc`** for quick typing.
   (fingerprint and encryption, readable without the passphrase), public keys,
   OpenSSH certificates (principals, validity, signing CA and whether its
   signature holds), and every line of `authorized_keys` and `known_hosts`.
-  F8 switches to the raw text.
+  F8 switches to the raw text. In the editor, **Decode JWT at cursor** shows a
+  JSON Web Token's header, claims and expiry.
 - **Built-in editor (F4)** — `mcedit`-style block copy/move/delete, clipboard,
   search & replace, undo/redo, syntax highlighting, a **spreadsheet grid** for
   `.csv` / `.tsv` files (edit cells in a cell bar, insert and delete rows and

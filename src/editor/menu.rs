@@ -79,6 +79,8 @@ pub enum EditorAction {
     ToggleSheet,
     /// Draw the file's GeoJSON on a map.
     GeoMap,
+    /// Decode the JSON Web Token under the cursor.
+    DecodeJwt,
     /// Repaint the whole screen (after a stray write from another program).
     RefreshScreen,
     /// The binary-templates submenu's parent item.
@@ -262,6 +264,7 @@ pub fn editor_menu(active: usize, mode: MenuMode, json: bool, template: bool) ->
             text_only(item_key("Toggle sprea&dsheet", "Alt-G", EditorAction::ToggleSheet)),
             sep(),
             text_only(item_key("Show GeoJSON &map...", "Alt-M", EditorAction::GeoMap)),
+            text_only(item("D&ecode JWT at cursor", EditorAction::DecodeJwt)),
             item_sub(
                 "Binary &templates",
                 "▶",
@@ -378,6 +381,7 @@ pub const MENU_KEYS: &[&[&str]] = &[
         "Toggle &hex editor",
         "Toggle sprea&dsheet",
         "Show GeoJSON &map...",
+        "D&ecode JWT at cursor",
         "Binary &templates",
         "Data &inspector",
         "&Refresh screen",

@@ -769,3 +769,6 @@ rtl = true
 "SSH certificate" = "گواهی SSH"
 "Authorized keys" = "کلیدهای مجاز"
 "Known hosts" = "میزبان‌های شناخته‌شده"
+
+# -- Editor: JWT --
+"D&ecode JWT at cursor" = "رمزگشایی JWT زیر مکان‌نما (&E)"

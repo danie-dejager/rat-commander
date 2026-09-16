@@ -765,3 +765,6 @@ code = "fr"
 "SSH certificate" = "Certificat SSH"
 "Authorized keys" = "Clés autorisées"
 "Known hosts" = "Hôtes connus"
+
+# -- Editor: JWT --
+"D&ecode JWT at cursor" = "Décoder le JWT sous le curseur (&E)"

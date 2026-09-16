@@ -765,3 +765,6 @@ code = "hu"
 "SSH certificate" = "SSH-tanúsítvány"
 "Authorized keys" = "Engedélyezett kulcsok"
 "Known hosts" = "Ismert gépek"
+
+# -- Editor: JWT --
+"D&ecode JWT at cursor" = "JWT dekódolása a kurzornál (&E)"

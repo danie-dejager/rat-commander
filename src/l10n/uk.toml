@@ -765,3 +765,6 @@ code = "uk"
 "SSH certificate" = "Сертифікат SSH"
 "Authorized keys" = "Авторизовані ключі"
 "Known hosts" = "Відомі хости"
+
+# -- Editor: JWT --
+"D&ecode JWT at cursor" = "Декодувати JWT під курсором (&E)"

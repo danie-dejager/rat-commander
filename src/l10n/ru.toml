@@ -765,3 +765,6 @@ code = "ru"
 "SSH certificate" = "Сертификат SSH"
 "Authorized keys" = "Авторизованные ключи"
 "Known hosts" = "Известные хосты"
+
+# -- Editor: JWT --
+"D&ecode JWT at cursor" = "Декодировать JWT под курсором (&E)"

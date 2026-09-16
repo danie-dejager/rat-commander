@@ -9,6 +9,7 @@
 
 pub mod chain;
 pub mod der;
+pub mod jwt;
 pub mod keys;
 pub mod ssh;
 #[cfg(test)]

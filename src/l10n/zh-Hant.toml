@@ -765,3 +765,6 @@ code = "zh-Hant"
 "SSH certificate" = "SSH 憑證"
 "Authorized keys" = "授權金鑰"
 "Known hosts" = "已知主機"
+
+# -- Editor: JWT --
+"D&ecode JWT at cursor" = "解碼游標處的 JWT(&E)"

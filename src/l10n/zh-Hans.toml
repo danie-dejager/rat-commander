@@ -765,3 +765,6 @@ code = "zh-Hans"
 "SSH certificate" = "SSH 证书"
 "Authorized keys" = "授权密钥"
 "Known hosts" = "已知主机"
+
+# -- Editor: JWT --
+"D&ecode JWT at cursor" = "解码光标处的 JWT(&E)"
