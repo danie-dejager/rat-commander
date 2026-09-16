@@ -711,3 +711,8 @@ code = "fr"
 "Start" = "Début"
 "Comment" = "Commentaire"
 "Running the template…" = "Exécution du modèle…"
+
+# -- Editor: data inspector --
+"Data &inspector" = "Inspecteur de données (&I)"
+"Inspct" = "Inspec"
+"Inspector" = "Inspecteur"

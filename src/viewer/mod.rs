@@ -971,7 +971,11 @@ impl ViewerState {
                 KeyCode::Char('s') | KeyCode::Char('S') => a.stop(),
                 KeyCode::F(2) => a.toggle_display(),
                 KeyCode::F(8) => self.show_audio = false,
-                KeyCode::F(1) | KeyCode::F(3) | KeyCode::F(10) | KeyCode::Esc | KeyCode::Char('q') => {
+                KeyCode::F(1)
+                | KeyCode::F(3)
+                | KeyCode::F(10)
+                | KeyCode::Esc
+                | KeyCode::Char('q') => {
                     return self.handle_plain_view_key(key);
                 }
                 _ => {}

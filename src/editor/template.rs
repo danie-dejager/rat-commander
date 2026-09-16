@@ -42,8 +42,6 @@ const CHUNK: u64 = 1000;
 const WORKER_STACK: usize = if cfg!(target_pointer_width = "64") { 256 << 20 } else { 32 << 20 };
 /// The stack callbacks evaluated for drawing run on.
 const DISPLAY_STACK: usize = if cfg!(target_pointer_width = "64") { 64 << 20 } else { 16 << 20 };
-/// Width the tree panel needs to sit beside the bytes rather than below them.
-const SIDE_MIN: u16 = 44;
 
 /// Which template the user wants for this file.
 #[derive(Debug, Clone)]
@@ -410,27 +408,6 @@ fn row_text(interp: &mut Interp, cache: &mut LazyCache, kind: RowKind) -> RowTex
     }
 }
 
-/// Split the hex editor's body between the bytes and the template panel:
-/// side by side when there's room, stacked when there's height, else whichever
-/// has the focus.
-pub(super) fn split(body: Rect, hex_w: u16, panel: bool, tree_focus: bool) -> (Rect, Option<Rect>) {
-    if !panel || body.width == 0 || body.height == 0 {
-        return (body, None);
-    }
-    if body.width >= hex_w + SIDE_MIN {
-        let hex = Rect { width: hex_w, ..body };
-        let tree = Rect { x: body.x + hex_w, width: body.width - hex_w, ..body };
-        return (hex, Some(tree));
-    }
-    if body.height >= 11 {
-        let hex_h = (body.height * 45 / 100).max(4);
-        let hex = Rect { height: hex_h, ..body };
-        let tree = Rect { y: body.y + hex_h, height: body.height - hex_h, ..body };
-        return (hex, Some(tree));
-    }
-    if tree_focus { (Rect { height: 0, ..body }, Some(body)) } else { (body, None) }
-}
-
 /// What a run needs to know about the file: path, name, pending edits,
 /// revision and length.
 type FileState = (PathBuf, String, BTreeMap<u64, u8>, u64, u64);
@@ -786,22 +763,6 @@ impl EditorState {
                 self.jump_to_template_variable();
                 Some(EditorSignal::Stay)
             }
-            // Tab steps hex column → ASCII column → tree, Shift-Tab back;
-            // into the tree it goes as F6 does, to the variable at the cursor.
-            // Until there are results to go to it only swaps the columns.
-            KeyCode::Tab | KeyCode::BackTab if self.template_panel() => {
-                let back = shift || key.code == KeyCode::BackTab;
-                let h = self.hex.as_mut().expect("the panel implies hex mode");
-                if h.ascii_pane != back {
-                    self.jump_to_template_variable();
-                }
-                if !self.template_focus()
-                    && let Some(h) = self.hex.as_mut()
-                {
-                    h.toggle_pane();
-                }
-                Some(EditorSignal::Stay)
-            }
             KeyCode::F(3) if self.template_panel() => {
                 if let Some(t) = self.tpl.as_mut() {
                     t.show_output = !t.show_output;
@@ -824,6 +785,7 @@ impl EditorState {
         let path = run.interp.tree.path_at(cursor);
         t.show_output = false;
         t.tree_focus = true;
+        self.insp.focus = false;
         let Some(&last) = path.last() else { return };
         let mut target = RowKind::Node(last);
         for (k, r) in path.iter().enumerate() {
@@ -880,19 +842,10 @@ impl EditorState {
         let shift = key.modifiers.contains(KeyModifiers::SHIFT);
         let page =
             self.tpl.as_ref().map_or(1, |t| t.list_area.height.saturating_sub(1).max(1) as isize);
-        // Back to the bytes, at the variable selected in the tree: Tab goes on
-        // round to the hex column, Shift-Tab back to the ASCII one, F6 and Esc
-        // to the column the bytes had.
-        if matches!(key.code, KeyCode::Tab | KeyCode::BackTab | KeyCode::F(6) | KeyCode::Esc) {
-            if self.tpl.as_ref().is_some_and(|t| !t.show_output) {
-                self.follow_tree_cursor(true);
-            }
-            if let Some(t) = self.tpl.as_mut() {
-                t.tree_focus = false;
-            }
-            if let (KeyCode::Tab | KeyCode::BackTab, Some(h)) = (key.code, self.hex.as_mut()) {
-                h.set_pane(shift || key.code == KeyCode::BackTab);
-            }
+        // Back to the bytes, at the variable selected in the tree, in the
+        // column they had (Tab steps on round, see `step_hex_focus`).
+        if matches!(key.code, KeyCode::F(6) | KeyCode::Esc) {
+            self.leave_template_tree();
             return Some(EditorSignal::Stay);
         }
         let t = self.tpl.as_mut().expect("focus implies state");
@@ -1028,6 +981,17 @@ impl EditorState {
             self.follow_tree_cursor(false);
         }
         Some(EditorSignal::Stay)
+    }
+
+    /// Give the keys back from the tree to the bytes: the byte cursor goes to
+    /// the variable selected there, unless it is already inside it.
+    pub(super) fn leave_template_tree(&mut self) {
+        if self.tpl.as_ref().is_some_and(|t| !t.show_output) {
+            self.follow_tree_cursor(true);
+        }
+        if let Some(t) = self.tpl.as_mut() {
+            t.tree_focus = false;
+        }
     }
 
     /// Put the byte cursor on the selected variable's first byte — or, with
@@ -1239,7 +1203,7 @@ pub(super) fn render_panel(
     let header =
         Style::default().fg(theme.header_fg).bg(theme.panel_bg).add_modifier(Modifier::BOLD);
     let error = Style::default().fg(theme.error_fg).bg(theme.panel_bg);
-    let side = area.y == ed.text_area.y && area.x > ed.text_area.x;
+    let side = area.x > ed.text_area.x;
     let focus = ed.template_focus();
     let geom_start_w =
         hex::HexGeom::for_len(ed.hex.as_ref().map_or(0, |h| h.len)).off_w as usize + 2;
@@ -1738,19 +1702,5 @@ mod tests {
         }
         let (s, _) = screen(&mut e, w, h);
         println!("{s}");
-    }
-
-    #[test]
-    fn the_panel_goes_beside_below_or_instead() {
-        let hex_w = 77;
-        let (h, t) = split(Rect::new(0, 1, 140, 30), hex_w, true, false);
-        assert_eq!((h.width, t.unwrap().x, t.unwrap().width), (77, 77, 63));
-        let (h, t) = split(Rect::new(0, 1, 80, 30), hex_w, true, false);
-        assert_eq!((h.height, t.unwrap().y, t.unwrap().height), (13, 14, 17));
-        let (h, t) = split(Rect::new(0, 1, 60, 8), hex_w, true, false);
-        assert_eq!((h.height, t), (8, None));
-        let (h, t) = split(Rect::new(0, 1, 60, 8), hex_w, true, true);
-        assert_eq!((h.height, t.unwrap().height), (0, 8));
-        assert_eq!(split(Rect::new(0, 1, 140, 30), hex_w, false, true).1, None);
     }
 }

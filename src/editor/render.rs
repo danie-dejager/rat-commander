@@ -35,17 +35,28 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
     ed.menu_area = status;
 
     if ed.is_hex() {
-        // The template panel takes the room beside or below the bytes.
+        // The inspector and the template panel take the room beside or below
+        // the bytes.
         let hex_w = super::hex::HexGeom::for_len(ed.hex.as_ref().map_or(0, |h| h.len)).width();
-        let (hex_area, tpl_area) =
-            super::template::split(text_area, hex_w, ed.template_panel(), ed.template_focus());
+        let layout = super::inspector::hex_layout(
+            text_area,
+            hex_w,
+            ed.insp.shown,
+            ed.template_panel(),
+            ed.inspector_focus(),
+            ed.template_focus(),
+        );
+        let hex_area = layout.hex;
         ed.text_area = hex_area;
         ed.view_rows = hex_area.height as usize;
         ed.view_cols = hex_area.width as usize;
-        ed.tpl_area = tpl_area.unwrap_or_default();
+        ed.tpl_area = layout.template.unwrap_or_default();
+        ed.insp.area = layout.inspector.unwrap_or_default();
         let cursor_pos =
             if hex_area.height > 0 { render_hex(f, hex_area, ed, theme) } else { None };
-        let caret = tpl_area.and_then(|a| super::template::render_panel(f, a, ed, theme));
+        let insp_caret =
+            layout.inspector.and_then(|a| super::inspector::render_panel(f, a, ed, theme));
+        let caret = layout.template.and_then(|a| super::template::render_panel(f, a, ed, theme));
         render_hex_status(f, status, ed, theme);
         render_hex_footer(f, footer, ed, theme);
         if ed.help_open() {
@@ -57,7 +68,13 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
         if render_menu(f, area, ed, theme) {
             return;
         }
-        let pos = if ed.template_focus() { caret } else { cursor_pos };
+        let pos = if ed.inspector_focus() {
+            insp_caret
+        } else if ed.template_focus() {
+            caret
+        } else {
+            cursor_pos
+        };
         if let Some(p) = pos {
             f.set_cursor_position(p);
         }
@@ -197,6 +214,8 @@ fn render_hex(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) ->
     }
     let top = ed.hex.as_ref().map_or(0, |h| h.top);
     let (tints, selected) = ed.template_byte_styles(top, rows * bpr as usize, theme);
+    // The inspector's selected value, while it has the keys, over the tree's.
+    let selected = ed.inspector_range().or(selected);
     let h = ed.hex.as_mut().unwrap();
     h.view_rows = rows;
     let window = h.window(h.top, rows * bpr as usize);
@@ -298,6 +317,7 @@ fn render_hex(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) ->
 fn render_hex_status(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
     let tpl = ed.template_status().map(|t| format!("  Template: {t}")).unwrap_or_default();
     let tree = ed.template_focus();
+    let inspector = ed.inspector_focus();
     let reserve = 56 + tpl.chars().count() as u16;
     let name = ellipsize(&ed.name, area.width.saturating_sub(reserve).max(4) as usize);
     let h = ed.hex.as_mut().unwrap();
@@ -306,7 +326,9 @@ fn render_hex_status(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Th
         Some(b) => format!("0x{b:02X} {b:>3}"),
         None => "--".to_string(),
     };
-    let pane = if tree {
+    let pane = if inspector {
+        "INSPECTOR"
+    } else if tree {
         "TEMPLATE"
     } else if h.ascii_pane {
         "ASCII"

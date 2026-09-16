@@ -720,3 +720,8 @@ code = "en"
 "Start" = "Start"
 "Comment" = "Comment"
 "Running the template…" = "Running the template…"
+
+# -- Editor: data inspector --
+"Data &inspector" = "Data &inspector"
+"Inspct" = "Inspct"
+"Inspector" = "Inspector"

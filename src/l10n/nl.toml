@@ -711,3 +711,8 @@ code = "nl"
 "Start" = "Begin"
 "Comment" = "Opmerking"
 "Running the template…" = "Sjabloon wordt uitgevoerd…"
+
+# -- Editor: data inspector --
+"Data &inspector" = "Data-inspector (&I)"
+"Inspct" = "Inspec"
+"Inspector" = "Inspector"

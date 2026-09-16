@@ -6350,7 +6350,8 @@ async fn the_details_view_plays_audio_until_the_cursor_moves_on() {
         .iter()
         .find(|(_, t)| *t == crate::audio::view::Transport::PlayPause)
         .expect("a play button was drawn");
-    let click = |kind| MouseEvent { kind, column: play.x + 1, row: play.y, modifiers: KeyModifiers::NONE };
+    let click =
+        |kind| MouseEvent { kind, column: play.x + 1, row: play.y, modifiers: KeyModifiers::NONE };
     st.handle_mouse(click(MouseEventKind::Down(MouseButton::Left))).await;
     st.handle_mouse(click(MouseEventKind::Up(MouseButton::Left))).await;
     assert!(st.details[1].audio.as_ref().unwrap().playing(), "the click pressed Play");

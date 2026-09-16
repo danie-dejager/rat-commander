@@ -146,6 +146,11 @@ impl AppState {
     /// whose template was being edited), or to the panels.
     pub(in crate::app::state) async fn close_editor(&mut self) {
         self.record_editor_position();
+        // The hex inspector stays as it was left for the next file opened.
+        if let Some(o) = self.editor.as_ref().map(|e| e.options()) {
+            self.config.editor_options.hex_inspector = o.hex_inspector;
+            self.config.editor_options.hex_inspector_big_endian = o.hex_inspector_big_endian;
+        }
         let closed = self.editor.take().map(|e| e.path.path.clone());
         if let Some(mut under) = self.editor_stack.pop() {
             if let Some(path) = closed {
@@ -317,8 +322,12 @@ impl AppState {
     /// so the next file opens with them too.
     pub(in crate::app::state) fn apply_editor_options(
         &mut self,
-        opts: crate::config::EditorOptions,
+        mut opts: crate::config::EditorOptions,
     ) {
+        // The dialog doesn't show the hex inspector's settings: keep them.
+        let current = self.editor.as_ref().map_or(&self.config.editor_options, |e| e.options());
+        opts.hex_inspector = current.hex_inspector;
+        opts.hex_inspector_big_endian = current.hex_inspector_big_endian;
         self.config.editor_options = opts.clone();
         let dark = self.dark_ui();
         if let Some(ed) = self.editor.as_mut() {
@@ -557,7 +566,7 @@ impl AppState {
                     // switches to the bytes.
                     if let Some(av) =
                         load_view_audio(&path.path, &v.name, &self.config, self.audio_out.clone())
-                    .await
+                            .await
                     {
                         v.set_audio(av);
                     }

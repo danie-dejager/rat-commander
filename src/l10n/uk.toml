@@ -711,3 +711,8 @@ code = "uk"
 "Start" = "Початок"
 "Comment" = "Коментар"
 "Running the template…" = "Шаблон виконується…"
+
+# -- Editor: data inspector --
+"Data &inspector" = "Інспектор даних (&I)"
+"Inspct" = "Інспек"
+"Inspector" = "Інспектор"

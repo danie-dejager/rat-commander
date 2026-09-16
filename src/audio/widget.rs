@@ -88,7 +88,14 @@ pub fn render(
 }
 
 /// Draw the pixel picture into `area` through the graphics layer.
-pub fn draw_pixels(g: &mut Gfx, f: &mut Frame, area: Rect, view: &AudioView, theme: &Theme, slot: Slot) {
+pub fn draw_pixels(
+    g: &mut Gfx,
+    f: &mut Frame,
+    area: Rect,
+    view: &AudioView,
+    theme: &Theme,
+    slot: Slot,
+) {
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -119,7 +126,12 @@ pub fn render_cells(
 ) {
     let bg = Style::default().bg(theme.panel_bg);
     f.render_widget(Block::default().style(bg), lay.area);
-    let mut hits = AudioHits { area: lay.area, image: lay.image, progress: lay.progress, ..Default::default() };
+    let mut hits = AudioHits {
+        area: lay.area,
+        image: lay.image,
+        progress: lay.progress,
+        ..Default::default()
+    };
 
     if lay.image.width > 0 && lay.image.height > 0 {
         if !graphics {
@@ -152,7 +164,8 @@ fn render_progress(f: &mut Frame, area: Rect, view: &AudioView, theme: &Theme) {
     let head = ((view.frac() * w as f32) as usize).min(w.saturating_sub(1));
     let played = Style::default().fg(theme.media_fg).bg(theme.panel_bg);
     let rest = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
-    let marker = Style::default().fg(theme.panel_fg).bg(theme.panel_bg).add_modifier(Modifier::BOLD);
+    let marker =
+        Style::default().fg(theme.panel_fg).bg(theme.panel_bg).add_modifier(Modifier::BOLD);
     let line = Line::from(vec![
         Span::styled("━".repeat(head), played),
         Span::styled("●", marker),
@@ -187,7 +200,10 @@ fn render_ticks(f: &mut Frame, area: Rect, view: &AudioView, theme: &Theme) {
         t += step;
     }
     let dim = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
-    f.render_widget(Paragraph::new(Line::from(Span::styled(row.into_iter().collect::<String>(), dim))), area);
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(row.into_iter().collect::<String>(), dim))),
+        area,
+    );
 }
 
 /// A row of spans laid out left to right, remembering where each went.
@@ -201,7 +217,12 @@ struct Row {
 impl Row {
     fn push(&mut self, s: String, style: Style) -> Rect {
         let w = s.width() as u16;
-        let r = Rect { x: self.x, y: self.y, width: w.min(self.right.saturating_sub(self.x)), height: 1 };
+        let r = Rect {
+            x: self.x,
+            y: self.y,
+            width: w.min(self.right.saturating_sub(self.x)),
+            height: 1,
+        };
         self.x = self.x.saturating_add(w);
         self.spans.push(Span::styled(s, style));
         r
@@ -217,7 +238,8 @@ fn render_transport(
     compact: bool,
     hits: &mut AudioHits,
 ) {
-    let button = Style::default().fg(theme.panel_fg).bg(theme.panel_bg).add_modifier(Modifier::BOLD);
+    let button =
+        Style::default().fg(theme.panel_fg).bg(theme.panel_bg).add_modifier(Modifier::BOLD);
     let text = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
     let dim = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
     let accent = Style::default().fg(theme.media_fg).bg(theme.panel_bg);

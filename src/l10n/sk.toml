@@ -711,3 +711,8 @@ code = "sk"
 "Start" = "Začiatok"
 "Comment" = "Komentár"
 "Running the template…" = "Šablóna beží…"
+
+# -- Editor: data inspector --
+"Data &inspector" = "Inšpektor dát (&I)"
+"Inspct" = "Inšpek"
+"Inspector" = "Inšpektor"

@@ -221,10 +221,6 @@ impl HexEditor {
         self.nibble_low = false;
     }
 
-    pub fn toggle_pane(&mut self) {
-        self.set_pane(!self.ascii_pane);
-    }
-
     /// Put the cursor in the ASCII column (`true`) or the hex column.
     pub fn set_pane(&mut self, ascii: bool) {
         self.ascii_pane = ascii;
@@ -385,7 +381,7 @@ mod tests {
     fn ascii_pane_overwrite_keeps_length() {
         let p = tmp(b"abc");
         let mut h = HexEditor::open(&p).unwrap();
-        h.toggle_pane();
+        h.set_pane(true);
         h.input_ascii('X'); // overwrite 'a'
         h.save().unwrap();
         assert_eq!(std::fs::read(&p).unwrap(), b"Xbc");

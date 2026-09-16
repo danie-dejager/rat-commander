@@ -711,3 +711,8 @@ code = "hi"
 "Start" = "आरंभ"
 "Comment" = "टिप्पणी"
 "Running the template…" = "टेम्पलेट चल रहा है…"
+
+# -- Editor: data inspector --
+"Data &inspector" = "डेटा निरीक्षक (&I)"
+"Inspct" = "निरीक्षक"
+"Inspector" = "निरीक्षक"

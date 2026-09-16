@@ -104,13 +104,7 @@ impl Interp {
                         self.store(&Place::Node(r), Value::Str(bytes)).map_err(fail)
                     }
                     NodeKind::Array { .. } => {
-                        let hex: String = text.chars().filter(|c| c.is_ascii_hexdigit()).collect();
-                        if hex.len() != 32 {
-                            return Err("a GUID needs 32 hex digits".into());
-                        }
-                        let raw: Vec<u8> = (0..16)
-                            .map(|k| u8::from_str_radix(&hex[k * 2..k * 2 + 2], 16).unwrap_or(0))
-                            .collect();
+                        let raw = guid_digits(text)?;
                         // The first three groups are stored little-endian.
                         let order = [3, 2, 1, 0, 5, 4, 7, 6, 8, 9, 10, 11, 12, 13, 14, 15];
                         let mut bytes = [0u8; 16];
@@ -130,9 +124,8 @@ impl Interp {
         }
     }
 
-    /// `text` as a value of scalar type `prim`: numbers in any notation the
-    /// panel shows (decimal, `0x…`, `…h`, `0b…`, a character in quotes), an
-    /// enum constant's name, or a date.
+    /// `text` as a value of scalar type `prim`: an enum constant's name, or
+    /// anything [`parse_scalar`] reads.
     fn parse_scalar(
         &mut self,
         prim: Prim,
@@ -140,86 +133,107 @@ impl Interp {
         enum_ty: u32,
         text: &str,
     ) -> Result<Value, String> {
-        let t = text.trim();
-        if t.is_empty() {
-            return Err("enter a value".into());
-        }
-        if prim.is_float() && prim != Prim::OleTime {
-            return t
-                .parse::<f64>()
-                .map(|f| Value::Float(f, prim != Prim::Double))
-                .map_err(|_| format!("'{t}' is not a number"));
-        }
-        let date = |n: usize| -> Vec<i64> {
-            t.split(|c: char| !c.is_ascii_digit())
-                .filter(|x| !x.is_empty())
-                .filter_map(|x| x.parse().ok())
-                .take(n)
-                .collect()
-        };
-        match prim {
-            Prim::DosDate => {
-                let d = date(3);
-                if d.len() < 3 {
-                    return Err("a date is MM/dd/yyyy".into());
-                }
-                let v = ((d[2] - 1980).clamp(0, 127) << 9)
-                    | (d[0].clamp(1, 12) << 5)
-                    | d[1].clamp(1, 31);
-                return Ok(Value::Int(v as u64, IntTy::of(prim)));
-            }
-            Prim::DosTime => {
-                let d = date(3);
-                if d.len() < 2 {
-                    return Err("a time is hh:mm:ss".into());
-                }
-                let s = d.get(2).copied().unwrap_or(0);
-                let v = (d[0].clamp(0, 23) << 11) | (d[1].clamp(0, 59) << 5) | (s.clamp(0, 59) / 2);
-                return Ok(Value::Int(v as u64, IntTy::of(prim)));
-            }
-            Prim::FileTime | Prim::TimeT | Prim::Time64T | Prim::OleTime => {
-                let d = date(6);
-                if d.len() < 3 {
-                    return Err("a date is MM/dd/yyyy hh:mm:ss".into());
-                }
-                let secs = time::days_from_civil(d[2], d[0] as u32, d[1] as u32) * 86_400
-                    + d.get(3).copied().unwrap_or(0) * 3600
-                    + d.get(4).copied().unwrap_or(0) * 60
-                    + d.get(5).copied().unwrap_or(0);
-                return Ok(match prim {
-                    Prim::FileTime => Value::Int(
-                        ((secs + 11_644_473_600) as u64).wrapping_mul(10_000_000),
-                        IntTy::of(prim),
-                    ),
-                    Prim::OleTime => Value::Float(secs as f64 / 86_400.0 + 25_569.0, false),
-                    _ => Value::Int(secs as u64, IntTy::of(prim)),
-                });
-            }
-            _ => {}
-        }
-        let it = IntTy::of(prim);
         if is_enum {
+            let t = text.trim();
             let name = t.split(" (").next().unwrap_or(t).trim();
             if let Some(v) =
                 self.enum_constants(enum_ty).iter().find(|(n, _)| n == name).map(|(_, v)| *v)
             {
+                let it = IntTy::of(prim);
                 return Ok(Value::Int(it.norm(v as u64), it));
             }
         }
-        let n = parse_int(t).ok_or_else(|| format!("'{t}' is not a number"))?;
-        let bits = it.bytes as u32 * 8;
-        let fits = if bits >= 64 {
-            true
-        } else if it.signed {
-            n >= -(1i128 << (bits - 1)) && n < (1i128 << (bits - 1))
-        } else {
-            n >= -(1i128 << (bits - 1)) && n < (1i128 << bits)
-        };
-        if !fits {
-            return Err(format!("{t} doesn't fit in {} bytes", it.bytes));
-        }
-        Ok(Value::Int(it.norm(n as u64), it))
+        parse_scalar(prim, text)
     }
+}
+
+/// `text` as a value of scalar type `prim`: numbers in any notation the panel
+/// shows (decimal, `0x…`, `…h`, `0b…`, a character in quotes), or a date.
+pub(crate) fn parse_scalar(prim: Prim, text: &str) -> Result<Value, String> {
+    let t = text.trim();
+    if t.is_empty() {
+        return Err("enter a value".into());
+    }
+    if prim.is_float() && prim != Prim::OleTime {
+        return t
+            .parse::<f64>()
+            .map(|f| Value::Float(f, prim != Prim::Double))
+            .map_err(|_| format!("'{t}' is not a number"));
+    }
+    let date = |n: usize| -> Vec<i64> {
+        t.split(|c: char| !c.is_ascii_digit())
+            .filter(|x| !x.is_empty())
+            .filter_map(|x| x.parse().ok())
+            .take(n)
+            .collect()
+    };
+    match prim {
+        Prim::DosDate => {
+            let d = date(3);
+            if d.len() < 3 {
+                return Err("a date is MM/dd/yyyy".into());
+            }
+            let v =
+                ((d[2] - 1980).clamp(0, 127) << 9) | (d[0].clamp(1, 12) << 5) | d[1].clamp(1, 31);
+            return Ok(Value::Int(v as u64, IntTy::of(prim)));
+        }
+        Prim::DosTime => {
+            let d = date(3);
+            if d.len() < 2 {
+                return Err("a time is hh:mm:ss".into());
+            }
+            let s = d.get(2).copied().unwrap_or(0);
+            let v = (d[0].clamp(0, 23) << 11) | (d[1].clamp(0, 59) << 5) | (s.clamp(0, 59) / 2);
+            return Ok(Value::Int(v as u64, IntTy::of(prim)));
+        }
+        Prim::FileTime | Prim::TimeT | Prim::Time64T | Prim::OleTime => {
+            let d = date(6);
+            if d.len() < 3 {
+                return Err("a date is MM/dd/yyyy hh:mm:ss".into());
+            }
+            let secs = time::days_from_civil(d[2], d[0] as u32, d[1] as u32) * 86_400
+                + d.get(3).copied().unwrap_or(0) * 3600
+                + d.get(4).copied().unwrap_or(0) * 60
+                + d.get(5).copied().unwrap_or(0);
+            return Ok(match prim {
+                Prim::FileTime => Value::Int(
+                    ((secs + 11_644_473_600) as u64).wrapping_mul(10_000_000),
+                    IntTy::of(prim),
+                ),
+                Prim::OleTime => Value::Float(secs as f64 / 86_400.0 + 25_569.0, false),
+                _ => Value::Int(secs as u64, IntTy::of(prim)),
+            });
+        }
+        _ => {}
+    }
+    let it = IntTy::of(prim);
+    let n = parse_int(t).ok_or_else(|| format!("'{t}' is not a number"))?;
+    let bits = it.bytes as u32 * 8;
+    let fits = if bits >= 64 {
+        true
+    } else if it.signed {
+        n >= -(1i128 << (bits - 1)) && n < (1i128 << (bits - 1))
+    } else {
+        n >= -(1i128 << (bits - 1)) && n < (1i128 << bits)
+    };
+    if !fits {
+        return Err(format!("{t} doesn't fit in {} bytes", it.bytes));
+    }
+    Ok(Value::Int(it.norm(n as u64), it))
+}
+
+/// The 16 bytes a GUID's 32 hex digits spell, in the order they are written
+/// (braces, dashes and spaces ignored).
+pub(crate) fn guid_digits(text: &str) -> Result<[u8; 16], String> {
+    let hex: Vec<u8> = text.bytes().filter(u8::is_ascii_hexdigit).collect();
+    if hex.len() != 32 {
+        return Err("a GUID needs 32 hex digits".into());
+    }
+    let mut out = [0u8; 16];
+    for (k, pair) in hex.chunks(2).enumerate() {
+        out[k] = u8::from_str_radix(std::str::from_utf8(pair).unwrap_or("0"), 16).unwrap_or(0);
+    }
+    Ok(out)
 }
 
 /// An integer in any of the notations the panel shows.

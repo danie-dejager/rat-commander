@@ -1463,6 +1463,8 @@ impl FormDialog {
                     persistent_selection: fields[11].as_bool(),
                     group_undo: fields[12].as_bool(),
                     word_wrap_line_length: num(13, 72, 20, 1000),
+                    // Not in the dialog: kept by the app from the settings in use.
+                    ..EditorOptions::default()
                 }))
             }
             FormPurpose::EditorSort => Submit::EditorSort {

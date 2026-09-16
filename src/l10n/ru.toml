@@ -711,3 +711,8 @@ code = "ru"
 "Start" = "Начало"
 "Comment" = "Комментарий"
 "Running the template…" = "Шаблон выполняется…"
+
+# -- Editor: data inspector --
+"Data &inspector" = "Инспектор данных (&I)"
+"Inspct" = "Инспек"
+"Inspector" = "Инспектор"

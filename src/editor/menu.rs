@@ -95,6 +95,8 @@ pub enum EditorAction {
     NewTemplate,
     /// Stop using a template for this file.
     CloseTemplate,
+    /// Show or hide the hex editor's data inspector.
+    ToggleInspector,
 
     // -- Format --
     InsertDateTime,
@@ -267,6 +269,7 @@ pub fn editor_menu(active: usize, mode: MenuMode, json: bool, template: bool) ->
                 template_items(template),
             )
             .disabled(!hex),
+            item_key("Data &inspector", "F8", EditorAction::ToggleInspector).disabled(!hex),
             sep(),
             item_key("&Refresh screen", "Ctrl-L", EditorAction::RefreshScreen),
         ],
@@ -376,6 +379,7 @@ pub const MENU_KEYS: &[&[&str]] = &[
         "Toggle sprea&dsheet",
         "Show GeoJSON &map...",
         "Binary &templates",
+        "Data &inspector",
         "&Refresh screen",
     ],
     &[

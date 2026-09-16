@@ -360,7 +360,8 @@ Beyond the F-key actions, the menus offer:
   word-wrap / hex-mode / spreadsheet toggles, the **GeoJSON map**, plus a screen
   repaint. In hex mode, **Binary templates** opens a submenu to choose a
   template, run it again, jump to the variable under the cursor, edit the
-  template, start a new one, or stop using one.
+  template, start a new one, or stop using one, and **Data inspector** shows or
+  hides the inspector.
 - **Format** — Insert the date and time, re-wrap the current paragraph to the
   configured line length, sort the marked block's lines (with reverse,
   ignore-case and remove-duplicates options), and paste a shell command's output.
@@ -419,8 +420,9 @@ persist across runs and apply to every file opened afterwards.
 
 - `0`–`9`, `a`–`f` — Overwrite the current byte's nibble (hex column)
 - typed character — Overwrite the current byte (ASCII column)
-- `Tab` / `Shift-Tab` — Switch between the hex and ASCII columns and, when a
-  template is shown, the template tree (entered as with `F6`)
+- `Tab` / `Shift-Tab` — Step round the hex and ASCII columns, the data
+  inspector when it shows, and the template tree when a template is shown
+  (entered as with `F6`)
 - `← ↑ ↓ →` / `PgUp PgDn` — Move; `Home` / `End` — start / end of row
 - `Ctrl-Home` / `Ctrl-End` — Start / end of file
 - `F7` — Search (hex bytes like `48 65` or text)
@@ -429,6 +431,7 @@ persist across runs and apply to every file opened afterwards.
 - `F5` / `Shift-F5` — Choose the binary template / run it again
 - `F6` — The template variable under the cursor, in the template tree
 - `F3` — The template's output / its variables
+- `F8` — Show / hide the data inspector
 - `Ctrl-F9` — Back to text mode
 - `F9` — Pulldown menu (text-only items greyed out)
 - `Esc` / `F10` — Quit (prompts if modified)
@@ -442,7 +445,15 @@ In the template tree (see *Binary templates*):
 - `Enter` — Open or close a struct or array, or edit a value (`Enter` writes it,
   `Esc` drops it)
 - `F6` / `Esc` — Back to the bytes, at the selected variable; `Tab` /
-  `Shift-Tab` — the same, on to the hex / ASCII column
+  `Shift-Tab` — the same, on to the hex column / the inspector
+
+In the data inspector (see *Data inspector*):
+
+- `↑ ↓` / `PgUp PgDn` / `Home End` — Choose a type; its bytes are marked
+- `← →` — Move the byte cursor; `Ctrl-←` / `Ctrl-→` — by the chosen value's width
+- `Enter` — Edit the value (`Enter` writes it, `Esc` drops it)
+- `b` — Switch between little- and big-endian
+- `Esc` — Back to the bytes; `F6` — to the template tree
 
 ### Process explorer
 
@@ -1480,6 +1491,40 @@ between the hex and ASCII columns; **F7** searches for hex bytes (`48 65 6c`) or
 text, **F4** replaces all (same length), **F2** saves the changed bytes. **F9**
 still opens the menu, with the text-buffer items greyed out.
 
+### Data inspector
+
+**F8** in hex mode (or Command → Data inspector) shows the bytes at the cursor
+read as each common type, in a panel beside the bytes (or below them, when the
+terminal isn't wide enough) that follows the cursor as it moves:
+
+- **binary** — the byte's bits
+- **int8** … **uint64** — signed and unsigned integers of 1, 2, 4 and 8 bytes
+- **float16**, **float32**, **float64** — half, single and double precision
+- **ULEB128**, **SLEB128** — variable-length integers, as DWARF, WebAssembly
+  and Android's DEX use them
+- **UTF-8**, **UTF-16** — the character starting at the cursor and its code
+  point, or *invalid*
+- **time_t** (32-bit), **time64_t**, **FILETIME**, **OLETIME**, **DOSDATE**,
+  **DOSTIME** — dates and times, in UTC
+- **GUID** — 16 bytes, the first three groups stored little-endian (as Windows
+  does) or, big-endian, in the order they are written
+
+A row shows *—* when too few bytes are left in the file to read one. The title
+row says which **byte order** the numbers are read in; **b** (or a click on the
+title) switches between little- and big-endian, and both it and whether the
+inspector shows are remembered.
+
+**Tab** reaches the inspector after the ASCII column (and before the template
+tree). There **↑ ↓** choose a type, and its bytes are marked in the hex view;
+**← →** move the byte cursor, and **Ctrl-← →** move it by the width of the
+chosen value. **Enter** edits the value in place: numbers in the same notations
+as the template tree (`-5`, `0x1F`, `1Fh`, `0b101`), dates as they are shown,
+a character as itself, in quotes or as `U+00E9`, a GUID as its 32 hex digits.
+The bytes go into the hex editor's unsaved changes, so **F2** saves them like
+any other edit. Editing never changes the file's length, so a value must fit
+the bytes it replaces: a smaller LEB128 number is padded to the length of the
+one there, and a character must take as many bytes as the one it replaces.
+
 ### Binary templates
 
 In hex mode the file is read with an **010 Editor Binary Template** — a small
@@ -1508,8 +1553,8 @@ the template again.
 tree — opening whatever it is inside — and gives the tree the keys; **F6** or
 **Esc** give them back to the bytes, with the byte cursor on the selected
 variable (it stays put if it is already inside it). **Tab** steps round the hex
-column, the ASCII column and the tree (**Shift-Tab** the other way), going into
-and out of the tree the same way. Moving through the tree moves the byte cursor
+column, the ASCII column, the data inspector when it shows and the tree
+(**Shift-Tab** the other way), going into and out of the tree the same way. Moving through the tree moves the byte cursor
 to each variable. **→** opens a struct or array, **←** closes it or steps to its
 parent, and **\*** opens everything below the selected row. Large arrays list
 their elements a thousand at a time, with a row to list more.

@@ -711,3 +711,8 @@ code = "ja"
 "Start" = "開始"
 "Comment" = "コメント"
 "Running the template…" = "テンプレートを実行中…"
+
+# -- Editor: data inspector --
+"Data &inspector" = "データインスペクタ(&I)"
+"Inspct" = "検査"
+"Inspector" = "インスペクタ"

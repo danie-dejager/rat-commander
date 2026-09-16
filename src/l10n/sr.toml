@@ -711,3 +711,8 @@ code = "sr"
 "Start" = "Početak"
 "Comment" = "Komentar"
 "Running the template…" = "Šablon se izvršava…"
+
+# -- Editor: data inspector --
+"Data &inspector" = "Inspektor podataka (&I)"
+"Inspct" = "Inspek"
+"Inspector" = "Inspektor"

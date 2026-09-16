@@ -711,3 +711,8 @@ code = "zh-Hans"
 "Start" = "起始"
 "Comment" = "注释"
 "Running the template…" = "正在运行模板…"
+
+# -- Editor: data inspector --
+"Data &inspector" = "数据检查器(&I)"
+"Inspct" = "检查"
+"Inspector" = "检查器"

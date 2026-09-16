@@ -9,11 +9,14 @@
 //! - [`interp`]: runs a program over a [`source::ByteSource`], producing a
 //!   [`tree::Tree`] of [`value`]s read from the file only when shown.
 //! - [`colors`]: the template's colours as tints of the theme.
+//! - [`inspect`]: the hex editor's data inspector, reading and writing the
+//!   bytes at the cursor as each common type.
 
 pub mod ast;
 pub mod bundle;
 pub mod colors;
 pub mod header;
+pub mod inspect;
 pub mod interp;
 pub mod lex;
 pub mod library;

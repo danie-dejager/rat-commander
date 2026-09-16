@@ -249,8 +249,10 @@ fn run(info: &AudioInfo, shared: &Shared, cancel: &AtomicBool) {
     };
     let rate = track.codec_params.sample_rate.unwrap_or(info.sample_rate).max(1);
     let total = track.codec_params.n_frames.filter(|&n| n > 0);
-    let spec_hop = total.map_or(UNKNOWN_SPEC_HOP, |n| n.div_ceil(SPEC_COLS as u64).max(MIN_SPEC_HOP));
-    let wave_hop = total.map_or(UNKNOWN_WAVE_HOP, |n| n.div_ceil(WAVE_COLS as u64).max(MIN_WAVE_HOP));
+    let spec_hop =
+        total.map_or(UNKNOWN_SPEC_HOP, |n| n.div_ceil(SPEC_COLS as u64).max(MIN_SPEC_HOP));
+    let wave_hop =
+        total.map_or(UNKNOWN_WAVE_HOP, |n| n.div_ceil(WAVE_COLS as u64).max(MIN_WAVE_HOP));
     {
         let mut a = lock(shared);
         a.sample_rate = rate;
@@ -502,7 +504,8 @@ impl Waver {
         if self.n == 0 {
             return None;
         }
-        let bin = WaveBin { min: self.min, max: self.max, rms: (self.sq / self.n as f64).sqrt() as f32 };
+        let bin =
+            WaveBin { min: self.min, max: self.max, rms: (self.sq / self.n as f64).sqrt() as f32 };
         *self = Waver::new(self.hop);
         Some(bin)
     }

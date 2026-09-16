@@ -715,3 +715,8 @@ rtl = true
 "Start" = "شروع"
 "Comment" = "توضیح"
 "Running the template…" = "در حال اجرای الگو…"
+
+# -- Editor: data inspector --
+"Data &inspector" = "بازرس داده (&I)"
+"Inspct" = "بازرس"
+"Inspector" = "بازرس داده"

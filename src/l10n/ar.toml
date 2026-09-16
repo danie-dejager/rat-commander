@@ -715,3 +715,8 @@ rtl = true
 "Start" = "البداية"
 "Comment" = "تعليق"
 "Running the template…" = "جارٍ تشغيل القالب…"
+
+# -- Editor: data inspector --
+"Data &inspector" = "فاحص البيانات (&I)"
+"Inspct" = "فاحص"
+"Inspector" = "فاحص البيانات"

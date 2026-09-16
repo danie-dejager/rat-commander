@@ -243,8 +243,7 @@ impl AudioOut {
     /// The play position of `track`, when it is the loaded track.
     pub fn position_of(&self, track: TrackId) -> Option<Duration> {
         let s = self.shared();
-        (s.track() == track)
-            .then(|| Duration::from_millis(s.position_ms.load(Ordering::Relaxed)))
+        (s.track() == track).then(|| Duration::from_millis(s.position_ms.load(Ordering::Relaxed)))
     }
 
     /// Whether anything is playing, or about to.
@@ -262,12 +261,7 @@ impl AudioOut {
             s.set_position(from);
         }
         s.set_state(PlayState::Opening);
-        self.send(Cmd::Play {
-            track,
-            path: info.path.clone(),
-            hint: info.hint.clone(),
-            from,
-        });
+        self.send(Cmd::Play { track, path: info.path.clone(), hint: info.hint.clone(), from });
     }
 
     /// Pause `track`, if it is the one playing.
@@ -390,7 +384,9 @@ mod device {
             for cmd in cmds {
                 match cmd {
                     Cmd::Play { track, path, hint, from } => {
-                        if loaded == track && let Some(p) = player.as_ref().filter(|p| !p.empty()) {
+                        if loaded == track
+                            && let Some(p) = player.as_ref().filter(|p| !p.empty())
+                        {
                             p.play();
                             shared.set_state_of(track, PlayState::Playing);
                             continue;

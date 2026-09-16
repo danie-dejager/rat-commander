@@ -98,7 +98,9 @@ The installed executable is named **`rc`** for quick typing.
   templates**: the file's structures and fields as a tree beside the bytes —
   names, values, offsets, sizes, types, comments — picked automatically from 307
   bundled templates (or your own), coloured onto the bytes, and editable in
-  place.
+  place — plus a **data inspector** reading the bytes at the cursor as every
+  integer width, floats, LEB128, UTF-8/UTF-16, time_t/FILETIME/DOS dates and
+  GUIDs in either byte order, each one editable.
 - **Multi rename** — batch-rename selected files with a masked, live two-column
   preview, counter, case transform and search-and-replace.
 - **Search** — one dialog for the editor (F7/F4) *and* the viewer (F7): literal,
@@ -346,6 +348,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Ctrl-F9` | Toggle in-place hex editor |
 | `F5` / `Shift-F5` (hex) | Choose / rerun the binary template |
 | `F6` (hex) | The template variable under the cursor (tree: `Enter` edits, `←`/`→` close/open) |
+| `F8` (hex) | Data inspector: the bytes at the cursor as numbers, characters, dates, GUIDs (`Enter` edits, `b` switches byte order) |
 | `Alt-E` / `Alt-Shift-E` | (JSON) next / previous syntax error |
 | `Alt-M` | Show the file's GeoJSON on a world map (drag/wheel to pan and zoom, click a feature, `Enter` to go to it); `e` edits it: `1`/`2`/`3` draw a point/line/polygon, drag positions, `Del` removes, `Ctrl-Z` undoes |
 | `Alt-G` | Toggle the spreadsheet grid (CSV/TSV): `Enter` or typing edits a cell, `F5`/`F6` insert a row/column, `F8`/`Shift-F8` delete one, `F3` toggles the header row |

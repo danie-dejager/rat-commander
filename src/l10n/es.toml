@@ -711,3 +711,8 @@ code = "es"
 "Start" = "Inicio"
 "Comment" = "Comentario"
 "Running the template…" = "Ejecutando la plantilla…"
+
+# -- Editor: data inspector --
+"Data &inspector" = "Inspector de datos (&I)"
+"Inspct" = "Inspec"
+"Inspector" = "Inspector"

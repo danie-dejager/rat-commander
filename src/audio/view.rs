@@ -1,13 +1,15 @@
 //! One audio file on screen — in the viewer or the Details view — and the
 //! controls that act on it.
 
+use super::AudioInfo;
 use super::analysis::Handle;
 use super::output::{AudioOut, PlayState, TrackId, next_track};
 use super::raster::{self, Palette};
-use super::AudioInfo;
 use crate::config::AudioDisplay;
 use image::RgbaImage;
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::crossterm::event::{
+    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::layout::Rect;
 use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
@@ -208,7 +210,11 @@ impl AudioView {
     /// The play position as a fraction of the length.
     pub fn frac(&self) -> f32 {
         let dur = self.duration();
-        if dur.is_zero() { 0.0 } else { (self.position().as_secs_f32() / dur.as_secs_f32()).clamp(0.0, 1.0) }
+        if dur.is_zero() {
+            0.0
+        } else {
+            (self.position().as_secs_f32() / dur.as_secs_f32()).clamp(0.0, 1.0)
+        }
     }
 
     pub fn volume(&self) -> f32 {
@@ -308,7 +314,8 @@ impl AudioView {
             MouseEventKind::Down(MouseButton::Left) => {
                 if on_timeline {
                     self.scrub = Some(frac_in(h.progress, col));
-                } else if let Some(&(_, t)) = h.buttons.iter().find(|(r, _)| contains(*r, col, row)) {
+                } else if let Some(&(_, t)) = h.buttons.iter().find(|(r, _)| contains(*r, col, row))
+                {
                     self.act(t);
                 } else if contains(h.volume_bar, col, row) {
                     self.set_volume(frac_in(h.volume_bar, col));

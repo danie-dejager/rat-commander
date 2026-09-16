@@ -19,7 +19,9 @@ pub mod edit;
 mod expr;
 mod printf;
 mod stmt;
-mod time;
+pub(crate) mod time;
+
+pub(crate) use builtins::guid_text;
 
 use super::ast::{Prim, Program, Sym, TypeId, TypeKind};
 use super::lex::Pos;

@@ -269,7 +269,8 @@ impl AppState {
                 self.details_audio_mouse(ev);
                 self.drag_orbit = None;
             }
-            MouseEventKind::ScrollDown | MouseEventKind::ScrollUp if self.details_audio_mouse(ev) => {}
+            MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
+                if self.details_audio_mouse(ev) => {}
             MouseEventKind::ScrollDown => self.panel_wheel(col, row, true),
             MouseEventKind::ScrollUp => self.panel_wheel(col, row, false),
             _ => {}

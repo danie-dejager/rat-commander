@@ -711,3 +711,8 @@ code = "hu"
 "Start" = "Kezdet"
 "Comment" = "Megjegyzés"
 "Running the template…" = "A sablon fut…"
+
+# -- Editor: data inspector --
+"Data &inspector" = "Adatvizsgáló (&I)"
+"Inspct" = "Vizsg"
+"Inspector" = "Vizsgáló"

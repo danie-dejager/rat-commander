@@ -493,7 +493,8 @@ fn render_audio_preview(
     }
     let mut rows: Vec<(String, String)> =
         vec![("Audio".into(), info.summary()), ("Duration".into(), duration)];
-    for (label, value) in [("Artist", &info.artist), ("Title", &info.title), ("Album", &info.album)] {
+    for (label, value) in [("Artist", &info.artist), ("Title", &info.title), ("Album", &info.album)]
+    {
         if let Some(v) = value {
             rows.push((label.into(), v.clone()));
         }

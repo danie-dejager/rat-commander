@@ -6,6 +6,7 @@
 
 pub mod buffer;
 pub mod hex;
+mod inspector;
 mod jsoncheck;
 pub mod menu;
 pub mod render;
@@ -175,6 +176,8 @@ pub struct EditorState {
     tpl: Option<template::TemplateState>,
     /// The template panel's rect, recorded by the renderer for the mouse.
     tpl_area: Rect,
+    /// The data inspector beside the bytes in hex mode (F8).
+    insp: inspector::InspectorState,
 }
 
 /// Above this size a file is opened straight into hex mode (text mode loads the
@@ -200,8 +203,10 @@ pub const EDITOR_HELP: &[(&str, &str)] = &[
     ("Alt-M", "Show and edit the GeoJSON in the file on a map"),
     ("Hex: F5 / Shift-F5", "Choose / rerun the binary template"),
     ("Hex: F6", "Template variable at the cursor / back to the bytes"),
-    ("Hex: Tab / Shift-Tab", "Hex / ASCII column / template tree, as F6"),
+    ("Hex: F8", "Data inspector: the bytes at the cursor as numbers, text, dates"),
+    ("Hex: Tab / Shift-Tab", "Hex / ASCII column / inspector / template tree"),
     ("Hex: F3", "Template output / variables"),
+    ("Inspector: Enter / b", "Edit the value / switch the byte order"),
     ("Tree: Enter / ← →", "Edit the value or open / close, parent"),
     ("Tree: + - *", "Open, close, open everything below"),
     ("Grid: Enter / F3", "Edit the cell / header row on or off"),
@@ -265,6 +270,7 @@ impl EditorState {
             json: None,
             tpl: None,
             tpl_area: Rect::default(),
+            insp: inspector::InspectorState::default(),
         };
         ed.detect_kind();
         ed
@@ -539,11 +545,7 @@ impl EditorState {
             }
         }
         let new_end = self.buf.byte_to_char(start + len);
-        self.cursor = if self.cursor >= e {
-            self.cursor - e + new_end
-        } else {
-            self.cursor.min(s)
-        };
+        self.cursor = if self.cursor >= e { self.cursor - e + new_end } else { self.cursor.min(s) };
         self.dirty = true;
         self.goal_col = None;
         self.clear_marks();
@@ -854,6 +856,7 @@ impl EditorState {
             A::ToggleSyntax => self.toggle_syntax(),
             A::ToggleWrap => self.toggle_wrap(),
             A::ToggleHex => self.toggle_hex(),
+            A::ToggleInspector => self.toggle_inspector(),
             A::ToggleSheet => self.toggle_sheet(),
             A::RefreshScreen => return EditorSignal::RefreshScreen,
             A::GeoMap => return EditorSignal::OpenGeoMap,
@@ -906,6 +909,10 @@ impl EditorState {
         }
         self.buf.set_group_undo(opts.group_undo);
         self.hl_dark = dark;
+        if self.insp.shown != opts.hex_inspector {
+            self.toggle_inspector();
+        }
+        self.insp.big_endian = opts.hex_inspector_big_endian;
         self.opts = opts;
         // Idempotent, so this is also how a freshly opened editor gets its
         // highlighter: build one if it should have one, drop it if not.
@@ -1419,7 +1426,11 @@ impl EditorState {
     /// Mouse handling in hex mode: the wheel scrolls and a click places the byte
     /// cursor on the clicked hex/ASCII cell.
     fn handle_hex_mouse(&mut self, ev: MouseEvent) -> EditorSignal {
-        if self.template_mouse(ev) {
+        // Both see every event: a click in one panel takes the keys from the
+        // other.
+        let in_tree = self.template_mouse(ev);
+        let in_inspector = self.inspector_mouse(ev);
+        if in_tree || in_inspector {
             return EditorSignal::Stay;
         }
         match ev.kind {
@@ -1749,6 +1760,9 @@ impl EditorState {
     fn handle_hex_key(&mut self, key: KeyEvent) -> EditorSignal {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let alt = key.modifiers.contains(KeyModifiers::ALT);
+        if let Some(signal) = self.inspector_key(key) {
+            return signal;
+        }
         if let Some(signal) = self.template_tree_key(key) {
             return signal;
         }
@@ -1781,7 +1795,6 @@ impl EditorState {
                 KeyCode::End => h.row_end(),
                 KeyCode::PageUp => h.move_rows(-(rows - 1).max(1)),
                 KeyCode::PageDown => h.move_rows((rows - 1).max(1)),
-                KeyCode::Tab | KeyCode::BackTab => h.toggle_pane(),
                 KeyCode::Backspace => h.move_by(-1),
                 // Only a plainly typed character edits a byte: a Ctrl/Alt
                 // shortcut that hex mode has no answer for must be ignored, not

@@ -711,3 +711,8 @@ code = "zh-Hant"
 "Start" = "起始"
 "Comment" = "註解"
 "Running the template…" = "正在執行範本…"
+
+# -- Editor: data inspector --
+"Data &inspector" = "資料檢視器(&I)"
+"Inspct" = "檢視"
+"Inspector" = "檢視器"

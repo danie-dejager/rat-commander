@@ -59,7 +59,14 @@ pub fn render(
     // beneath; F8 toggles to the raw text/hex.
     if let Some(a) = v.active_audio() {
         f.render_widget(Clear, content);
-        crate::audio::widget::render(f, content, a, theme, gfx, crate::ui::graphics::Slot::ViewerAudio);
+        crate::audio::widget::render(
+            f,
+            content,
+            a,
+            theme,
+            gfx,
+            crate::ui::graphics::Slot::ViewerAudio,
+        );
         render_footer(f, footer, v, theme);
         return;
     }
