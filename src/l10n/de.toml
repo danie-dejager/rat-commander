@@ -777,3 +777,6 @@ code = "de"
 # -- Remote: ssh config --
 "ssh config" = "SSH-Konfiguration"
 "SSH host" = "SSH-Host"
+
+# -- Remote: FTPS --
+"FTPS c&onnection..." = "FTP&S-Verbindung..."

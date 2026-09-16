@@ -220,8 +220,11 @@ The installed executable is named **`rc`** for quick typing.
   to and **F3**). Each confirms what the file really is before claiming it, so a
   `.db` that isn't one opens the way it always did. All read-only, and they say
   so before a transfer starts.
-- **Remote filesystems** — SFTP, SCP and FTP/FTPS, each mounted into a panel;
-  copy/move/delete works transparently across local, remote and archive panels.
+- **Remote filesystems** — SFTP, SCP, FTP and **FTPS** (explicit TLS: certificates
+  the system trusts are accepted, and a self-signed one is shown by its SHA-256
+  and pinned once you trust it, the way `known_hosts` works), each mounted into a
+  panel; copy/move/delete works transparently across local, remote and archive
+  panels.
   On an **SFTP/SCP** panel, the command line and **Ctrl-O** run a shell
   on the **remote host** over the same SSH connection — its output on the same
   console backdrop, no second login. Hosts from **`~/.ssh/config`** are offered

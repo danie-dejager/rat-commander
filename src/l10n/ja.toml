@@ -772,3 +772,6 @@ code = "ja"
 # -- Remote: ssh config --
 "ssh config" = "ssh 設定"
 "SSH host" = "SSH ホスト"
+
+# -- Remote: FTPS --
+"FTPS c&onnection..." = "FTPS 接続…(&O)"

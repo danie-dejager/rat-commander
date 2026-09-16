@@ -1,4 +1,4 @@
-//! Remote VFS backends: SFTP and SCP (over SSH) and FTP/FTPS.
+//! Remote VFS backends: SFTP and SCP (over SSH) and FTP/FTPS (explicit TLS).
 //!
 //! Each connection is a distinct backend instance registered under a unique
 //! scheme (e.g. `sftp-0`) so multiple sessions can coexist. Listing/transfer/
@@ -10,6 +10,7 @@ pub mod ftp;
 pub mod scp;
 pub mod sftp;
 pub mod sshconfig;
+pub mod tls;
 
 use crate::util::{Error, Result};
 use crate::vfs::VfsKind;
@@ -93,6 +94,8 @@ pub(crate) fn shell_quote(s: &str) -> String {
 pub enum Protocol {
     Sftp,
     Ftp,
+    /// FTP secured with explicit TLS (`AUTH TLS`).
+    Ftps,
     Scp,
 }
 
@@ -101,6 +104,7 @@ impl Protocol {
         match self {
             Protocol::Sftp => "sftp",
             Protocol::Ftp => "ftp",
+            Protocol::Ftps => "ftps",
             Protocol::Scp => "scp",
         }
     }
@@ -108,8 +112,24 @@ impl Protocol {
     pub fn default_port(self) -> u16 {
         match self {
             Protocol::Sftp | Protocol::Scp => 22,
-            Protocol::Ftp => 21,
+            Protocol::Ftp | Protocol::Ftps => 21,
         }
+    }
+
+    /// Plain FTP or FTPS: one control connection, PASV, no keys.
+    pub fn is_ftp(self) -> bool {
+        matches!(self, Protocol::Ftp | Protocol::Ftps)
+    }
+
+    /// The protocol a stored scheme prefix names.
+    pub fn from_prefix(prefix: &str) -> Option<Protocol> {
+        Some(match prefix {
+            "sftp" => Protocol::Sftp,
+            "ftp" => Protocol::Ftp,
+            "ftps" => Protocol::Ftps,
+            "scp" => Protocol::Scp,
+            _ => return None,
+        })
     }
 }
 
@@ -146,7 +166,7 @@ pub struct Connection {
 pub async fn connect(creds: &RemoteCreds) -> Result<Connection> {
     match creds.protocol {
         Protocol::Sftp => sftp::connect(creds).await,
-        Protocol::Ftp => ftp::connect(creds).await,
+        Protocol::Ftp | Protocol::Ftps => ftp::connect(creds).await,
         Protocol::Scp => scp::connect(creds).await,
     }
 }

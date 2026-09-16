@@ -772,3 +772,6 @@ code = "zh-Hans"
 # -- Remote: ssh config --
 "ssh config" = "ssh 配置"
 "SSH host" = "SSH 主机"
+
+# -- Remote: FTPS --
+"FTPS c&onnection..." = "FTPS 连接…(&O)"

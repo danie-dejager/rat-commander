@@ -101,6 +101,7 @@ impl AppState {
             cmd("&Reverse order", MenuAction::ToggleReverse(side)),
             cmd("SFT&P connection...", MenuAction::Connect(side, Protocol::Sftp)),
             cmd("F&TP connection...", MenuAction::Connect(side, Protocol::Ftp)),
+            cmd("FTPS c&onnection...", MenuAction::Connect(side, Protocol::Ftps)),
             cmd("S&CP connection...", MenuAction::Connect(side, Protocol::Scp)),
             cmd("&Quit", MenuAction::Quit),
         ]);

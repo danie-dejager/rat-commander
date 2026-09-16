@@ -1782,7 +1782,7 @@ built-in archive, then one of the above, then an `rc.ext` rule, and finally the
 image flasher, the default application, or simply running the file.
 
 
-## Remote filesystems (SFTP / FTP / SCP)
+## Remote filesystems (SFTP / FTP / FTPS / SCP)
 
 Mounts a remote server into a panel, so you browse and transfer
 files over **SFTP** or **SCP** (SSH) or **FTP / FTPS** exactly like local files.
@@ -1806,6 +1806,28 @@ passive mode the client opens the data connection, which is what works behind
 most NAT/firewalls; untick it for **active** mode, where the server connects
 back. The choice is remembered per server. (SFTP and SCP tunnel their data over
 the single SSH connection, so they have no such option.)
+
+**FTPS** is FTP secured with TLS: the connection is switched to TLS (`AUTH TLS`)
+before logging in, so the password and every listing and transfer are
+encrypted, and the data connections resume the same TLS session, as servers
+such as vsftpd require. It has the same form, PASV option and history as FTP
+(its own history). The server's certificate is checked like this:
+
+- A certificate that one of the **system's trusted authorities** vouches for,
+  for the host name you connected to and in date, is accepted without a word.
+- Any other — **self-signed**, from a private CA, expired, for another name —
+  stops the connection and asks: *Untrusted certificate* shows why it isn't
+  trusted, its subject, issuer, expiry and **SHA-256**. **Trust** pins that
+  certificate for the server (`host:port`) in `ftps_known_hosts` in the
+  configuration directory and connects; from then on that server connects
+  without asking, as long as it presents the same certificate.
+- If a pinned server presents a **different** certificate, the prompt turns into
+  a red *Certificate changed* warning, with **Cancel** focused: it may simply
+  have been renewed, or someone may be intercepting the connection. Trusting it
+  replaces the pin.
+
+Only explicit FTPS is supported; *implicit* FTPS (a TLS connection from the
+first byte, usually on port 990) is not.
 
 **SSH authentication** follows the same order `ssh` itself uses, stopping at the
 first method the server accepts:

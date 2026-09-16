@@ -772,3 +772,6 @@ code = "zh-Hant"
 # -- Remote: ssh config --
 "ssh config" = "ssh 設定"
 "SSH host" = "SSH 主機"
+
+# -- Remote: FTPS --
+"FTPS c&onnection..." = "FTPS 連線…(&O)"

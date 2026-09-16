@@ -1167,7 +1167,7 @@ impl FormDialog {
     ) -> Self {
         let cfg = match protocol {
             Protocol::Sftp | Protocol::Scp => crate::vfs::remote::sshconfig::SshConfig::load_user(),
-            Protocol::Ftp => Default::default(),
+            Protocol::Ftp | Protocol::Ftps => Default::default(),
         };
         Self::connect_with_config(protocol, side, history, &cfg)
     }
@@ -1189,7 +1189,7 @@ impl FormDialog {
         // Field 5 is protocol-specific, and the two uses are mutually exclusive:
         // PASV is a plain-FTP concept, while a key file only means anything over
         // SSH. Sharing the index keeps every other field's position fixed.
-        if matches!(protocol, Protocol::Ftp) {
+        if protocol.is_ftp() {
             fields.push(Field::check("Passive mode (PASV)", true));
         } else {
             fields.push(Field::text("Key file (blank = agent / default keys)", ""));
@@ -1232,12 +1232,7 @@ impl FormDialog {
     /// palette's "reconnect to a saved server" entries. `None` if the stored
     /// protocol string is unrecognized.
     pub fn connect_from(entry: &crate::config::RemoteHistoryEntry, side: usize) -> Option<Self> {
-        let protocol = match entry.protocol.as_str() {
-            "sftp" => Protocol::Sftp,
-            "ftp" => Protocol::Ftp,
-            "scp" => Protocol::Scp,
-            _ => return None,
-        };
+        let protocol = Protocol::from_prefix(&entry.protocol)?;
         let mut dlg = FormDialog::connect(protocol, side, vec![entry.clone()]);
         dlg.apply_history(0);
         Some(dlg)

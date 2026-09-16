@@ -2,25 +2,64 @@
 //! behind an async mutex; both downloads and uploads stream through a duplex
 //! pipe so transfers proceed at network speed with bounded memory and accurate
 //! progress.
+//!
+//! FTPS is the same connection secured with `AUTH TLS` before logging in (the
+//! data connections follow, resuming its TLS session), its certificate checked
+//! as [`super::tls`] describes.
 
-use super::{Connection, RemoteCreds, parse_unix_listing_line};
+use super::{Connection, Protocol, RemoteCreds, parse_unix_listing_line, tls};
 use crate::util::{Error, Result};
 use crate::vfs::membuf::{pipe_download, pipe_upload};
 use crate::vfs::{BoxRead, BoxWrite, Capabilities, Vfs, VfsEntry, VfsKind, VfsPath, WriteMeta};
 use std::sync::Arc;
 use suppaftp::Mode;
-use suppaftp::tokio::AsyncFtpStream;
+use suppaftp::tokio::{AsyncRustlsConnector, AsyncRustlsFtpStream};
 use suppaftp::types::FileType;
 use tokio::sync::Mutex;
 
 pub struct FtpFs {
-    conn: Arc<Mutex<AsyncFtpStream>>,
+    conn: Arc<Mutex<AsyncRustlsFtpStream>>,
+    secure: bool,
 }
 
 pub async fn connect(creds: &RemoteCreds) -> Result<Connection> {
-    let mut stream = AsyncFtpStream::connect((creds.host.as_str(), creds.port))
+    let host_port = format!("{}:{}", creds.host, creds.port);
+    let (roots, pin) = match creds.protocol {
+        Protocol::Ftps => {
+            (tls::system_roots(), tls::pins_file().and_then(|p| tls::pinned(&p, &host_port)))
+        }
+        _ => (suppaftp::tokio_rustls::rustls::RootCertStore::empty(), None),
+    };
+    connect_trusting(creds, roots, pin).await
+}
+
+/// [`connect`], an FTPS certificate trusted when `roots` vouch for it or its
+/// SHA-256 is `pin`.
+async fn connect_trusting(
+    creds: &RemoteCreds,
+    roots: suppaftp::tokio_rustls::rustls::RootCertStore,
+    pin: Option<String>,
+) -> Result<Connection> {
+    let mut stream = AsyncRustlsFtpStream::connect((creds.host.as_str(), creds.port))
         .await
         .map_err(|e| Error::other(format!("FTP connect failed: {e}")))?;
+    let secure = creds.protocol == Protocol::Ftps;
+    if secure {
+        let host_port = format!("{}:{}", creds.host, creds.port);
+        let (config, failure) = tls::client_config(&host_port, roots, pin)?;
+        let connector =
+            AsyncRustlsConnector::from(suppaftp::tokio_rustls::TlsConnector::from(config));
+        stream = match stream.into_secure(connector, &creds.host).await {
+            Ok(s) => s,
+            Err(e) => {
+                let stopped_at = failure.lock().unwrap_or_else(|p| p.into_inner()).take();
+                return Err(match stopped_at {
+                    Some(f) => Error::UntrustedCertificate(Box::new(f)),
+                    None => Error::other(format!("FTPS: TLS failed: {e}")),
+                });
+            }
+        };
+    }
     stream
         .login(&creds.user, &creds.password)
         .await
@@ -41,8 +80,9 @@ pub async fn connect(creds: &RemoteCreds) -> Result<Connection> {
     } else {
         creds.path.clone()
     };
-    let label = format!("ftp://{}@{}", creds.user, creds.host);
-    Ok(Connection { backend: Arc::new(FtpFs { conn: Arc::new(Mutex::new(stream)) }), root, label })
+    let label = format!("{}://{}@{}", creds.protocol.scheme_prefix(), creds.user, creds.host);
+    let backend = Arc::new(FtpFs { conn: Arc::new(Mutex::new(stream)), secure });
+    Ok(Connection { backend, root, label })
 }
 
 fn path_str(p: &VfsPath) -> String {
@@ -56,7 +96,7 @@ fn io_err<E: std::fmt::Display>(e: E) -> std::io::Error {
 #[async_trait::async_trait]
 impl Vfs for FtpFs {
     fn scheme(&self) -> &str {
-        "ftp"
+        if self.secure { "ftps" } else { "ftp" }
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -181,5 +221,119 @@ impl Vfs for FtpFs {
             .rename(path_str(from), path_str(to))
             .await
             .map_err(|e| Error::other(e.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::certs::{pem_blocks, testdata};
+    use suppaftp::tokio_rustls::rustls;
+    use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+
+    /// Answer FTP commands on `stream` until it closes: the replies a login,
+    /// TLS protection, TYPE I and PWD need. Returns on AUTH TLS, for the
+    /// caller to secure the connection.
+    async fn converse<S: AsyncRead + AsyncWrite + Unpin>(stream: S, greet: bool) -> Option<S> {
+        let mut io = BufReader::new(stream);
+        if greet {
+            io.get_mut().write_all(b"220 ready\r\n").await.ok()?;
+        }
+        let mut line = String::new();
+        loop {
+            line.clear();
+            if io.read_line(&mut line).await.ok()? == 0 {
+                return None;
+            }
+            let cmd = line.trim_end().to_ascii_uppercase();
+            let reply: &[u8] = match cmd.split(' ').next().unwrap_or("") {
+                "AUTH" => {
+                    io.get_mut().write_all(b"234 go ahead\r\n").await.ok()?;
+                    return Some(io.into_inner());
+                }
+                "PBSZ" | "PROT" | "TYPE" => b"200 ok\r\n",
+                "USER" => b"331 password please\r\n",
+                "PASS" => b"230 logged in\r\n",
+                "PWD" => b"257 \"/srv\" is the directory\r\n",
+                _ => b"502 not here\r\n",
+            };
+            io.get_mut().write_all(reply).await.ok()?;
+        }
+    }
+
+    /// An FTP server on a throwaway port that switches to TLS with the test
+    /// RSA certificate when asked.
+    async fn ftps_server() -> u16 {
+        let cert = pem_blocks(testdata::RSA_CERT).pop().unwrap().der;
+        let key = pem_blocks(testdata::RSA_KEY).pop().unwrap().der;
+        let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+        let config = rustls::ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![rustls::pki_types::CertificateDer::from(cert)],
+                rustls::pki_types::PrivateKeyDer::Pkcs1(key.into()),
+            )
+            .unwrap();
+        let acceptor = suppaftp::tokio_rustls::TlsAcceptor::from(Arc::new(config));
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((tcp, _)) = listener.accept().await {
+                let acceptor = acceptor.clone();
+                tokio::spawn(async move {
+                    let Some(tcp) = converse(tcp, true).await else { return };
+                    if let Ok(tls) = acceptor.accept(tcp).await {
+                        converse(tls, false).await;
+                    }
+                });
+            }
+        });
+        port
+    }
+
+    fn creds(port: u16) -> RemoteCreds {
+        RemoteCreds {
+            protocol: Protocol::Ftps,
+            host: "127.0.0.1".into(),
+            port,
+            user: "u".into(),
+            password: "p".into(),
+            path: String::new(),
+            passive: true,
+            key_file: String::new(),
+            key_passphrase: String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn an_untrusted_ftps_server_asks_first_and_connects_once_pinned() {
+        let port = ftps_server().await;
+        let failure =
+            match connect_trusting(&creds(port), rustls::RootCertStore::empty(), None).await {
+                Err(Error::UntrustedCertificate(f)) => f,
+                Err(e) => panic!("expected an untrusted certificate, got {e}"),
+                Ok(_) => panic!("a self-signed certificate must not be accepted silently"),
+            };
+        assert_eq!(failure.host_port, format!("127.0.0.1:{port}"));
+        assert_eq!(failure.subject, "CN=rsa.example.test");
+
+        let conn = connect_trusting(
+            &creds(port),
+            rustls::RootCertStore::empty(),
+            Some(failure.sha256.clone()),
+        )
+        .await
+        .expect("the pinned certificate connects");
+        assert_eq!(conn.root, "/srv");
+        assert_eq!(conn.label, "ftps://u@127.0.0.1");
+        assert_eq!(conn.backend.scheme(), "ftps");
+
+        let other = "00".repeat(32);
+        match connect_trusting(&creds(port), rustls::RootCertStore::empty(), Some(other)).await {
+            Err(Error::UntrustedCertificate(f)) => assert!(f.pinned_other),
+            _ => panic!("a different pin must not connect"),
+        }
     }
 }

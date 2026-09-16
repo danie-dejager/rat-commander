@@ -772,3 +772,6 @@ code = "sk"
 # -- Remote: ssh config --
 "ssh config" = "konfigurácia ssh"
 "SSH host" = "Hostiteľ SSH"
+
+# -- Remote: FTPS --
+"FTPS c&onnection..." = "Pripojenie FTPS… (&O)"

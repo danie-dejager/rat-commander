@@ -153,6 +153,7 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
             "&Reverse order",
             "SFT&P connection...",
             "F&TP connection...",
+            "FTPS c&onnection...",
             "S&CP connection...",
             "Go &local (keep session)",
         ],

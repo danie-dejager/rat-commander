@@ -192,6 +192,11 @@ pub enum Submit {
     EditorGotoLine(String),
     /// Move the binary compare's cursor to the offset typed.
     HexDiffGoto(String),
+    /// Pin an FTPS server's certificate and connect again.
+    TrustCertificate {
+        host_port: String,
+        sha256: String,
+    },
     /// Use this binary template in the hex editor, or none.
     EditorTemplate(Option<Box<crate::bt::header::TemplateInfo>>),
     /// Open this binary template for editing.

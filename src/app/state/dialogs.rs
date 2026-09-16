@@ -300,6 +300,16 @@ impl AppState {
                 }
             }
             Submit::EditorPasteOutput(cmd) => self.editor_paste_output(cmd).await,
+            Submit::TrustCertificate { host_port, sha256 } => {
+                let pinned = crate::vfs::remote::tls::pins_file()
+                    .ok_or_else(|| std::io::Error::other("no configuration directory"))
+                    .and_then(|path| crate::vfs::remote::tls::add_pin(&path, &host_port, &sha256));
+                match (pinned, self.pending_connect.take()) {
+                    (Err(e), _) => self.show_error(format!("Cannot save the certificate: {e}")),
+                    (Ok(()), Some((side, creds))) => self.connect_remote(side, creds).await,
+                    (Ok(()), None) => {}
+                }
+            }
             Submit::HexDiffGoto(text) => match crate::bt::interp::edit::parse_int(&text) {
                 Some(off) if off >= 0 => {
                     if let Some(hd) = self.hexdiff.as_mut() {

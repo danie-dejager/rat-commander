@@ -8,6 +8,11 @@ pub fn config_file() -> Option<PathBuf> {
     ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("config.toml"))
 }
 
+/// Path to the FTPS servers' pinned certificates (`ftps_known_hosts`).
+pub fn ftps_known_hosts_file() -> Option<PathBuf> {
+    ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("ftps_known_hosts"))
+}
+
 /// Path to the F2 user-menu file (`menu`), or `None` if undetermined.
 pub fn menu_file() -> Option<PathBuf> {
     ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("menu"))

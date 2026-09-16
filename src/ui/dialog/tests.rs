@@ -815,6 +815,72 @@ fn connect_form_field_six_is_pasv_for_ftp_and_a_key_file_for_ssh() {
 }
 
 #[test]
+fn ftps_connects_like_ftp_with_its_own_history() {
+    let entry = |protocol: &str, host: &str| RemoteHistoryEntry {
+        protocol: protocol.into(),
+        host: host.into(),
+        port: 21,
+        user: "u".into(),
+        path: String::new(),
+        passive: true,
+        key_file: String::new(),
+    };
+    let mut d = FormDialog::connect(
+        Protocol::Ftps,
+        0,
+        vec![entry("ftp", "plain"), entry("ftps", "secure")],
+    );
+    assert!(d.title.starts_with("FTPS"), "{}", d.title);
+    // ↓ opens this protocol's history only: the FTPS server.
+    d.handle_key(key(KeyCode::Down));
+    d.handle_key(key(KeyCode::Enter));
+    // From the password field (where picking an entry leaves the focus), Tab
+    // on to the PASV checkbox, as on an FTP form, and untick it.
+    for _ in 0..2 {
+        d.handle_key(key(KeyCode::Tab));
+    }
+    d.handle_key(key(KeyCode::Char(' ')));
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Connect(_, creds)) => {
+            assert_eq!(
+                (creds.protocol, creds.host.as_str(), creds.port),
+                (Protocol::Ftps, "secure", 21)
+            );
+            assert!(!creds.passive, "the PASV box is there");
+        }
+        _ => panic!("expected a Connect submit"),
+    }
+    assert_eq!(
+        FormDialog::connect_from(&entry("ftps", "x"), 0).map(|d| d.title.starts_with("FTPS")),
+        Some(true)
+    );
+}
+
+#[test]
+fn a_changed_certificate_is_a_warning_with_cancel_first() {
+    let failure = crate::vfs::remote::tls::CertFailure {
+        host_port: "files.example:21".into(),
+        sha256: "AB".repeat(32),
+        subject: "CN=files.example".into(),
+        issuer: "CN=files.example".into(),
+        not_after: "2030-01-01 00:00:00 UTC".into(),
+        reason: "it is self-signed".into(),
+        pinned_other: false,
+    };
+    let d = ConfirmDialog::untrusted_certificate(&failure);
+    assert!(!d.danger && d.focus == 0);
+    assert!(d.message.contains("files.example:21") && d.message.contains(&"AB".repeat(16)));
+    let mut d = ConfirmDialog::untrusted_certificate(&crate::vfs::remote::tls::CertFailure {
+        pinned_other: true,
+        ..failure
+    });
+    assert!(d.danger);
+    assert_eq!(d.title, "Certificate changed");
+    // Enter on the focused Cancel doesn't trust it.
+    assert!(matches!(d.handle_key(key(KeyCode::Enter)), DialogResult::Cancel));
+}
+
+#[test]
 fn ftp_connect_passive_defaults_on_and_can_be_unticked() {
     // Fresh FTP form: PASV is on by default.
     let mut d = FormDialog::connect(Protocol::Ftp, 0, vec![]);

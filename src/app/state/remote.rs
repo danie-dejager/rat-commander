@@ -115,6 +115,11 @@ impl AppState {
                 });
                 let _ = self.config.save();
             }
+            // An FTPS certificate nothing vouches for: ask, and come back here.
+            Err(crate::util::Error::UntrustedCertificate(failure)) => {
+                self.pending_connect = Some((side, creds));
+                self.dialog = Some(Dialog::Confirm(ConfirmDialog::untrusted_certificate(&failure)));
+            }
             Err(e) => self.show_error(format!("Connection failed: {e}")),
         }
     }
@@ -138,7 +143,7 @@ impl AppState {
             let Some(sess_idx) = self.sessions.iter().position(|s| s.scheme == scheme) else {
                 continue;
             };
-            if self.sessions[sess_idx].creds.protocol != crate::vfs::remote::Protocol::Ftp {
+            if !self.sessions[sess_idx].creds.protocol.is_ftp() {
                 continue;
             }
             let creds = self.sessions[sess_idx].creds.clone();

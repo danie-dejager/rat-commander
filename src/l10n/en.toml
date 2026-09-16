@@ -781,3 +781,6 @@ code = "en"
 # -- Remote: ssh config --
 "ssh config" = "ssh config"
 "SSH host" = "SSH host"
+
+# -- Remote: FTPS --
+"FTPS c&onnection..." = "FTPS c&onnection..."
