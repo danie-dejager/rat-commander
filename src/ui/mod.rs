@@ -59,9 +59,13 @@ fn draw_body(f: &mut Frame, state: &mut AppState) {
     // The editor and viewer take over the entire screen — no menu bar, so the
     // file content uses the full height.
     if let Some(ed) = state.editor.as_mut() {
-        crate::editor::render::render(f, area, ed, &theme);
+        let caret = crate::editor::render::draw(f, area, ed, &theme);
+        // A dialog over the editor shows its own caret, or none: the editor's
+        // would otherwise blink on through it (the frame cannot unset one).
         if let Some(d) = &mut state.dialog {
             d.render(f, area, &theme, state.gfx.as_mut());
+        } else if let Some(p) = caret {
+            f.set_cursor_position(p);
         }
         return;
     }
