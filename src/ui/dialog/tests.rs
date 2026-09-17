@@ -168,11 +168,11 @@ fn drive_dialog_anchors_over_its_panel() {
     // Alt-F1 → left panel (side 0), Alt-F2 → right panel (side 1); other dialogs
     // are not panel-anchored.
     assert_eq!(
-        Dialog::Drive(DriveDialog::new(0, vec![], None, None, vec![], true)).anchor_panel(),
+        Dialog::Drive(DriveDialog::new(0, vec![], None, None, vec![], vec![], true)).anchor_panel(),
         Some(0)
     );
     assert_eq!(
-        Dialog::Drive(DriveDialog::new(1, vec![], None, None, vec![], true)).anchor_panel(),
+        Dialog::Drive(DriveDialog::new(1, vec![], None, None, vec![], vec![], true)).anchor_panel(),
         Some(1)
     );
     assert_eq!(Dialog::Confirm(ConfirmDialog::quit()).anchor_panel(), None);
@@ -181,21 +181,21 @@ fn drive_dialog_anchors_over_its_panel() {
 #[test]
 fn drive_dialog_local_button_is_default() {
     // No drives, no sessions: the always-present Local button is the default.
-    let mut d = DriveDialog::new(0, vec![], None, None, vec![], true);
+    let mut d = DriveDialog::new(0, vec![], None, None, vec![], vec![], true);
     assert!(matches!(d.handle_key(key(KeyCode::Enter)), DialogResult::Submit(Submit::GoLocal(0))));
 }
 
 #[test]
 fn drive_dialog_connection_buttons() {
     // No drives, no sessions: Local then SFTP/FTP/SCP. End lands on SCP.
-    let mut d = DriveDialog::new(0, vec![], None, None, vec![], true);
+    let mut d = DriveDialog::new(0, vec![], None, None, vec![], vec![], true);
     d.handle_key(key(KeyCode::End));
     assert!(matches!(
         d.handle_key(key(KeyCode::Enter)),
         DialogResult::Submit(Submit::OpenConnect(0, Protocol::Scp))
     ));
     // Right off Local → SFTP.
-    let mut d = DriveDialog::new(1, vec![], None, None, vec![], true);
+    let mut d = DriveDialog::new(1, vec![], None, None, vec![], vec![], true);
     d.handle_key(key(KeyCode::Right));
     assert!(matches!(
         d.handle_key(key(KeyCode::Enter)),
@@ -204,17 +204,43 @@ fn drive_dialog_connection_buttons() {
 }
 
 #[test]
+fn drive_dialog_volume_buttons_sit_beside_local() {
+    // Every mounted volume gets a button, packed onto the Local row.
+    let volumes = vec![
+        crate::mount::Volume { name: "backup".into(), path: "/mnt/backup".into() },
+        crate::mount::Volume { name: "USB-STICK".into(), path: "/run/media/bob/USB-STICK".into() },
+    ];
+    let mut d = DriveDialog::new(0, vec![], None, None, volumes, vec![], true);
+    // Local stays the default; Right steps onto the first volume, Right again
+    // onto the second.
+    d.handle_key(key(KeyCode::Right));
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::GoVolume(0, p)) => {
+            assert_eq!(p, std::path::PathBuf::from("/mnt/backup"));
+        }
+        _ => panic!("expected GoVolume /mnt/backup"),
+    }
+    d.handle_key(key(KeyCode::Right));
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::GoVolume(0, p)) => {
+            assert_eq!(p, std::path::PathBuf::from("/run/media/bob/USB-STICK"));
+        }
+        _ => panic!("expected GoVolume /run/media/bob/USB-STICK"),
+    }
+}
+
+#[test]
 fn drive_dialog_sessions_switch_and_disconnect() {
     // One open session: a switch button + a ✕ disconnect button are present.
     let sessions = vec![(3usize, "sftp://u@host".to_string())];
     // current_session highlights the Session button, so Enter switches to it.
-    let mut d = DriveDialog::new(0, vec![], None, Some(3), sessions.clone(), true);
+    let mut d = DriveDialog::new(0, vec![], None, Some(3), vec![], sessions.clone(), true);
     assert!(matches!(
         d.handle_key(key(KeyCode::Enter)),
         DialogResult::Submit(Submit::SwitchSession(0, 3))
     ));
     // Right of the highlighted session button → its ✕ (ask-disconnect).
-    let mut d = DriveDialog::new(0, vec![], None, Some(3), sessions, true);
+    let mut d = DriveDialog::new(0, vec![], None, Some(3), vec![], sessions, true);
     d.handle_key(key(KeyCode::Right));
     assert!(matches!(
         d.handle_key(key(KeyCode::Enter)),
@@ -227,7 +253,7 @@ fn drive_dialog_hides_remote_when_not_show_remote() {
     // Other panel is remote → show_remote=false: sessions and connect buttons are
     // gone; only Local (+ any drives) remains, so every position is Local.
     let sessions = vec![(1usize, "sftp://u@host".to_string())];
-    let mut d = DriveDialog::new(0, vec![], None, None, sessions, false);
+    let mut d = DriveDialog::new(0, vec![], None, None, vec![], sessions, false);
     // Home and End both land on Local (the sole item).
     d.handle_key(key(KeyCode::End));
     assert!(matches!(d.handle_key(key(KeyCode::Enter)), DialogResult::Submit(Submit::GoLocal(0))));
@@ -238,14 +264,16 @@ fn drive_dialog_hides_remote_when_not_show_remote() {
 #[test]
 fn drive_dialog_letter_jumps_and_highlights_current() {
     // Windows-style: drive letters present, current drive highlighted.
-    let mut d = DriveDialog::new(0, vec!['A', 'C', 'D', 'Z'], Some('C'), None, vec![], true);
+    let mut d =
+        DriveDialog::new(0, vec!['A', 'C', 'D', 'Z'], Some('C'), None, vec![], vec![], true);
     // A drive letter jumps straight to that drive.
     match d.handle_key(key(KeyCode::Char('z'))) {
         DialogResult::Submit(Submit::SetDrive(0, c)) => assert_eq!(c, 'Z'),
         _ => panic!("expected SetDrive Z"),
     }
     // Enter activates the highlighted (current) drive C.
-    let mut d = DriveDialog::new(0, vec!['A', 'C', 'D', 'Z'], Some('C'), None, vec![], true);
+    let mut d =
+        DriveDialog::new(0, vec!['A', 'C', 'D', 'Z'], Some('C'), None, vec![], vec![], true);
     assert!(matches!(
         d.handle_key(key(KeyCode::Enter)),
         DialogResult::Submit(Submit::SetDrive(0, 'C'))
@@ -2028,5 +2056,37 @@ fn the_mark_does_not_follow_the_focus_to_another_field() {
             assert_eq!(v.editor, "vim", "and its neighbour is untouched");
         }
         other => panic!("expected a Settings submit, got {}", matches!(other, DialogResult::None)),
+    }
+}
+
+#[test]
+fn drive_dialog_volume_rows_wrap_inside_a_narrow_panel() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let vols: Vec<crate::mount::Volume> = [
+        ("backup", "/mnt/backup"),
+        ("nas-media", "/mnt/nas-media"),
+        ("USB-STICK", "/run/media/bob/USB-STICK"),
+        ("Fedora-Workstation-Live-42", "/run/media/bob/Fedora-Workstation-Live-42"),
+    ]
+    .iter()
+    .map(|(n, p)| crate::mount::Volume { name: (*n).into(), path: (*p).into() })
+    .collect();
+    let mut d = DriveDialog::new(0, vec![], None, None, vols, vec![], true);
+    let theme = crate::ui::theme::Theme::mc();
+    let mut t = Terminal::new(TestBackend::new(30, 24)).unwrap();
+    t.draw(|f| d.render(f, f.area(), &theme, None)).unwrap();
+    let b = t.backend().buffer();
+    let lines: Vec<String> = (0..b.area.height)
+        .map(|y| (0..b.area.width).map(|x| b[(x, y)].symbol()).collect())
+        .collect();
+    let screen = lines.join("\n");
+    // Every volume gets a button, with a long name shortened to fit.
+    assert!(screen.contains("backup"), "{screen}");
+    assert!(screen.contains("nas-media"), "{screen}");
+    assert!(screen.contains("USB-STICK"), "{screen}");
+    assert!(screen.contains("Fedora-Workstatio~"), "{screen}");
+    // Even in a 30-column panel no row spills past the box's right border.
+    for line in lines.iter().filter(|l| l.contains('\u{2502}')) {
+        assert_eq!(line.matches('\u{2502}').count(), 2, "row escaped the box: {line}");
     }
 }

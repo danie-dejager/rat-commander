@@ -218,7 +218,7 @@ A quick **Alt** + digit does the same.
 - `Ctrl-F5` — Show / hide the **command prompt** below the panels. With it hidden
   the panels take over its row, and typing any printable character starts a quick
   search instead of entering text — see *Working without the command prompt* below
-- `Alt-F1` / `Alt-F2` — Drive / connection picker for the left / right panel
+- `Alt-F1` / `Alt-F2` — Drive / volume / connection picker for the left / right panel
 - `Alt` + a menu letter (`F`/`O`/`C`/`L`/`R`) — Open that top menu (Midnight-
   Commander style); `F9` opens the menu bar too
 
@@ -2971,6 +2971,21 @@ key or mouse movement brings everything back exactly as it was.
 - It draws **text only**, advancing ten times a second, so it costs next to
   nothing — but over a slow remote connection even that is traffic nobody is
   watching, which is why it starts out turned off.
+
+
+## Mounted volumes
+
+The **Drive / connection picker** (**Alt-F1** / **Alt-F2**, or the panel menu's
+**Drive…** entry) offers a button per **mounted volume** beside **Local**: disks
+and NAS shares (NFS, CIFS, SSHFS, …) mounted under `/mnt` or `/media`, and
+automounted disks, USB sticks and optical media under `/run/media` (on macOS,
+`/Volumes`). Each button carries the mount point's last component — usually the
+volume label — and picking one takes the panel straight to that directory.
+
+The list is read fresh every time the picker opens, so a stick plugged in a
+moment ago is already there. Long names are shortened with a `~`, and the buttons
+wrap onto further rows so even a dozen mounts fit a narrow panel. Windows has no
+such buttons — drive letters cover the same ground there (see below).
 
 
 ## Windows: drive letters

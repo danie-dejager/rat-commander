@@ -720,6 +720,125 @@ pub fn list_mounts() -> Vec<MountEntry> {
     Vec::new()
 }
 
+// ---------------------------------------------------------------------------
+// Mounted volumes (drive picker)
+// ---------------------------------------------------------------------------
+
+/// A mounted volume offered as a shortcut by the drive picker: a disk or NAS
+/// share mounted under `/mnt`, or an automounted disk / USB stick under
+/// `/media`, `/run/media` and friends.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Volume {
+    /// Display name — the mount point's last component, e.g. `MY-USB`.
+    pub name: String,
+    /// Where the volume is mounted.
+    pub path: std::path::PathBuf,
+}
+
+/// Directories under which user-visible volumes appear. Only mounts strictly
+/// *below* one of these count, so the roots themselves (often a tmpfs) are
+/// never offered as a volume.
+#[cfg(unix)]
+const VOLUME_ROOTS: &[&str] = &["/mnt", "/media", "/run/media", "/Volumes"];
+
+/// Pseudo filesystems that are no place to browse, even when one turns up under
+/// a volume root.
+#[cfg(target_os = "linux")]
+const PSEUDO_FS: &[&str] = &[
+    "autofs",
+    "bpf",
+    "cgroup",
+    "cgroup2",
+    "configfs",
+    "debugfs",
+    "devpts",
+    "devtmpfs",
+    "hugetlbfs",
+    "mqueue",
+    "proc",
+    "pstore",
+    "ramfs",
+    "securityfs",
+    "sysfs",
+    "tmpfs",
+    "tracefs",
+];
+
+/// The volumes mounted under [`VOLUME_ROOTS`], sorted by mount point.
+///
+/// Read from `/proc/mounts`, so network shares (NFS/CIFS/SSHFS) are included
+/// alongside block devices — unlike [`list_mounts`], which is block-only.
+#[cfg(target_os = "linux")]
+pub fn list_volumes() -> Vec<Volume> {
+    let Ok(text) = std::fs::read_to_string("/proc/mounts") else {
+        return Vec::new();
+    };
+    let mut out: Vec<Volume> = Vec::new();
+    for line in text.lines() {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        if f.len() < 3 || PSEUDO_FS.contains(&f[2]) {
+            continue;
+        }
+        let mp = unescape_mount(f[1]);
+        if !is_volume_mount(&mp) {
+            continue;
+        }
+        // A second mount over the same point just shadows the first.
+        if out.iter().any(|v| v.path.as_os_str() == mp.as_str()) {
+            continue;
+        }
+        out.push(Volume { name: volume_name(&mp), path: mp.into() });
+    }
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    out
+}
+
+/// The volumes mounted under [`VOLUME_ROOTS`], sorted by mount point. The other
+/// Unixes (macOS `/Volumes`, the BSDs) have no `/proc/mounts`, so the roots are
+/// listed directly instead.
+#[cfg(all(unix, not(target_os = "linux")))]
+pub fn list_volumes() -> Vec<Volume> {
+    let mut out: Vec<Volume> = Vec::new();
+    for root in VOLUME_ROOTS {
+        let Ok(rd) = std::fs::read_dir(root) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let path = e.path();
+            if !name.starts_with('.') && path.is_dir() {
+                out.push(Volume { name, path });
+            }
+        }
+    }
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    out
+}
+
+/// Windows has no volume roots — drive letters cover the same ground there.
+#[cfg(not(unix))]
+pub fn list_volumes() -> Vec<Volume> {
+    Vec::new()
+}
+
+/// Whether `mountpoint` sits strictly below one of [`VOLUME_ROOTS`] — a root
+/// itself is not a volume, and a look-alike like `/mntx` never matches.
+#[cfg(target_os = "linux")]
+fn is_volume_mount(mountpoint: &str) -> bool {
+    let mp = mountpoint.trim_end_matches('/');
+    VOLUME_ROOTS.iter().any(|r| mp.strip_prefix(r).is_some_and(|rest| rest.starts_with('/')))
+}
+
+/// The name to show for a mount point: its last component (the volume label
+/// automounters use), falling back to the whole path.
+#[cfg(target_os = "linux")]
+fn volume_name(mountpoint: &str) -> String {
+    match mountpoint.trim_end_matches('/').rsplit('/').next() {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => mountpoint.to_string(),
+    }
+}
+
 /// Decode `/proc/mounts` octal escapes (`\040` space, `\011` tab, `\012` newline,
 /// `\134` backslash).
 #[cfg(target_os = "linux")]
@@ -748,6 +867,29 @@ fn unescape_mount(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn volume_roots_match_only_below_themselves() {
+        // Disks / NAS shares under /mnt and automounted media under /run/media.
+        assert!(is_volume_mount("/mnt/nas"));
+        assert!(is_volume_mount("/media/usb"));
+        assert!(is_volume_mount("/run/media/bob/USB-STICK"));
+        // The roots themselves, look-alikes and system mounts stay out.
+        assert!(!is_volume_mount("/mnt"));
+        assert!(!is_volume_mount("/mnt/"));
+        assert!(!is_volume_mount("/mntx/disk"));
+        assert!(!is_volume_mount("/"));
+        assert!(!is_volume_mount("/home/bob"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn volume_name_is_the_last_component() {
+        assert_eq!(volume_name("/run/media/bob/USB-STICK"), "USB-STICK");
+        assert_eq!(volume_name("/mnt/nas/"), "nas");
+        assert_eq!(volume_name("/"), "/");
+    }
 
     #[cfg(target_os = "linux")]
     #[test]

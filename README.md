@@ -334,7 +334,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Ctrl-F1` / `Ctrl-F2` | Hide / show the left / right panel (reveals the console) |
 | `Ctrl-F4` | Toggle half-height panels (reveals the console below) |
 | `Ctrl-F5` | Show / hide the command prompt (hidden: typing starts a quick search) |
-| `Alt-F1` / `Alt-F2` | Drive / connection picker (left / right panel) |
+| `Alt-F1` / `Alt-F2` | Drive / volume / connection picker (left / right panel) |
 
 ### Viewer (F3)
 

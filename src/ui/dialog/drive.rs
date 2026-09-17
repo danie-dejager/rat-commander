@@ -2,7 +2,20 @@
 
 use super::widgets::*;
 use super::{DialogResult, Submit};
+use crate::mount::Volume;
 use crate::vfs::remote::Protocol;
+use std::path::PathBuf;
+
+/// Gap between two buttons on the same row.
+const GAP: usize = 1;
+/// The Local button's label (also its width budget when packing its row).
+const LOCAL_LABEL: &str = " Local ";
+/// Volume names are shortened to this many characters so one long mount point
+/// cannot stretch the dialog.
+const VOL_NAME_MAX: usize = 18;
+/// Widest a button row is ever packed, however wide the panel is; further
+/// buttons wrap onto a new row.
+const MAX_ROW_W: usize = 34;
 
 // ---------------------------------------------------------------------------
 // Drive / connection / session picker (Alt-F1 left, Alt-F2 right)
@@ -16,6 +29,8 @@ enum DriveItem {
     Drive(char),
     /// Return the panel to its last local directory (sessions stay open).
     Local,
+    /// Jump to a mounted volume, by index into the dialog's `volumes` list.
+    Volume { idx: usize },
     /// Switch to an already-open remote session.
     Session { id: usize },
     /// Disconnect (tear down) a remote session — the `✕` button.
@@ -25,16 +40,6 @@ enum DriveItem {
 }
 
 impl DriveItem {
-    fn submit(&self, side: usize) -> Submit {
-        match self {
-            DriveItem::Drive(c) => Submit::SetDrive(side, *c),
-            DriveItem::Local => Submit::GoLocal(side),
-            DriveItem::Session { id } => Submit::SwitchSession(side, *id),
-            DriveItem::DisconnectSession { id } => Submit::AskDisconnectSession(*id),
-            DriveItem::Connect(p) => Submit::OpenConnect(side, *p),
-        }
-    }
-
     fn drive(&self) -> Option<char> {
         match self {
             DriveItem::Drive(c) => Some(*c),
@@ -43,11 +48,13 @@ impl DriveItem {
     }
 }
 
-/// A Norton-style picker for a panel's source: a Local button and drive-letter
-/// buttons (Windows) on the first row(s); then — unless the other panel is
-/// already remote — one row per open remote session (switch + `✕` disconnect)
-/// and an SFTP/FTP/SCP row for new connections. Arrow keys move the highlight; a
-/// drive letter or a click jumps straight to that button.
+/// A Norton-style picker for a panel's source: drive-letter buttons (Windows) on
+/// the first row(s), then Local plus a button per mounted volume (Unix: disks
+/// and NAS shares under `/mnt`, automounted media under `/run/media`, …); then —
+/// unless the other panel is already remote — one row per open remote session
+/// (switch + `✕` disconnect) and an SFTP/FTP/SCP row for new connections. Arrow
+/// keys move the highlight; a drive letter or a click jumps straight to that
+/// button.
 pub struct DriveDialog {
     /// Which panel this is for (0 = left, 1 = right).
     side: usize,
@@ -55,11 +62,11 @@ pub struct DriveDialog {
     /// Open sessions available to switch to: `(id, label)`. Used to resolve the
     /// text of `Session`/`DisconnectSession` buttons at render time.
     sessions: Vec<(usize, String)>,
+    /// Mounted volumes offered beside Local: `(button name, mount point)`, with
+    /// the name already shortened to `VOL_NAME_MAX`.
+    volumes: Vec<(String, PathBuf)>,
     /// How many leading `items` are drive letters (the grid).
     drive_count: usize,
-    /// Item indices grouped into the visual rows *below* the drive grid (Local,
-    /// each session pair, and the connect row), in display order.
-    rows: Vec<Vec<usize>>,
     cursor: usize,
     /// `(button_row, center_x)` per item, recorded at render for Up/Down nav.
     layout: Vec<(usize, u16)>,
@@ -73,34 +80,34 @@ impl DriveDialog {
         drives: Vec<char>,
         current: Option<char>,
         current_session: Option<usize>,
+        volumes: Vec<Volume>,
         sessions: Vec<(usize, String)>,
         show_remote: bool,
     ) -> Self {
         let mut items: Vec<DriveItem> = drives.iter().map(|&c| DriveItem::Drive(c)).collect();
         let drive_count = items.len();
+        let volumes: Vec<(String, PathBuf)> = volumes
+            .into_iter()
+            .map(|v| (crate::util::text::ellipsize(&v.name, VOL_NAME_MAX), v.path))
+            .collect();
 
-        let mut rows: Vec<Vec<usize>> = Vec::new();
-
-        // The Local button is always offered, on its own row below the grid.
+        // The Local button is always offered, below the grid, followed by one
+        // button per mounted volume. `rows` groups them into display rows.
         items.push(DriveItem::Local);
         let local_index = items.len() - 1;
-        rows.push(vec![local_index]);
+        for idx in 0..volumes.len() {
+            items.push(DriveItem::Volume { idx });
+        }
 
         // Sessions + connect buttons are hidden when the other panel is remote.
         if show_remote {
             for (id, _) in &sessions {
                 items.push(DriveItem::Session { id: *id });
-                let sw = items.len() - 1;
                 items.push(DriveItem::DisconnectSession { id: *id });
-                let x = items.len() - 1;
-                rows.push(vec![sw, x]);
             }
-            let mut conn_row = Vec::new();
             for p in [Protocol::Sftp, Protocol::Ftp, Protocol::Ftps, Protocol::Scp] {
                 items.push(DriveItem::Connect(p));
-                conn_row.push(items.len() - 1);
             }
-            rows.push(conn_row);
         }
 
         // Highlight the current session, else the current drive, else Local.
@@ -119,8 +126,8 @@ impl DriveDialog {
             side,
             items,
             sessions,
+            volumes,
             drive_count,
-            rows,
             cursor,
             layout: Vec::new(),
             zones: Vec::new(),
@@ -135,7 +142,8 @@ impl DriveDialog {
     fn item_label(&self, i: usize) -> String {
         match self.items[i] {
             DriveItem::Drive(c) => format!("  {c}  "),
-            DriveItem::Local => " Local ".to_string(),
+            DriveItem::Local => LOCAL_LABEL.to_string(),
+            DriveItem::Volume { idx } => format!(" {} ", self.volumes[idx].0),
             DriveItem::Connect(Protocol::Sftp) => " SFTP ".to_string(),
             DriveItem::Connect(Protocol::Ftp) => " FTP ".to_string(),
             DriveItem::Connect(Protocol::Ftps) => " FTPS ".to_string(),
@@ -155,6 +163,57 @@ impl DriveDialog {
 
     fn label_width(&self, i: usize) -> usize {
         self.item_label(i).chars().count()
+    }
+
+    /// The item indices of the rows *below* the drive grid, in display order:
+    /// Local with the volume buttons, then one row per open session (switch +
+    /// `✕`), then the connect row. Rows longer than `budget` columns wrap, so a
+    /// machine with many mounts stays inside a narrow panel.
+    fn rows(&self, budget: usize) -> Vec<Vec<usize>> {
+        let mut rows: Vec<Vec<usize>> = Vec::new();
+        let mut row: Vec<usize> = Vec::new();
+        let mut row_w = 0;
+        for i in self.drive_count..self.items.len() {
+            let w = self.label_width(i);
+            let wraps = !row.is_empty() && row_w + GAP + w > budget;
+            let opens_row = match self.items[i] {
+                // Local opens the volume row; volumes join it while they fit.
+                DriveItem::Local | DriveItem::Session { .. } => true,
+                DriveItem::Volume { .. } => wraps,
+                // A session's ✕ always stays beside its switch button.
+                DriveItem::DisconnectSession { .. } => false,
+                // The connect row opens at SFTP, the first protocol offered.
+                DriveItem::Connect(Protocol::Sftp) => true,
+                DriveItem::Connect(_) => wraps,
+                DriveItem::Drive(_) => true,
+            };
+            if opens_row && !row.is_empty() {
+                rows.push(std::mem::take(&mut row));
+                row_w = 0;
+            }
+            if !row.is_empty() {
+                row_w += GAP;
+            }
+            row.push(i);
+            row_w += w;
+        }
+        if !row.is_empty() {
+            rows.push(row);
+        }
+        rows
+    }
+
+    /// What activating button `i` asks the app to do. Volume buttons are
+    /// resolved here because the dialog, not the `Copy` item, owns the paths.
+    fn submit_item(&self, i: usize) -> Submit {
+        match self.items[i] {
+            DriveItem::Drive(c) => Submit::SetDrive(self.side, c),
+            DriveItem::Local => Submit::GoLocal(self.side),
+            DriveItem::Volume { idx } => Submit::GoVolume(self.side, self.volumes[idx].1.clone()),
+            DriveItem::Session { id } => Submit::SwitchSession(self.side, id),
+            DriveItem::DisconnectSession { id } => Submit::AskDisconnectSession(id),
+            DriveItem::Connect(p) => Submit::OpenConnect(self.side, p),
+        }
     }
 
     /// Which panel this picker targets (0 = left, 1 = right), so the renderer can
@@ -187,7 +246,7 @@ impl DriveDialog {
         }
         match key.code {
             KeyCode::Esc => DialogResult::Cancel,
-            KeyCode::Enter => DialogResult::Submit(self.items[self.cursor].submit(self.side)),
+            KeyCode::Enter => DialogResult::Submit(self.submit_item(self.cursor)),
             KeyCode::Left => {
                 self.cursor = self.cursor.saturating_sub(1);
                 DialogResult::None
@@ -216,7 +275,7 @@ impl DriveDialog {
             KeyCode::Char(c) => {
                 let up = c.to_ascii_uppercase();
                 match self.items.iter().position(|it| it.drive() == Some(up)) {
-                    Some(i) => DialogResult::Submit(self.items[i].submit(self.side)),
+                    Some(i) => DialogResult::Submit(self.submit_item(i)),
                     None => DialogResult::None,
                 }
             }
@@ -227,7 +286,7 @@ impl DriveDialog {
     pub(crate) fn handle_click(&mut self, _area: Rect, col: u16, row: u16) -> DialogResult {
         for (r, i) in &self.zones {
             if col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height {
-                return DialogResult::Submit(self.items[*i].submit(self.side));
+                return DialogResult::Submit(self.submit_item(*i));
             }
         }
         DialogResult::None
@@ -242,7 +301,6 @@ impl DriveDialog {
     ) {
         let mut gfx = gfx;
         const DCELL: usize = 5; // "  X  " drive cell
-        const GAP: usize = 1;
 
         // Drive grid: how many letter cells fit per row.
         let avail = (area.width.saturating_sub(8) as usize).max(DCELL);
@@ -251,12 +309,15 @@ impl DriveDialog {
         let drive_w =
             if self.has_drives() { dcols * DCELL + dcols.saturating_sub(1) * GAP } else { 0 };
 
-        // Width of each below-grid row (Local, session pairs, connect row).
+        // Rows below the grid, packed to whichever is narrower: the panel or
+        // MAX_ROW_W. Width of each below-grid row (Local + volumes, session
+        // pairs, connect row).
+        let below = self.rows(avail.min(MAX_ROW_W));
         let row_width = |this: &Self, row: &[usize]| -> usize {
             row.iter().map(|&i| this.label_width(i)).sum::<usize>()
                 + row.len().saturating_sub(1) * GAP
         };
-        let below_w = self.rows.iter().map(|r| row_width(self, r)).max().unwrap_or(0);
+        let below_w = below.iter().map(|r| row_width(self, r)).max().unwrap_or(0);
 
         let noun = if self.has_drives() { "drive" } else { "location" };
         let msg_w = "Choose right :".len() + noun.len(); // upper bound
@@ -266,7 +327,7 @@ impl DriveDialog {
         let gap_rows = if self.has_drives() { 1 } else { 0 };
         // borders + pads + msg (constant 6) + drive grid + gap + one line per
         // below-grid row.
-        let box_h = (drive_rows as u16) + (gap_rows as u16) + self.rows.len() as u16 + 6;
+        let box_h = (drive_rows as u16) + (gap_rows as u16) + below.len() as u16 + 6;
         let rect = centered(area, box_w, box_h);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
@@ -306,11 +367,11 @@ impl DriveDialog {
             }
         }
 
-        // Rows below the grid: Local, one per session pair, then the connect
-        // row. Logical row indices continue after the drive grid so Up/Down step
-        // between the grid and these rows.
+        // Rows below the grid: Local + volumes, one per session pair, then the
+        // connect row. Logical row indices continue after the drive grid so
+        // Up/Down step between the grid and these rows.
         let below_y0 = grid_y + (drive_rows + gap_rows) as u16;
-        for (k, row) in self.rows.clone().iter().enumerate() {
+        for (k, row) in below.iter().enumerate() {
             let rw = row_width(self, row) as u16;
             let mut cx = inner.x + inner.width.saturating_sub(rw) / 2;
             let y = below_y0 + k as u16;

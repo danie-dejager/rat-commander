@@ -234,8 +234,9 @@ impl AppState {
     }
 
     /// Open the drive/connection picker for `side` (Alt-F1 left, Alt-F2 right):
-    /// a Local button, drive letters (Windows), and — unless the other panel is
-    /// already remote — the open sessions and SFTP/FTP/SCP connect buttons.
+    /// a Local button, drive letters (Windows), the mounted volumes (Unix), and
+    /// — unless the other panel is already remote — the open sessions and
+    /// SFTP/FTP/SCP connect buttons.
     pub(in crate::app::state) fn open_drive_dialog(&mut self, side: usize) {
         let drives = crate::drive::available_drives();
         let current_drive = crate::drive::drive_of(&self.panels[side].cwd.path);
@@ -250,6 +251,7 @@ impl AppState {
             drives,
             current_drive,
             current_session,
+            crate::mount::list_volumes(),
             sessions,
             show_remote,
         )));
@@ -265,6 +267,18 @@ impl AppState {
         let ok = self.panels[side].try_enter(root, backend, None).await;
         if !ok {
             self.show_error(format!("Drive {letter}: is not ready"));
+        }
+    }
+
+    /// Switch panel `side` to a mounted volume (drive picker volume button).
+    pub(in crate::app::state) async fn go_volume(&mut self, side: usize, path: std::path::PathBuf) {
+        // A mount point is local, so leaving a remote panel this way must
+        // remember where we were on that session.
+        self.snapshot_session_cwd(side);
+        let backend = self.registry.local();
+        let ok = self.panels[side].try_enter(VfsPath::local(path.clone()), backend, None).await;
+        if !ok {
+            self.show_error(format!("Cannot open {}", path.display()));
         }
     }
 }
