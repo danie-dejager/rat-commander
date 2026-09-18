@@ -5235,6 +5235,15 @@ async fn the_geojson_map_opens_from_the_editor_and_goes_back_to_the_text() {
     let (tx, mut rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     st.open_path_in_editor(file).await;
+    // Where the frame puts the hardware cursor: a frame that places none
+    // leaves it where it was, off in the corner.
+    let caret = |st: &mut AppState| {
+        let mut t = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
+        ratatui::backend::Backend::set_cursor_position(t.backend_mut(), (99, 29)).unwrap();
+        t.draw(|f| crate::ui::draw(f, st)).unwrap();
+        t.get_cursor_position().unwrap()
+    };
+    assert_ne!(caret(&mut st), (99, 29).into(), "the editor places its caret");
     let alt_m = KeyEvent::new(KeyCode::Char('m'), KeyModifiers::ALT);
     let signal = st.editor.as_mut().unwrap().handle_key(alt_m);
     st.apply_editor_signal(signal).await;
@@ -5254,6 +5263,7 @@ async fn the_geojson_map_opens_from_the_editor_and_goes_back_to_the_text() {
         }
     }
     assert!(matches!(st.dialog, Some(Dialog::GeoMap(_))));
+    assert_eq!(caret(&mut st), (99, 29).into(), "no editor caret blinks through the map");
     // A drag over it is folded like an orbit while it pans.
     let at = |kind| MouseEvent { kind, column: 40, row: 12, modifiers: KeyModifiers::NONE };
     st.last_area = ratatui::layout::Rect::new(0, 0, 100, 30);

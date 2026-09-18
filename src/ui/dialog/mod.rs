@@ -360,6 +360,8 @@ pub enum Submit {
     /// Return a panel (`side`) to its last local directory, keeping any open
     /// remote sessions alive (drive picker "Local" button).
     GoLocal(usize),
+    /// Switch a panel (`side`) to a mounted volume's mount point (drive picker).
+    GoVolume(usize, std::path::PathBuf),
     /// Switch a panel (`side`) to an already-open remote session by id.
     SwitchSession(usize, usize),
     /// Ask (with a Yes/No confirm) to disconnect the remote session with this id.

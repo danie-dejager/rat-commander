@@ -544,6 +544,7 @@ impl AppState {
                 )));
             }
             Submit::GoLocal(side) => self.go_local(side).await,
+            Submit::GoVolume(side, path) => self.go_volume(side, path).await,
             Submit::SwitchSession(side, id) => self.switch_to_session(side, id).await,
             Submit::AskDisconnectSession(id) => self.ask_disconnect_session(id),
             Submit::DisconnectSession(id) => self.disconnect_session(id).await,

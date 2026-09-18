@@ -9,9 +9,20 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
+/// [`draw`] with the hardware cursor placed, for tests that draw the editor alone.
+#[cfg(test)]
 pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
+    if let Some(p) = draw(f, area, ed, theme) {
+        f.set_cursor_position(p);
+    }
+}
+
+/// Draw the editor into `area`. Returns where the hardware cursor goes, for
+/// the caller to place — unless a dialog is drawn over the editor, whose own
+/// caret (or none) is the one to show.
+pub fn draw(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) -> Option<Position> {
     if area.height < 3 {
-        return;
+        return None;
     }
     let status = Rect { height: 1, ..area };
     let body = Rect { y: area.y + 1, height: area.height - 2, ..area };
@@ -61,24 +72,20 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
         render_hex_footer(f, footer, ed, theme);
         if ed.help_open() {
             render_help(f, area, theme);
-            return;
+            return None;
         }
         // The open menu replaces the status row, as in mcedit, and hides the
         // hardware cursor while it is up.
         if render_menu(f, area, ed, theme) {
-            return;
+            return None;
         }
-        let pos = if ed.inspector_focus() {
+        return if ed.inspector_focus() {
             insp_caret
         } else if ed.template_focus() {
             caret
         } else {
             cursor_pos
         };
-        if let Some(p) = pos {
-            f.set_cursor_position(p);
-        }
-        return;
     }
 
     if ed.sheet_active() {
@@ -87,15 +94,12 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
         render_footer(f, footer, ed, theme);
         if ed.help_open() {
             render_help(f, area, theme);
-            return;
+            return None;
         }
         if render_menu(f, area, ed, theme) {
-            return;
+            return None;
         }
-        if let Some(p) = cursor_pos {
-            f.set_cursor_position(p);
-        }
-        return;
+        return cursor_pos;
     }
 
     // A just-restored cursor (see `EditorState::restore_position`) is scrolled to
@@ -128,14 +132,12 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
     // The F1 help overlay sits above the text and hides the hardware cursor.
     if ed.help_open() {
         render_help(f, area, theme);
-        return;
+        return None;
     }
     if render_menu(f, area, ed, theme) {
-        return;
+        return None;
     }
-    if let Some(p) = cursor_pos {
-        f.set_cursor_position(p);
-    }
+    cursor_pos
 }
 
 /// Draw the F9 pulldown over the top row (where the status line normally sits),
