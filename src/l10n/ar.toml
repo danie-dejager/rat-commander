@@ -409,7 +409,7 @@ rtl = true
 
 # -- Dialog labels + menu entry (round 2) --
 "Compress" = "ضغط"
-"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz):" = "اسم الأرشيف (.zip .7z .tar.gz .tar.bz2 .tar.xz):"
+"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):" = "اسم الأرشيف (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):"
 "Create symlink" = "إنشاء رابط رمزي"
 "Points to (target)" = "يشير إلى (الهدف)"
 "Link name" = "اسم الرابط"

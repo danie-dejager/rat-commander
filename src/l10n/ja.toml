@@ -405,7 +405,7 @@ code = "ja"
 
 # -- Dialog labels + menu entry (round 2) --
 "Compress" = "圧縮"
-"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz):" = "アーカイブ名 (.zip .7z .tar.gz .tar.bz2 .tar.xz):"
+"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):" = "アーカイブ名 (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):"
 "Create symlink" = "シンボリックリンクを作成"
 "Points to (target)" = "リンク先 (ターゲット)"
 "Link name" = "リンク名"

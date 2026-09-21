@@ -405,7 +405,7 @@ code = "sr"
 
 # -- Dialog labels + menu entry (round 2) --
 "Compress" = "Kompresuj"
-"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz):" = "Naziv arhive (.zip .7z .tar.gz .tar.bz2 .tar.xz):"
+"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):" = "Naziv arhive (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):"
 "Create symlink" = "Napravi simboličku vezu"
 "Points to (target)" = "Pokazuje na (odredište)"
 "Link name" = "Naziv veze"

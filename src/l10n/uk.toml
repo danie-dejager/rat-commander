@@ -405,7 +405,7 @@ code = "uk"
 
 # -- Dialog labels + menu entry (round 2) --
 "Compress" = "Стиснути"
-"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz):" = "Ім'я архіву (.zip .7z .tar.gz .tar.bz2 .tar.xz):"
+"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):" = "Ім'я архіву (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):"
 "Create symlink" = "Створити символьне посилання"
 "Points to (target)" = "Вказує на (ціль)"
 "Link name" = "Ім'я посилання"

@@ -405,7 +405,7 @@ code = "cs"
 
 # -- Dialog labels + menu entry (round 2) --
 "Compress" = "Komprimovat"
-"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz):" = "Název archivu (.zip .7z .tar.gz .tar.bz2 .tar.xz):"
+"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):" = "Název archivu (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):"
 "Create symlink" = "Vytvořit symbolický odkaz"
 "Points to (target)" = "Ukazuje na (cíl)"
 "Link name" = "Název odkazu"

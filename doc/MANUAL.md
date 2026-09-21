@@ -1817,19 +1817,41 @@ two minutes.
 ## Archives — browsed like directories
 
 Lets you walk into `.zip`, `.tar`, `.tar.gz`, `.tar.bz2`,
-`.tar.xz`, `.7z` and `.rar` archives as if they were folders.
+`.tar.xz`, `.tar.zst`, `.7z` and `.rar` archives as if they were folders — and
+into `.deb` and `.rpm` packages, which are archives in their own right.
 
 **Useful for** inspecting, extracting from, or adding to an archive without
-unpacking it first.
+unpacking it first, and for answering "what is actually *in* this package".
 
 **Operation.** Press **Enter** on an archive file to browse it. Copy files
 **out** (F5 to a normal panel) or **in** (F5 from a normal panel into the archive
 panel); **F8** deletes from the archive. To build a new archive, tag a selection
 and use *File menu → Compress…*, choosing the format by the name you type
-(`.zip`, `.7z`, `.tar.gz`, `.tar.bz2`, `.tar.xz`).
+(`.zip`, `.7z`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst`).
 
-RAR archives are **read-only** — you can browse and extract them, but no tool can
-create RAR archives. (RAR support is an optional build feature, on by default.)
+**Zstandard.** `.tar.zst` and `.tzst` are read and written like any other tar,
+so an Arch package (`.pkg.tar.zst`, which is just a `.tar.zst`) opens with
+Enter. A plain `.zst` — a single compressed file such as `syslog.1.zst` — opens
+as a one-member listing holding the decompressed file, so F5 copies it out
+already unpacked.
+
+**Packages.** A `.deb` is shown as one tree: the files it installs at the root,
+its control files under **`/DEBIAN`** (where `dpkg-deb -R` puts them), and
+`debian-binary` beside them. The two halves of the package are compressed
+independently, which is why the layout is flattened — a path inside Rat
+Commander names one container, so a tarball inside the package could not be
+stepped into. An `.rpm` shows its payload directly. Packages built by rpm 4.14
+and later keep every file name, mode and size in the package header rather than
+in the payload; both that shape and the older one are read.
+
+**Read-only formats.** RAR archives, plain `.zst`, `.deb` and `.rpm` can be
+browsed and extracted but not created or modified: no tool can create RAR; a
+plain `.zst` holds a single stream with nowhere to put a second file; rebuilding
+a `.deb` would mean regenerating `md5sums` and keeping the control fields
+consistent; and an RPM's header signs its payload, so any rewrite invalidates
+it. *Compress…* refuses those names, and a copy **into** such an archive is
+refused when it starts. (RAR support is an optional build feature, on by
+default.)
 
 
 ## File associations and extfs (rc.ext)

@@ -405,7 +405,7 @@ code = "ru"
 
 # -- Dialog labels + menu entry (round 2) --
 "Compress" = "Сжать"
-"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz):" = "Имя архива (.zip .7z .tar.gz .tar.bz2 .tar.xz):"
+"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):" = "Имя архива (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):"
 "Create symlink" = "Создать символическую ссылку"
 "Points to (target)" = "Указывает на (цель)"
 "Link name" = "Имя ссылки"

@@ -405,7 +405,7 @@ code = "zh-Hans"
 
 # -- Dialog labels + menu entry (round 2) --
 "Compress" = "压缩"
-"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz):" = "压缩包名称 (.zip .7z .tar.gz .tar.bz2 .tar.xz):"
+"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):" = "压缩包名称 (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):"
 "Create symlink" = "创建符号链接"
 "Points to (target)" = "指向 (目标)"
 "Link name" = "链接名称"

@@ -371,7 +371,7 @@ impl AppState {
         }
         self.dialog = Some(Dialog::Input(InputDialog::new(
             "Compress",
-            "Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz):",
+            "Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):",
             "archive.tar.gz",
             InputPurpose::Compress(sources),
         )));
@@ -379,10 +379,15 @@ impl AppState {
 
     pub(in crate::app::state) fn start_compress(&mut self, sources: Vec<VfsPath>, name: String) {
         let format = match ArchiveFormat::from_name(&name) {
-            Some(ArchiveFormat::Rar) => return self.show_error("Cannot create RAR archives"),
+            // RAR, plain .zst, .deb and .rpm are all readable but not
+            // creatable, each for its own reason; one guard covers them.
+            Some(f) if !f.writable() => {
+                return self.show_error("This archive format can be read but not created");
+            }
             Some(f) => f,
             None => {
-                return self.show_error("Unknown type (use .zip .7z .tar.gz .tar.bz2 .tar.xz)");
+                return self
+                    .show_error("Unknown type (use .zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst)");
             }
         };
         let dest = self.panels[self.active].cwd.path.join(&name);

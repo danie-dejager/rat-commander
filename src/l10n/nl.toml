@@ -405,7 +405,7 @@ code = "nl"
 
 # -- Dialog labels + menu entry (round 2) --
 "Compress" = "Comprimeren"
-"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz):" = "Archiefnaam (.zip .7z .tar.gz .tar.bz2 .tar.xz):"
+"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):" = "Archiefnaam (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):"
 "Create symlink" = "Symlink maken"
 "Points to (target)" = "Verwijst naar (doel)"
 "Link name" = "Koppelingsnaam"

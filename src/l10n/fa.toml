@@ -409,7 +409,7 @@ rtl = true
 
 # -- Dialog labels + menu entry (round 2) --
 "Compress" = "فشرده‌سازی"
-"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz):" = "نام آرشیو (.zip .7z .tar.gz .tar.bz2 .tar.xz):"
+"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):" = "نام آرشیو (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):"
 "Create symlink" = "ایجاد پیوند نمادین"
 "Points to (target)" = "اشاره به (مقصد)"
 "Link name" = "نام پیوند"

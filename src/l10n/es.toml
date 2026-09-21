@@ -405,7 +405,7 @@ code = "es"
 
 # -- Dialog labels + menu entry (round 2) --
 "Compress" = "Comprimir"
-"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz):" = "Nombre del archivo (.zip .7z .tar.gz .tar.bz2 .tar.xz):"
+"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):" = "Nombre del archivo (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):"
 "Create symlink" = "Crear enlace simbólico"
 "Points to (target)" = "Apunta a (destino)"
 "Link name" = "Nombre del enlace"

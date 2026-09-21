@@ -405,7 +405,7 @@ code = "hu"
 
 # -- Dialog labels + menu entry (round 2) --
 "Compress" = "Tömörítés"
-"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz):" = "Archívum neve (.zip .7z .tar.gz .tar.bz2 .tar.xz):"
+"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):" = "Archívum neve (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):"
 "Create symlink" = "Szimbolikus link létrehozása"
 "Points to (target)" = "Erre mutat (cél)"
 "Link name" = "Link neve"

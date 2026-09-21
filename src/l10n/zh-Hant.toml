@@ -405,7 +405,7 @@ code = "zh-Hant"
 
 # -- Dialog labels + menu entry (round 2) --
 "Compress" = "壓縮"
-"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz):" = "壓縮檔名稱 (.zip .7z .tar.gz .tar.bz2 .tar.xz):"
+"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):" = "壓縮檔名稱 (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):"
 "Create symlink" = "建立符號連結"
 "Points to (target)" = "指向 (目標)"
 "Link name" = "連結名稱"

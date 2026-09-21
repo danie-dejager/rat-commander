@@ -405,7 +405,7 @@ code = "hi"
 
 # -- Dialog labels + menu entry (round 2) --
 "Compress" = "संपीड़ित करें"
-"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz):" = "संग्रह नाम (.zip .7z .tar.gz .tar.bz2 .tar.xz):"
+"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):" = "संग्रह नाम (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):"
 "Create symlink" = "सिमलिंक बनाएं"
 "Points to (target)" = "लक्ष्य (target)"
 "Link name" = "लिंक नाम"

@@ -410,7 +410,7 @@ code = "de"
 
 # -- Dialog labels + menu entry (round 2) --
 "Compress" = "Komprimieren"
-"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz):" = "Archivname (.zip .7z .tar.gz .tar.bz2 .tar.xz):"
+"Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):" = "Archivname (.zip .7z .tar.gz .tar.bz2 .tar.xz .tar.zst):"
 "Create symlink" = "Symlink erstellen"
 "Points to (target)" = "Zeigt auf (Ziel)"
 "Link name" = "Linkname"

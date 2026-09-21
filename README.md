@@ -217,9 +217,17 @@ The installed executable is named **`rc`** for quick typing.
   sequence rather than a clipboard daemon, so it needs no X or Wayland session and
   **works over SSH** — copying on a remote server lands the text on the clipboard
   of the machine in front of you.
-- **Archives** — browse and *edit* `.zip`, `.tar(.gz/.bz2/.xz)` and `.7z` like
-  directories: copy and move files in and out, make and delete subdirectories,
-  rename, move things around inside the archive, and compress a selection.
+- **Archives** — browse and *edit* `.zip`, `.tar(.gz/.bz2/.xz/.zst)` and `.7z`
+  like directories: copy and move files in and out, make and delete
+  subdirectories, rename, move things around inside the archive, and compress a
+  selection. RAR is read-only, and a plain `.zst` opens as the single file it
+  holds, already decompressed.
+- **Packages browsed like directories** — press Enter on a `.deb` or an `.rpm`
+  and see what it installs, read natively so mc's scripts, `dpkg-deb` and `rpm`
+  are no longer needed. A `.deb` shows its files at the root with the control
+  files under `/DEBIAN`; an `.rpm` shows its payload, in both the classic layout
+  and the indexed one rpm 4.14 and later write. An Arch `.pkg.tar.zst` is just a
+  `.tar.zst` and opens as one. Both are read-only.
 - **More things browsed like directories** — press Enter on a **disc image**
   (`.iso`, read natively with Joliet long names and Rock Ridge permissions and
   symlinks, so mc's `iso9660` script and `isoinfo` are no longer needed), a
