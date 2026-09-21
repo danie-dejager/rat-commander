@@ -98,6 +98,8 @@ pub enum MenuAction {
     Refresh,
     ToggleSplit,
     FindFile,
+    /// Run a command and list the files its output names (external panelize).
+    PanelizeCommand,
     /// Mark files identical between the left and right panel directories.
     FindDuplicates,
     ProcExplorer,
@@ -289,6 +291,7 @@ impl MenuBarState {
             item_key("Panel f&ilter...", "Alt-Shift-I", MenuAction::PanelFilter),
             sep(),
             item("&Find file...", MenuAction::FindFile),
+            item("Paneli&ze command output...", MenuAction::PanelizeCommand),
             item("Find d&uplicates...", MenuAction::FindDuplicates),
             item("Compare &directories...", MenuAction::CompareDirs),
             item("S&ynchronize directories...", MenuAction::SyncDirs),

@@ -45,6 +45,9 @@ code = "hi"
 
 # -- Command menu --
 "&Find file..." = "फ़ाइल खोजें… (&F)"
+"Paneli&ze command output..." = "कमांड आउटपुट को पैनल में… (&Z)"
+"Panelize" = "पैनल में"
+"Command whose output lists the files:" = "वह कमांड जिसका आउटपुट फ़ाइलें सूचीबद्ध करता है:"
 "Find d&uplicates..." = "डुप्लिकेट खोजें… (&U)"
 "Compare &directories..." = "फ़ोल्डर तुलना करें… (&D)"
 "Compare fi&les..." = "फ़ाइल तुलना करें… (&L)"

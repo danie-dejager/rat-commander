@@ -49,6 +49,9 @@ rtl = true
 
 # -- Command menu --
 "&Find file..." = "بحث عن ملف… (&F)"
+"Paneli&ze command output..." = "إخراج الأمر في اللوحة… (&Z)"
+"Panelize" = "لوحة"
+"Command whose output lists the files:" = "الأمر الذي يسرد إخراجه الملفات:"
 "Find d&uplicates..." = "البحث عن التكرارات… (&U)"
 "Compare &directories..." = "مقارنة المجلدات… (&D)"
 "Compare fi&les..." = "مقارنة الملفات… (&L)"

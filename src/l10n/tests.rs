@@ -125,6 +125,7 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
             "Sy&nc panels",
             "Show directory on other p&anel",
             "&Find file...",
+            "Paneli&ze command output...",
             "Find d&uplicates...",
             "Compare &directories...",
             "S&ynchronize directories...",

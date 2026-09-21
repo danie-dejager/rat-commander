@@ -45,6 +45,9 @@ code = "sr"
 
 # -- Command menu --
 "&Find file..." = "Nađi fajl… (&F)"
+"Paneli&ze command output..." = "Излаз команде у панелу… (&Z)"
+"Panelize" = "Панел"
+"Command whose output lists the files:" = "Команда чији излаз наводи датотеке:"
 "Find d&uplicates..." = "Nađi duplikate… (&U)"
 "Compare &directories..." = "Uporedi fascikle… (&D)"
 "Compare fi&les..." = "Uporedi fajlove… (&L)"

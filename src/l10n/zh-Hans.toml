@@ -45,6 +45,9 @@ code = "zh-Hans"
 
 # -- Command menu --
 "&Find file..." = "查找文件…(&F)"
+"Paneli&ze command output..." = "命令输出放入面板… (&Z)"
+"Panelize" = "面板化"
+"Command whose output lists the files:" = "输出文件列表的命令："
 "Find d&uplicates..." = "查找重复文件…(&U)"
 "Compare &directories..." = "比较文件夹…(&D)"
 "Compare fi&les..." = "比较文件…(&L)"

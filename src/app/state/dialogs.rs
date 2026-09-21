@@ -348,6 +348,7 @@ impl AppState {
             }
             Submit::SearchReplace(p) => self.apply_search_replace(p),
             Submit::Find(p) => self.start_find(p),
+            Submit::Panelize(cmd) => self.start_panelize(cmd),
             Submit::Chmod(paths, mode, recursive) => self.apply_chmod(paths, mode, recursive).await,
             Submit::Chown(paths, owner, group, recursive) => {
                 self.apply_chown(paths, &owner, &group, recursive).await

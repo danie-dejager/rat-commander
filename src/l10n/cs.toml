@@ -45,6 +45,9 @@ code = "cs"
 
 # -- Command menu --
 "&Find file..." = "Najít soubor… (&F)"
+"Paneli&ze command output..." = "Výstup příkazu do panelu… (&Z)"
+"Panelize" = "Panel"
+"Command whose output lists the files:" = "Příkaz, jehož výstup vypíše soubory:"
 "Find d&uplicates..." = "Najít duplikáty… (&U)"
 "Compare &directories..." = "Porovnat složky… (&D)"
 "Compare fi&les..." = "Porovnat soubory… (&L)"

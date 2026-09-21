@@ -293,6 +293,7 @@ impl AppState {
             MenuAction::Refresh => self.reload_all().await,
             MenuAction::ToggleSplit => self.split = self.split.toggle(),
             MenuAction::FindFile => self.open_find_dialog(),
+            MenuAction::PanelizeCommand => self.open_panelize_dialog(),
             MenuAction::FindDuplicates => {
                 self.dialog = Some(Dialog::Form(FormDialog::find_duplicates()))
             }

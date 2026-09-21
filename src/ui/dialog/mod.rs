@@ -231,6 +231,8 @@ pub enum Submit {
     SearchReplace(SearchReplaceParams),
     /// Find-file request.
     Find(FindParams),
+    /// A shell command whose output names the files to panelize.
+    Panelize(String),
     /// Set permissions on these targets to `mode`; recurse into directories when
     /// the flag is set.
     Chmod(Vec<VfsPath>, u32, bool),

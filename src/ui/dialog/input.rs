@@ -44,6 +44,8 @@ pub enum InputPurpose {
     EditorNewTemplate,
     /// A byte offset to go to in the binary compare.
     HexDiffGoto,
+    /// A shell command whose output names the files to panelize.
+    Panelize,
 }
 
 pub struct InputDialog {
@@ -145,6 +147,7 @@ impl InputDialog {
                     InputPurpose::EditorPasteOutput => Submit::EditorPasteOutput(text),
                     InputPurpose::EditorNewTemplate => Submit::EditorNewTemplate(text),
                     InputPurpose::HexDiffGoto => Submit::HexDiffGoto(text),
+                    InputPurpose::Panelize => Submit::Panelize(text),
                     InputPurpose::MkDir => Submit::MkDir(text),
                     InputPurpose::EditNewFile => Submit::EditNewFile(text),
                     InputPurpose::CopyDest(s) => Submit::Copy(s.clone(), text),

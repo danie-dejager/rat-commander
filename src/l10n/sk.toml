@@ -45,6 +45,9 @@ code = "sk"
 
 # -- Command menu --
 "&Find file..." = "Nájsť súbor… (&F)"
+"Paneli&ze command output..." = "Výstup príkazu do panela… (&Z)"
+"Panelize" = "Panel"
+"Command whose output lists the files:" = "Príkaz, ktorého výstup vypíše súbory:"
 "Find d&uplicates..." = "Nájsť duplikáty… (&U)"
 "Compare &directories..." = "Porovnať priečinky… (&D)"
 "Compare fi&les..." = "Porovnať súbory… (&L)"

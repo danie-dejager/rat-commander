@@ -45,6 +45,9 @@ code = "nl"
 
 # -- Command menu --
 "&Find file..." = "Bestand zoeken… (&F)"
+"Paneli&ze command output..." = "Uitvoer van een opdracht in het paneel… (&Z)"
+"Panelize" = "Paneel"
+"Command whose output lists the files:" = "Opdracht waarvan de uitvoer de bestanden opsomt:"
 "Find d&uplicates..." = "Duplicaten zoeken… (&U)"
 "Compare &directories..." = "Mappen vergelijken… (&D)"
 "Compare fi&les..." = "Bestanden vergelijken… (&L)"

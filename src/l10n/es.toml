@@ -45,6 +45,9 @@ code = "es"
 
 # -- Command menu --
 "&Find file..." = "Buscar archivo… (&F)"
+"Paneli&ze command output..." = "Salida de un comando en el panel… (&Z)"
+"Panelize" = "Panel"
+"Command whose output lists the files:" = "Comando cuya salida lista los archivos:"
 "Find d&uplicates..." = "Buscar duplicados… (&U)"
 "Compare &directories..." = "Comparar carpetas… (&D)"
 "Compare fi&les..." = "Comparar archivos… (&L)"

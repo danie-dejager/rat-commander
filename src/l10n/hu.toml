@@ -45,6 +45,9 @@ code = "hu"
 
 # -- Command menu --
 "&Find file..." = "Fájl keresése… (&F)"
+"Paneli&ze command output..." = "Parancs kimenete a panelen… (&Z)"
+"Panelize" = "Panel"
+"Command whose output lists the files:" = "A parancs, amelynek kimenete felsorolja a fájlokat:"
 "Find d&uplicates..." = "Duplikátumok keresése… (&U)"
 "Compare &directories..." = "Mappák összehasonlítása… (&D)"
 "Compare fi&les..." = "Fájlok összehasonlítása… (&L)"

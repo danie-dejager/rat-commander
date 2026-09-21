@@ -403,6 +403,10 @@ pub struct AppState {
     /// planning), so Esc on that spinner can abort it — otherwise an unreachable
     /// remote would hang with no escape.
     busy_task: Option<tokio::task::JoinHandle<()>>,
+    /// The last command given to external panelize, used to prefill the dialog.
+    /// Deliberately not the shell history: this command was never run at the
+    /// prompt, so it must not come back on Alt-P. Session-only.
+    last_panelize: String,
     /// The viewer's running `git blame`, aborted (killing git) when the viewer
     /// closes, and the generation that tells its answer from an older one's.
     blame_task: Option<tokio::task::JoinHandle<()>>,
@@ -639,6 +643,7 @@ mod keys;
 mod lifecycle;
 mod mouse;
 mod navigation;
+mod panelize;
 mod net;
 mod palette;
 mod receive;

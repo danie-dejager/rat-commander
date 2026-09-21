@@ -745,6 +745,9 @@ dialog counts matches; press **Esc / Enter** to stop early — the results found
 so far are kept. The matches replace the panel listing with a flat list; a `..`
 entry at the top returns to normal browsing.
 
+To build the same kind of listing from any command instead of a search, see
+[Panelize a command's output](#panelize-a-commands-output).
+
 **Options** include recursive search, case sensitivity, skip-hidden, and shell-
 wildcard vs. regular-expression name matching. On a **remote** panel the search
 matches **file names only** (content search is local).
@@ -757,6 +760,56 @@ literal text — the same regex flavour the viewer's and editor's F7 search uses
 files costs a fixed amount of memory, and files that look **binary** (a NUL byte
 near the start) are skipped the way `grep` skips them. Pressing **F3** on a result
 that matched on content opens the viewer **at the matching line**.
+
+
+## Panelize a command's output
+
+*Command menu → Panelize command output…*
+
+Runs a shell command and puts the files its output names into
+the active panel, as the same kind of flat listing [Find file](#find-file)
+produces.
+
+**Useful for** reaching a *set* of files that no directory holds — everything
+`rg -l` matched, everything `git ls-files -m` changed, every file a package
+owns — and then working on it with the ordinary keys.
+
+**Usage:** Open the dialog and type a command. It runs through your shell, in
+the active panel's directory, and each line of its output is taken as the path
+of a file to list. The matches replace the panel listing; a `..` entry at the
+top returns to normal browsing. **F3** views, **Insert** / `+` tags, and
+**F5** / **F8** copy and delete, exactly as in a normal listing.
+
+Some commands worth keeping:
+
+| Command | Lists |
+| --- | --- |
+| `rg -l TODO` | every file containing *TODO* |
+| `git ls-files -m` | every modified file in the work tree |
+| `find . -mtime -1` | everything changed in the last day |
+| `dpkg -L nginx` | every file the package owns |
+| `pacman -Qlq foo` | the same, on Arch |
+
+**Paths.** A relative path is resolved against the panel's directory, because
+that is where the command ran; an absolute one is used as is. Nothing is
+resolved through symlinks, so `find . -type l` lists the links themselves rather
+than their targets, and a **broken symlink is still listed** — it is a file you
+may well want to find and delete. Lines naming nothing reachable are dropped
+silently; only when *nothing* is left does the command report that it produced
+no usable paths.
+
+**Names with newlines in them.** If the output contains a NUL byte anywhere, it
+is split on NUL instead of on newlines — so `find -print0`, `rg -l --null` and
+`git ls-files -z` all work with nothing to configure, and those are the forms
+that survive a file name containing a line break. Plain `git ls-files` quotes
+such names in C syntax and is **not** unquoted here; use `-z`.
+
+**Limits.** The command must run in a **local** directory: the shell cannot be
+pointed at a cwd inside an archive or on a remote, which is the same limit the
+command line has. Output is capped at 100 000 files. The command is remembered
+for the next time the dialog opens, but is kept **separate from the shell
+history** — it was never run at the prompt, so it does not come back on
+**Alt-P**.
 
 
 ## Compare directories

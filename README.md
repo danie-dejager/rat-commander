@@ -178,6 +178,10 @@ The installed executable is named **`rc`** for quick typing.
   terminals that don't reserve it for their own tabs). A tab remembers its
   directory, view format, sort, filter, marks and cursor, and local tabs come
   back on the next run. The strip only appears once a panel has more than one.
+- **Panelize a command's output** — run `rg -l TODO`, `git ls-files -m`,
+  `find . -mtime -1` or `dpkg -L nginx` and the files it names become the panel
+  listing, ready for F3, tagging, F5 and F8. `find -print0` and `git ls-files
+  -z` are understood, so names with newlines in them survive.
 - **Find file**, **Compare directories**, **Find duplicates**, and a
   side-by-side **Compare files** diff with in-place merging — binary files are
   compared byte by byte instead, as hex and ASCII side by side, paged from disk

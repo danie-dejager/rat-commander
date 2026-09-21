@@ -49,6 +49,9 @@ rtl = true
 
 # -- Command menu --
 "&Find file..." = "یافتن پرونده… (&F)"
+"Paneli&ze command output..." = "خروجی فرمان در پنل… (&Z)"
+"Panelize" = "پنل"
+"Command whose output lists the files:" = "فرمانی که خروجی آن فایل‌ها را فهرست می‌کند:"
 "Find d&uplicates..." = "یافتن تکراری‌ها… (&U)"
 "Compare &directories..." = "مقایسه پوشه‌ها… (&D)"
 "Compare fi&les..." = "مقایسه پرونده‌ها… (&L)"

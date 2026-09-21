@@ -45,6 +45,9 @@ code = "uk"
 
 # -- Command menu --
 "&Find file..." = "Знайти файл… (&F)"
+"Paneli&ze command output..." = "Вивід команди в панель… (&Z)"
+"Panelize" = "Панель"
+"Command whose output lists the files:" = "Команда, вивід якої перелічує файли:"
 "Find d&uplicates..." = "Знайти дублікати… (&U)"
 "Compare &directories..." = "Порівняти теки… (&D)"
 "Compare fi&les..." = "Порівняти файли… (&L)"

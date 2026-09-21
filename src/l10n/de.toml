@@ -101,6 +101,9 @@ code = "de"
 
 # -- Befehl-Menü --
 "&Find file..." = "Datei &suchen..."
+"Paneli&ze command output..." = "Befehlsaus&gabe im Panel..."
+"Panelize" = "Panel füllen"
+"Command whose output lists the files:" = "Befehl, dessen Ausgabe die Dateien auflistet:"
 "Find d&uplicates..." = "&Duplikate finden..."
 "Compare &directories..." = "&Verzeichnisse vergleichen..."
 "Compare fi&les..." = "Datei&en vergleichen..."

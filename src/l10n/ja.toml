@@ -45,6 +45,9 @@ code = "ja"
 
 # -- Command menu --
 "&Find file..." = "ファイル検索…(&F)"
+"Paneli&ze command output..." = "コマンド出力をパネルに… (&Z)"
+"Panelize" = "パネル化"
+"Command whose output lists the files:" = "ファイルを列挙するコマンド:"
 "Find d&uplicates..." = "重複を検索…(&U)"
 "Compare &directories..." = "フォルダを比較…(&D)"
 "Compare fi&les..." = "ファイルを比較…(&L)"

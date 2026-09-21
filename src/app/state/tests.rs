@@ -6552,3 +6552,79 @@ async fn binary_templates_run_are_chosen_and_edited_over_the_hex_editor() {
     assert!(st.editor.is_none());
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// External panelize end to end: a command's stdout becomes the panel listing,
+/// and the entries are real `VfsPath`s the file operations can act on.
+#[cfg(unix)]
+#[tokio::test]
+async fn panelize_command_output_becomes_a_panelized_listing() {
+    use crate::ui::dialog::Submit;
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_panelize_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    std::fs::write(root.join("a.txt"), b"aa").unwrap();
+    std::fs::write(root.join("sub/b.txt"), b"bbb").unwrap();
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+
+    // `missing.txt` names nothing: it must be dropped rather than listed.
+    st.handle_submit(Submit::Panelize(
+        "printf 'a.txt\\nsub/b.txt\\nmissing.txt\\n'".to_string(),
+    ))
+    .await;
+    loop {
+        let ev = rx.recv().await.unwrap();
+        let done = matches!(ev, AppEvent::PanelizeDone { .. });
+        st.apply_event(ev).await;
+        if done {
+            break;
+        }
+    }
+
+    assert!(st.panels[0].is_panelized(), "the output replaced the listing");
+    let names: Vec<String> = st.panels[0].entries.iter().map(|e| e.name.clone()).collect();
+    let has = |n: &str| names.iter().any(|x| x.ends_with(n));
+    assert!(has("a.txt"), "a relative line resolved against the panel's cwd: {names:?}");
+    assert!(has("sub/b.txt"), "so did one naming a subdirectory: {names:?}");
+    assert!(!has("missing.txt"), "a line naming nothing is dropped: {names:?}");
+
+    // The cursor opens on "..", which is never an operation target; step onto
+    // the first result and the panel yields the real absolute path behind it.
+    // That mapping is what makes F3/F5/F8 work on a listing no directory backs.
+    assert!(st.panels[0].operation_targets().is_empty(), "\"..\" is never a target");
+    st.panels[0].move_cursor(1);
+    let targets = st.panels[0].operation_targets();
+    assert_eq!(
+        targets,
+        vec![VfsPath::local(root.join("a.txt"))],
+        "the cursor maps to the stored absolute path"
+    );
+
+    // The command was remembered for the next dialog, and did not leak into the
+    // shell history, which only holds commands actually run at the prompt.
+    assert!(st.last_panelize.starts_with("printf"), "the command is prefilled next time");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// Panelize needs a local directory: the shell cannot be pointed at a cwd
+/// inside an archive or on a remote, the same limit the command line has.
+#[tokio::test]
+async fn panelize_refuses_a_non_local_panel() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::archive("/tmp/some.zip", "/");
+
+    st.open_panelize_dialog();
+    assert!(
+        matches!(st.dialog, Some(Dialog::Message(_))),
+        "an error is shown instead of the command prompt"
+    );
+}

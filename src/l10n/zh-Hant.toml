@@ -45,6 +45,9 @@ code = "zh-Hant"
 
 # -- Command menu --
 "&Find file..." = "尋找檔案…(&F)"
+"Paneli&ze command output..." = "命令輸出放入面板… (&Z)"
+"Panelize" = "面板化"
+"Command whose output lists the files:" = "輸出檔案清單的命令："
 "Find d&uplicates..." = "尋找重複檔案…(&U)"
 "Compare &directories..." = "比較資料夾…(&D)"
 "Compare fi&les..." = "比較檔案…(&L)"
