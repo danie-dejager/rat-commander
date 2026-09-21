@@ -248,6 +248,7 @@ rtl = true
 "Raw" = "خام"
 "Render" = "تصيير"
 "Outline" = "مخطط"
+"(no headings)" = "(لا عناوين)"
 "Next" = "التالي"
 "Markdown" = "ماركداون"
 "rows" = "صفوف"
@@ -446,6 +447,8 @@ rtl = true
 "Discard" = "تجاهل"
 "Save theme as" = "حفظ السمة باسم"
 "Theme name:" = "اسم السمة:"
+"Gradient" = "تدرج"
+"off" = "معطل"
 
 # -- Command palette (Ctrl-P) --
 "C&ommand palette..." = "لوحة الأوامر… (&O)"

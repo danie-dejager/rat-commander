@@ -248,6 +248,7 @@ rtl = true
 "Raw" = "خام"
 "Render" = "رندر"
 "Outline" = "طرح کلی"
+"(no headings)" = "(بدون عنوان)"
 "Next" = "بعدی"
 "Markdown" = "مارک‌داون"
 "rows" = "ردیف‌ها"
@@ -446,6 +447,8 @@ rtl = true
 "Discard" = "نادیده‌گرفتن"
 "Save theme as" = "ذخیره پوسته به‌عنوان"
 "Theme name:" = "نام پوسته:"
+"Gradient" = "گرادیان"
+"off" = "خاموش"
 
 # -- Command palette (Ctrl-P) --
 "C&ommand palette..." = "پالت فرمان… (&O)"
