@@ -776,7 +776,10 @@ owns — and then working on it with the ordinary keys.
 
 **Usage:** Open the dialog and type a command. It runs through your shell, in
 the active panel's directory, and each line of its output is taken as the path
-of a file to list. The matches replace the panel listing; a `..` entry at the
+of a file to list. So the command has to print **paths**, one per line —
+`ls -la` prints a *listing* (permissions, owner, size, name) and names nothing
+usable; plain `ls` does. When no line names a file that exists, the dialog says
+so rather than opening an empty panel. The matches replace the panel listing; a `..` entry at the
 top returns to normal browsing. **F3** views, **Insert** / `+` tags, and
 **F5** / **F8** copy and delete, exactly as in a normal listing.
 
@@ -806,7 +809,11 @@ such names in C syntax and is **not** unquoted here; use `-z`.
 
 **Limits.** The command must run in a **local** directory: the shell cannot be
 pointed at a cwd inside an archive or on a remote, which is the same limit the
-command line has. Output is capped at 100 000 files. The command is remembered
+command line has. Unlike the command line, it runs your shell
+**non-interactively**, so shell **aliases do not expand** — an interactive
+shell takes the terminal away from the program that is drawing the panels, so
+it cannot be used here. Functions and variables from `~/.zshenv`, `config.fish`
+and the like still apply. Output is capped at 100 000 files. The command is remembered
 for the next time the dialog opens, but is kept **separate from the shell
 history** — it was never run at the prompt, so it does not come back on
 **Alt-P**.
@@ -1471,7 +1478,9 @@ lines delimit it) to the configured *Word wrap line length*, keeping the
 paragraph's own indentation; one undo puts the whole reflow back. **Alt-T**
 sorts the marked block's lines — or the whole file when nothing is marked — with
 reverse / ignore-case / remove-duplicates options. **Alt-U** runs a shell
-command and pastes its output at the cursor.
+command and pastes its output at the cursor (non-interactively, so aliases do
+not expand — an interactive shell would take the terminal away from the
+editor).
 
 **Other.** **Ctrl-Z** / **Ctrl-Y** undo and redo (see the *Group undo* option).
 **Ins** switches between insert and overwrite typing. **Alt-L** jumps to a line

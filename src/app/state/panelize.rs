@@ -11,7 +11,6 @@
 
 use super::*;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 
 /// Refuse output longer than this. A mistyped command (`cat /dev/urandom`, a
 /// `find /`) should stop at something a panel can still draw rather than eat
@@ -45,10 +44,11 @@ impl AppState {
         let cwd = self.panels[self.active].cwd.path.clone();
         let tx = self.tx.clone();
         let handle = tokio::spawn(async move {
-            // The user's shell, interactively, so aliases and rc-file functions
-            // work exactly as they would at their own prompt.
-            let mut c = crate::shell::command_from(crate::shell::command_argv(&cmd));
-            c.current_dir(&cwd).stdin(Stdio::null()).kill_on_drop(true);
+            // The user's shell, but *not* interactively: an interactive one
+            // takes the terminal's foreground process group and stops the
+            // program outright. See `shell::capture_argv`.
+            let mut c = crate::shell::capture_command(&cmd);
+            c.current_dir(&cwd);
             let result = match c.output().await {
                 // A non-zero exit still often prints usable paths (`grep -l`
                 // exits 1 when the last file had no match), so the status is not
@@ -85,8 +85,17 @@ impl AppState {
         // worth interrupting for.
         let hits = resolve_lines(&lines, &cwd);
         if hits.is_empty() {
-            let first = lines.first().map(|l| format!(": {l}")).unwrap_or_default();
-            return self.show_error(format!("The command produced no usable paths{first}"));
+            // The commonest mistake is a command that prints a *listing* rather
+            // than paths — `ls -la` being the obvious one — so say what the
+            // output has to look like instead of just refusing.
+            let first = match lines.first() {
+                Some(l) => format!("\nThe first line was: {l}"),
+                None => String::new(),
+            };
+            return self.show_error(format!(
+                "No line of the output named a file that exists.\nEach line has to be a \
+                 path on its own, the way `rg -l`, `find` or `git ls-files` print them.{first}"
+            ));
         }
         self.panelize_results(hits);
     }
@@ -180,6 +189,35 @@ mod tests {
         assert_eq!(hits[0].size, 2, "size comes from the file, for the panel column");
         assert_eq!(hits[1].path, VfsPath::local(sub.join("b.txt")));
         assert!(hits.iter().all(|h| h.line.is_none()), "no content hit, so F3 opens at the top");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// `ls -la` prints a listing, not paths — and it is the first thing people
+    /// try. Every line has to be rejected rather than joined to the cwd and
+    /// hopefully missing, so the user gets told what the output should be.
+    #[test]
+    fn a_listing_rather_than_paths_resolves_to_nothing() {
+        let dir = std::env::temp_dir().join(format!("rc-panelize-ls-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.txt"), b"aa").unwrap();
+
+        let lines: Vec<String> = [
+            "total 12",
+            "drwxr-xr-x  2 toumal toumal 4096 Jan  1 12:00 .",
+            "drwxrwxrwt 20 root   root   4096 Jan  1 12:00 ..",
+            "-rw-r--r--  1 toumal toumal    2 Jan  1 12:00 a.txt",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+        assert!(
+            resolve_lines(&lines, &dir).is_empty(),
+            "a listing names no files, not even the one it mentions"
+        );
+        // Plain `ls`, which does print bare names, works as expected.
+        assert_eq!(resolve_lines(&["a.txt".to_string()], &dir).len(), 1);
 
         std::fs::remove_dir_all(&dir).ok();
     }

@@ -186,8 +186,9 @@ The installed executable is named **`rc`** for quick typing.
   back on the next run. The strip only appears once a panel has more than one.
 - **Panelize a command's output** — run `rg -l TODO`, `git ls-files -m`,
   `find . -mtime -1` or `dpkg -L nginx` and the files it names become the panel
-  listing, ready for F3, tagging, F5 and F8. `find -print0` and `git ls-files
-  -z` are understood, so names with newlines in them survive.
+  listing, ready for F3, tagging, F5 and F8. The command has to print paths one
+  per line (so plain `ls`, not `ls -la`); `find -print0` and `git ls-files -z`
+  are understood, so names with newlines in them survive.
 - **Find file**, **Compare directories**, **Find duplicates**, and a
   side-by-side **Compare files** diff with in-place merging — binary files are
   compared byte by byte instead, as hex and ASCII side by side, paged from disk

@@ -685,6 +685,12 @@ pub fn interactive_argv() -> Vec<String> {
 /// typed here would silently expand to nothing ("command not found"). `cmd.exe`
 /// and PowerShell have no rc-file aliases to bring in, so they run the plain
 /// one-shot form.
+///
+/// **Only for callers that have handed the terminal over**, which today means
+/// the suspend-and-run foreground path. An interactive shell grabs the
+/// terminal's foreground process group, so starting one while the TUI is still
+/// drawing stops Rat Commander outright — a caller that captures output wants
+/// [`capture_argv`] instead.
 pub fn command_argv(cmd: &str) -> Vec<String> {
     let program = preferred();
     match kind_of(&program) {
@@ -695,6 +701,45 @@ pub fn command_argv(cmd: &str) -> Vec<String> {
         }
         _ => one_shot_argv(&program, cmd),
     }
+}
+
+/// Argv that runs a **user-typed** `cmd` whose output we capture while Rat
+/// Commander still owns the terminal.
+///
+/// The user's own shell, so their syntax works — but never `-i`, and that is
+/// the whole reason this exists beside [`command_argv`]. An interactive shell
+/// calls `tcsetpgrp()` to take the terminal's foreground process group for job
+/// control. When the caller has handed the terminal over (the F2 user menu,
+/// the command line) that is exactly right. When the caller is still drawing a
+/// TUI it is a disaster: the shell takes the terminal, Rat Commander's next
+/// write earns a `SIGTTOU`, and the whole program **stops** — a frozen screen
+/// the user can only escape by killing it. An interactive shell also writes
+/// its prompt and its terminal-mode escape sequences straight to `/dev/tty`,
+/// which redirecting stdout does not catch.
+///
+/// The cost is that aliases no longer expand, since a non-interactive bash
+/// turns alias expansion off. That is the right trade for a command whose
+/// output is being parsed rather than read, and `zsh`/`fish` still bring their
+/// rc-file environment along.
+pub fn capture_argv(cmd: &str) -> Vec<String> {
+    one_shot_argv(&preferred(), cmd)
+}
+
+/// A command whose output Rat Commander captures while the TUI is still on
+/// screen. Built here rather than at each call site so the three guards that
+/// keep a stray command from taking the terminal down with it cannot be
+/// forgotten by the next caller.
+pub fn capture_command(cmd: &str) -> tokio::process::Command {
+    let mut c = command_from(capture_argv(cmd));
+    // Nothing may read the terminal behind our back.
+    c.stdin(std::process::Stdio::null());
+    // Esc on the spinner aborts the task; the child goes with it.
+    c.kill_on_drop(true);
+    // Its own process group, so any job-control signal it provokes is its
+    // problem rather than ours — belt and braces beside dropping `-i`.
+    #[cfg(unix)]
+    c.process_group(0);
+    c
 }
 
 /// Argv that runs `cmd` once, non-interactively, for commands Rat Commander
@@ -975,6 +1020,39 @@ aNbaT1L+sT5Oo+M8cFWUAAAAB3JjLXRlc3QBAgMEBQY=\n\
         assert_eq!(interactive_argv_for("/bin/zsh"), ["/bin/zsh"]);
         assert_eq!(interactive_argv_for("cmd.exe"), ["cmd.exe"]);
         assert_eq!(interactive_argv_for("pwsh"), ["pwsh", "-NoLogo"]);
+    }
+
+    /// The one thing `capture_argv` must never do.
+    ///
+    /// `-i` makes the shell call `tcsetpgrp()` and take the terminal's
+    /// foreground process group; with the TUI still drawn, Rat Commander's next
+    /// write then earns a `SIGTTOU` and the program stops dead, needing to be
+    /// killed from another terminal. Typing `ls -la` into *Panelize command
+    /// output* did exactly that.
+    #[test]
+    fn capture_argv_is_never_interactive() {
+        for shell in ["/bin/sh", "/bin/bash", "/usr/bin/zsh", "/usr/bin/fish"] {
+            let argv = one_shot_argv(shell, "ls -la");
+            assert!(
+                !argv.iter().any(|a| a == "-i"),
+                "{shell} would have been run interactively: {argv:?}"
+            );
+            assert_eq!(argv[1], "-c", "{shell} still runs the command");
+        }
+        // And the real thing, whatever shell this machine prefers.
+        assert!(!capture_argv("ls -la").iter().any(|a| a == "-i"));
+        assert!(capture_argv("ls -la").last().is_some_and(|a| a == "ls -la"));
+    }
+
+    /// The foreground path keeps its interactive shell: there the terminal has
+    /// been handed over, so job control and aliases are exactly what is wanted.
+    /// The two must not be quietly collapsed into one.
+    #[test]
+    fn command_argv_stays_interactive_for_the_foreground_path() {
+        let argv = command_argv("ls -la");
+        if kind_of(&preferred()) == ShellKind::Posix {
+            assert!(argv.contains(&"-i".to_string()), "{argv:?}");
+        }
     }
 
     #[test]

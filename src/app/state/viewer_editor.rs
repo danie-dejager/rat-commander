@@ -301,8 +301,10 @@ impl AppState {
     /// Run `cmd` through the user's shell and insert its output at the editor's
     /// cursor (Format → Paste output of…).
     pub(in crate::app::state) async fn editor_paste_output(&mut self, cmd: String) {
-        let argv = crate::shell::command_argv(&cmd);
-        let out = crate::shell::command_from(argv).output().await;
+        // Not an interactive shell: it would take the terminal's foreground
+        // process group and stop the program while the editor is still drawn.
+        // See `shell::capture_argv`.
+        let out = crate::shell::capture_command(&cmd).output().await;
         match out {
             Ok(o) => {
                 // Failures still have something to say — paste stderr so the user
