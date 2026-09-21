@@ -347,6 +347,10 @@ impl AppState {
                 self.apply_select(select, &pattern, files_only, case_sensitive, shell)
             }
             Submit::SearchReplace(p) => self.apply_search_replace(p),
+            Submit::DiscardHunk => self.discard_hunk_confirmed().await,
+            Submit::ConfirmDropStash { label, args } => {
+                self.dialog = Some(Dialog::Confirm(ConfirmDialog::git_drop_stash(&label, args)));
+            }
             Submit::Find(p) => self.start_find(p),
             Submit::Panelize(cmd) => self.start_panelize(cmd),
             Submit::Chmod(paths, mode, recursive) => self.apply_chmod(paths, mode, recursive).await,

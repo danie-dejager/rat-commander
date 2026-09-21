@@ -132,8 +132,14 @@ The installed executable is named **`rc`** for quick typing.
   current **branch + ahead/behind** shows on the panel border, and one-key actions
   **stage/unstage** (`Ctrl-G`) or open a side-by-side **diff against HEAD**
   (`Alt-D`).
+- **Stage a single hunk** — in the `Alt-D` diff, `s` stages the hunk under the
+  cursor, `x` discards it and `u` unstages the whole file, so a change worth
+  committing on its own can be split out without leaving the file manager. The
+  patch comes from `git diff` byte for byte, so CRLF files and files with no
+  trailing newline stage as cleanly as any other.
 - **Git functions (`Alt-G`, or File → Git)** — **status**, **log**, **add**, 
-  **unstage**, **rm**, **restore**, **commit**, **fetch**, **pull**, **push** 
+  **unstage**, **rm**, **restore**, **commit**, **stash** (save, list, apply,
+  pop, drop), **fetch**, **pull**, **push** 
   (with `--force-with-lease` or `--force`), **sync** (pull + push), 
   **checkout**, **reset**, **init** and **clone**. 
 - **Browse git history** — the Git menu's *Browse a revision* mounts the
@@ -336,7 +342,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Alt-Shift-I` | Set / clear the panel's persistent listing filter |
 | `Alt-Shift-H` | Shell history window (recall a command without running it) |
 | `Alt-G` | Open the **Git menu** (status, log, commit, push/pull, checkout, …) |
-| `Ctrl-G` / `Alt-D` | Git: stage/unstage the selection · diff the file against HEAD |
+| `Ctrl-G` / `Alt-D` | Git: stage/unstage the selection · diff the file against HEAD (`s` stages a hunk there) |
 | `Ctrl-Ins` | Copy the selected paths (or the cursor's) to the system clipboard |
 | `Ctrl-R` | Re-read the active panel |
 | `Alt-S` / `Ctrl-S` | Quick search the active panel (jump to the first matching name) |

@@ -186,6 +186,9 @@ impl AppState {
                 DiffSignal::ConfirmQuit => {
                     self.dialog = Some(Dialog::Confirm(ConfirmDialog::diff_quit()));
                 }
+                DiffSignal::StageHunk => self.stage_hunk_under_cursor().await,
+                DiffSignal::DiscardHunk => self.confirm_discard_hunk(),
+                DiffSignal::UnstageFile => self.unstage_diff_file(),
             }
             return Flow::Continue;
         }
@@ -268,6 +271,8 @@ impl AppState {
             | MenuAction::GitRemove
             | MenuAction::GitRestore
             | MenuAction::GitCommit
+            | MenuAction::GitStash
+            | MenuAction::GitStashList
             | MenuAction::GitFetch
             | MenuAction::GitPull
             | MenuAction::GitPush

@@ -147,14 +147,26 @@ impl AppState {
         // Left = HEAD (read-only: a non-`file` scheme so an accidental save can't
         // overwrite anything); right = the working file.
         let head_path = VfsPath { scheme: "git-head".into(), path: rel.clone(), container: None };
-        self.diffview = Some(DiffView::new(
+        let mut view = DiffView::new(
             format!("{name}  (HEAD)"),
             head_path,
             &head_data,
             name,
             work_path,
             &work_data,
-        ));
+        );
+        // The staging keys work off `git diff`, not off the view's own deltas —
+        // see `crate::git::hunks` for the four reasons those cannot be turned
+        // into an appliable patch. A file git cannot diff (untracked, say) just
+        // leaves the view without hunks, still perfectly readable.
+        if let Ok(unstaged) = crate::git::hunks::diff_file(&root, &rel, false).await {
+            let staged_dirty = crate::git::hunks::diff_file(&root, &rel, true)
+                .await
+                .map(|d| !d.hunks.is_empty() || d.binary)
+                .unwrap_or(false);
+            view.git = Some(crate::diff::GitCtx { root, rel, unstaged, staged_dirty });
+        }
+        self.diffview = Some(view);
     }
 
     /// Point the active panel at this repository's history.
@@ -212,6 +224,8 @@ impl AppState {
             M::GitDiff => self.open_git_diff().await,
             M::GitStage => self.git_stage_toggle().await,
             M::GitCommit => self.dialog = Some(Dialog::Form(FormDialog::git_commit())),
+            M::GitStash => self.dialog = Some(Dialog::Form(FormDialog::git_stash())),
+            M::GitStashList => self.spawn_git_stashes(dir),
             M::GitPull => self.dialog = Some(Dialog::Form(FormDialog::git_pull())),
             M::GitSync => self.git_sync(dir),
             // These need the repo's branches/remotes before they can be shown.
@@ -295,6 +309,136 @@ impl AppState {
         ));
     }
 
+    // -- Hunk staging from the Alt-D diff ----------------------------------
+
+    /// The patch for the hunk under the cursor, or why there isn't one.
+    fn hunk_patch(&self) -> std::result::Result<(PathBuf, String), &'static str> {
+        let Some(view) = self.diffview.as_ref() else { return Err("No diff is open") };
+        let Some(git) = view.git.as_ref() else {
+            return Err("Hunk staging needs the Git diff (Alt-D)");
+        };
+        if git.unstaged.binary {
+            return Err("This file is binary");
+        }
+        if git.unstaged.hunks.is_empty() {
+            return Err("Nothing is unstaged in this file");
+        }
+        let Some(i) = view.hunk_at_cursor() else { return Err("No hunk under the cursor") };
+        let patch = crate::git::hunks::single_hunk_patch(&git.unstaged, &git.unstaged.hunks[i]);
+        Ok((git.root.clone(), patch))
+    }
+
+    /// Stage just the hunk under the cursor.
+    pub(in crate::app::state) async fn stage_hunk_under_cursor(&mut self) {
+        let (root, patch) = match self.hunk_patch() {
+            Ok(v) => v,
+            Err(e) => return self.show_error(e),
+        };
+        self.run_patch(root, patch, true, false, "stage hunk").await;
+    }
+
+    /// Discarding throws away work that was never committed, so it asks first.
+    pub(in crate::app::state) fn confirm_discard_hunk(&mut self) {
+        if let Err(e) = self.hunk_patch() {
+            return self.show_error(e);
+        }
+        self.dialog = Some(Dialog::Confirm(ConfirmDialog::discard_hunk()));
+    }
+
+    /// The confirmation came back yes: reverse the hunk out of the worktree.
+    pub(in crate::app::state) async fn discard_hunk_confirmed(&mut self) {
+        let (root, patch) = match self.hunk_patch() {
+            Ok(v) => v,
+            Err(e) => return self.show_error(e),
+        };
+        self.run_patch(root, patch, false, true, "discard hunk").await;
+    }
+
+    /// Unstage the whole file.
+    ///
+    /// Whole-file rather than per-hunk on purpose: unstaging one hunk needs the
+    /// hunks of `git diff --cached` (index against HEAD), and this view has no
+    /// row that corresponds to an index line — its panes are HEAD and the
+    /// worktree. A third pane would be needed to put a cursor on one.
+    pub(in crate::app::state) fn unstage_diff_file(&mut self) {
+        let Some(view) = self.diffview.as_ref() else { return };
+        let Some(git) = view.git.as_ref() else {
+            return self.show_error("Unstaging needs the Git diff (Alt-D)");
+        };
+        let names = vec![git.rel.to_string_lossy().into_owned()];
+        let (root, args) = (git.root.clone(), ops::unstage_args(&names));
+        self.spawn_git("restore", root, args);
+    }
+
+    /// Feed a patch to `git apply`, then refresh what the user is looking at.
+    async fn run_patch(&mut self, root: PathBuf, patch: String, cached: bool, reverse: bool, what: &str) {
+        let out = ops::apply_patch(&root, &patch, cached, reverse).await;
+        if !out.ok {
+            let why = if out.text.trim().is_empty() { "git apply failed".into() } else { out.text };
+            return self.show_error(format!("Cannot {what}: {why}"));
+        }
+        self.invalidate_git();
+        self.refresh_git_diff().await;
+        self.reload_all().await;
+        if let Some(v) = self.diffview.as_mut() {
+            // Two literal calls rather than one over a conditional, so the
+            // catalog audit can see both keys.
+            v.set_status(if reverse {
+                crate::l10n::trd("Hunk discarded")
+            } else {
+                crate::l10n::trd("Hunk staged")
+            });
+        }
+    }
+
+    /// Re-read the open git diff in place, keeping the cursor where it was.
+    ///
+    /// Called after *any* git action while the diff is open, not just a staging
+    /// one — a commit or a checkout changes what the diff should show just as
+    /// much.
+    pub(in crate::app::state) async fn refresh_git_diff(&mut self) {
+        let Some(view) = self.diffview.as_ref() else { return };
+        let Some(git) = view.git.as_ref() else { return };
+        let (root, rel) = (git.root.clone(), git.rel.clone());
+        let unstaged = match crate::git::hunks::diff_file(&root, &rel, false).await {
+            Ok(d) => d,
+            Err(_) => return, // the file may have gone; leave the view as it is
+        };
+        let staged_dirty = crate::git::hunks::diff_file(&root, &rel, true)
+            .await
+            .map(|d| !d.hunks.is_empty() || d.binary)
+            .unwrap_or(false);
+        if let Some(v) = self.diffview.as_mut()
+            && let Some(g) = v.git.as_mut()
+        {
+            g.unstaged = unstaged;
+            g.staged_dirty = staged_dirty;
+        }
+    }
+
+    /// Read the repository's stashes in the background, then open the picker.
+    fn spawn_git_stashes(&mut self, dir: PathBuf) {
+        let tx = self.tx.clone();
+        let handle = tokio::spawn(async move {
+            let stashes = ops::stash_list(&dir).await;
+            let _ = tx.send(AppEvent::GitStashes { stashes }).await;
+        });
+        self.busy_git("stash list", handle);
+    }
+
+    /// The stashes arrived: show them, or say there are none rather than
+    /// opening an empty box with nothing to pick.
+    pub(in crate::app::state) fn on_git_stashes(
+        &mut self,
+        stashes: Vec<crate::git::ops::StashEntry>,
+    ) {
+        self.busy_task = None; // the task delivered its result
+        if stashes.is_empty() {
+            return self.show_error("This repository has no stashes");
+        }
+        self.dialog = Some(Dialog::Stash(StashDialog::new(stashes)));
+    }
+
     /// Read the repository's branches/remotes in the background, then open the
     /// guided dialog that needs them.
     fn spawn_git_info(&mut self, form: GitInfoForm, dir: PathBuf) {
@@ -322,6 +466,9 @@ impl AppState {
         };
         // Almost every git action changes the tree, the index, or the branch.
         self.invalidate_git();
+        // A commit or a checkout changes what an open diff should show just as
+        // much as staging does, so refresh it here rather than at each caller.
+        self.refresh_git_diff().await;
         self.reload_all().await;
     }
 

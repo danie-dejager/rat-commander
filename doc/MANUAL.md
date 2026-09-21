@@ -2349,7 +2349,36 @@ files if any):
   [Compare files](#compare-files-side-by-side-diff) view. Use `Ctrl-←` to bring a
   hunk over from `HEAD` (discarding a change) and **F2** to write the working file
   back. An untracked file diffs against an empty left side. (The `HEAD` side is
-  read-only, so it can't be written back over anything.)
+  read-only, so it can't be written back over anything.) From here you can also
+  stage a single hunk — see below.
+
+### Staging hunks
+
+In the `Alt-D` diff, three keys act on the **hunk under the cursor**:
+
+- **`s`** — **stage** it (`git apply --cached`). The rest of the file stays
+  unstaged, so a change you want to commit on its own can be split out without
+  leaving Rat Commander.
+- **`x`** — **discard** it from the working file. This throws away an edit that
+  was never committed and cannot be undone, so it asks first.
+- **`u`** — **unstage the whole file** (`git restore --staged`).
+
+The status line shows how many hunks the file has and which one you are in, and
+the view refreshes itself after every Git action, so staging one hunk
+immediately leaves the remaining ones on screen.
+
+Two things are worth knowing about why it behaves this way:
+
+- **The hunks are not the same as the `⇄` blocks.** The two panes show `HEAD`
+  and your working file, while the hunks run from the **index** to the working
+  file — the same thing `git add -p` would offer you. They coincide only while
+  nothing is staged; when something is, the status line says so.
+- **Unstaging is whole-file, not per-hunk.** Picking a staged hunk would mean
+  putting a cursor on an *index* line, and no pane here shows one. Unstage the
+  file and stage again, or use the Git menu.
+
+Binary files have no hunks to stage, and neither does a file with nothing
+unstaged; both say so rather than doing nothing.
 
 Everything else lives in the [Git menu](#the-git-menu) below.
 
@@ -2379,6 +2408,14 @@ and to *guide* rather than assume you remember the flags. Long-running commands
 - **Add (stage)** (`A`) — `git add`.
 - **Stage/unstage** (`G`, or **`Ctrl-G`**) — the toggle.
 - **Unstage** (`U`) — `git restore --staged`.
+- **Stash save…** (`V`) — `git stash push`: put the working tree aside and go
+  back to a clean `HEAD`. The message is optional (git writes its own "WIP on
+  *branch*" otherwise); tick **Include untracked files** to take along files git
+  is not tracking yet, and **Keep the index staged** to leave what you have
+  already staged in place.
+- **Stashes…** (`E`) — the stash list, with the verbs on it: **Enter** shows a
+  stash's diff, **`a`** applies it and keeps it, **`p`** pops it (applies and
+  removes), **`d`** drops it — which discards it for good, so it asks first.
 - **Remove…** (`M`) — `git rm`: drops the files from the index **and deletes them
   on disk**, so it asks first.
 - **Restore (discard)…** (`T`) — `git restore`: throws away uncommitted edits.

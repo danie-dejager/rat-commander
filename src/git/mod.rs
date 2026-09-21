@@ -9,6 +9,7 @@
 
 pub mod activity;
 pub mod blame;
+pub mod hunks;
 pub mod ops;
 
 use std::collections::HashMap;

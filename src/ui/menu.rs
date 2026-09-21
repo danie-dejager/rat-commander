@@ -67,6 +67,10 @@ pub enum MenuAction {
     GitRestore,
     /// Commit the index (message / amend / stage-all collected in a form).
     GitCommit,
+    /// Save the working tree as a stash.
+    GitStash,
+    /// Open the stash picker (show / apply / pop / drop).
+    GitStashList,
     /// `git fetch` (remote / prune options collected in a form).
     GitFetch,
     /// `git pull` (rebase option collected in a form).
@@ -371,6 +375,8 @@ fn git_menu_items() -> Vec<FileMenuItem> {
         item("Res&tore (discard)...", MenuAction::GitRestore),
         sep(),
         item("&Commit...", MenuAction::GitCommit),
+        item("Stash sa&ve...", MenuAction::GitStash),
+        item("Stash&es...", MenuAction::GitStashList),
         sep(),
         item("&Fetch...", MenuAction::GitFetch),
         item("&Pull...", MenuAction::GitPull),
@@ -399,6 +405,8 @@ pub const GIT_MENU_KEYS: &[(&str, MenuAction)] = &[
     ("Re&move...", MenuAction::GitRemove),
     ("Res&tore (discard)...", MenuAction::GitRestore),
     ("&Commit...", MenuAction::GitCommit),
+    ("Stash sa&ve...", MenuAction::GitStash),
+    ("Stash&es...", MenuAction::GitStashList),
     ("&Fetch...", MenuAction::GitFetch),
     ("&Pull...", MenuAction::GitPull),
     ("Pus&h...", MenuAction::GitPush),

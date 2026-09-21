@@ -178,7 +178,20 @@ fn render_status(f: &mut Frame, area: Rect, dv: &DiffView, theme: &Theme) {
         format!("{}{}", ellipsize(&dv.left_name, half), if dv.left_dirty { " [+]" } else { "" });
     let r =
         format!("{}{}", ellipsize(&dv.right_name, half), if dv.right_dirty { " [+]" } else { "" });
-    let text = format!(" {l}  ⇄  {r}   {n} {}{pos} ", crate::l10n::trd("diff(s)"));
+    let mut text = format!(" {l}  ⇄  {r}   {n} {}{pos} ", crate::l10n::trd("diff(s)"));
+    // In the git diff the hunk count is what the staging keys act on, and it is
+    // not the same as the delta count whenever something is already staged —
+    // the panes show HEAD and the worktree, the hunks run index to worktree.
+    if let Some((at, total)) = dv.hunk_position() {
+        text.push_str(&format!("  {total} {}", crate::l10n::trd("hunk(s)")));
+        if at > 0 {
+            text.push_str(&format!(" [{at}/{total}]"));
+        }
+        if dv.git.as_ref().is_some_and(|g| g.staged_dirty) {
+            text.push_str(&format!("  ({})", crate::l10n::trd("staged changes not shown")));
+        }
+        text.push(' ');
+    }
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
             pad_right(&text, area.width as usize),
@@ -189,11 +202,24 @@ fn render_status(f: &mut Frame, area: Rect, dv: &DiffView, theme: &Theme) {
 }
 
 fn render_footer(f: &mut Frame, area: Rect, dv: &DiffView, theme: &Theme) {
-    let hint = if dv.status.is_empty() {
+    let tr = crate::l10n::trd;
+    let hint = if !dv.status.is_empty() {
+        dv.status.clone()
+    } else if dv.git.is_some() {
+        // The git diff's own verbs; these keys exist nowhere else, so they have
+        // to be visible rather than discoverable only from the manual.
+        format!(
+            "↑↓ {}   Ctrl-↑↓ {}   s {}   x {}   u {}   Esc {}",
+            tr("move"),
+            tr("delta"),
+            tr("stage hunk"),
+            tr("discard hunk"),
+            tr("unstage file"),
+            tr("close")
+        )
+    } else {
         "↑↓ move   Ctrl-↑↓ delta   Ctrl-← apply→left   Ctrl-→ apply→right   F2 save   Esc close"
             .to_string()
-    } else {
-        dv.status.clone()
     };
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(

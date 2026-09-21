@@ -6628,3 +6628,83 @@ async fn panelize_refuses_a_non_local_panel() {
         "an error is shown instead of the command prompt"
     );
 }
+
+/// Alt-D opens the diff *and* loads the hunks the staging keys act on. Without
+/// this the view would look identical but `s` would report "no hunk", which is
+/// exactly the failure a rendering test would miss.
+#[tokio::test]
+async fn the_git_diff_carries_the_hunks_that_staging_acts_on() {
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_gitdiff_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let run = |args: &[&str]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@e")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@e")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if !run(&["init", "-q", "-b", "main"]) {
+        eprintln!("git unavailable; skipping");
+        let _ = std::fs::remove_dir_all(&root);
+        return;
+    }
+    let body: String = (1..=20).map(|i| format!("line{i}\n")).collect();
+    std::fs::write(root.join("f.txt"), &body).unwrap();
+    run(&["add", "-A"]);
+    run(&["commit", "-q", "-m", "init"]);
+    // Two edits far enough apart that -U3 keeps them as separate hunks.
+    let edited = body.replace("line2\n", "CHANGED2\n").replace("line19\n", "CHANGED19\n");
+    std::fs::write(root.join("f.txt"), &edited).unwrap();
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+
+    // The panel's git status is read on a background task, and `open_git_diff`
+    // refuses without it, so wait for it to land.
+    st.update_git();
+    loop {
+        let ev = rx.recv().await.unwrap();
+        let done = matches!(ev, AppEvent::GitStatusScanned { .. });
+        st.apply_event(ev).await;
+        if done {
+            break;
+        }
+    }
+    assert!(st.panels[0].git.is_some(), "the panel knows it is in a repository");
+    st.panels[0].cursor =
+        st.panels[0].entries.iter().position(|e| e.name == "f.txt").expect("the file");
+
+    st.open_git_diff().await;
+    let view = st.diffview.as_ref().expect("the diff opened");
+    let git = view.git.as_ref().expect("and it carries its git context");
+    assert_eq!(git.unstaged.hunks.len(), 2, "both edits arrived as hunks");
+    assert_eq!(git.rel, std::path::Path::new("f.txt"));
+    assert!(!git.staged_dirty, "nothing is staged yet");
+    // The cursor opens at the top, which is inside the first hunk (the edit is
+    // on line 2, and -U3 starts the hunk at line 1).
+    assert_eq!(view.hunk_position(), Some((1, 2)), "cursor is in hunk 1 of 2");
+
+    // And moving to the end of the file finds the other one, which is what
+    // makes `s` stage the hunk you are actually looking at.
+    let view = st.diffview.as_mut().unwrap();
+    view.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+    assert_eq!(view.hunk_at_cursor(), Some(1), "the last row belongs to the second hunk");
+
+    let _ = std::fs::remove_dir_all(&root);
+}

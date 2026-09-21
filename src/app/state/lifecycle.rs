@@ -757,6 +757,7 @@ impl AppState {
                 }
             }
             AppEvent::PanelizeDone { result } => self.on_panelize_done(result),
+            AppEvent::GitStashes { stashes } => self.on_git_stashes(stashes),
             AppEvent::FindDone { id, results } => {
                 self.tasks.remove(&id);
                 if let Some(Dialog::Progress(p)) = &self.dialog

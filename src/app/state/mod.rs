@@ -22,8 +22,8 @@ use crate::ui::dialog::{
     HotlistOutcome, ImageSaveDialog, InputDialog, InputPurpose, MessageDialog, MultiRenameDialog,
     OverwriteDialog, PaletteAction, PaletteCategory, PaletteEntry, ProgressDialog, ReceiveDialog,
     SaveAsDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, SendFileDialog,
-    SettingsTab, ShellHistoryDialog, SpeedChart, Submit, SyncPreviewDialog, TabPickerDialog,
-    TemplatePickerDialog, UserMenuDialog,
+    SettingsTab, ShellHistoryDialog, SpeedChart, StashDialog, Submit, SyncPreviewDialog,
+    TabPickerDialog, TemplatePickerDialog, UserMenuDialog,
 };
 use crate::ui::layout::SplitDir;
 use crate::ui::menu::{MenuAction, MenuBarState, MenuSignal};

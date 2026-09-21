@@ -19,6 +19,29 @@ pub enum DiffSignal {
     Save,
     /// Closing with unsaved changes — ask save / discard / cancel.
     ConfirmQuit,
+    /// Stage the hunk under the cursor (`git apply --cached`).
+    StageHunk,
+    /// Throw the hunk under the cursor away (`git apply --reverse`).
+    DiscardHunk,
+    /// Unstage the whole file (`git restore --staged`).
+    UnstageFile,
+}
+
+/// What the Alt-D view needs in order to stage out of itself.
+///
+/// The hunks here come from `git diff` (index → worktree), **not** from
+/// `deltas`, which compare HEAD with the worktree. The two coincide only while
+/// nothing is staged, so everything hunk-related is keyed on worktree line
+/// numbers rather than on rows or deltas.
+pub struct GitCtx {
+    pub root: std::path::PathBuf,
+    /// The file's path relative to the repository root.
+    pub rel: std::path::PathBuf,
+    /// The unstaged hunks, as `git diff` reports them.
+    pub unstaged: crate::git::hunks::FileDiff,
+    /// Something is already staged, so the left pane (HEAD) is not the
+    /// preimage of these hunks. Worth saying on the status line.
+    pub staged_dirty: bool,
 }
 
 /// A single aligned display row: a left line, a right line, or one of each.
@@ -55,6 +78,9 @@ pub struct DiffView {
     active: Option<usize>,
     view_rows: usize,
     status: String,
+    /// Set only for the Alt-D git diff; `None` for a plain Compare-files, which
+    /// is why the staging keys are inert there.
+    pub git: Option<GitCtx>,
 }
 
 impl DiffView {
@@ -86,6 +112,7 @@ impl DiffView {
             active: None,
             view_rows: 1,
             status: String::new(),
+            git: None,
         };
         v.recompute();
         // Start on the first difference, if any.
@@ -117,11 +144,57 @@ impl DiffView {
         self.status = crate::l10n::trd("Saved");
     }
 
+    // -- Hunks (Alt-D only) ------------------------------------------------
+
+    /// The index into `git.unstaged.hunks` of the hunk the cursor sits in.
+    ///
+    /// Keyed on the **worktree** line under the cursor, converted to git's
+    /// 1-based numbering. A row that only exists on the left (a pure deletion)
+    /// has no worktree line of its own, so it borrows the start of its delta's
+    /// right-hand range — which is the line the deletion was cut from, and the
+    /// line git's hunk covers.
+    pub fn hunk_at_cursor(&self) -> Option<usize> {
+        let git = self.git.as_ref()?;
+        let row = self.rows.get(self.cursor)?;
+        let line = match row.right {
+            Some(r) => r,
+            None => self.deltas.get(row.delta?)?.right.start,
+        } as u32
+            + 1;
+        git.unstaged.hunks.iter().position(|h| {
+            let r = h.new_range();
+            // A pure deletion covers no worktree lines at all, so nothing would
+            // ever fall inside it; treat the line it was cut from as its own.
+            if r.is_empty() { line == r.start || line == r.start + 1 } else { r.contains(&line) }
+        })
+    }
+
+    /// How many hunks this file has, and which one the cursor is in.
+    pub fn hunk_position(&self) -> Option<(usize, usize)> {
+        let git = self.git.as_ref()?;
+        Some((self.hunk_at_cursor().map(|i| i + 1).unwrap_or(0), git.unstaged.hunks.len()))
+    }
+
+    pub fn set_status(&mut self, text: impl Into<String>) {
+        self.status = text.into();
+    }
+
     // -- Key handling ------------------------------------------------------
 
     pub fn handle_key(&mut self, key: KeyEvent) -> DiffSignal {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         self.status.clear();
+
+        // Staging keys exist only for the Alt-D git diff. A plain Compare-files
+        // has no repository behind it, so there they stay ordinary characters.
+        if self.git.is_some() && !ctrl {
+            match key.code {
+                KeyCode::Char('s') | KeyCode::Char('S') => return DiffSignal::StageHunk,
+                KeyCode::Char('x') | KeyCode::Char('X') => return DiffSignal::DiscardHunk,
+                KeyCode::Char('u') | KeyCode::Char('U') => return DiffSignal::UnstageFile,
+                _ => {}
+            }
+        }
 
         match key.code {
             KeyCode::Esc | KeyCode::F(10) | KeyCode::Char('q') | KeyCode::Char('Q') => {
@@ -406,6 +479,119 @@ mod tests {
 
     fn view(a: &str, b: &str) -> DiffView {
         DiffView::new("a".into(), vp(), a.as_bytes(), "b".into(), vp(), b.as_bytes())
+    }
+
+    /// Give a view the hunks `git diff` would have reported for it.
+    fn with_hunks(mut v: DiffView, hunks: Vec<crate::git::hunks::Hunk>) -> DiffView {
+        v.git = Some(GitCtx {
+            root: "/tmp/repo".into(),
+            rel: "f.txt".into(),
+            unstaged: crate::git::hunks::FileDiff { head: Vec::new(), binary: false, hunks },
+            staged_dirty: false,
+        });
+        v
+    }
+
+    fn hunk(new_start: u32, new_count: u32) -> crate::git::hunks::Hunk {
+        crate::git::hunks::Hunk {
+            old_start: new_start,
+            old_count: new_count,
+            new_start,
+            new_count,
+            header: format!("@@ -{new_start},{new_count} +{new_start},{new_count} @@"),
+            lines: Vec::new(),
+        }
+    }
+
+    /// The cursor is on a display row; a hunk covers worktree lines. Mapping
+    /// between the two is what decides which hunk `s` stages, so it has to be
+    /// right for an added line, a changed one, and a row far from any hunk.
+    #[test]
+    fn the_cursor_maps_to_the_hunk_covering_its_worktree_line() {
+        // Ten identical lines with line 2 and line 9 changed.
+        let a: String = (1..=10).map(|i| format!("line{i}\n")).collect();
+        let b = a.replace("line2\n", "CHANGED2\n").replace("line9\n", "CHANGED9\n");
+        // git would report two hunks around worktree lines 2 and 9.
+        let v = with_hunks(view(&a, &b), vec![hunk(1, 4), hunk(6, 5)]);
+
+        // Walk every row and check it lands in the hunk covering its right line.
+        for (i, row) in v.rows.iter().enumerate() {
+            let Some(r) = row.right else { continue };
+            let line = r as u32 + 1;
+            let expect = if (1..5).contains(&line) {
+                Some(0)
+            } else if (6..11).contains(&line) {
+                Some(1)
+            } else {
+                None
+            };
+            let mut probe = with_hunks(view(&a, &b), vec![hunk(1, 4), hunk(6, 5)]);
+            probe.cursor = i;
+            assert_eq!(probe.hunk_at_cursor(), expect, "row {i} covers worktree line {line}");
+        }
+    }
+
+    /// A pure deletion has no worktree line of its own, so it borrows the line
+    /// it was cut from — otherwise the cursor could sit on a deleted line and
+    /// find no hunk to stage.
+    #[test]
+    fn a_deleted_row_still_finds_its_hunk() {
+        let v = with_hunks(
+            view("one\ntwo\nthree\n", "one\nthree\n"),
+            // git writes a deletion as `@@ -2 +1,0 @@`: an empty new range.
+            vec![crate::git::hunks::Hunk {
+                old_start: 2,
+                old_count: 1,
+                new_start: 1,
+                new_count: 0,
+                header: "@@ -2 +1,0 @@".into(),
+                lines: vec!["-two".into()],
+            }],
+        );
+        let deleted = v
+            .rows
+            .iter()
+            .position(|r| r.left == Some(1) && r.right.is_none())
+            .expect("the deleted line has a row of its own");
+        let mut probe = v;
+        probe.cursor = deleted;
+        assert_eq!(probe.hunk_at_cursor(), Some(0), "the deletion belongs to the hunk");
+    }
+
+    /// Compare-files has no repository behind it, so `s`, `x` and `u` must stay
+    /// ordinary keys there rather than trying to stage anything.
+    #[test]
+    fn the_staging_keys_are_inert_without_a_repository() {
+        let mut v = view("one\ntwo\n", "one\nTWO\n");
+        assert!(v.git.is_none());
+        for c in ['s', 'x', 'u'] {
+            let sig = v.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+            assert!(matches!(sig, DiffSignal::Stay), "'{c}' does nothing in a plain compare");
+        }
+        assert!(v.hunk_at_cursor().is_none());
+        assert!(v.hunk_position().is_none());
+    }
+
+    #[test]
+    fn the_staging_keys_fire_in_the_git_diff() {
+        let mut v = with_hunks(view("one\ntwo\n", "one\nTWO\n"), vec![hunk(1, 2)]);
+        assert!(matches!(
+            v.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)),
+            DiffSignal::StageHunk
+        ));
+        assert!(matches!(
+            v.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            DiffSignal::DiscardHunk
+        ));
+        assert!(matches!(
+            v.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE)),
+            DiffSignal::UnstageFile
+        ));
+        // Ctrl-keys keep their meaning: Ctrl-S is not "stage".
+        assert!(matches!(
+            v.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL)),
+            DiffSignal::Stay
+        ));
     }
 
     #[test]
