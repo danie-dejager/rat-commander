@@ -1,5 +1,5 @@
 Name:           rat-commander
-Version:        1.9.3
+Version:        1.9.4
 Release:        1%{?dist}
 Summary:        A modern terminal file manager inspired by Norton Commander
 
@@ -55,6 +55,7 @@ install -Dpm0755 target/release/rc \
 %{_bindir}/rc
 
 %changelog
+* Tue Sep 22 2026 Rat Commander COPR Maintainer <danie.dejager@gmail.com> - 1.9.4-1
 * Wed Sep 15 2026 Rat Commander COPR Maintainer <danie.dejager@gmail.com> - 1.9.3-1
 * Tue Sep 15 2026 Rat Commander COPR Maintainer <danie.dejager@gmail.com> - 1.9.1-2
 * Mon Sep 14 2026 Rat Commander COPR Maintainer <danie.dejager@gmail.com> - 1.9.1-1
