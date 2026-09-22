@@ -325,6 +325,7 @@ used to share now lives on `Alt-T`.
   previous syntax error
 - `Alt-F` — (JSON files) Pretty-print the document
 - `Alt-M` — Show and edit the GeoJSON in the file on a world map (see *GeoJSON map* below)
+  — including a shapefile opened with F4 (see *Shapefiles* below)
 - `Esc` / `F10` — Quit (prompts if modified)
 
 While **Shift** or **Ctrl** is held, the F-key bar relabels the keys those
@@ -1641,6 +1642,36 @@ taken as allowing anything. Files over 4 MiB are not validated, and at most 200
 schema errors are shown. The bundled schemas are those published by SchemaStore
 and the Compose Specification (Apache-2.0) and GitLab (MIT); their sources and
 licenses are listed in `assets/schemas/README.md`.
+
+**Shapefiles (F3, F4).** A `.shp` is binary and comes with a `.shx` index, a
+`.dbf` of attributes and usually a `.prj`. Opening one shows it as the
+**GeoJSON it becomes** — one feature per shape, with its attributes as
+properties — so everything that already works on GeoJSON works on it:
+
+- **F3** shows that GeoJSON, with syntax highlighting and search.
+- **F4** opens it in the editor, and **Alt-M** draws it on the world map, where
+  it can be panned, clicked, and edited like any other GeoJSON — `e` to edit,
+  `1`/`2`/`3` to draw, `Del` to remove, `Ctrl-Z` to undo.
+- **F2** writes it back into the `.shp`, `.shx` and `.dbf` — not to a new file.
+
+Some details worth knowing:
+
+- **Coordinate systems.** A shapefile is often in metres on a projected grid
+  rather than in degrees. The `.prj` is read, and **Web Mercator** and **UTM on
+  WGS84** are converted to degrees on the way in and back to the file's own
+  coordinates on the way out, so the round trip is exact. A projection that
+  cannot be converted is refused with a message naming it, rather than opening
+  as an empty map.
+- **Attributes.** The `.dbf` schema — the field names, types and widths — is
+  kept and written back as it was. A property you add on the map that the schema
+  has no column for gets one, with its type inferred; a value too long for an
+  existing column is cut. Either way you are told after the save.
+- **One shape type per file.** The format allows a file only one kind of
+  geometry, so drawing a polygon into a file of points cannot be saved; those
+  features are left out and counted in the message.
+- **Saving is all-or-nothing.** The three files are written beside the originals
+  and moved into place only once all three have been written, so a failed save
+  never leaves a half-replaced set behind. The `.prj` is never touched.
 
 **Audio tags (F4).** Opening an MP3, Ogg, FLAC, M4A, WAV or other audio file
 with **F4** shows its **tags** rather than its bytes: a list of fields — Title,

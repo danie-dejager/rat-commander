@@ -5220,6 +5220,66 @@ async fn an_edited_json_file_is_checked_on_the_tick() {
 
 /// Alt-M in the editor opens the GeoJSON map at once, fills it from a read in
 /// the background, and Go to puts the editor's cursor on what was picked; a file
+/// F4 on a shapefile opens it as the GeoJSON it becomes, the map editor works
+/// on it like any other GeoJSON, and a save turns it back into the file set.
+#[tokio::test]
+async fn the_editor_opens_a_shapefile_as_geojson_and_saves_it_back() {
+    use crate::geo::geojson::Shape;
+    use crate::geo::shapefile::{dbf, shp};
+
+    let dir = temp_dir("shapefile");
+    let stem = dir.join("cities");
+    let shapes = vec![Shape::Point([16.3738, 48.2082]), Shape::Point([-0.1276, 51.5072])];
+    let (shp_b, shx_b) = shp::write(shp::ShapeType::Point, &shapes);
+    std::fs::write(stem.with_extension("shp"), &shp_b).unwrap();
+    std::fs::write(stem.with_extension("shx"), &shx_b).unwrap();
+    let table = dbf::Table {
+        fields: vec![dbf::Field { name: "NAME".into(), kind: b'C', len: 10, decimals: 0 }],
+        rows: vec![vec!["Vienna".into()], vec!["London".into()]],
+    };
+    std::fs::write(stem.with_extension("dbf"), dbf::write(&table)).unwrap();
+    let file = stem.with_extension("shp");
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(file.clone()).await;
+
+    let ed = st.editor.as_ref().expect("the editor opened");
+    assert!(ed.is_shapefile(), "a .shp opens as the shapefile it is");
+    let text = ed.contents();
+    assert!(text.contains("FeatureCollection"), "as GeoJSON: {text}");
+    assert!(text.contains("Vienna") && text.contains("London"), "with its attributes");
+
+    // The map dialog reads it exactly as it reads any other GeoJSON.
+    let doc = crate::geo::geojson::extract(&text);
+    assert_eq!(doc.objects.len(), 1, "one collection");
+    assert_eq!(doc.objects[0].features.len(), 2, "two features");
+    assert_eq!(doc.skipped, 0, "nothing dropped as out of range");
+
+    // Rename one, the way an edit on the map reaches the buffer, and save.
+    let edited = text.replace("London", "Londinium");
+    st.editor.as_mut().unwrap().apply_map_edit(crate::geo::edit::TextEdit::Replace {
+        start: 0,
+        end: text.len(),
+        text: edited,
+    });
+    st.save_editor(false).await;
+
+    let back = dbf::read(&std::fs::read(stem.with_extension("dbf")).unwrap()).unwrap();
+    assert_eq!(back.rows.len(), 2, "both records are still there");
+    assert!(
+        back.rows.iter().any(|r| r[0] == "Londinium"),
+        "the edit reached the .dbf: {:?}",
+        back.rows
+    );
+    // And the geometry survived the round trip.
+    let (kind, after) = shp::read(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(kind, shp::ShapeType::Point);
+    assert_eq!(after.len(), 2);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// F4 on an audio file opens the editor on its tags rather than on nonsense
 /// text or a haystack of bytes, an edit saves back into the file, and Alt-T
 /// still reaches the bytes underneath.

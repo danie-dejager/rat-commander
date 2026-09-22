@@ -177,6 +177,11 @@ pub struct EditorState {
     /// Always accompanied by `hex`: the file is binary, so what lies behind the
     /// tags is the byte editor, not text.
     pub(crate) tags: Option<crate::tags::editor::TagEditor>,
+    /// Set when the text is GeoJSON generated from a shapefile: what a save
+    /// needs to write the set back as it was found. The buffer is edited as
+    /// ordinary text (and drawn on the map with Alt-M like any other GeoJSON);
+    /// only the save is different.
+    pub(crate) shapefile: Option<Box<crate::geo::shapefile::Origin>>,
     /// The live syntax check of a JSON, TOML, YAML or XML file.
     check: Option<check::SyntaxCheck>,
     /// The binary template run over the file in hex mode, and its panel.
@@ -278,6 +283,7 @@ impl EditorState {
             hl_dark: false,
             sheet: None,
             tags: None,
+            shapefile: None,
             check: None,
             tpl: None,
             tpl_area: Rect::default(),
@@ -462,6 +468,24 @@ impl EditorState {
         let mut s = Self::new_hex(name, path)?;
         s.tags = Some(te);
         Ok(Some(s))
+    }
+
+    /// Open a shapefile set as the GeoJSON it becomes, remembering what a save
+    /// has to put back.
+    ///
+    /// The buffer from here on is ordinary text: Alt-M draws it on the map and
+    /// edits it exactly as it would a `.geojson` file. Only [`Self::is_shapefile`]
+    /// and the save path know the difference.
+    pub fn new_shapefile(name: String, path: VfsPath) -> Result<(Self, Option<String>), String> {
+        let opened = crate::geo::shapefile::open(std::path::Path::new(&path.path))?;
+        let mut s = Self::new(name, path, &opened.text);
+        s.shapefile = Some(Box::new(opened.origin));
+        Ok((s, opened.warning))
+    }
+
+    /// Whether this buffer came from a shapefile, and so goes back as one.
+    pub fn is_shapefile(&self) -> bool {
+        self.shapefile.is_some()
     }
 
     /// Whether the tag view is the one showing.

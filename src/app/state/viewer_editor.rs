@@ -525,6 +525,29 @@ impl AppState {
             };
         }
 
+        // A shapefile is binary, so what the viewer shows is the GeoJSON it
+        // becomes — the same text F4 would edit, and the same thing F3 shows
+        // for a .geojson. The map itself is an editor view (Alt-M), so the
+        // footer says so rather than leaving it to be guessed at.
+        if path.scheme == "file" && crate::geo::shapefile::is_shapefile_name(&name) {
+            match crate::geo::shapefile::open(std::path::Path::new(&path.path)) {
+                Ok(opened) => {
+                    let mut v = ViewerState::new(name, opened.text.into_bytes());
+                    v.set_local_path(path.path.clone());
+                    v.enable_syntax(self.dark_ui());
+                    self.viewer = Some(v);
+                    if let Some(w) = opened.warning {
+                        self.show_error(w);
+                    }
+                    return Flow::Continue;
+                }
+                Err(e) => {
+                    self.show_error(e);
+                    return Flow::Continue;
+                }
+            }
+        }
+
         if path.scheme == "file" {
             // Local: page straight from disk — never load the whole file. The
             // line-index scan runs off-thread so it doesn't block the reactor.
@@ -635,6 +658,25 @@ impl AppState {
         size: u64,
     ) {
         let local = path.scheme == "file";
+        // A shapefile is a set of binary files. It opens as the GeoJSON it
+        // becomes, so the map editor (Alt-M) works on it exactly as it does on
+        // a .geojson, and a save turns it back into the set.
+        if local && crate::geo::shapefile::is_shapefile_name(&name) {
+            match EditorState::new_shapefile(name.clone(), path.clone()) {
+                Ok((mut ed, warning)) => {
+                    self.prepare_editor(&mut ed);
+                    self.editor = Some(ed);
+                    if let Some(w) = warning {
+                        self.show_error(w);
+                    }
+                    return;
+                }
+                Err(e) => {
+                    self.show_error(e);
+                    return;
+                }
+            }
+        }
         // An audio file is binary — opening it as text would show nonsense, and
         // as bytes would show a haystack — so it opens on its tags, with the
         // bytes one Alt-T away. A file whose tags cannot be read falls through
@@ -756,6 +798,24 @@ impl AppState {
         }
         let vpath = VfsPath::local(&abs);
         let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+        // A shapefile opens as its GeoJSON here too, so `rcedit roads.shp` does
+        // what F4 on the same file does.
+        if crate::geo::shapefile::is_shapefile_name(&name) {
+            match EditorState::new_shapefile(name.clone(), vpath.clone()) {
+                Ok((mut ed, warning)) => {
+                    self.prepare_editor(&mut ed);
+                    self.editor = Some(ed);
+                    if let Some(w) = warning {
+                        self.show_error(w);
+                    }
+                    return;
+                }
+                Err(e) => {
+                    self.show_error(e);
+                    return;
+                }
+            }
+        }
         // An audio file opens on its tags here too, so `rcedit song.mp3` does
         // what F4 on the same file does.
         if crate::tags::is_taggable_name(&name) {
@@ -852,6 +912,27 @@ impl AppState {
         // here; the user saves, then quits again once the buffer has a name).
         if ed.is_unnamed() {
             self.open_save_as(None);
+            return;
+        }
+        // A buffer that came from a shapefile goes back as one: the text is
+        // only how it was edited, not what it is.
+        if ed.is_shapefile() {
+            let contents = ed.contents();
+            let origin = ed.shapefile.clone().expect("checked above");
+            match crate::geo::shapefile::save(&origin, &contents) {
+                Ok(report) => {
+                    if let Some(ed) = self.editor.as_mut() {
+                        ed.mark_saved();
+                    }
+                    if let Some(msg) = report.message() {
+                        self.show_error(msg);
+                    }
+                    if close_after {
+                        self.close_editor().await;
+                    }
+                }
+                Err(e) => self.show_error(e),
+            }
             return;
         }
         // An audio file opened for its tags writes them through the tag writer,

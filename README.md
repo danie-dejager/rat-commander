@@ -109,6 +109,9 @@ The installed executable is named **`rc`** for quick typing.
   `tsconfig.json`, or named in the file, or mapped in your config) — JSON
   **pretty-printing** (`Alt-F`), minifying and key sorting that keep the key
   order, the numbers as written and a JSONC file's comments — a
+  **shapefiles** (`.shp` opens as the GeoJSON it becomes — attributes and all —
+  drawn and edited on the same map, and saved back into the `.shp`/`.shx`/`.dbf`
+  set; UTM and Web Mercator files are reprojected on the way in and out), a
   **GeoJSON map** (`Alt-M`) that draws the GeoJSON in a file, or nested anywhere
   in a larger JSON document, over a built-in vector map of the world (land,
   lakes, borders, rivers and cities from Natural Earth) with pan, zoom and
