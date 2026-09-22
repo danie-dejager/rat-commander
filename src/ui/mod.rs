@@ -1156,6 +1156,7 @@ mod feature_tests {
             sources,
             "20260630".to_string(),
             "143007".to_string(),
+            1,
         ));
         let theme = crate::ui::theme::Theme::mc();
         let mut t = Terminal::new(TestBackend::new(100, 24)).unwrap();
@@ -1182,6 +1183,94 @@ mod feature_tests {
         let text = text_of(&t);
         assert!(text.contains("photo_1"), "first file gets counter 1");
         assert!(text.contains("note_2"), "second file gets counter 2");
+    }
+
+    #[test]
+    fn metadata_reaches_the_rename_preview_when_it_arrives() {
+        use crate::rename::FileMeta;
+        use crate::ui::dialog::{Dialog, MultiRenameDialog};
+        use crate::vfs::VfsPath;
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let sources = vec![VfsPath::local("/tmp/a.jpg"), VfsPath::local("/tmp/b.jpg")];
+        let mut dlg = Dialog::MultiRename(MultiRenameDialog::new(
+            sources,
+            "20260630".to_string(),
+            "143007".to_string(),
+            7,
+        ));
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(100, 24)).unwrap();
+
+        // Ask for the capture date, which nothing has read yet.
+        let press = |d: &mut Dialog, c: KeyCode| d.handle_key(KeyEvent::new(c, KeyModifiers::NONE));
+        for _ in 0.."[N].[E]".len() {
+            press(&mut dlg, KeyCode::Backspace);
+        }
+        for c in "[EXIF:YMD].[E]".chars() {
+            press(&mut dlg, KeyCode::Char(c));
+        }
+        t.draw(|f| dlg.render(f, f.area(), &theme, None)).unwrap();
+        let before = text_of(&t);
+        assert!(before.contains("reading metadata"), "says the read is still running");
+        assert!(!before.contains("20240714"), "no date before the read lands");
+
+        // The read lands for this generation.
+        let Dialog::MultiRename(d) = &mut dlg else { unreachable!() };
+        assert!(d.awaits(7) && !d.awaits(6), "only its own generation is taken");
+        let meta: Vec<FileMeta> = ["20240714", "20250101"]
+            .iter()
+            .map(|ymd| {
+                let mut m = FileMeta::default();
+                m.extend("exif", [("ymd".to_string(), (*ymd).to_string())]);
+                m
+            })
+            .collect();
+        d.set_meta(meta);
+
+        t.draw(|f| dlg.render(f, f.area(), &theme, None)).unwrap();
+        let after = text_of(&t);
+        assert!(after.contains("20240714.jpg"), "first photo renames to its own date");
+        assert!(after.contains("20250101.jpg"), "second photo renames to its own date");
+        assert!(!after.contains("reading metadata"), "the notice goes once the read is in");
+    }
+
+    #[test]
+    fn the_rename_placeholder_reference_opens_on_f1() {
+        use crate::ui::dialog::{Dialog, MultiRenameDialog};
+        use crate::vfs::VfsPath;
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut dlg = Dialog::MultiRename(MultiRenameDialog::new(
+            vec![VfsPath::local("/tmp/a.jpg")],
+            "20260630".to_string(),
+            "143007".to_string(),
+            1,
+        ));
+        let theme = crate::ui::theme::Theme::mc();
+        // Tall enough for the whole reference, so the assertions are about what
+        // it lists rather than about where it happens to be scrolled.
+        let mut t = Terminal::new(TestBackend::new(100, 48)).unwrap();
+        let press = |d: &mut Dialog, c: KeyCode| d.handle_key(KeyEvent::new(c, KeyModifiers::NONE));
+
+        t.draw(|f| dlg.render(f, f.area(), &theme, None)).unwrap();
+        assert!(!text_of(&t).contains("Camera model"), "the reference starts closed");
+
+        press(&mut dlg, KeyCode::F(1));
+        t.draw(|f| dlg.render(f, f.area(), &theme, None)).unwrap();
+        let open = text_of(&t);
+        assert!(open.contains("[EXIF:Model]") && open.contains("Camera model"));
+        assert!(open.contains("[TAG:Artist]"), "the tag tokens are listed too");
+        assert!(open.contains("From a photo's EXIF"), "the groups are headed");
+        // It covers the file lists rather than drawing over them.
+        assert!(!open.contains("a.jpg"), "the reference replaces the lists while it is up");
+
+        // Esc closes the reference rather than the dialog.
+        assert!(matches!(press(&mut dlg, KeyCode::Esc), crate::ui::dialog::DialogResult::None));
+        t.draw(|f| dlg.render(f, f.area(), &theme, None)).unwrap();
+        assert!(!text_of(&t).contains("Camera model"), "Esc puts the file lists back");
+        // A second Esc, with the reference closed, does cancel the dialog.
+        assert!(matches!(press(&mut dlg, KeyCode::Esc), crate::ui::dialog::DialogResult::Cancel));
     }
 
     #[test]

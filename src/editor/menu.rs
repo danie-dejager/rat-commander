@@ -179,6 +179,8 @@ pub enum MenuMode {
     Hex,
     /// The spreadsheet grid over a CSV or TSV file.
     Sheet,
+    /// The tag view over an audio file.
+    Tags,
 }
 
 /// Build the editor's menu bar, opened on menu `active` (0 = File).

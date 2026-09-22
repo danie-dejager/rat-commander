@@ -827,7 +827,10 @@ fn make_deb(s: &Scratch) -> PathBuf {
         &ctrl,
         &[
             FullEntry::file("./control", b"Package: demo\nVersion: 1.0\n".to_vec()),
-            FullEntry::file("./md5sums", b"d41d8cd98f00b204e9800998ecf8427e  usr/bin/demo\n".to_vec()),
+            FullEntry::file(
+                "./md5sums",
+                b"d41d8cd98f00b204e9800998ecf8427e  usr/bin/demo\n".to_vec(),
+            ),
         ],
     )
     .expect("control tarball");
@@ -1019,10 +1022,7 @@ fn make_rpm(s: &Scratch) -> PathBuf {
     while !v.len().is_multiple_of(8) {
         v.push(0);
     }
-    v.extend_from_slice(&rpm_header(&[
-        (1124, Tag::Str("cpio")),
-        (1125, Tag::Str("zstd")),
-    ]));
+    v.extend_from_slice(&rpm_header(&[(1124, Tag::Str("cpio")), (1125, Tag::Str("zstd"))]));
     v.extend_from_slice(&zstd::encode_all(&payload[..], 3).unwrap());
 
     let container = s.path("demo-1.0-1.x86_64.rpm");

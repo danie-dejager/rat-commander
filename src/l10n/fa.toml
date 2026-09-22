@@ -729,6 +729,7 @@ rtl = true
 "&Edit template..." = "ویرایش الگو… (&E)"
 "&New template..." = "الگوی جدید… (&N)"
 "C&lose template" = "بستن الگو (&L)"
+"Add tag" = "افزودن برچسب"
 "Binary templates" = "الگوهای دودویی"
 "(No template)" = "(بدون الگو)"
 "fits" = "مناسب"

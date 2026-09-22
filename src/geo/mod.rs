@@ -11,5 +11,6 @@ pub mod draw;
 pub mod edit;
 pub mod geojson;
 pub mod palette;
+pub mod shapefile;
 pub mod view;
 pub mod world;

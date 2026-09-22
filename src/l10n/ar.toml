@@ -729,6 +729,7 @@ rtl = true
 "&Edit template..." = "تحرير القالب… (&E)"
 "&New template..." = "قالب جديد… (&N)"
 "C&lose template" = "إغلاق القالب (&L)"
+"Add tag" = "إضافة وسم"
 "Binary templates" = "القوالب الثنائية"
 "(No template)" = "(بلا قالب)"
 "fits" = "مطابق"

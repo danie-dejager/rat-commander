@@ -101,6 +101,141 @@ pub fn exif_summary(bytes: &[u8]) -> Vec<(String, String)> {
     out
 }
 
+/// Every EXIF value a rename mask can reach, as `(token, value)` pairs with the
+/// tokens already lower-cased — what [`crate::rename::FileMeta`] is built from.
+///
+/// Unlike [`exif_summary`], which composes a few display lines for the Details
+/// panel, this keeps the values apart and unformatted: the capture time is
+/// split so a mask can use the year alone, the ISO is a bare number, and GPS is
+/// signed decimal degrees rather than the `51 deg 28' 38"` the display form
+/// would give. Empty when the file carries no EXIF.
+pub fn exif_fields(bytes: &[u8]) -> Vec<(String, String)> {
+    let Ok(exif) = exif::Reader::new().read_from_container(&mut std::io::Cursor::new(bytes)) else {
+        return Vec::new();
+    };
+    let mut out: Vec<(String, String)> = Vec::new();
+    let mut put = |k: &str, v: String| {
+        if !v.is_empty() {
+            out.push((k.to_string(), v));
+        }
+    };
+    let text = |tag| display_field(&exif, tag, exif::In::PRIMARY);
+
+    // The moment the photo was taken, whole and in parts, so a mask can build
+    // any arrangement of it. `DateTimeOriginal` is when the shutter fired;
+    // `DateTime` is when the file was last written, which is the weaker answer.
+    let when = text(exif::Tag::DateTimeOriginal).or_else(|| text(exif::Tag::DateTime));
+    if let Some((d, t)) = when.as_deref().and_then(parse_exif_datetime) {
+        put("ymd", format!("{:04}{:02}{:02}", d.0, d.1, d.2));
+        put("hms", format!("{:02}{:02}{:02}", t.0, t.1, t.2));
+        put("y", format!("{:04}", d.0));
+        put("m", format!("{:02}", d.1));
+        put("d", format!("{:02}", d.2));
+        put("h", format!("{:02}", t.0));
+        put("min", format!("{:02}", t.1));
+        put("s", format!("{:02}", t.2));
+    }
+
+    if let Some(v) = text(exif::Tag::Make) {
+        put("make", v);
+    }
+    if let Some(v) = text(exif::Tag::Model) {
+        put("model", v);
+    }
+    if let Some(v) = text(exif::Tag::LensModel) {
+        put("lens", v);
+    }
+    if let Some(v) = text(exif::Tag::ExposureTime) {
+        put("exposure", v);
+    }
+    if let Some(v) = text(exif::Tag::FNumber) {
+        put("fnumber", v);
+    }
+    if let Some(v) = text(exif::Tag::PhotographicSensitivity) {
+        put("iso", v);
+    }
+    if let Some(v) = text(exif::Tag::FocalLength) {
+        put("focallength", v);
+    }
+    if let Some(v) = text(exif::Tag::Orientation) {
+        put("orientation", v);
+    }
+    // Dimensions: the EXIF pixel tags where they exist, since reading them
+    // beats decoding the image to find out.
+    if let Some(v) = uint_field(&exif, exif::Tag::PixelXDimension) {
+        put("width", v.to_string());
+    }
+    if let Some(v) = uint_field(&exif, exif::Tag::PixelYDimension) {
+        put("height", v.to_string());
+    }
+    if let Some(v) = gps_degrees(&exif, exif::Tag::GPSLatitude, exif::Tag::GPSLatitudeRef) {
+        put("gpslat", format!("{v:.6}"));
+    }
+    if let Some(v) = gps_degrees(&exif, exif::Tag::GPSLongitude, exif::Tag::GPSLongitudeRef) {
+        put("gpslon", format!("{v:.6}"));
+    }
+    out
+}
+
+/// One EXIF field as its display string, trimmed of the quotes the formatter
+/// puts around text values. `None` when absent or empty.
+fn display_field(exif: &exif::Exif, tag: exif::Tag, ifd: exif::In) -> Option<String> {
+    let f = exif.get_field(tag, ifd)?;
+    let s = f.display_value().with_unit(exif).to_string();
+    let s = s.trim().trim_matches('"').trim().to_string();
+    (!s.is_empty()).then_some(s)
+}
+
+/// One EXIF field as an unsigned number.
+fn uint_field(exif: &exif::Exif, tag: exif::Tag) -> Option<u32> {
+    exif.get_field(tag, exif::In::PRIMARY)?.value.get_uint(0)
+}
+
+/// A civil date and time read out of an EXIF timestamp: `(y, m, d)`, `(h, min, s)`.
+type DateTime = ((u32, u32, u32), (u32, u32, u32));
+
+/// An EXIF timestamp split into its parts.
+///
+/// Read as six numbers separated by anything, rather than by matching a layout:
+/// the bytes in the file are `YYYY:MM:DD HH:MM:SS`, but this is handed the
+/// *display* form, which renders the date with dashes — and a camera that
+/// writes some third punctuation is then no trouble either.
+///
+/// A camera that has never had its clock set writes zeroes; those are not a
+/// date and would rename a photo to `00000000`, so they are refused here.
+fn parse_exif_datetime(s: &str) -> Option<DateTime> {
+    let mut n = s
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|p| !p.is_empty())
+        .map(|p| p.parse::<u32>().ok());
+    let (y, mo, da) = (n.next()??, n.next()??, n.next()??);
+    let (h, mi, se) = (n.next()??, n.next()??, n.next()??);
+    if y == 0 || mo == 0 || da == 0 || mo > 12 || da > 31 || h > 23 || mi > 59 || se > 60 {
+        return None;
+    }
+    Some(((y, mo, da), (h, mi, se)))
+}
+
+/// A GPS coordinate as signed decimal degrees: the degrees/minutes/seconds
+/// rational triple combined, negated for a southern latitude or a western
+/// longitude. `None` when either the value or its hemisphere is missing.
+fn gps_degrees(exif: &exif::Exif, tag: exif::Tag, ref_tag: exif::Tag) -> Option<f64> {
+    let field = exif.get_field(tag, exif::In::PRIMARY)?;
+    let exif::Value::Rational(parts) = &field.value else {
+        return None;
+    };
+    let [deg, min, sec] = parts.get(..3)? else {
+        return None;
+    };
+    let value = deg.to_f64() + min.to_f64() / 60.0 + sec.to_f64() / 3600.0;
+    if !value.is_finite() {
+        return None;
+    }
+    let hemisphere = display_field(exif, ref_tag, exif::In::PRIMARY)?;
+    let south_or_west = matches!(hemisphere.trim().to_ascii_uppercase().as_str(), "S" | "W");
+    Some(if south_or_west { -value } else { value })
+}
+
 /// The largest cell rect within `area` that keeps the image's aspect ratio,
 /// centred both ways. `cell` is the terminal's (pixel-width, height) per cell,
 /// so the target reflects true pixel proportions rather than the ~1:2 cell shape.
@@ -231,6 +366,95 @@ mod tests {
         // A tall image letterboxes horizontally, centred.
         let r = center_rect(area, 50, 200, cell);
         assert!(r.width < 20 && r.x > 0);
+    }
+
+    /// A JPEG carrying nothing but an EXIF block: `FF D8`, an APP1 segment
+    /// holding a little-endian TIFF with `Model` and `DateTimeOriginal`, then
+    /// `FF D9`. Built here rather than committed, like the other binary
+    /// fixtures in this tree.
+    fn jpeg_with_exif(model: &str, taken: &str) -> Vec<u8> {
+        // Offsets below are from the start of the TIFF header.
+        let model_bytes: Vec<u8> = model.bytes().chain([0]).collect();
+        let taken_bytes: Vec<u8> = taken.bytes().chain([0]).collect();
+        const IFD0: u32 = 8;
+        const IFD0_LEN: u32 = 2 + 2 * 12 + 4; // two entries
+        let exif_ifd = IFD0 + IFD0_LEN;
+        const EXIF_IFD_LEN: u32 = 2 + 12 + 4; // one entry
+        let model_at = exif_ifd + EXIF_IFD_LEN;
+        let taken_at = model_at + model_bytes.len() as u32;
+
+        let mut t: Vec<u8> = Vec::new();
+        t.extend_from_slice(b"II");
+        t.extend_from_slice(&42u16.to_le_bytes());
+        t.extend_from_slice(&IFD0.to_le_bytes());
+        // IFD0: Model, then the pointer to the Exif IFD.
+        t.extend_from_slice(&2u16.to_le_bytes());
+        let entry = |tag: u16, typ: u16, count: u32, value: u32| -> Vec<u8> {
+            let mut e = Vec::with_capacity(12);
+            e.extend_from_slice(&tag.to_le_bytes());
+            e.extend_from_slice(&typ.to_le_bytes());
+            e.extend_from_slice(&count.to_le_bytes());
+            e.extend_from_slice(&value.to_le_bytes());
+            e
+        };
+        t.extend_from_slice(&entry(0x0110, 2, model_bytes.len() as u32, model_at));
+        t.extend_from_slice(&entry(0x8769, 4, 1, exif_ifd));
+        t.extend_from_slice(&0u32.to_le_bytes()); // no IFD1
+        // The Exif IFD: when the shutter fired.
+        t.extend_from_slice(&1u16.to_le_bytes());
+        t.extend_from_slice(&entry(0x9003, 2, taken_bytes.len() as u32, taken_at));
+        t.extend_from_slice(&0u32.to_le_bytes());
+        t.extend_from_slice(&model_bytes);
+        t.extend_from_slice(&taken_bytes);
+
+        let mut out = vec![0xFF, 0xD8, 0xFF, 0xE1];
+        out.extend_from_slice(&((2 + 6 + t.len()) as u16).to_be_bytes());
+        out.extend_from_slice(b"Exif\0\0");
+        out.extend_from_slice(&t);
+        out.extend_from_slice(&[0xFF, 0xD9]);
+        out
+    }
+
+    #[test]
+    fn exif_fields_split_the_capture_time_into_parts() {
+        let jpg = jpeg_with_exif("TestCam", "2024:07:14 15:09:33");
+        let got: std::collections::HashMap<String, String> =
+            exif_fields(&jpg).into_iter().collect();
+        assert_eq!(got.get("model").map(String::as_str), Some("TestCam"));
+        assert_eq!(got.get("ymd").map(String::as_str), Some("20240714"));
+        assert_eq!(got.get("hms").map(String::as_str), Some("150933"));
+        // Each part is separately reachable, so a mask can arrange them freely.
+        assert_eq!(got.get("y").map(String::as_str), Some("2024"));
+        assert_eq!(got.get("m").map(String::as_str), Some("07"));
+        assert_eq!(got.get("d").map(String::as_str), Some("14"));
+        assert_eq!(got.get("h").map(String::as_str), Some("15"));
+        assert_eq!(got.get("min").map(String::as_str), Some("09"));
+        assert_eq!(got.get("s").map(String::as_str), Some("33"));
+        // Nothing is invented for tags the file does not carry.
+        assert!(!got.contains_key("gpslat") && !got.contains_key("lens"));
+    }
+
+    #[test]
+    fn exif_fields_are_empty_without_exif() {
+        assert!(exif_fields(b"not an image").is_empty());
+        let img = RgbaImage::from_pixel(4, 4, image::Rgba([1, 2, 3, 255]));
+        let mut buf = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(img).write_to(&mut buf, image::ImageFormat::Png).unwrap();
+        assert!(exif_fields(buf.get_ref()).is_empty());
+    }
+
+    #[test]
+    fn a_camera_with_an_unset_clock_reports_no_date() {
+        // Zeroes are what a camera that has never been set writes; renaming a
+        // photo to "00000000" would be worse than leaving the token empty.
+        assert!(parse_exif_datetime("0000:00:00 00:00:00").is_none());
+        assert!(parse_exif_datetime("garbage").is_none());
+        // Both the raw EXIF spelling and the dashed display form parse, since
+        // it is the display form this is actually given.
+        assert_eq!(parse_exif_datetime("2024:07:14 15:09:33"), Some(((2024, 7, 14), (15, 9, 33))));
+        assert_eq!(parse_exif_datetime("2024-07-14 15:09:33"), Some(((2024, 7, 14), (15, 9, 33))));
+        // Six numbers are needed; a date with no time is not a timestamp.
+        assert!(parse_exif_datetime("2024-07-14").is_none());
     }
 
     #[test]

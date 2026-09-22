@@ -11,9 +11,9 @@
 //!   operations so dropping fifty files into a zip is *one* rebuild rather than
 //!   fifty.
 
-pub mod formats;
 mod cpio;
 mod deb;
+pub mod formats;
 mod rpm;
 
 use crate::util::{Error, Result};

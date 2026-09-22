@@ -689,7 +689,13 @@ impl EditorState {
     /// The F-key labels of hex mode.
     pub(super) fn hex_fkey_labels(&self) -> [&'static str; 10] {
         if !self.template_panel() {
-            return crate::ui::fkeys::HEX_LABELS;
+            let mut labels = crate::ui::fkeys::HEX_LABELS;
+            // These are the bytes behind a tag page: F3 goes back to it, which
+            // is worth saying where the template's own F3 would have been.
+            if self.tags.is_some() {
+                labels[2] = "Tags";
+            }
+            return labels;
         }
         let mut labels = crate::ui::fkeys::HEX_TEMPLATE_LABELS;
         let t = self.tpl.as_ref().expect("panel implies state");

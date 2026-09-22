@@ -971,5 +971,4 @@ mod tests {
         let entries = vec![FullEntry::dir("/"), FullEntry::file("/a", b"x".to_vec())];
         assert_eq!(members(&entries).len(), 1);
     }
-
 }

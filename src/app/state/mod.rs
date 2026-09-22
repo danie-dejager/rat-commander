@@ -414,6 +414,8 @@ pub struct AppState {
     /// Numbers the GeoJSON map dialog's background reads, so a late one for a
     /// dialog already closed or reopened is dropped.
     geo_gen: u64,
+    /// The same, for the multi-rename dialog's background EXIF / tag read.
+    rename_gen: u64,
     /// Git activity calendars already counted, newest last, so moving the
     /// Details view back over an item doesn't run `git log` again.
     activity_cache:
@@ -643,9 +645,9 @@ mod keys;
 mod lifecycle;
 mod mouse;
 mod navigation;
-mod panelize;
 mod net;
 mod palette;
+mod panelize;
 mod receive;
 mod remote;
 mod sendfile;

@@ -85,7 +85,8 @@ browsing. (FTP has no shell, so an FTP panel keeps using the local shell.)
 - A `*` in an **F6** target stands for the file's own name, so `*.bak` renames
   `notes.txt` to `notes.txt.bak` — and renames a whole selected set the same way,
   each file through its own name. For anything more involved than a suffix, use
-  the multi-rename tool (**Shift-F6**) and its `[N]` / `[E]` placeholders.
+  the multi-rename tool (**Shift-F6**) and its `[N]` / `[E]` placeholders —
+  which also reach a photo's EXIF and an audio file's tags.
 
 The active panel always provides the *source* for operations, and the inactive
 panel the *destination* — so two panels make copying and moving between two
@@ -319,10 +320,12 @@ used to share now lives on `Alt-T`.
 - `Shift-F9` — Toggle word wrap
 - `Ctrl-F9` — Toggle the in-place hex editor
 - `Alt-G` — Toggle the spreadsheet grid (see *Spreadsheet grid* below)
+- `Alt-T` / `F3` — (audio files) Toggle the tag page and the file's bytes (see *Audio tags* below)
 - `Alt-E` / `Alt-Shift-E` — (JSON, TOML, YAML and XML files) Jump to the next /
   previous syntax error
 - `Alt-F` — (JSON files) Pretty-print the document
 - `Alt-M` — Show and edit the GeoJSON in the file on a world map (see *GeoJSON map* below)
+  — including a shapefile opened with F4 (see *Shapefiles* below)
 - `Esc` / `F10` — Quit (prompts if modified)
 
 While **Shift** or **Ctrl** is held, the F-key bar relabels the keys those
@@ -714,6 +717,36 @@ name:
 - `[C]` — a running counter
 - `[YMD]` — the date (`YYYYMMDD`)
 - `[hms]` — the time (`HHMMSS`)
+
+**From the file itself.** A mask can also pull values out of the files being
+renamed. These are read in the background when the dialog opens — the footer
+says so while it is happening — and a file that has no such value contributes
+nothing, so a mixed batch is fine. Values are cleaned up for use in a name
+(path separators and control characters removed, runs of whitespace collapsed).
+
+From a photo's EXIF:
+
+- `[EXIF:YMD]` / `[EXIF:hms]` — the date and time the photo was taken
+- `[EXIF:Y]`, `[EXIF:M]`, `[EXIF:D]`, `[EXIF:h]`, `[EXIF:m]`, `[EXIF:s]` — the
+  same moment in separate parts, so you can write `[EXIF:Y]-[EXIF:M]/…`
+- `[EXIF:Make]`, `[EXIF:Model]`, `[EXIF:Lens]` — the camera and lens
+- `[EXIF:Exposure]`, `[EXIF:FNumber]`, `[EXIF:ISO]`, `[EXIF:FocalLength]`
+- `[EXIF:Orientation]`, `[EXIF:Width]`, `[EXIF:Height]`
+- `[EXIF:GPSLat]`, `[EXIF:GPSLon]` — signed decimal degrees
+
+From an audio file's tags (MP3, Ogg, FLAC, M4A, WAV and the rest):
+
+- `[TAG:Title]`, `[TAG:Artist]`, `[TAG:Album]`, `[TAG:AlbumArtist]`
+- `[TAG:Track]`, `[TAG:Disc]` — single digits are zero-padded so a batch sorts
+- `[TAG:Year]`, `[TAG:Genre]`, `[TAG:Comment]`, `[TAG:Composer]`
+
+So `[EXIF:Y]-[EXIF:M]-[EXIF:D]_[C].[E]` numbers a shoot by date, and
+`[TAG:Track] - [TAG:Artist] - [TAG:Title].[E]` names an album properly.
+
+Press **F1** in the dialog for the full list; ↑↓ scroll it, Esc closes it.
+
+Only local files are read. A file on a remote or inside an archive would have to
+be fetched whole to reach its metadata, so those simply have none.
 
 **Options.**
 
@@ -1609,6 +1642,73 @@ taken as allowing anything. Files over 4 MiB are not validated, and at most 200
 schema errors are shown. The bundled schemas are those published by SchemaStore
 and the Compose Specification (Apache-2.0) and GitLab (MIT); their sources and
 licenses are listed in `assets/schemas/README.md`.
+
+**Shapefiles (F3, F4).** A `.shp` is binary and comes with a `.shx` index, a
+`.dbf` of attributes and usually a `.prj`. Opening one shows it as the
+**GeoJSON it becomes** — one feature per shape, with its attributes as
+properties — so everything that already works on GeoJSON works on it:
+
+- **F3** shows that GeoJSON, with syntax highlighting and search.
+- **F4** opens it in the editor, and **Alt-M** draws it on the world map, where
+  it can be panned, clicked, and edited like any other GeoJSON — `e` to edit,
+  `1`/`2`/`3` to draw, `Del` to remove, `Ctrl-Z` to undo.
+- **F2** writes it back into the `.shp`, `.shx` and `.dbf` — not to a new file.
+
+Some details worth knowing:
+
+- **Coordinate systems.** A shapefile is often in metres on a projected grid
+  rather than in degrees. The `.prj` is read, and **Web Mercator** and **UTM on
+  WGS84** are converted to degrees on the way in and back to the file's own
+  coordinates on the way out, so the round trip is exact. A projection that
+  cannot be converted is refused with a message naming it, rather than opening
+  as an empty map.
+- **Attributes.** The `.dbf` schema — the field names, types and widths — is
+  kept and written back as it was. A property you add on the map that the schema
+  has no column for gets one, with its type inferred; a value too long for an
+  existing column is cut. Either way you are told after the save.
+- **One shape type per file.** The format allows a file only one kind of
+  geometry, so drawing a polygon into a file of points cannot be saved; those
+  features are left out and counted in the message.
+- **Saving is all-or-nothing.** The three files are written beside the originals
+  and moved into place only once all three have been written, so a failed save
+  never leaves a half-replaced set behind. The `.prj` is never touched.
+
+**Audio tags (F4).** Opening an MP3, Ogg, FLAC, M4A, WAV or other audio file
+with **F4** opens a **page of its tags** — nothing else is loaded, since an
+audio file is not text and is not usually something you want to patch bytes in.
+
+The well-known fields come first — Title, Artist, Album, Album artist, Track,
+Disc, Year, Genre, Comment, Composer — followed by **any other tag the file
+carries**, under *Other tags in this file*. Both are editable.
+
+- **↑↓** pick a row; **Enter** (or **F4**, or simply typing) edits it; **Enter**
+  commits and **Esc** abandons the edit. **F8** or **Del** clears a row.
+- **F5** or **Ins** adds a tag the file does not have yet. A picker lists every
+  key the file's tag format can hold — type to narrow it, **Enter** to add —
+  and the new row is ready to type into straight away. Only keys that format
+  actually supports are offered: an MP3's ID3v2 has no BPM frame of its own,
+  for instance, so a value written under one would simply be gone by the next
+  read.
+- **F2** writes the tags back into the file. A row left empty is *removed* from
+  the tag rather than written blank, which is what players expect — so a tag
+  added and left blank is not written at all.
+- Embedded cover art is counted and kept; so is anything binary the file holds.
+- A tag whose key the file uses **more than once** (two performers, say) is
+  shown greyed and left alone: editing it by key would collapse every value
+  into the one being edited.
+- **Year** is stored by some formats inside a full recording date. Where it is,
+  changing the year rewrites that date — keeping its month and day — rather
+  than adding a second year that would disagree with it.
+- **F3**, **Alt-T** or **Ctrl-F9** shows the file's raw bytes (the ordinary
+  in-place hex editor) and switches back again, so nothing is hidden from you.
+  The byte editor is only opened if you ask for it.
+
+The status row names the kind of tag being written — ID3v2 for an MP3, Vorbis
+comments for an Ogg, and so on — so it is clear what is going into the file.
+
+Writing a tag re-lays-out the container, so if you have also edited bytes in the
+hex view those are written first and the hex view is reopened on the rewritten
+file.
 
 **GeoJSON map (Alt-M).** Draws the GeoJSON in the file over a **map of the
 world** — a `.geojson` file, or GeoJSON anywhere inside a larger JSON document,

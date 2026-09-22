@@ -177,10 +177,10 @@ mod tests {
 
         let abs = sub.join("b.txt").to_string_lossy().into_owned();
         let lines = vec![
-            "a.txt".to_string(),      // relative → joins cwd
-            abs,                      // absolute → kept as-is
-            "missing.txt".to_string(),// dropped
-            "a.txt".to_string(),      // duplicate → collapsed
+            "a.txt".to_string(),       // relative → joins cwd
+            abs,                       // absolute → kept as-is
+            "missing.txt".to_string(), // dropped
+            "a.txt".to_string(),       // duplicate → collapsed
         ];
         let hits = resolve_lines(&lines, &dir);
 

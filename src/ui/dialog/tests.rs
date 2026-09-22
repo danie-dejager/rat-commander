@@ -1035,7 +1035,7 @@ fn multi_rename_mouse_focuses_and_toggles_fields() {
     use ratatui::backend::TestBackend;
 
     let sources = vec![VfsPath::local("/tmp/one.txt"), VfsPath::local("/tmp/two.txt")];
-    let mut d = MultiRenameDialog::new(sources, "20260101".into(), "120000".into());
+    let mut d = MultiRenameDialog::new(sources, "20260101".into(), "120000".into(), 1);
     let theme = crate::ui::theme::Theme::mc();
     let mut t = Terminal::new(TestBackend::new(100, 30)).unwrap();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
@@ -2007,6 +2007,7 @@ fn a_prefilled_field_is_replaced_by_the_first_character_typed() {
         vec![VfsPath::local("/tmp/a.txt")],
         "20260101".into(),
         "000000".into(),
+        1,
     );
     for c in "x[C]".chars() {
         d.handle_key(key(KeyCode::Char(c)));

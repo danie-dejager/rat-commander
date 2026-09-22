@@ -123,6 +123,7 @@ impl AppState {
                 self.dialog = Some(Dialog::GitOutput(GitOutputDialog::plain("JWT", &text)));
             }
             EditorSignal::OpenTemplatePicker => self.open_template_picker(),
+            EditorSignal::OpenTagKeyPicker => self.open_tag_key_picker(),
             EditorSignal::EditTemplate { path, line } => self.open_template_editor(path, line),
             EditorSignal::NewTemplate => {
                 let stem = self
@@ -385,6 +386,22 @@ impl AppState {
         }
     }
 
+    /// F5 on the tag page: choose a tag to add.
+    ///
+    /// Only the keys this file's tag format can actually hold are offered, and
+    /// only the ones it does not hold already — so the list is what can be
+    /// added rather than everything that exists.
+    fn open_tag_key_picker(&mut self) {
+        let Some(ed) = self.editor.as_ref() else { return };
+        let keys = ed.addable_tag_keys();
+        let dialog = crate::ui::dialog::TagKeyDialog::new(keys);
+        if dialog.is_empty() {
+            self.show_error("This file already has every tag its format can hold");
+            return;
+        }
+        self.dialog = Some(Dialog::TagKey(Box::new(dialog)));
+    }
+
     /// `b` in the viewer: blame the file in the background. The viewer shows
     /// that it is waiting, and takes the result only while it still is.
     /// Alt-M in the editor: open the GeoJSON map, and read the text for it in
@@ -525,6 +542,29 @@ impl AppState {
             };
         }
 
+        // A shapefile is binary, so what the viewer shows is the GeoJSON it
+        // becomes — the same text F4 would edit, and the same thing F3 shows
+        // for a .geojson. The map itself is an editor view (Alt-M), so the
+        // footer says so rather than leaving it to be guessed at.
+        if path.scheme == "file" && crate::geo::shapefile::is_shapefile_name(&name) {
+            match crate::geo::shapefile::open(std::path::Path::new(&path.path)) {
+                Ok(opened) => {
+                    let mut v = ViewerState::new(name, opened.text.into_bytes());
+                    v.set_local_path(path.path.clone());
+                    v.enable_syntax(self.dark_ui());
+                    self.viewer = Some(v);
+                    if let Some(w) = opened.warning {
+                        self.show_error(w);
+                    }
+                    return Flow::Continue;
+                }
+                Err(e) => {
+                    self.show_error(e);
+                    return Flow::Continue;
+                }
+            }
+        }
+
         if path.scheme == "file" {
             // Local: page straight from disk — never load the whole file. The
             // line-index scan runs off-thread so it doesn't block the reactor.
@@ -635,6 +675,37 @@ impl AppState {
         size: u64,
     ) {
         let local = path.scheme == "file";
+        // A shapefile is a set of binary files. It opens as the GeoJSON it
+        // becomes, so the map editor (Alt-M) works on it exactly as it does on
+        // a .geojson, and a save turns it back into the set.
+        if local && crate::geo::shapefile::is_shapefile_name(&name) {
+            match EditorState::new_shapefile(name.clone(), path.clone()) {
+                Ok((mut ed, warning)) => {
+                    self.prepare_editor(&mut ed);
+                    self.editor = Some(ed);
+                    if let Some(w) = warning {
+                        self.show_error(w);
+                    }
+                    return;
+                }
+                Err(e) => {
+                    self.show_error(e);
+                    return;
+                }
+            }
+        }
+        // An audio file is binary — opening it as text would show nonsense, and
+        // as bytes would show a haystack — so it opens on its tags, with the
+        // bytes one Alt-T away. A file whose tags cannot be read falls through
+        // and opens the way it always did.
+        if local
+            && crate::tags::is_taggable_name(&name)
+            && let Some(mut ed) = EditorState::new_tags(name.clone(), path.clone())
+        {
+            self.prepare_editor(&mut ed);
+            self.editor = Some(ed);
+            return;
+        }
         // Local files too big to load as text open directly in (in-place) hex mode.
         if local && size > crate::editor::MAX_TEXT_EDIT {
             match EditorState::new_hex(name, path) {
@@ -738,6 +809,33 @@ impl AppState {
         }
         let vpath = VfsPath::local(&abs);
         let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+        // A shapefile opens as its GeoJSON here too, so `rcedit roads.shp` does
+        // what F4 on the same file does.
+        if crate::geo::shapefile::is_shapefile_name(&name) {
+            match EditorState::new_shapefile(name.clone(), vpath.clone()) {
+                Ok((mut ed, warning)) => {
+                    self.prepare_editor(&mut ed);
+                    self.editor = Some(ed);
+                    if let Some(w) = warning {
+                        self.show_error(w);
+                    }
+                    return;
+                }
+                Err(e) => {
+                    self.show_error(e);
+                    return;
+                }
+            }
+        }
+        // An audio file opens on its tags here too, so `rcedit song.mp3` does
+        // what F4 on the same file does.
+        if crate::tags::is_taggable_name(&name)
+            && let Some(mut ed) = EditorState::new_tags(name.clone(), vpath.clone())
+        {
+            self.prepare_editor(&mut ed);
+            self.editor = Some(ed);
+            return;
+        }
         if size > crate::editor::MAX_TEXT_EDIT {
             match EditorState::new_hex(name, vpath) {
                 Ok(mut ed) => {
@@ -818,6 +916,45 @@ impl AppState {
         // here; the user saves, then quits again once the buffer has a name).
         if ed.is_unnamed() {
             self.open_save_as(None);
+            return;
+        }
+        // A buffer that came from a shapefile goes back as one: the text is
+        // only how it was edited, not what it is.
+        if ed.is_shapefile() {
+            let contents = ed.contents();
+            let origin = ed.shapefile.clone().expect("checked above");
+            match crate::geo::shapefile::save(&origin, &contents) {
+                Ok(report) => {
+                    if let Some(ed) = self.editor.as_mut() {
+                        ed.mark_saved();
+                    }
+                    if let Some(msg) = report.message() {
+                        self.show_error(msg);
+                    }
+                    if close_after {
+                        self.close_editor().await;
+                    }
+                }
+                Err(e) => self.show_error(e),
+            }
+            return;
+        }
+        // An audio file opened for its tags writes them through the tag writer,
+        // which rewrites the container. Any pending byte edits are flushed
+        // first, inside `flush_tags`, since a tag write moves everything after
+        // it and would leave their offsets stale.
+        if ed.tags.is_some() {
+            let res = self.editor.as_mut().unwrap().flush_tags();
+            match res {
+                Ok(()) => {
+                    if close_after {
+                        self.close_editor().await;
+                    } else if let Some(ed) = self.editor.as_mut() {
+                        ed.mark_saved();
+                    }
+                }
+                Err(e) => self.show_error(format!("Save failed: {e}")),
+            }
             return;
         }
         // Hex mode writes only the changed bytes in place — never rewrite the

@@ -5220,6 +5220,230 @@ async fn an_edited_json_file_is_checked_on_the_tick() {
 
 /// Alt-M in the editor opens the GeoJSON map at once, fills it from a read in
 /// the background, and Go to puts the editor's cursor on what was picked; a file
+/// F4 on a shapefile opens it as the GeoJSON it becomes, the map editor works
+/// on it like any other GeoJSON, and a save turns it back into the file set.
+#[tokio::test]
+async fn the_editor_opens_a_shapefile_as_geojson_and_saves_it_back() {
+    use crate::geo::geojson::Shape;
+    use crate::geo::shapefile::{dbf, shp};
+
+    let dir = temp_dir("shapefile");
+    let stem = dir.join("cities");
+    let shapes = vec![Shape::Point([16.3738, 48.2082]), Shape::Point([-0.1276, 51.5072])];
+    let (shp_b, shx_b) = shp::write(shp::ShapeType::Point, &shapes);
+    std::fs::write(stem.with_extension("shp"), &shp_b).unwrap();
+    std::fs::write(stem.with_extension("shx"), &shx_b).unwrap();
+    let table = dbf::Table {
+        fields: vec![dbf::Field { name: "NAME".into(), kind: b'C', len: 10, decimals: 0 }],
+        rows: vec![vec!["Vienna".into()], vec!["London".into()]],
+    };
+    std::fs::write(stem.with_extension("dbf"), dbf::write(&table)).unwrap();
+    let file = stem.with_extension("shp");
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(file.clone()).await;
+
+    let ed = st.editor.as_ref().expect("the editor opened");
+    assert!(ed.is_shapefile(), "a .shp opens as the shapefile it is");
+    let text = ed.contents();
+    assert!(text.contains("FeatureCollection"), "as GeoJSON: {text}");
+    assert!(text.contains("Vienna") && text.contains("London"), "with its attributes");
+
+    // The map dialog reads it exactly as it reads any other GeoJSON.
+    let doc = crate::geo::geojson::extract(&text);
+    assert_eq!(doc.objects.len(), 1, "one collection");
+    assert_eq!(doc.objects[0].features.len(), 2, "two features");
+    assert_eq!(doc.skipped, 0, "nothing dropped as out of range");
+
+    // Rename one, the way an edit on the map reaches the buffer, and save.
+    let edited = text.replace("London", "Londinium");
+    st.editor.as_mut().unwrap().apply_map_edit(crate::geo::edit::TextEdit::Replace {
+        start: 0,
+        end: text.len(),
+        text: edited,
+    });
+    st.save_editor(false).await;
+
+    let back = dbf::read(&std::fs::read(stem.with_extension("dbf")).unwrap()).unwrap();
+    assert_eq!(back.rows.len(), 2, "both records are still there");
+    assert!(
+        back.rows.iter().any(|r| r[0] == "Londinium"),
+        "the edit reached the .dbf: {:?}",
+        back.rows
+    );
+    // And the geometry survived the round trip.
+    let (kind, after) = shp::read(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(kind, shp::ShapeType::Point);
+    assert_eq!(after.len(), 2);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// F4 on an audio file opens the editor on its tags rather than on nonsense
+/// text or a haystack of bytes, an edit saves back into the file, and Alt-T
+/// still reaches the bytes underneath.
+#[tokio::test]
+async fn the_editor_opens_an_audio_file_on_its_tags_and_saves_them() {
+    use lofty::config::WriteOptions;
+    use lofty::prelude::{Accessor, TagExt};
+    use lofty::tag::{Tag, TagType};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let dir = temp_dir("tagedit");
+    let file = dir.join("song.wav");
+    crate::audio::tests::write_wav(&file, 8_000, 0.05, 440.0, 0.2);
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.set_title("Before".to_string());
+    // Something outside the well-known set, so the "other tags" rows are there.
+    tag.insert_text(lofty::tag::ItemKey::Mood, "Rainy".to_string());
+    tag.save_to_path(&file, WriteOptions::default()).unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(file.clone()).await;
+
+    let ed = st.editor.as_ref().expect("the editor opened");
+    assert!(ed.tags_active(), "an audio file opens on its tags");
+    // Nothing else is loaded: a hex view with a binary template panel over it
+    // is not what F4 on a song should mean.
+    assert!(!ed.is_hex(), "and on nothing else");
+
+    // What is actually on screen — asserting the state alone once let a render
+    // that drew the hex editor instead go unnoticed.
+    let drawn = |st: &mut AppState| {
+        let mut t = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
+        t.draw(|f| crate::ui::draw(f, st)).unwrap();
+        let b = t.backend().buffer().clone();
+        (0..b.area.height)
+            .map(|y| (0..b.area.width).map(|x| b[(x, y)].symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let screen = drawn(&mut st);
+    assert!(screen.contains("Title"), "the tag page is drawn: {screen}");
+    assert!(screen.contains("Before"), "with the file's own values");
+    assert!(screen.contains("Artist") && screen.contains("Album"));
+
+    // The title is the first row: replace it.
+    let press = |st: &mut AppState, c: KeyCode, m: KeyModifiers| {
+        let ed = st.editor.as_mut().unwrap();
+        ed.handle_key(KeyEvent::new(c, m));
+    };
+    press(&mut st, KeyCode::Enter, KeyModifiers::NONE);
+    for _ in 0.."Before".len() {
+        press(&mut st, KeyCode::Backspace, KeyModifiers::NONE);
+    }
+    for c in "After".chars() {
+        press(&mut st, KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    press(&mut st, KeyCode::Enter, KeyModifiers::NONE);
+    assert!(st.editor.as_ref().unwrap().tags_dirty(), "the change is noticed");
+
+    // F2 writes it through the tag writer.
+    st.save_editor(false).await;
+    assert!(st.dialog.is_none(), "the save raised no error: {:?}", st.dialog.is_some());
+    let on_disk = crate::tags::read(&file).expect("still readable after the write");
+    let title = on_disk.fields.iter().find(|(f, _)| *f == crate::tags::Field::Title).unwrap();
+    assert_eq!(title.1, "After", "the edit reached the file");
+    assert!(!st.editor.as_ref().unwrap().tags_dirty(), "and the editor has settled");
+
+    // The unnamed items are editable too: walk down to Mood and change it.
+    for _ in 0..12 {
+        press(&mut st, KeyCode::Down, KeyModifiers::NONE);
+    }
+    assert!(drawn(&mut st).contains("Mood"), "the unnamed items are listed");
+    press(&mut st, KeyCode::Enter, KeyModifiers::NONE);
+    assert!(
+        st.editor.as_ref().unwrap().tags.as_ref().unwrap().editing(),
+        "an unnamed item can be typed into, not only the named fields"
+    );
+    for _ in 0.."Rainy".len() {
+        press(&mut st, KeyCode::Backspace, KeyModifiers::NONE);
+    }
+    for c in "Sunny".chars() {
+        press(&mut st, KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    press(&mut st, KeyCode::Enter, KeyModifiers::NONE);
+    st.save_editor(false).await;
+    assert!(
+        crate::tags::read(&file).unwrap().extra.iter().any(|e| e.value == "Sunny"),
+        "and the change reaches the file"
+    );
+    // Back to the top for the key tests below.
+    press(&mut st, KeyCode::Home, KeyModifiers::NONE);
+
+    // F5 adds a tag the file does not have: the picker offers what this tag
+    // format can hold, filtered as you type.
+    // Through the app, not straight at the editor: opening a dialog is what
+    // the editor's signal asks the app to do.
+    st.handle_key(KeyEvent::new(KeyCode::F(5), KeyModifiers::NONE)).await;
+    assert!(matches!(st.dialog, Some(Dialog::TagKey(_))), "F5 opens the key picker");
+    for c in "bpm".chars() {
+        st.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)).await;
+    }
+    let picker = drawn(&mut st);
+    // ID3v2 spells its BPM key `IntegerBpm`, and that is what the format
+    // supports — which is the point of offering only the keys it can hold.
+    assert!(picker.contains("IntegerBpm"), "the query narrows the list: {picker}");
+    st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+    assert!(st.dialog.is_none(), "picking closes the picker");
+
+    // The new row is there and ready to be typed into.
+    let te = st.editor.as_ref().unwrap().tags.as_ref().unwrap();
+    assert!(te.editing(), "the new tag is waiting for its value");
+    for c in "92".chars() {
+        press(&mut st, KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    press(&mut st, KeyCode::Enter, KeyModifiers::NONE);
+    st.save_editor(false).await;
+    assert!(
+        crate::tags::read(&file)
+            .unwrap()
+            .extra
+            .iter()
+            .any(|e| e.key == lofty::tag::ItemKey::IntegerBpm && e.value == "92"),
+        "an added tag reaches the file under the key that was picked"
+    );
+    press(&mut st, KeyCode::Home, KeyModifiers::NONE);
+
+    // The page's own F-keys: F3 for the bytes, F4 to edit, F8 to clear.
+    press(&mut st, KeyCode::F(4), KeyModifiers::NONE);
+    assert!(
+        st.editor.as_ref().unwrap().tags.as_ref().unwrap().editing(),
+        "F4 starts editing the selected tag"
+    );
+    press(&mut st, KeyCode::Esc, KeyModifiers::NONE);
+    press(&mut st, KeyCode::F(3), KeyModifiers::NONE);
+    assert!(!st.editor.as_ref().unwrap().tags_active(), "F3 shows the bytes");
+    press(&mut st, KeyCode::F(3), KeyModifiers::NONE);
+    assert!(st.editor.as_ref().unwrap().tags_active(), "and F3 again the tags");
+
+    // Ctrl-F9 means the same thing here: there is no text to go back to.
+    press(&mut st, KeyCode::F(9), KeyModifiers::CONTROL);
+    assert!(!st.editor.as_ref().unwrap().tags_active(), "Ctrl-F9 shows the bytes");
+    press(&mut st, KeyCode::F(9), KeyModifiers::CONTROL);
+    assert!(st.editor.as_ref().unwrap().tags_active(), "and never loads it as text");
+    assert_eq!(
+        st.editor.as_ref().unwrap().contents(),
+        "",
+        "the buffer stays empty: an MP3 is never read as text"
+    );
+
+    // Alt-T opens the bytes on demand, and brings the tags back.
+    press(&mut st, KeyCode::Char('t'), KeyModifiers::ALT);
+    assert!(!st.editor.as_ref().unwrap().tags_active(), "Alt-T shows the bytes");
+    assert!(st.editor.as_ref().unwrap().is_hex(), "opening them for the first time");
+    let bytes_screen = drawn(&mut st);
+    assert!(!bytes_screen.contains("Album artist"), "the tag page is no longer drawn");
+
+    press(&mut st, KeyCode::Char('t'), KeyModifiers::ALT);
+    assert!(st.editor.as_ref().unwrap().tags_active(), "and Alt-T again brings the tags back");
+    assert!(drawn(&mut st).contains("Composer"), "drawing the tag page once more");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// with no GeoJSON in it says so instead.
 #[tokio::test]
 async fn the_geojson_map_opens_from_the_editor_and_goes_back_to_the_text() {
@@ -6574,10 +6798,8 @@ async fn panelize_command_output_becomes_a_panelized_listing() {
     st.panels[0].reload().await.unwrap();
 
     // `missing.txt` names nothing: it must be dropped rather than listed.
-    st.handle_submit(Submit::Panelize(
-        "printf 'a.txt\\nsub/b.txt\\nmissing.txt\\n'".to_string(),
-    ))
-    .await;
+    st.handle_submit(Submit::Panelize("printf 'a.txt\\nsub/b.txt\\nmissing.txt\\n'".to_string()))
+        .await;
     loop {
         let ev = rx.recv().await.unwrap();
         let done = matches!(ev, AppEvent::PanelizeDone { .. });

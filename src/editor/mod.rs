@@ -59,6 +59,8 @@ pub enum EditorSignal {
     About,
     /// Repaint the whole screen from scratch (Ctrl-L).
     RefreshScreen,
+    /// Choose a tag key to add on the tag page (F5).
+    OpenTagKeyPicker,
     /// Draw the buffer's GeoJSON on a map (Alt-M).
     OpenGeoMap,
     /// Pick the binary template for the hex view (F5).
@@ -173,6 +175,15 @@ pub struct EditorState {
     /// The spreadsheet grid over a CSV or TSV file (Alt-G switches it with the
     /// text), when the file is one — or when it was asked for.
     sheet: Option<sheet::SheetGrid>,
+    /// The tag view over an audio file (Alt-T switches it with the bytes).
+    /// Always accompanied by `hex`: the file is binary, so what lies behind the
+    /// tags is the byte editor, not text.
+    pub(crate) tags: Option<crate::tags::editor::TagEditor>,
+    /// Set when the text is GeoJSON generated from a shapefile: what a save
+    /// needs to write the set back as it was found. The buffer is edited as
+    /// ordinary text (and drawn on the map with Alt-M like any other GeoJSON);
+    /// only the save is different.
+    pub(crate) shapefile: Option<Box<crate::geo::shapefile::Origin>>,
     /// The live syntax check of a JSON, TOML, YAML or XML file.
     check: Option<check::SyntaxCheck>,
     /// The binary template run over the file in hex mode, and its panel.
@@ -202,6 +213,7 @@ pub const EDITOR_HELP: &[(&str, &str)] = &[
     ("Shift-F9", "Toggle word wrap"),
     ("Ctrl-F9", "Toggle hex editor"),
     ("Alt-G", "Spreadsheet grid / text (CSV, TSV)"),
+    ("Alt-T / F3", "Tag page / the file's bytes (MP3, Ogg and other audio)"),
     ("Alt-E / Alt-Shift-E", "Next / previous syntax error (JSON, TOML, YAML, XML)"),
     ("Alt-F", "Pretty-print JSON (Format → JSON: minify, sort keys)"),
     ("Alt-M", "Show and edit the GeoJSON in the file on a map"),
@@ -213,6 +225,9 @@ pub const EDITOR_HELP: &[(&str, &str)] = &[
     ("Inspector: Enter / b", "Edit the value / switch the byte order"),
     ("Tree: Enter / ← →", "Edit the value or open / close, parent"),
     ("Tree: + - *", "Open, close, open everything below"),
+    ("Tags: Enter / F4", "Edit the selected tag (or just start typing)"),
+    ("Tags: F5 / Ins", "Add a tag the file does not have yet"),
+    ("Tags: F8 / Del", "Clear the selected tag"),
     ("Grid: Enter / F3", "Edit the cell / header row on or off"),
     ("Grid: F5 F6 / F8", "Insert row, column / delete row (Shift: column)"),
     ("F10 / Esc", "Quit (prompts if modified)"),
@@ -271,6 +286,8 @@ impl EditorState {
             bookmarks: std::collections::HashSet::new(),
             hl_dark: false,
             sheet: None,
+            tags: None,
+            shapefile: None,
             check: None,
             tpl: None,
             tpl_area: Rect::default(),
@@ -353,7 +370,9 @@ impl EditorState {
     pub fn footer_labels(&self) -> [String; 10] {
         let shift = self.hint_mods.contains(KeyModifiers::SHIFT);
         let ctrl = self.hint_mods.contains(KeyModifiers::CONTROL);
-        let src = if self.hex.is_some() {
+        let src = if self.tags_active() {
+            crate::ui::fkeys::TAG_LABELS
+        } else if self.hex.is_some() {
             self.hex_fkey_labels()
         } else if self.sheet_active() {
             let mut labels = crate::ui::fkeys::SHEET_LABELS;
@@ -438,6 +457,119 @@ impl EditorState {
         s.hex = Some(hex);
         s.start_templates();
         Ok(s)
+    }
+
+    /// Open an audio file as a page of its tags.
+    ///
+    /// Nothing else is loaded: no text (the file is not text) and no byte
+    /// editor (nobody opens an MP3 to patch bytes, and a hex view with a binary
+    /// template panel over it is not what F4 on a song should mean). The bytes
+    /// are still reachable — Alt-T opens them on demand — but they are never in
+    /// the way.
+    ///
+    /// `None` when the file carries no tags that can be read, so the caller can
+    /// fall back to opening it the way it would any other binary.
+    pub fn new_tags(name: String, path: VfsPath) -> Option<Self> {
+        let te = crate::tags::editor::TagEditor::open(std::path::Path::new(&path.path))?;
+        let mut s = Self::new(name, path, "");
+        s.tags = Some(te);
+        Some(s)
+    }
+
+    /// Open a shapefile set as the GeoJSON it becomes, remembering what a save
+    /// has to put back.
+    ///
+    /// The buffer from here on is ordinary text: Alt-M draws it on the map and
+    /// edits it exactly as it would a `.geojson` file. Only [`Self::is_shapefile`]
+    /// and the save path know the difference.
+    pub fn new_shapefile(name: String, path: VfsPath) -> Result<(Self, Option<String>), String> {
+        let opened = crate::geo::shapefile::open(std::path::Path::new(&path.path))?;
+        let mut s = Self::new(name, path, &opened.text);
+        s.shapefile = Some(Box::new(opened.origin));
+        Ok((s, opened.warning))
+    }
+
+    /// Whether this buffer came from a shapefile, and so goes back as one.
+    pub fn is_shapefile(&self) -> bool {
+        self.shapefile.is_some()
+    }
+
+    /// Whether the tag view is the one showing.
+    pub fn tags_active(&self) -> bool {
+        self.tags.as_ref().is_some_and(|t| t.on)
+    }
+
+    /// Alt-T: swap the tag page and the file's bytes.
+    ///
+    /// The byte editor is opened the first time it is actually asked for, so a
+    /// file opened for its tags never pays for one — and never shows a binary
+    /// template panel nobody wanted.
+    fn toggle_tags(&mut self) {
+        if self.tags.is_none() {
+            return;
+        }
+        let showing_tags = self.tags_active();
+        if showing_tags && self.hex.is_none() {
+            match hex::HexEditor::open(&self.path.path) {
+                Ok(h) => self.hex = Some(h),
+                // Nothing to show the bytes of; stay where we are rather than
+                // blank the screen.
+                Err(e) => {
+                    self.status = format!("Cannot read the bytes: {e}");
+                    return;
+                }
+            }
+        }
+        if let Some(t) = self.tags.as_mut() {
+            t.on = !t.on;
+        }
+    }
+
+    /// The keys that may be added to this file's tag, for the picker.
+    pub fn addable_tag_keys(&self) -> Vec<(lofty::tag::ItemKey, String)> {
+        let Some(te) = self.tags.as_ref() else { return Vec::new() };
+        crate::tags::addable_keys(te.tag_kind(), &te.present_keys())
+    }
+
+    /// Add `key` as a new row on the tag page and start typing its value.
+    pub fn add_tag_key(&mut self, key: lofty::tag::ItemKey, label: String) {
+        if let Some(te) = self.tags.as_mut() {
+            te.add_key(key, label);
+        }
+    }
+
+    /// Whether the tags have been changed but not written.
+    pub fn tags_dirty(&self) -> bool {
+        self.tags.as_ref().is_some_and(|t| t.dirty())
+    }
+
+    /// Write the tags back to the file.
+    ///
+    /// The order matters and is forced: the hex editor patches bytes at fixed
+    /// offsets, while writing a tag moves everything after it, so any pending
+    /// byte edits go first and the hex view is reopened afterwards onto the
+    /// re-laid-out file.
+    pub fn flush_tags(&mut self) -> std::io::Result<()> {
+        // Any pending byte edits go first: they patch fixed offsets, and
+        // writing a tag moves everything after it.
+        self.flush_hex()?;
+        let (Some(te), path) = (self.tags.as_ref(), self.path.path.clone()) else {
+            return Ok(());
+        };
+        let (fields, extra, kind) = (te.to_write(), te.extra_to_write(), te.tag_type());
+        crate::tags::write(std::path::Path::new(&path), &fields, &extra, kind)?;
+        // The file's length and layout have changed, so a byte editor that was
+        // open is reopened onto the rewritten file. One that was never opened
+        // stays that way.
+        if self.hex.is_some() {
+            self.hex = Some(hex::HexEditor::open(&path)?);
+        }
+        if let Some(te) = self.tags.as_mut() {
+            te.mark_saved();
+            te.reload(std::path::Path::new(&path));
+        }
+        self.dirty = false;
+        Ok(())
     }
 
     pub fn is_hex(&self) -> bool {
@@ -730,6 +862,19 @@ impl EditorState {
             }
             return EditorSignal::Stay;
         }
+        // The tag view is in front of the bytes, so it gets first refusal; a
+        // key it does not take falls through to the byte editor behind it.
+        if self.tags_active() {
+            let alt = key.modifiers.contains(KeyModifiers::ALT);
+            if alt && key.code == KeyCode::Char('t') {
+                self.toggle_tags();
+                return EditorSignal::Stay;
+            }
+            if self.tags.as_mut().is_some_and(|t| t.key(key)) {
+                self.dirty = self.tags_dirty();
+                return EditorSignal::Stay;
+            }
+        }
         if self.hex.is_some() {
             return self.handle_hex_key(key);
         }
@@ -755,7 +900,9 @@ impl EditorState {
 
     /// Open the menu bar on menu `active` (0 = File).
     fn open_menu(&mut self, active: usize) {
-        let mode = if self.is_hex() {
+        let mode = if self.tags_active() {
+            menu::MenuMode::Tags
+        } else if self.is_hex() {
             menu::MenuMode::Hex
         } else if self.sheet_active() {
             menu::MenuMode::Sheet
@@ -1376,6 +1523,18 @@ impl EditorState {
             return EditorSignal::Stay;
         }
 
+        // In the tag view, a click picks a field; clicking the one already
+        // picked starts editing it.
+        if self.tags_active()
+            && matches!(ev.kind, MouseEventKind::Down(MouseButton::Left))
+            && row != self.footer_area.y
+        {
+            if let Some(t) = self.tags.as_mut() {
+                t.click(row);
+            }
+            return EditorSignal::Stay;
+        }
+
         // A click on the F-key bar acts as that function key (when the bar is
         // actually showing — a status message replaces it).
         if matches!(ev.kind, MouseEventKind::Down(MouseButton::Left))
@@ -1383,7 +1542,9 @@ impl EditorState {
             && self.status.is_empty()
         {
             let hex_labels = self.hex_fkey_labels();
-            let labels: &[&str] = if self.is_hex() {
+            let labels: &[&str] = if self.tags_active() {
+                &crate::ui::fkeys::TAG_LABELS
+            } else if self.is_hex() {
                 &hex_labels
             } else if self.sheet_active() {
                 &crate::ui::fkeys::SHEET_LABELS
@@ -1545,11 +1706,27 @@ impl EditorState {
             // Shift-F2 / Ctrl-F2 → Save as; plain F2 saves to the current path.
             KeyCode::F(2) if shift || ctrl => return EditorSignal::SaveAs,
             KeyCode::F(2) => return EditorSignal::Save { close_after: false },
+            // The tag page's own F-keys, before the text editor's: F3 shows the
+            // bytes behind the tags, F4 edits the selected one, F5 adds one.
+            KeyCode::F(3) if self.tags_active() => self.toggle_tags(),
+            KeyCode::F(5) if self.tags_active() => return EditorSignal::OpenTagKeyPicker,
+            KeyCode::Insert if self.tags_active() => return EditorSignal::OpenTagKeyPicker,
+            KeyCode::F(4) if self.tags_active() => {
+                if let Some(t) = self.tags.as_mut() {
+                    t.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                }
+            }
             KeyCode::F(3) => self.toggle_mark(),
             // Shift-F5 inserts a file at the cursor (mcedit's F15).
             KeyCode::F(5) if shift => return EditorSignal::Browse(BrowseKind::Insert),
             KeyCode::F(5) => self.copy_block(),
             KeyCode::F(6) => self.move_block(),
+            KeyCode::F(8) if self.tags_active() => {
+                if let Some(t) = self.tags.as_mut() {
+                    t.key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
+                }
+                self.dirty = self.tags_dirty();
+            }
             KeyCode::F(8) => self.delete_block(),
             KeyCode::F(7) if shift => self.search_again(),
             KeyCode::F(7) => return EditorSignal::OpenSearch,
@@ -1731,6 +1908,13 @@ impl EditorState {
     /// current mode has no unsaved changes, so the two backing stores can't
     /// diverge (and the in-place file is never clobbered by stale text).
     fn toggle_hex(&mut self) {
+        // On a tag page there is no text to go back to — the buffer is empty
+        // and the file is an MP3 — so the bytes/tags switch is the one this
+        // means, and Ctrl-F9 does what Alt-T does.
+        if self.tags.is_some() {
+            self.toggle_tags();
+            return;
+        }
         if let Some(h) = self.hex.as_ref() {
             // Leaving hex mode → text mode.
             if h.dirty {
@@ -1788,6 +1972,15 @@ impl EditorState {
     fn handle_hex_key(&mut self, key: KeyEvent) -> EditorSignal {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let alt = key.modifiers.contains(KeyModifiers::ALT);
+        // These may be the bytes behind a tag page. Alt-T and F3 both go back
+        // to it, so the trip works the same in both directions rather than
+        // needing a different key to return by.
+        if self.tags.is_some()
+            && ((alt && key.code == KeyCode::Char('t')) || key.code == KeyCode::F(3))
+        {
+            self.toggle_tags();
+            return EditorSignal::Stay;
+        }
         if let Some(signal) = self.inspector_key(key) {
             return signal;
         }

@@ -156,7 +156,8 @@ fn file_list(index: &[u8], store: &[u8]) -> Vec<cpio::Meta> {
 
     (0..base.len())
         .map(|i| {
-            let dir = di.get(i).and_then(|d| dirs.get(*d as usize)).map(String::as_str).unwrap_or("");
+            let dir =
+                di.get(i).and_then(|d| dirs.get(*d as usize)).map(String::as_str).unwrap_or("");
             cpio::Meta {
                 path: normalize(&format!("{dir}{}", base[i])),
                 // Default to a plain readable file when the tag is missing, so a
@@ -248,15 +249,14 @@ fn walk(
     f.seek(SeekFrom::Start(p.offset))?;
     let mut r = cpio::Reader::new(super::formats::decompress(p.comp, f)?);
     while let Some(h) = r.next_header()? {
-        let meta = match h {
-            cpio::Header::End => break,
-            cpio::Header::Full(m) => m,
-            cpio::Header::Indexed(i) => p
-                .files
-                .get(i as usize)
-                .cloned()
-                .ok_or_else(|| Error::other("RPM payload names a file the header does not list"))?,
-        };
+        let meta =
+            match h {
+                cpio::Header::End => break,
+                cpio::Header::Full(m) => m,
+                cpio::Header::Indexed(i) => p.files.get(i as usize).cloned().ok_or_else(|| {
+                    Error::other("RPM payload names a file the header does not list")
+                })?,
+            };
         let data = r.data(meta.size, want_data)?;
         if !visit(meta, data)? {
             break;
@@ -271,7 +271,13 @@ pub(super) fn list_rpm(container: &Path) -> Result<Vec<RawEntry>> {
     walk(container, &p, false, |m, _| {
         let (is_dir, mode) = (m.is_dir(), m.permissions());
         if m.path != "/" {
-            out.push(RawEntry { path: m.path, is_dir, size: m.size, mtime: m.mtime, mode: Some(mode) });
+            out.push(RawEntry {
+                path: m.path,
+                is_dir,
+                size: m.size,
+                mtime: m.mtime,
+                mode: Some(mode),
+            });
         }
         Ok(true)
     })?;
