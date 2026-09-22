@@ -155,9 +155,15 @@ fn to_geojson(
 
 /// One geometry, with its positions turned into longitude and latitude.
 fn geometry_json(shape: &Shape, projection: Projection, kind: shp::ShapeType) -> String {
+    // A file already in degrees is written back exactly as it was read, so
+    // opening and saving it without an edit changes nothing at all. A file that
+    // had to be converted cannot be exact anyway — the inverse leaves about a
+    // micrometre — so its coordinates are rounded to a clean tenth of a
+    // millimetre rather than printed to seventeen digits of arithmetic noise.
+    let exact = projection == Projection::Geographic;
     let pt = |p: &[f64; 2]| {
         let [lon, lat] = projection.to_lonlat(*p);
-        format!("[{}, {}]", trim_float(lon), trim_float(lat))
+        format!("[{}, {}]", trim_float(lon, exact), trim_float(lat, exact))
     };
     let line =
         |pts: &Vec<[f64; 2]>| format!("[{}]", pts.iter().map(&pt).collect::<Vec<_>>().join(", "));
@@ -211,13 +217,26 @@ fn json_string(s: &str) -> String {
     out
 }
 
-/// A coordinate written without a trailing `.0`, and without exponent form,
-/// so the document reads the way a hand-written one would.
-fn trim_float(v: f64) -> String {
+/// A coordinate as text. With `exact`, the shortest form that reads back as the
+/// very same number (Rust's float formatting is shortest-round-trip); otherwise
+/// rounded to seven decimals.
+///
+/// Seven decimals of a degree is about a centimetre — finer than any shapefile's
+/// own accuracy — and it keeps a converted coordinate reading as `48.2082`
+/// rather than as the `48.20819999895796` the projection arithmetic leaves
+/// behind. Exponent form is not wanted in a coordinate list, so a value that
+/// would produce one is written out in full instead.
+fn trim_float(v: f64, exact: bool) -> String {
     if !v.is_finite() {
         return "0".to_string();
     }
-    let s = format!("{v:.9}");
+    if exact {
+        let s = format!("{v}");
+        if !s.contains(['e', 'E']) {
+            return s;
+        }
+    }
+    let s = format!("{v:.7}");
     let s = s.trim_end_matches('0').trim_end_matches('.').to_string();
     if s.is_empty() || s == "-" { "0".to_string() } else { s }
 }

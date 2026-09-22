@@ -241,6 +241,43 @@ fn a_geometry_of_the_wrong_kind_is_reported_not_silently_written() {
 // -- Coordinate systems ---------------------------------------------------
 
 #[test]
+fn a_file_already_in_degrees_is_written_back_unchanged() {
+    let dir = scratch("exact");
+    // A coordinate with more precision than any rounding would keep.
+    let p = [16.3738123456789, 48.2082123456789];
+    let shapes = vec![Shape::Point(p)];
+    let table = table_of(vec![text_field("N", 4)], vec![vec!["a".into()]]);
+    let path = write_set_files(&dir, "exact", shp::ShapeType::Point, &shapes, &table, None);
+
+    let opened = open(&path).expect("opens");
+    save(&opened.origin, &opened.text).expect("saves");
+    let (_, back) = shp::read(&std::fs::read(&path).unwrap()).unwrap();
+    match &back[0] {
+        // No projection happened, so nothing was approximated: the file comes
+        // back bit for bit, and a save after no edit changes nothing.
+        Shape::Point(q) => assert_eq!(*q, p, "a degrees file round-trips exactly"),
+        other => panic!("expected a point, got {other:?}"),
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_reprojected_coordinate_reads_as_a_clean_number() {
+    // The inverse projection leaves arithmetic noise well below a millimetre.
+    // Written out in full that would read as `48.20819999895796`; rounded, it
+    // reads as the coordinate it actually is.
+    assert_eq!(trim_float(48.208_199_998_957_96, false), "48.2082");
+    assert_eq!(trim_float(16.373_799_999_991_984, false), "16.3738");
+    // A file already in degrees keeps every digit it had.
+    assert_eq!(trim_float(48.208_212_345_678_9, true), "48.2082123456789");
+    // Whole numbers do not grow a decimal point, and nothing is written in
+    // exponent form.
+    assert_eq!(trim_float(17.0, false), "17");
+    assert_eq!(trim_float(0.0, true), "0");
+    assert!(!trim_float(1e-12, true).contains('e'));
+}
+
+#[test]
 fn a_prj_is_classified_by_what_it_says() {
     use prj::Crs;
     assert_eq!(prj::classify(""), Crs::Geographic, "no .prj means degrees");
