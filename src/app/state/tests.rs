@@ -5295,6 +5295,8 @@ async fn the_editor_opens_an_audio_file_on_its_tags_and_saves_them() {
     crate::audio::tests::write_wav(&file, 8_000, 0.05, 440.0, 0.2);
     let mut tag = Tag::new(TagType::Id3v2);
     tag.set_title("Before".to_string());
+    // Something outside the well-known set, so the "other tags" rows are there.
+    tag.insert_text(lofty::tag::ItemKey::Mood, "Rainy".to_string());
     tag.save_to_path(&file, WriteOptions::default()).unwrap();
 
     let (tx, _rx) = async_bridge::channel();
@@ -5303,7 +5305,25 @@ async fn the_editor_opens_an_audio_file_on_its_tags_and_saves_them() {
 
     let ed = st.editor.as_ref().expect("the editor opened");
     assert!(ed.tags_active(), "an audio file opens on its tags");
-    assert!(ed.is_hex(), "with the bytes behind them, not text");
+    // Nothing else is loaded: a hex view with a binary template panel over it
+    // is not what F4 on a song should mean.
+    assert!(!ed.is_hex(), "and on nothing else");
+
+    // What is actually on screen — asserting the state alone once let a render
+    // that drew the hex editor instead go unnoticed.
+    let drawn = |st: &mut AppState| {
+        let mut t = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
+        t.draw(|f| crate::ui::draw(f, st)).unwrap();
+        let b = t.backend().buffer().clone();
+        (0..b.area.height)
+            .map(|y| (0..b.area.width).map(|x| b[(x, y)].symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let screen = drawn(&mut st);
+    assert!(screen.contains("Title"), "the tag page is drawn: {screen}");
+    assert!(screen.contains("Before"), "with the file's own values");
+    assert!(screen.contains("Artist") && screen.contains("Album"));
 
     // The title is the first row: replace it.
     let press = |st: &mut AppState, c: KeyCode, m: KeyModifiers| {
@@ -5328,11 +5348,64 @@ async fn the_editor_opens_an_audio_file_on_its_tags_and_saves_them() {
     assert_eq!(title.1, "After", "the edit reached the file");
     assert!(!st.editor.as_ref().unwrap().tags_dirty(), "and the editor has settled");
 
-    // Alt-T puts the bytes in front, and brings the tags back.
+    // The unnamed items are editable too: walk down to Mood and change it.
+    for _ in 0..12 {
+        press(&mut st, KeyCode::Down, KeyModifiers::NONE);
+    }
+    assert!(drawn(&mut st).contains("Mood"), "the unnamed items are listed");
+    press(&mut st, KeyCode::Enter, KeyModifiers::NONE);
+    assert!(
+        st.editor.as_ref().unwrap().tags.as_ref().unwrap().editing(),
+        "an unnamed item can be typed into, not only the named fields"
+    );
+    for _ in 0.."Rainy".len() {
+        press(&mut st, KeyCode::Backspace, KeyModifiers::NONE);
+    }
+    for c in "Sunny".chars() {
+        press(&mut st, KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    press(&mut st, KeyCode::Enter, KeyModifiers::NONE);
+    st.save_editor(false).await;
+    assert!(
+        crate::tags::read(&file).unwrap().extra.iter().any(|e| e.value == "Sunny"),
+        "and the change reaches the file"
+    );
+    // Back to the top for the key tests below.
+    press(&mut st, KeyCode::Home, KeyModifiers::NONE);
+
+    // The page's own F-keys: F3 for the bytes, F4 to edit, F8 to clear.
+    press(&mut st, KeyCode::F(4), KeyModifiers::NONE);
+    assert!(
+        st.editor.as_ref().unwrap().tags.as_ref().unwrap().editing(),
+        "F4 starts editing the selected tag"
+    );
+    press(&mut st, KeyCode::Esc, KeyModifiers::NONE);
+    press(&mut st, KeyCode::F(3), KeyModifiers::NONE);
+    assert!(!st.editor.as_ref().unwrap().tags_active(), "F3 shows the bytes");
+    press(&mut st, KeyCode::F(3), KeyModifiers::NONE);
+    assert!(st.editor.as_ref().unwrap().tags_active(), "and F3 again the tags");
+
+    // Ctrl-F9 means the same thing here: there is no text to go back to.
+    press(&mut st, KeyCode::F(9), KeyModifiers::CONTROL);
+    assert!(!st.editor.as_ref().unwrap().tags_active(), "Ctrl-F9 shows the bytes");
+    press(&mut st, KeyCode::F(9), KeyModifiers::CONTROL);
+    assert!(st.editor.as_ref().unwrap().tags_active(), "and never loads it as text");
+    assert_eq!(
+        st.editor.as_ref().unwrap().contents(),
+        "",
+        "the buffer stays empty: an MP3 is never read as text"
+    );
+
+    // Alt-T opens the bytes on demand, and brings the tags back.
     press(&mut st, KeyCode::Char('t'), KeyModifiers::ALT);
     assert!(!st.editor.as_ref().unwrap().tags_active(), "Alt-T shows the bytes");
+    assert!(st.editor.as_ref().unwrap().is_hex(), "opening them for the first time");
+    let bytes_screen = drawn(&mut st);
+    assert!(!bytes_screen.contains("Album artist"), "the tag page is no longer drawn");
+
     press(&mut st, KeyCode::Char('t'), KeyModifiers::ALT);
     assert!(st.editor.as_ref().unwrap().tags_active(), "and Alt-T again brings the tags back");
+    assert!(drawn(&mut st).contains("Composer"), "drawing the tag page once more");
 
     let _ = std::fs::remove_dir_all(&dir);
 }

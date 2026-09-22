@@ -27,6 +27,11 @@ fn tagged_wav(dir: &Path, name: &str, tag: Tag) -> PathBuf {
     path
 }
 
+/// One well-known field's value in `t`, or an empty string.
+fn field_of(t: &Tags, field: Field) -> &str {
+    t.fields.iter().find(|(f, _)| *f == field).map(|(_, v)| v.as_str()).unwrap_or_default()
+}
+
 fn read_map(path: &Path) -> std::collections::HashMap<String, String> {
     rename_fields(path).into_iter().collect()
 }
@@ -139,7 +144,7 @@ fn an_untagged_file_can_still_be_given_tags() {
     assert!(t.fields.iter().all(|(_, v)| v.is_empty()));
 
     let fields: Vec<(Field, String)> = vec![(Field::Title, "Written from scratch".to_string())];
-    write(&path, &fields, t.tag_type).expect("writes");
+    write(&path, &fields, &t.extra, t.tag_type).expect("writes");
     assert_eq!(read_map(&path).get("title").map(String::as_str), Some("Written from scratch"));
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -162,7 +167,7 @@ fn edited_values_round_trip_through_a_write() {
             "Trip hop".clone_into(v);
         }
     }
-    write(&path, &fields, before.tag_type).expect("writes");
+    write(&path, &fields, &before.extra, before.tag_type).expect("writes");
 
     let got = read_map(&path);
     assert_eq!(got.get("title").map(String::as_str), Some("After"), "the edit landed");
@@ -185,7 +190,7 @@ fn emptying_a_field_removes_it_rather_than_writing_a_blank() {
         .iter()
         .map(|(f, v)| (*f, if *f == Field::Title { String::new() } else { v.clone() }))
         .collect();
-    write(&path, &fields, before.tag_type).expect("writes");
+    write(&path, &fields, &before.extra, before.tag_type).expect("writes");
 
     let got = read_map(&path);
     assert!(!got.contains_key("title"), "an emptied field is removed, not blanked");
@@ -204,7 +209,7 @@ fn a_write_keeps_items_the_program_has_no_name_for() {
 
     let before = read(&path).unwrap();
     assert!(
-        before.extra.iter().any(|(_, v)| v == "Rainy"),
+        before.extra.iter().any(|e| e.value == "Rainy"),
         "an unnamed item is shown, so it is visibly kept: {:?}",
         before.extra
     );
@@ -215,11 +220,11 @@ fn a_write_keeps_items_the_program_has_no_name_for() {
             "Changed".clone_into(v);
         }
     }
-    write(&path, &fields, before.tag_type).expect("writes");
+    write(&path, &fields, &before.extra, before.tag_type).expect("writes");
 
     let after = read(&path).unwrap();
     assert!(
-        after.extra.iter().any(|(_, v)| v == "Rainy"),
+        after.extra.iter().any(|e| e.value == "Rainy"),
         "editing a title must not discard frames this program has no word for"
     );
     let _ = std::fs::remove_dir_all(&dir);
@@ -283,11 +288,147 @@ fn the_tag_editor_saves_and_settles() {
         .into_iter()
         .map(|(f, v)| (f, if f == Field::Title { "New".to_string() } else { v }))
         .collect();
-    write(&path, &fields, te.tag_type()).unwrap();
+    write(&path, &fields, &te.extra_to_write(), te.tag_type()).unwrap();
     te.reload(&path);
     te.mark_saved();
 
     assert!(!te.dirty(), "after a save the view matches the file again");
     assert_eq!(te.to_write()[0].1, "New");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn editing_the_year_rewrites_the_recording_date_rather_than_fighting_it() {
+    let dir = scratch("year");
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.set_title("Roads".to_string());
+    // How ID3v2.4 and Vorbis actually keep a year.
+    tag.insert_text(ItemKey::RecordingDate, "1994-08-22".to_string());
+    let path = tagged_wav(&dir, "y.wav", tag);
+
+    let before = read(&path).unwrap();
+    assert_eq!(field_of(&before, Field::Year), "1994", "the year is read out of the date");
+    assert!(
+        !before.extra.iter().any(|e| e.label.contains("RecordingDate")),
+        "and the date is not also listed as an unnamed item: {:?}",
+        before.extra
+    );
+
+    let fields: Vec<(Field, String)> = before
+        .fields
+        .iter()
+        .map(|(f, v)| (*f, if *f == Field::Year { "1995".to_string() } else { v.clone() }))
+        .collect();
+    write(&path, &fields, &before.extra, before.tag_type).expect("writes");
+
+    let after = read(&path).unwrap();
+    assert_eq!(field_of(&after, Field::Year), "1995", "the edit took");
+    // One source of truth: the date was rewritten, keeping its month and day,
+    // rather than a second year frame appearing beside it.
+    let raw = lofty::read_from_path(&path).unwrap();
+    let t = raw.primary_tag().or_else(|| raw.first_tag()).unwrap();
+    assert_eq!(
+        t.get_string(ItemKey::RecordingDate),
+        Some("1995-08-22"),
+        "the month and day survive"
+    );
+    assert!(t.get_string(ItemKey::Year).is_none(), "no rival year frame was added");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn clearing_the_year_clears_the_date_with_it() {
+    let dir = scratch("noyear");
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.set_title("x".to_string());
+    tag.insert_text(ItemKey::RecordingDate, "1994-08-22".to_string());
+    let path = tagged_wav(&dir, "n.wav", tag);
+
+    let before = read(&path).unwrap();
+    let fields: Vec<(Field, String)> = before
+        .fields
+        .iter()
+        .map(|(f, v)| (*f, if *f == Field::Year { String::new() } else { v.clone() }))
+        .collect();
+    write(&path, &fields, &before.extra, before.tag_type).expect("writes");
+
+    assert_eq!(field_of(&read(&path).unwrap(), Field::Year), "", "the year is gone");
+    let raw = lofty::read_from_path(&path).unwrap();
+    let t = raw.primary_tag().or_else(|| raw.first_tag()).unwrap();
+    assert!(
+        t.get_string(ItemKey::RecordingDate).is_none(),
+        "and it did not survive in the date it was read from"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_unnamed_item_can_be_edited_and_cleared() {
+    let dir = scratch("editextra");
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.set_title("Song".to_string());
+    tag.insert_text(ItemKey::Mood, "Rainy".to_string());
+    tag.insert_text(ItemKey::Publisher, "Go! Beat".to_string());
+    let path = tagged_wav(&dir, "x.wav", tag);
+
+    let before = read(&path).unwrap();
+    assert!(before.extra.iter().all(|e| e.editable), "both are editable: {:?}", before.extra);
+
+    // Change one and clear the other.
+    let extra: Vec<Extra> = before
+        .extra
+        .iter()
+        .map(|e| {
+            let value = match e.key {
+                ItemKey::Mood => "Sunny".to_string(),
+                _ => String::new(),
+            };
+            Extra { value, ..e.clone() }
+        })
+        .collect();
+    write(&path, &before.fields, &extra, before.tag_type).expect("writes");
+
+    let after = read(&path).unwrap();
+    assert_eq!(
+        after.extra.iter().find(|e| e.key == ItemKey::Mood).map(|e| e.value.as_str()),
+        Some("Sunny"),
+        "the edit landed"
+    );
+    assert!(
+        !after.extra.iter().any(|e| e.key == ItemKey::Publisher),
+        "and the cleared one was removed: {:?}",
+        after.extra
+    );
+    // The named fields are untouched by all this.
+    assert_eq!(field_of(&after, Field::Title), "Song");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_key_the_file_uses_twice_is_shown_but_not_edited() {
+    // Written by key, so editing one of a repeated key would replace them all.
+    // Rather than merge values behind the user's back, those rows are shown and
+    // refused — and a save leaves them exactly as the file had them.
+    let ex = |key: ItemKey, value: &str| Extra {
+        key,
+        label: format!("{key:?}"),
+        value: value.to_string(),
+        editable: true,
+    };
+    let mut items = vec![
+        ex(ItemKey::Mood, "Rainy"),
+        ex(ItemKey::Performer, "Beth"),
+        ex(ItemKey::Performer, "Geoff"),
+        ex(ItemKey::Publisher, "Go! Beat"),
+    ];
+    mark_duplicates(&mut items);
+
+    assert!(items[0].editable, "a key used once stays editable");
+    assert!(!items[1].editable && !items[2].editable, "both of a repeated key are refused");
+    assert!(items[3].editable, "and the others are unaffected");
+
+    // Nothing to mark when every key is distinct.
+    let mut unique = vec![ex(ItemKey::Mood, "a"), ex(ItemKey::Publisher, "b")];
+    mark_duplicates(&mut unique);
+    assert!(unique.iter().all(|e| e.editable));
 }

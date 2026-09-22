@@ -14,7 +14,7 @@
 //! [`super::write`], which rewrites the container, instead of through the hex
 //! editor's in-place byte patching.
 
-use super::{Field, Tags};
+use super::{Extra, Field, Tags};
 use crate::ui::textedit::{self, Edit};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
@@ -41,6 +41,9 @@ pub(crate) struct TagEditor {
     original: Tags,
     /// The current value of each well-known field, in [`Field::ALL`] order.
     values: Vec<String>,
+    /// The current value of each item the program has no name for, in the order
+    /// the file holds them.
+    extras: Vec<String>,
     /// Selected row.
     cursor: usize,
     /// First visible row.
@@ -57,10 +60,12 @@ impl TagEditor {
     pub(crate) fn open(path: &Path) -> Option<Self> {
         let original = super::read(path)?;
         let values = original.fields.iter().map(|(_, v)| v.clone()).collect();
+        let extras = original.extra.iter().map(|e| e.value.clone()).collect();
         Some(TagEditor {
             on: true,
             original,
             values,
+            extras,
             cursor: 0,
             top: 0,
             edit: None,
@@ -71,11 +76,22 @@ impl TagEditor {
     /// Whether any value differs from what was read.
     pub(crate) fn dirty(&self) -> bool {
         self.original.fields.iter().map(|(_, v)| v).ne(self.values.iter())
+            || self.original.extra.iter().map(|e| &e.value).ne(self.extras.iter())
     }
 
     /// The fields to write, paired back up with which field each one is.
     pub(crate) fn to_write(&self) -> Vec<(Field, String)> {
         Field::ALL.iter().copied().zip(self.values.iter().cloned()).collect()
+    }
+
+    /// The unnamed items to write, with their current values.
+    pub(crate) fn extra_to_write(&self) -> Vec<Extra> {
+        self.original
+            .extra
+            .iter()
+            .zip(&self.extras)
+            .map(|(e, v)| Extra { value: v.clone(), ..e.clone() })
+            .collect()
     }
 
     /// The kind of tag these values came from.
@@ -88,6 +104,9 @@ impl TagEditor {
         for ((_, orig), now) in self.original.fields.iter_mut().zip(&self.values) {
             orig.clone_from(now);
         }
+        for (orig, now) in self.original.extra.iter_mut().zip(&self.extras) {
+            orig.value.clone_from(now);
+        }
     }
 
     /// Re-read the file after it has been rewritten, so the view matches what
@@ -95,6 +114,7 @@ impl TagEditor {
     pub(crate) fn reload(&mut self, path: &Path) {
         if let Some(t) = super::read(path) {
             self.values = t.fields.iter().map(|(_, v)| v.clone()).collect();
+            self.extras = t.extra.iter().map(|e| e.value.clone()).collect();
             self.original = t;
         }
     }
@@ -116,7 +136,7 @@ impl TagEditor {
             rows.push(Row::Pictures(self.original.pictures));
         }
         if !self.original.extra.is_empty() {
-            rows.push(Row::Heading("Other tags in this file (kept, not edited)"));
+            rows.push(Row::Heading("Other tags in this file"));
             for i in 0..self.original.extra.len() {
                 rows.push(Row::Extra(i));
             }
@@ -136,8 +156,12 @@ impl TagEditor {
             }
             Row::Heading(t) => (String::new(), t.to_string()),
             Row::Extra(i) => {
-                let (k, v) = &self.original.extra[*i];
-                (k.clone(), v.clone())
+                let e = &self.original.extra[*i];
+                let shown = match &self.edit {
+                    Some((r, text, _)) if self.row_of_extra(*i) == Some(*r) => text.clone(),
+                    _ => self.extras[*i].clone(),
+                };
+                (e.label.clone(), shown)
             }
             Row::Pictures(n) => ("Pictures".to_string(), n.to_string()),
         }
@@ -147,6 +171,44 @@ impl TagEditor {
     /// order, so this is the index itself.
     fn rows_index_of_field(&self, i: usize) -> usize {
         i
+    }
+
+    /// Where unnamed item `i` sits among the rows, if it is shown.
+    fn row_of_extra(&self, i: usize) -> Option<usize> {
+        self.rows().iter().position(|r| matches!(r, Row::Extra(j) if *j == i))
+    }
+
+    /// Whether the row at `idx` can be typed into — for the renderer, which
+    /// draws the ones that cannot differently.
+    pub(crate) fn editable_row(&self, idx: usize) -> bool {
+        self.editable_at(idx)
+    }
+
+    /// Whether the row at `idx` can be typed into.
+    fn editable_at(&self, idx: usize) -> bool {
+        match self.rows().get(idx) {
+            Some(Row::Field(_, _)) => true,
+            Some(Row::Extra(i)) => self.original.extra[*i].editable,
+            _ => false,
+        }
+    }
+
+    /// The value behind the row at `idx`, for editing.
+    fn value_at(&self, idx: usize) -> Option<String> {
+        match self.rows().get(idx)? {
+            Row::Field(_, i) => Some(self.values[*i].clone()),
+            Row::Extra(i) => Some(self.extras[*i].clone()),
+            _ => None,
+        }
+    }
+
+    /// Put `value` back into whatever the row at `idx` refers to.
+    fn set_value_at(&mut self, idx: usize, value: String) {
+        match self.rows().get(idx) {
+            Some(Row::Field(_, i)) => self.values[*i] = value,
+            Some(Row::Extra(i)) => self.extras[*i] = value,
+            _ => {}
+        }
     }
 
     /// The caret column within the value, when a field is being typed into.
@@ -167,11 +229,12 @@ impl TagEditor {
         self.top = top;
     }
 
-    /// Start editing the selected row, if it is an editable field.
+    /// Start editing the selected row, if it is one that can be.
     fn begin_edit(&mut self) {
-        let rows = self.rows();
-        if let Some(Row::Field(_, i)) = rows.get(self.cursor) {
-            let text = self.values[*i].clone();
+        if !self.editable_at(self.cursor) {
+            return;
+        }
+        if let Some(text) = self.value_at(self.cursor) {
             let caret = text.chars().count();
             self.edit = Some((self.cursor, text, caret));
         }
@@ -180,10 +243,7 @@ impl TagEditor {
     /// Finish editing, keeping what was typed.
     fn commit_edit(&mut self) {
         if let Some((row, text, _)) = self.edit.take() {
-            let rows = self.rows();
-            if let Some(Row::Field(_, i)) = rows.get(row) {
-                self.values[*i] = text;
-            }
+            self.set_value_at(row, text);
         }
     }
 
@@ -244,16 +304,14 @@ impl TagEditor {
             KeyCode::Enter => self.begin_edit(),
             // Clear the selected field outright.
             KeyCode::Delete => {
-                let rows = self.rows();
-                if let Some(Row::Field(_, i)) = rows.get(self.cursor) {
-                    self.values[*i].clear();
+                if self.editable_at(self.cursor) {
+                    self.set_value_at(self.cursor, String::new());
                 }
             }
             // Typing a printable character starts editing with it, so a value
             // can be replaced without pressing Enter first.
             KeyCode::Char(c) if !ctrl && !key.modifiers.contains(KeyModifiers::ALT) => {
-                let rows = self.rows();
-                if let Some(Row::Field(_, _)) = rows.get(self.cursor) {
+                if self.editable_at(self.cursor) {
                     self.edit = Some((self.cursor, c.to_string(), 1));
                 }
             }

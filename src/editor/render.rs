@@ -45,6 +45,28 @@ pub fn draw(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) -> O
     ed.footer_area = footer;
     ed.menu_area = status;
 
+    // An audio file's tags are a page of their own, and they come first: the
+    // byte editor, if one has been opened at all, is behind them and Alt-T is
+    // what brings it forward.
+    if ed.tags_active() {
+        let name = ed.name.clone();
+        let dirty = ed.dirty;
+        let caret = ed.tags.as_mut().and_then(|te| {
+            crate::tags::render::render_status(f, status, &name, te, dirty, theme);
+            crate::tags::render::render(f, text_area, te, theme)
+        });
+        render_footer(f, footer, ed, theme);
+        if ed.help_open() {
+            render_help(f, area, theme);
+            return None;
+        }
+        if render_menu(f, area, ed, theme) {
+            return None;
+        }
+        // Only show the caret while a value is actually being typed into.
+        return caret.filter(|_| ed.tags.as_ref().is_some_and(|t| t.editing()));
+    }
+
     if ed.is_hex() {
         // The inspector and the template panel take the room beside or below
         // the bytes.
@@ -86,27 +108,6 @@ pub fn draw(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) -> O
         } else {
             cursor_pos
         };
-    }
-
-    // The tag view sits in front of the bytes; the byte editor is still there
-    // behind it and Alt-T brings it back.
-    if ed.tags_active() {
-        let name = ed.name.clone();
-        let dirty = ed.dirty;
-        let caret = ed.tags.as_mut().and_then(|te| {
-            crate::tags::render::render_status(f, status, &name, te, dirty, theme);
-            crate::tags::render::render(f, text_area, te, theme)
-        });
-        render_footer(f, footer, ed, theme);
-        if ed.help_open() {
-            render_help(f, area, theme);
-            return None;
-        }
-        if render_menu(f, area, ed, theme) {
-            return None;
-        }
-        // Only show the caret while a value is actually being typed into.
-        return caret.filter(|_| ed.tags.as_ref().is_some_and(|t| t.editing()));
     }
 
     if ed.sheet_active() {

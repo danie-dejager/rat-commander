@@ -681,19 +681,13 @@ impl AppState {
         // as bytes would show a haystack — so it opens on its tags, with the
         // bytes one Alt-T away. A file whose tags cannot be read falls through
         // and opens the way it always did.
-        if local && crate::tags::is_taggable_name(&name) {
-            match EditorState::new_tags(name.clone(), path.clone()) {
-                Ok(Some(mut ed)) => {
-                    self.prepare_editor(&mut ed);
-                    self.editor = Some(ed);
-                    return;
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    self.show_error(format!("Cannot open file: {e}"));
-                    return;
-                }
-            }
+        if local
+            && crate::tags::is_taggable_name(&name)
+            && let Some(mut ed) = EditorState::new_tags(name.clone(), path.clone())
+        {
+            self.prepare_editor(&mut ed);
+            self.editor = Some(ed);
+            return;
         }
         // Local files too big to load as text open directly in (in-place) hex mode.
         if local && size > crate::editor::MAX_TEXT_EDIT {
@@ -818,19 +812,12 @@ impl AppState {
         }
         // An audio file opens on its tags here too, so `rcedit song.mp3` does
         // what F4 on the same file does.
-        if crate::tags::is_taggable_name(&name) {
-            match EditorState::new_tags(name.clone(), vpath.clone()) {
-                Ok(Some(mut ed)) => {
-                    self.prepare_editor(&mut ed);
-                    self.editor = Some(ed);
-                    return;
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    self.show_error(format!("Cannot open file: {e}"));
-                    return;
-                }
-            }
+        if crate::tags::is_taggable_name(&name)
+            && let Some(mut ed) = EditorState::new_tags(name.clone(), vpath.clone())
+        {
+            self.prepare_editor(&mut ed);
+            self.editor = Some(ed);
+            return;
         }
         if size > crate::editor::MAX_TEXT_EDIT {
             match EditorState::new_hex(name, vpath) {

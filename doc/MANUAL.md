@@ -320,7 +320,7 @@ used to share now lives on `Alt-T`.
 - `Shift-F9` — Toggle word wrap
 - `Ctrl-F9` — Toggle the in-place hex editor
 - `Alt-G` — Toggle the spreadsheet grid (see *Spreadsheet grid* below)
-- `Alt-T` — (audio files) Toggle the tag editor and the bytes (see *Audio tags* below)
+- `Alt-T` / `F3` — (audio files) Toggle the tag page and the file's bytes (see *Audio tags* below)
 - `Alt-E` / `Alt-Shift-E` — (JSON, TOML, YAML and XML files) Jump to the next /
   previous syntax error
 - `Alt-F` — (JSON files) Pretty-print the document
@@ -1674,25 +1674,33 @@ Some details worth knowing:
   never leaves a half-replaced set behind. The `.prj` is never touched.
 
 **Audio tags (F4).** Opening an MP3, Ogg, FLAC, M4A, WAV or other audio file
-with **F4** shows its **tags** rather than its bytes: a list of fields — Title,
-Artist, Album, Album artist, Track, Disc, Year, Genre, Comment, Composer — each
-editable in place.
+with **F4** opens a **page of its tags** — nothing else is loaded, since an
+audio file is not text and is not usually something you want to patch bytes in.
 
-- **↑↓** pick a field; **Enter**, or simply typing, edits it; **Enter** commits
-  and **Esc** abandons the edit. **F8** (or **Del**) clears a field.
-- **F2** writes the tags back into the file. A field left empty is *removed*
-  from the tag rather than written blank, which is what players expect.
-- Tags the program has no name for are listed below the editable ones and are
-  **kept** through a save, as is embedded cover art — editing a title never
-  discards them.
-- **Alt-T** switches to the bytes behind the tags (the ordinary in-place hex
-  editor) and back, so nothing is hidden from you.
+The well-known fields come first — Title, Artist, Album, Album artist, Track,
+Disc, Year, Genre, Comment, Composer — followed by **any other tag the file
+carries**, under *Other tags in this file*. Both are editable.
+
+- **↑↓** pick a row; **Enter** (or **F4**, or simply typing) edits it; **Enter**
+  commits and **Esc** abandons the edit. **F8** or **Del** clears a row.
+- **F2** writes the tags back into the file. A row left empty is *removed* from
+  the tag rather than written blank, which is what players expect.
+- Embedded cover art is counted and kept; so is anything binary the file holds.
+- A tag whose key the file uses **more than once** (two performers, say) is
+  shown greyed and left alone: editing it by key would collapse every value
+  into the one being edited.
+- **Year** is stored by some formats inside a full recording date. Where it is,
+  changing the year rewrites that date — keeping its month and day — rather
+  than adding a second year that would disagree with it.
+- **F3**, **Alt-T** or **Ctrl-F9** shows the file's raw bytes (the ordinary
+  in-place hex editor) and switches back again, so nothing is hidden from you.
+  The byte editor is only opened if you ask for it.
 
 The status row names the kind of tag being written — ID3v2 for an MP3, Vorbis
 comments for an Ogg, and so on — so it is clear what is going into the file.
 
 Writing a tag re-lays-out the container, so if you have also edited bytes in the
-hex view those are flushed first and the hex view is reopened on the rewritten
+hex view those are written first and the hex view is reopened on the rewritten
 file.
 
 **GeoJSON map (Alt-M).** Draws the GeoJSON in the file over a **map of the

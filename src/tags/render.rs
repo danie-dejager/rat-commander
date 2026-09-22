@@ -26,13 +26,19 @@ pub(crate) fn render(
         return None;
     }
     let rows = te.rows();
-    let label_w = rows
+    // The label column is the indent, the widest label, and a gap before the
+    // values — the gap counted on top, not taken out of the label, or a label
+    // of exactly the full width would run into the value beside it.
+    let widest = rows
         .iter()
+        // A heading spans the row rather than sitting in the label column, so
+        // its length must not set the column's width.
+        .filter(|r| !matches!(r, Row::Heading(_)))
         .map(|r| te.row_text(r).0.chars().count())
         .max()
-        .unwrap_or(0)
-        .clamp(1, MAX_LABEL.min(area.width.saturating_sub(4) as usize))
-        + 2;
+        .unwrap_or(1)
+        .clamp(1, MAX_LABEL.min(area.width.saturating_sub(8) as usize));
+    let label_w = widest + 3;
 
     let top = crate::util::scroll::scroll_to_visible(te.top(), te.cursor(), area.height as usize);
     te.set_view(area, top);
@@ -52,7 +58,7 @@ pub(crate) fn render(
         let y = area.y + i as u16;
         let (label, value) = te.row_text(row);
         let selected = idx == te.cursor();
-        let editable = matches!(row, Row::Field(_, _));
+        let editable = te.editable_row(idx);
 
         if let Row::Heading(_) = row {
             f.render_widget(
@@ -75,7 +81,7 @@ pub(crate) fn render(
         f.render_widget(
             Paragraph::new(Line::from(vec![
                 Span::styled(
-                    pad_right(&format!("  {}", ellipsize(&label, label_w - 2)), label_w),
+                    pad_right(&format!("  {}", ellipsize(&label, widest)), label_w),
                     if editable { label_style } else { dim },
                 ),
                 Span::styled(pad_right(&ellipsize(&value, vw), vw), vstyle),
