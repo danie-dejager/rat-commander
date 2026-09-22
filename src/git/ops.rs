@@ -52,6 +52,62 @@ pub async fn run_text(dir: &Path, args: &[String]) -> GitOutput {
     GitOutput { ok: out.status.success(), text: text.trim_end().to_string() }
 }
 
+/// Run `git apply` with `patch` on **stdin**.
+///
+/// Needs its own spawn rather than [`run_text`], which nulls stdin so a git
+/// command can never sit waiting for input the UI cannot give it. Here the
+/// input is the whole point.
+///
+/// `cached` stages the patch instead of touching the worktree; `reverse`
+/// undoes it, which is how a hunk is discarded.
+pub async fn apply_patch(dir: &Path, patch: &str, cached: bool, reverse: bool) -> GitOutput {
+    use tokio::io::AsyncWriteExt;
+
+    let mut args = vec!["apply".to_string()];
+    if cached {
+        args.push("--cached".into());
+    }
+    if reverse {
+        args.push("--reverse".into());
+    }
+    // Patches come from `git diff` untouched, so whitespace must not be
+    // "fixed" on the way back in — that would apply something else than what
+    // the user is looking at.
+    args.push("--whitespace=nowarn".into());
+    args.push("-".into());
+
+    let mut cmd = tokio::process::Command::new("git");
+    cmd.arg("-C").arg(dir).args(&args);
+    cmd.stdin(std::process::Stdio::piped());
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+    cmd.kill_on_drop(true);
+
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => return GitOutput::failed(format!("cannot run git: {e}")),
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        // A write error usually means git already exited (a malformed patch);
+        // its message on stderr explains it better than the broken pipe does.
+        let _ = stdin.write_all(patch.as_bytes()).await;
+        let _ = stdin.shutdown().await;
+    }
+    let out = match child.wait_with_output().await {
+        Ok(o) => o,
+        Err(e) => return GitOutput::failed(format!("git apply failed: {e}")),
+    };
+    let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let err = String::from_utf8_lossy(&out.stderr);
+    if !err.trim().is_empty() {
+        if !text.trim().is_empty() {
+            text.push('\n');
+        }
+        text.push_str(&err);
+    }
+    GitOutput { ok: out.status.success(), text: text.trim_end().to_string() }
+}
+
 /// Build an owned argument list from string-ish parts.
 fn argv(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|s| s.to_string()).collect()
@@ -255,6 +311,90 @@ impl RepoInfo {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Stash
+// ---------------------------------------------------------------------------
+
+/// One entry of `git stash list`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StashEntry {
+    /// The ref to act on, e.g. `stash@{0}`. Passed through argv, so it needs no
+    /// quoting however odd it looks.
+    pub name: String,
+    /// Relative time ("2 hours ago"), for the picker's second column.
+    pub when: String,
+    /// The stash's message.
+    pub subject: String,
+}
+
+/// `git stash push` — save the working tree and go back to a clean HEAD.
+pub fn stash_push_args(message: &str, untracked: bool, keep_index: bool) -> Vec<String> {
+    let mut a = argv(&["stash", "push"]);
+    if untracked {
+        a.push("--include-untracked".into());
+    }
+    if keep_index {
+        a.push("--keep-index".into());
+    }
+    // An empty `-m ""` makes git store a literally empty message instead of
+    // its usual "WIP on <branch>" summary, so only pass one when there is one.
+    let message = message.trim();
+    if !message.is_empty() {
+        a.push("-m".into());
+        a.push(message.to_string());
+    }
+    a
+}
+
+/// Tab-separated so the message can contain anything, including spaces.
+pub fn stash_list_args() -> Vec<String> {
+    argv(&["stash", "list", "--pretty=format:%gd%x09%cr%x09%gs"])
+}
+
+pub fn stash_apply_args(reference: &str) -> Vec<String> {
+    argv(&["stash", "apply", reference])
+}
+
+pub fn stash_pop_args(reference: &str) -> Vec<String> {
+    argv(&["stash", "pop", reference])
+}
+
+pub fn stash_drop_args(reference: &str) -> Vec<String> {
+    argv(&["stash", "drop", reference])
+}
+
+/// `git stash show -p` — the diff a stash holds, for the picker's Enter.
+pub fn stash_show_args(reference: &str) -> Vec<String> {
+    argv(&["stash", "show", "-p", "--stat", reference])
+}
+
+/// Parse `stash_list_args` output. A line git did not format as expected is
+/// dropped rather than shown as a stash that cannot be acted on.
+pub fn parse_stash_list(bytes: &[u8]) -> Vec<StashEntry> {
+    String::from_utf8_lossy(bytes)
+        .lines()
+        .filter_map(|l| {
+            let mut parts = l.splitn(3, '\t');
+            let name = parts.next()?.trim();
+            let when = parts.next()?.trim();
+            // The message may itself contain tabs, so it is whatever is left.
+            let subject = parts.next().unwrap_or("").trim();
+            (!name.is_empty()).then(|| StashEntry {
+                name: name.to_string(),
+                when: when.to_string(),
+                subject: subject.to_string(),
+            })
+        })
+        .collect()
+}
+
+/// The repository's stashes, newest first. An error (no repo, no git) yields an
+/// empty list, which the caller reports as "no stashes".
+pub async fn stash_list(dir: &Path) -> Vec<StashEntry> {
+    let o = run_text(dir, &stash_list_args()).await;
+    if o.ok { parse_stash_list(o.text.as_bytes()) } else { Vec::new() }
+}
+
 /// Split newline-separated `git for-each-ref` output into trimmed names, dropping
 /// blanks and the `origin/HEAD -> …` symbolic aliases.
 pub fn parse_refs(bytes: &[u8]) -> Vec<String> {
@@ -292,6 +432,46 @@ pub async fn repo_info(dir: &Path) -> RepoInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stash_push_only_passes_a_message_when_there_is_one() {
+        assert_eq!(stash_push_args("", false, false), ["stash", "push"]);
+        assert_eq!(
+            stash_push_args("  ", false, false),
+            ["stash", "push"],
+            "blank is no message: an empty -m stores a literally empty one"
+        );
+        assert_eq!(stash_push_args("wip", false, false), ["stash", "push", "-m", "wip"]);
+        assert_eq!(
+            stash_push_args("wip", true, true),
+            ["stash", "push", "--include-untracked", "--keep-index", "-m", "wip"]
+        );
+    }
+
+    #[test]
+    fn parse_stash_list_splits_ref_time_and_message() {
+        let out = "stash@{0}\t2 hours ago\tWIP on main: 1234567 tidy up\n\
+                   stash@{1}\t3 days ago\ton feature/x: a\tmessage with a tab\n";
+        let got = parse_stash_list(out.as_bytes());
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].name, "stash@{0}");
+        assert_eq!(got[0].when, "2 hours ago");
+        assert_eq!(got[0].subject, "WIP on main: 1234567 tidy up");
+        assert_eq!(
+            got[1].subject, "on feature/x: a\tmessage with a tab",
+            "the message keeps its own tabs; only the first two fields are split off"
+        );
+    }
+
+    #[test]
+    fn parse_stash_list_drops_lines_it_cannot_read() {
+        assert!(parse_stash_list(b"").is_empty());
+        assert!(parse_stash_list(b"no tabs here at all\n").is_empty(), "no fields to split");
+        // A stash with an empty message is still actionable.
+        let got = parse_stash_list(b"stash@{0}\tjust now\t\n");
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].subject, "");
+    }
 
     #[test]
     fn parse_refs_drops_blanks_and_head_aliases() {

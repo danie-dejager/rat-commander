@@ -197,12 +197,16 @@ regex/\.(zip|ZIP)$
 shell/i/.iso
     Open=%cd %p/iso9660://
 
-# RPM package
+# RPM package. Read natively, so the Open rule below is never reached for an
+# ordinary package; it needs mc's `rpm` script and the `rpm` tool. The View rule
+# still earns its place — it shows the package's description and file list,
+# which browsing the payload does not.
 shell/i/.rpm
     Open=%cd %p/rpm://
     View=%view{ascii} rpm -qivlp --nomanifest %f
 
-# Debian package
+# Debian package. Read natively too (the data tree at the root, the control
+# files under /DEBIAN); the Open rule needs mc's `deb` script and `dpkg-deb`.
 shell/i/.deb
     Open=%cd %p/deb://
     View=%view{ascii} dpkg-deb -I %f && dpkg-deb -c %f

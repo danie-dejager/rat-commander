@@ -6552,3 +6552,159 @@ async fn binary_templates_run_are_chosen_and_edited_over_the_hex_editor() {
     assert!(st.editor.is_none());
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// External panelize end to end: a command's stdout becomes the panel listing,
+/// and the entries are real `VfsPath`s the file operations can act on.
+#[cfg(unix)]
+#[tokio::test]
+async fn panelize_command_output_becomes_a_panelized_listing() {
+    use crate::ui::dialog::Submit;
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_panelize_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    std::fs::write(root.join("a.txt"), b"aa").unwrap();
+    std::fs::write(root.join("sub/b.txt"), b"bbb").unwrap();
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+
+    // `missing.txt` names nothing: it must be dropped rather than listed.
+    st.handle_submit(Submit::Panelize(
+        "printf 'a.txt\\nsub/b.txt\\nmissing.txt\\n'".to_string(),
+    ))
+    .await;
+    loop {
+        let ev = rx.recv().await.unwrap();
+        let done = matches!(ev, AppEvent::PanelizeDone { .. });
+        st.apply_event(ev).await;
+        if done {
+            break;
+        }
+    }
+
+    assert!(st.panels[0].is_panelized(), "the output replaced the listing");
+    let names: Vec<String> = st.panels[0].entries.iter().map(|e| e.name.clone()).collect();
+    let has = |n: &str| names.iter().any(|x| x.ends_with(n));
+    assert!(has("a.txt"), "a relative line resolved against the panel's cwd: {names:?}");
+    assert!(has("sub/b.txt"), "so did one naming a subdirectory: {names:?}");
+    assert!(!has("missing.txt"), "a line naming nothing is dropped: {names:?}");
+
+    // The cursor opens on "..", which is never an operation target; step onto
+    // the first result and the panel yields the real absolute path behind it.
+    // That mapping is what makes F3/F5/F8 work on a listing no directory backs.
+    assert!(st.panels[0].operation_targets().is_empty(), "\"..\" is never a target");
+    st.panels[0].move_cursor(1);
+    let targets = st.panels[0].operation_targets();
+    assert_eq!(
+        targets,
+        vec![VfsPath::local(root.join("a.txt"))],
+        "the cursor maps to the stored absolute path"
+    );
+
+    // The command was remembered for the next dialog, and did not leak into the
+    // shell history, which only holds commands actually run at the prompt.
+    assert!(st.last_panelize.starts_with("printf"), "the command is prefilled next time");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// Panelize needs a local directory: the shell cannot be pointed at a cwd
+/// inside an archive or on a remote, the same limit the command line has.
+#[tokio::test]
+async fn panelize_refuses_a_non_local_panel() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::archive("/tmp/some.zip", "/");
+
+    st.open_panelize_dialog();
+    assert!(
+        matches!(st.dialog, Some(Dialog::Message(_))),
+        "an error is shown instead of the command prompt"
+    );
+}
+
+/// Alt-D opens the diff *and* loads the hunks the staging keys act on. Without
+/// this the view would look identical but `s` would report "no hunk", which is
+/// exactly the failure a rendering test would miss.
+#[tokio::test]
+async fn the_git_diff_carries_the_hunks_that_staging_acts_on() {
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_gitdiff_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let run = |args: &[&str]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@e")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@e")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if !run(&["init", "-q", "-b", "main"]) {
+        eprintln!("git unavailable; skipping");
+        let _ = std::fs::remove_dir_all(&root);
+        return;
+    }
+    let body: String = (1..=20).map(|i| format!("line{i}\n")).collect();
+    std::fs::write(root.join("f.txt"), &body).unwrap();
+    run(&["add", "-A"]);
+    run(&["commit", "-q", "-m", "init"]);
+    // Two edits far enough apart that -U3 keeps them as separate hunks.
+    let edited = body.replace("line2\n", "CHANGED2\n").replace("line19\n", "CHANGED19\n");
+    std::fs::write(root.join("f.txt"), &edited).unwrap();
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+
+    // The panel's git status is read on a background task, and `open_git_diff`
+    // refuses without it, so wait for it to land.
+    st.update_git();
+    loop {
+        let ev = rx.recv().await.unwrap();
+        let done = matches!(ev, AppEvent::GitStatusScanned { .. });
+        st.apply_event(ev).await;
+        if done {
+            break;
+        }
+    }
+    assert!(st.panels[0].git.is_some(), "the panel knows it is in a repository");
+    st.panels[0].cursor =
+        st.panels[0].entries.iter().position(|e| e.name == "f.txt").expect("the file");
+
+    st.open_git_diff().await;
+    let view = st.diffview.as_ref().expect("the diff opened");
+    let git = view.git.as_ref().expect("and it carries its git context");
+    assert_eq!(git.unstaged.hunks.len(), 2, "both edits arrived as hunks");
+    assert_eq!(git.rel, std::path::Path::new("f.txt"));
+    assert!(!git.staged_dirty, "nothing is staged yet");
+    // The cursor opens at the top, which is inside the first hunk (the edit is
+    // on line 2, and -U3 starts the hunk at line 1).
+    assert_eq!(view.hunk_position(), Some((1, 2)), "cursor is in hunk 1 of 2");
+
+    // And moving to the end of the file finds the other one, which is what
+    // makes `s` stage the hunk you are actually looking at.
+    let view = st.diffview.as_mut().unwrap();
+    view.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+    assert_eq!(view.hunk_at_cursor(), Some(1), "the last row belongs to the second hunk");
+
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -12,7 +12,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// The formats that can be created *and* modified. Read-only RAR is covered
 /// separately.
-const WRITABLE: &[&str] = &["zip", "tar", "tar.gz", "tar.bz2", "tar.xz", "7z"];
+const WRITABLE: &[&str] = &["zip", "tar", "tar.gz", "tar.bz2", "tar.xz", "tar.zst", "7z"];
 
 // ---------------------------------------------------------------------------
 // Scratch space
@@ -789,4 +789,335 @@ async fn a_read_only_format_refuses_every_mutation() {
 async fn rejects_paths_that_are_not_inside_an_archive() {
     let fs = ArchiveFs::new();
     assert!(matches!(fs.read_dir(&VfsPath::local("/tmp")).await, Err(Error::InvalidPath(_))));
+}
+
+// ---------------------------------------------------------------------------
+// Debian packages
+// ---------------------------------------------------------------------------
+
+/// Build a Unix `ar` container from `(name, bytes)` members, the way `dpkg-deb`
+/// lays a package out. Synthesised here rather than shipping a real `.deb`:
+/// the point is that nothing external is needed to read one.
+fn write_ar(dest: &Path, members: &[(&str, Vec<u8>)]) {
+    let mut out: Vec<u8> = b"!<arch>\n".to_vec();
+    for (name, data) in members {
+        // 60-byte header: name(16) mtime(12) uid(6) gid(6) mode(8) size(10) magic(2).
+        out.extend_from_slice(format!("{name:<16}").as_bytes());
+        out.extend_from_slice(format!("{:<12}", 0).as_bytes());
+        out.extend_from_slice(format!("{:<6}", 0).as_bytes());
+        out.extend_from_slice(format!("{:<6}", 0).as_bytes());
+        out.extend_from_slice(format!("{:<8}", "100644").as_bytes());
+        out.extend_from_slice(format!("{:<10}", data.len()).as_bytes());
+        out.extend_from_slice(b"`\n");
+        out.extend_from_slice(data);
+        // Members are aligned to an even offset.
+        if data.len() % 2 == 1 {
+            out.push(b'\n');
+        }
+    }
+    std::fs::write(dest, out).expect("write ar");
+}
+
+/// A `.deb` whose two tarballs use *different* compressors, which is exactly
+/// what a modern package looks like (zstd data, gzip control).
+fn make_deb(s: &Scratch) -> PathBuf {
+    let ctrl = s.path("control.tar.gz");
+    formats::write_all(
+        ArchiveFormat::TarGz,
+        &ctrl,
+        &[
+            FullEntry::file("./control", b"Package: demo\nVersion: 1.0\n".to_vec()),
+            FullEntry::file("./md5sums", b"d41d8cd98f00b204e9800998ecf8427e  usr/bin/demo\n".to_vec()),
+        ],
+    )
+    .expect("control tarball");
+
+    let data = s.path("data.tar.zst");
+    formats::write_all(
+        ArchiveFormat::TarZst,
+        &data,
+        &[
+            FullEntry::dir("./usr/bin"),
+            FullEntry::file("./usr/bin/demo", b"#!/bin/sh\necho hi\n".to_vec()),
+            FullEntry::file("./usr/share/doc/demo/README", b"read me\n".to_vec()),
+        ],
+    )
+    .expect("data tarball");
+
+    let container = s.path("demo_1.0_amd64.deb");
+    write_ar(
+        &container,
+        &[
+            ("debian-binary", b"2.0\n".to_vec()),
+            ("control.tar.gz", std::fs::read(&ctrl).unwrap()),
+            ("data.tar.zst", std::fs::read(&data).unwrap()),
+        ],
+    );
+    container
+}
+
+/// A `.deb` browses as one tree: the installed files at the root and the
+/// control files under `/DEBIAN`, the layout `dpkg-deb -R` produces. They
+/// cannot be two nested archives, because a `VfsPath` carries only one
+/// container.
+#[tokio::test]
+async fn a_deb_lists_its_data_tree_and_control_files_together() {
+    let s = Scratch::new("deb-list");
+    let container = make_deb(&s);
+    let fs = ArchiveFs::new();
+
+    assert_eq!(
+        names(&fs, &container, "/").await,
+        vec!["DEBIAN".to_string(), "debian-binary".to_string(), "usr".to_string()]
+    );
+    assert_eq!(names(&fs, &container, "/DEBIAN").await, vec!["control", "md5sums"]);
+    assert_eq!(names(&fs, &container, "/usr/bin").await, vec!["demo"]);
+    assert_eq!(names(&fs, &container, "/usr/share/doc/demo").await, vec!["README"]);
+
+    // Reading crosses back into whichever tarball the path came from — and the
+    // two are compressed differently, so this also proves the compressor is
+    // chosen per member rather than once for the package.
+    assert_eq!(read(&fs, &container, "/debian-binary").await, b"2.0\n");
+    assert!(
+        read(&fs, &container, "/DEBIAN/control").await.starts_with(b"Package: demo"),
+        "control came out of the gzip tarball"
+    );
+    assert_eq!(
+        read(&fs, &container, "/usr/share/doc/demo/README").await,
+        b"read me\n",
+        "README came out of the zstd tarball"
+    );
+}
+
+/// Rebuilding a package would mean regenerating `md5sums`, keeping the control
+/// fields consistent and honouring signing conventions. Refuse rather than
+/// produce something that looks like a package and is not one.
+#[tokio::test]
+async fn a_deb_refuses_to_be_written_to() {
+    let s = Scratch::new("deb-ro");
+    let container = make_deb(&s);
+    let fs = ArchiveFs::new();
+
+    assert!(!ArchiveFormat::Deb.writable());
+    let e = err_of(write_into(&fs, &container, "/usr/bin/extra", b"nope").await);
+    assert!(!e.is_empty(), "the write is refused: {e}");
+    let e = err_of(fs.mkdir(&at(&container, "/opt")).await);
+    assert!(!e.is_empty(), "so is a new directory: {e}");
+
+    // And nothing was damaged in the attempt.
+    assert!(names(&fs, &container, "/usr/bin").await.contains(&"demo".to_string()));
+}
+
+// ---------------------------------------------------------------------------
+// RPM packages
+// ---------------------------------------------------------------------------
+
+/// One new-ASCII cpio member, header and padding included.
+fn cpio_member(name: &str, mode: u32, data: &[u8]) -> Vec<u8> {
+    let mut v = Vec::new();
+    v.extend_from_slice(b"070701");
+    let namesize = name.len() + 1;
+    for f in [1, mode, 0, 0, 1, 0x5F00_0000, data.len() as u32, 0, 0, 0, 0, namesize as u32, 0] {
+        v.extend_from_slice(format!("{f:08X}").as_bytes());
+    }
+    v.extend_from_slice(name.as_bytes());
+    v.push(0);
+    while !v.len().is_multiple_of(4) {
+        v.push(0);
+    }
+    v.extend_from_slice(data);
+    while !v.len().is_multiple_of(4) {
+        v.push(0);
+    }
+    v
+}
+
+/// One tag's value, in the shapes the reader understands.
+enum Tag<'a> {
+    Str(&'a str),
+    /// A STRING_ARRAY: NUL-terminated strings laid end to end.
+    Strs(&'a [&'a str]),
+    /// An INT16 array (file modes).
+    I16(&'a [u32]),
+    /// An INT32 array (sizes, times, directory indices).
+    I32(&'a [u32]),
+}
+
+/// One indexed (`07070X`) cpio member: sixteen bytes of header, then the data.
+fn cpio_indexed(index: u32, data: &[u8]) -> Vec<u8> {
+    let mut v = Vec::new();
+    v.extend_from_slice(b"07070X");
+    v.extend_from_slice(format!("{index:08X}").as_bytes());
+    v.extend_from_slice(&[0, 0]);
+    v.extend_from_slice(data);
+    while !v.len().is_multiple_of(4) {
+        v.push(0);
+    }
+    v
+}
+
+/// An RPM header section: magic, counts, index entries, then the store.
+fn rpm_header(tags: &[(u32, Tag)]) -> Vec<u8> {
+    let (mut index, mut store) = (Vec::new(), Vec::new());
+    for (tag, value) in tags {
+        let (ty, count) = match value {
+            Tag::Str(_) => (6u32, 1u32),
+            Tag::Strs(v) => (8, v.len() as u32),
+            Tag::I16(v) => (3, v.len() as u32),
+            Tag::I32(v) => (4, v.len() as u32),
+        };
+        index.extend_from_slice(&tag.to_be_bytes());
+        index.extend_from_slice(&ty.to_be_bytes());
+        index.extend_from_slice(&(store.len() as u32).to_be_bytes());
+        index.extend_from_slice(&count.to_be_bytes());
+        match value {
+            Tag::Str(v) => {
+                store.extend_from_slice(v.as_bytes());
+                store.push(0);
+            }
+            Tag::Strs(vs) => {
+                for v in *vs {
+                    store.extend_from_slice(v.as_bytes());
+                    store.push(0);
+                }
+            }
+            Tag::I16(vs) => {
+                for v in *vs {
+                    store.extend_from_slice(&(*v as u16).to_be_bytes());
+                }
+            }
+            Tag::I32(vs) => {
+                for v in *vs {
+                    store.extend_from_slice(&v.to_be_bytes());
+                }
+            }
+        }
+    }
+    let mut v = vec![0x8E, 0xAD, 0xE8, 0x01, 0, 0, 0, 0];
+    v.extend_from_slice(&((tags.len() as u32).to_be_bytes()));
+    v.extend_from_slice(&((store.len() as u32).to_be_bytes()));
+    v.extend_from_slice(&index);
+    v.extend_from_slice(&store);
+    v
+}
+
+/// A complete `.rpm`: lead, signature header (8-byte aligned), main header
+/// naming the compressor, then the zstd-compressed cpio payload.
+fn make_rpm(s: &Scratch) -> PathBuf {
+    let payload: Vec<u8> = [
+        cpio_member("./usr/bin", 0o040755, b""),
+        cpio_member("./usr/bin/demo", 0o100755, b"#!/bin/sh\necho hi\n"),
+        cpio_member("./usr/share/doc/demo/README", 0o100644, b"read me\n"),
+        cpio_member("TRAILER!!!", 0, b""),
+    ]
+    .concat();
+
+    let mut v = vec![0u8; 96];
+    v[..4].copy_from_slice(&[0xED, 0xAB, 0xEE, 0xDB]);
+    // The signature header is the one that is padded out to 8 bytes.
+    v.extend_from_slice(&rpm_header(&[(999, Tag::Str("signature"))]));
+    while !v.len().is_multiple_of(8) {
+        v.push(0);
+    }
+    v.extend_from_slice(&rpm_header(&[
+        (1124, Tag::Str("cpio")),
+        (1125, Tag::Str("zstd")),
+    ]));
+    v.extend_from_slice(&zstd::encode_all(&payload[..], 3).unwrap());
+
+    let container = s.path("demo-1.0-1.x86_64.rpm");
+    std::fs::write(&container, v).expect("write rpm");
+    container
+}
+
+/// An RPM's compressed cpio payload lists and reads like any other archive —
+/// the headers only say where it starts and what packed it.
+#[tokio::test]
+async fn an_rpm_lists_and_reads_its_zstd_cpio_payload() {
+    let s = Scratch::new("rpm-read");
+    let container = make_rpm(&s);
+    let fs = ArchiveFs::new();
+
+    assert_eq!(names(&fs, &container, "/").await, vec!["usr"]);
+    assert_eq!(names(&fs, &container, "/usr/bin").await, vec!["demo"]);
+    assert_eq!(read(&fs, &container, "/usr/bin/demo").await, b"#!/bin/sh\necho hi\n");
+    assert_eq!(read(&fs, &container, "/usr/share/doc/demo/README").await, b"read me\n");
+
+    // The cpio mode field gives each member its real permissions, which is why
+    // an extracted script comes out executable.
+    let entries = formats::list_entries(ArchiveFormat::Rpm, &container).unwrap();
+    let demo = entries.iter().find(|e| e.path == "/usr/bin/demo").expect("the script");
+    assert_eq!(demo.mode, Some(0o755), "permissions survive, type bits masked off");
+}
+
+/// What rpm 4.14 and later actually write: a payload whose members carry only
+/// an index, with every name, mode and size living in the package header. The
+/// first real package tried against this reader was of exactly this shape, and
+/// a payload-only parser cannot read it at all.
+#[tokio::test]
+async fn an_rpm_with_an_indexed_payload_takes_its_names_from_the_header() {
+    let s = Scratch::new("rpm-indexed");
+
+    let demo = b"#!/bin/sh\necho hi\n";
+    let readme = b"read me\n";
+    let payload: Vec<u8> =
+        [cpio_indexed(0, demo), cpio_indexed(1, readme), cpio_member("TRAILER!!!", 0, b"")]
+            .concat();
+
+    let mut v = vec![0u8; 96];
+    v[..4].copy_from_slice(&[0xED, 0xAB, 0xEE, 0xDB]);
+    v.extend_from_slice(&rpm_header(&[(999, Tag::Str("signature"))]));
+    while !v.len().is_multiple_of(8) {
+        v.push(0);
+    }
+    v.extend_from_slice(&rpm_header(&[
+        (1124, Tag::Str("cpio")),
+        (1125, Tag::Str("zstd")),
+        // basenames / dirnames / dirindexes: rpm splits paths so a package with
+        // many files in few directories stores each directory once.
+        (1117, Tag::Strs(&["demo", "README"])),
+        (1118, Tag::Strs(&["/usr/bin/", "/usr/share/doc/demo/"])),
+        (1116, Tag::I32(&[0, 1])),
+        (1028, Tag::I32(&[demo.len() as u32, readme.len() as u32])),
+        (1030, Tag::I16(&[0o100755, 0o100644])),
+        (1034, Tag::I32(&[0x5F00_0000, 0x5F00_0000])),
+    ]));
+    v.extend_from_slice(&zstd::encode_all(&payload[..], 3).unwrap());
+
+    let container = s.path("indexed-1.0-1.noarch.rpm");
+    std::fs::write(&container, v).expect("write rpm");
+    let fs = ArchiveFs::new();
+
+    assert_eq!(names(&fs, &container, "/usr/bin").await, vec!["demo"]);
+    assert_eq!(read(&fs, &container, "/usr/bin/demo").await, demo);
+    assert_eq!(read(&fs, &container, "/usr/share/doc/demo/README").await, readme);
+
+    let entries = formats::list_entries(ArchiveFormat::Rpm, &container).unwrap();
+    let e = entries.iter().find(|e| e.path == "/usr/bin/demo").expect("the script");
+    assert_eq!(e.mode, Some(0o755), "the mode came from the header, not the payload");
+    assert_eq!(e.size, demo.len() as u64, "and so did the size");
+}
+
+/// The header signs the payload, so any rewrite would invalidate it.
+#[tokio::test]
+async fn an_rpm_refuses_to_be_written_to() {
+    let s = Scratch::new("rpm-ro");
+    let container = make_rpm(&s);
+    let fs = ArchiveFs::new();
+
+    assert!(!ArchiveFormat::Rpm.writable());
+    assert!(!err_of(write_into(&fs, &container, "/usr/bin/extra", b"nope").await).is_empty());
+    assert!(!err_of(fs.mkdir(&at(&container, "/opt")).await).is_empty());
+}
+
+/// A file that is not a package at all must be refused clearly rather than
+/// producing a confusing empty listing.
+#[tokio::test]
+async fn a_file_that_is_not_a_package_is_refused() {
+    let s = Scratch::new("pkg-bogus");
+    let fake_rpm = s.file("bogus.rpm", b"I am not an RPM");
+    let fake_deb = s.file("bogus.deb", b"I am not a Debian package");
+
+    assert!(formats::list_entries(ArchiveFormat::Rpm, &fake_rpm).is_err());
+    assert!(formats::list_entries(ArchiveFormat::Deb, &fake_deb).is_err());
 }

@@ -3498,6 +3498,7 @@ dependencies = [
  "x509-parser",
  "xz2",
  "zip",
+ "zstd",
 ]
 
 [[package]]

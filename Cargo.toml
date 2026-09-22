@@ -125,6 +125,11 @@ vt100 = "0.16.2"
 walkdir = "2.5.0"
 xz2 = "0.1.7"
 zip = "8.6.0"
+# Zstandard: `.tar.zst`, `.pkg.tar.zst`, and the payload of a modern .deb/.rpm.
+# Already compiled as part of this tree — `zip`'s default features pull the very
+# same crate in — so naming it here costs no extra crate and no extra build time,
+# on the ARM cross targets as much as anywhere.
+zstd = { version = "0.13.3", default-features = false }
 # Cross-platform process/CPU/memory/disk/network sampling for the process
 # explorer (Linux, Windows, macOS). Pure Rust, no external C deps. Only the
 # `system` + `network` + `user` features are needed (drops temperature/components
@@ -160,7 +165,7 @@ epaint_default_fonts = "0.36.2"
 # the read side of the three formats enabled, so no C and no compression crates
 # come along, and every target — the ARM cross-compiles included — reads all
 # three regardless of which platform it runs on.
-object = { version = "0.40.0", default-features = false, features = ["read_core", "elf", "macho", "pe", "coff", "std"] }
+object = { version = "0.40.0", default-features = false, features = ["read_core", "elf", "macho", "pe", "coff", "std", "archive"] }
 # Symbol names as written in the source rather than as the linker spells them:
 # Rust (legacy and v0) and C++ (Itanium ABI, as GCC and Clang emit). Pure Rust.
 rustc-demangle = "0.1.28"

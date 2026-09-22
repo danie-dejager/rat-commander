@@ -132,8 +132,14 @@ The installed executable is named **`rc`** for quick typing.
   current **branch + ahead/behind** shows on the panel border, and one-key actions
   **stage/unstage** (`Ctrl-G`) or open a side-by-side **diff against HEAD**
   (`Alt-D`).
+- **Stage a single hunk** — in the `Alt-D` diff, `s` stages the hunk under the
+  cursor, `x` discards it and `u` unstages the whole file, so a change worth
+  committing on its own can be split out without leaving the file manager. The
+  patch comes from `git diff` byte for byte, so CRLF files and files with no
+  trailing newline stage as cleanly as any other.
 - **Git functions (`Alt-G`, or File → Git)** — **status**, **log**, **add**, 
-  **unstage**, **rm**, **restore**, **commit**, **fetch**, **pull**, **push** 
+  **unstage**, **rm**, **restore**, **commit**, **stash** (save, list, apply,
+  pop, drop), **fetch**, **pull**, **push** 
   (with `--force-with-lease` or `--force`), **sync** (pull + push), 
   **checkout**, **reset**, **init** and **clone**. 
 - **Browse git history** — the Git menu's *Browse a revision* mounts the
@@ -178,6 +184,11 @@ The installed executable is named **`rc`** for quick typing.
   terminals that don't reserve it for their own tabs). A tab remembers its
   directory, view format, sort, filter, marks and cursor, and local tabs come
   back on the next run. The strip only appears once a panel has more than one.
+- **Panelize a command's output** — run `rg -l TODO`, `git ls-files -m`,
+  `find . -mtime -1` or `dpkg -L nginx` and the files it names become the panel
+  listing, ready for F3, tagging, F5 and F8. The command has to print paths one
+  per line (so plain `ls`, not `ls -la`); `find -print0` and `git ls-files -z`
+  are understood, so names with newlines in them survive.
 - **Find file**, **Compare directories**, **Find duplicates**, and a
   side-by-side **Compare files** diff with in-place merging — binary files are
   compared byte by byte instead, as hex and ASCII side by side, paged from disk
@@ -213,9 +224,17 @@ The installed executable is named **`rc`** for quick typing.
   sequence rather than a clipboard daemon, so it needs no X or Wayland session and
   **works over SSH** — copying on a remote server lands the text on the clipboard
   of the machine in front of you.
-- **Archives** — browse and *edit* `.zip`, `.tar(.gz/.bz2/.xz)` and `.7z` like
-  directories: copy and move files in and out, make and delete subdirectories,
-  rename, move things around inside the archive, and compress a selection.
+- **Archives** — browse and *edit* `.zip`, `.tar(.gz/.bz2/.xz/.zst)` and `.7z`
+  like directories: copy and move files in and out, make and delete
+  subdirectories, rename, move things around inside the archive, and compress a
+  selection. RAR is read-only, and a plain `.zst` opens as the single file it
+  holds, already decompressed.
+- **Packages browsed like directories** — press Enter on a `.deb` or an `.rpm`
+  and see what it installs, read natively so mc's scripts, `dpkg-deb` and `rpm`
+  are no longer needed. A `.deb` shows its files at the root with the control
+  files under `/DEBIAN`; an `.rpm` shows its payload, in both the classic layout
+  and the indexed one rpm 4.14 and later write. An Arch `.pkg.tar.zst` is just a
+  `.tar.zst` and opens as one. Both are read-only.
 - **More things browsed like directories** — press Enter on a **disc image**
   (`.iso`, read natively with Joliet long names and Rock Ridge permissions and
   symlinks, so mc's `iso9660` script and `isoinfo` are no longer needed), a
@@ -324,7 +343,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Alt-Shift-I` | Set / clear the panel's persistent listing filter |
 | `Alt-Shift-H` | Shell history window (recall a command without running it) |
 | `Alt-G` | Open the **Git menu** (status, log, commit, push/pull, checkout, …) |
-| `Ctrl-G` / `Alt-D` | Git: stage/unstage the selection · diff the file against HEAD |
+| `Ctrl-G` / `Alt-D` | Git: stage/unstage the selection · diff the file against HEAD (`s` stages a hunk there) |
 | `Ctrl-Ins` | Copy the selected paths (or the cursor's) to the system clipboard |
 | `Ctrl-R` | Re-read the active panel |
 | `Alt-S` / `Ctrl-S` | Quick search the active panel (jump to the first matching name) |

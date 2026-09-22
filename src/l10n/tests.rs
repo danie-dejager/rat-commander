@@ -125,6 +125,7 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
             "Sy&nc panels",
             "Show directory on other p&anel",
             "&Find file...",
+            "Paneli&ze command output...",
             "Find d&uplicates...",
             "Compare &directories...",
             "S&ynchronize directories...",
@@ -285,4 +286,95 @@ fn backfill_adds_missing_builtin_keys_without_clobbering_user_values() {
     assert_eq!(de.get("Continue"), builtin_de.get("Continue"));
     assert!(de.get("Continue").is_some(), "a new built-in key was backfilled");
     assert!(de.strings.len() > 1, "backfill pulled in the rest of the built-in keys");
+}
+
+/// Every literal key handed to [`tr`]/[`trd`] has to exist in the English
+/// catalog.
+///
+/// `every_language_covers_every_english_key` only checks English against the
+/// other seventeen, so it cannot see a key that never reached `en.toml` in the
+/// first place: the call site then renders its English source, the miss is
+/// invisible, and no translation of it can ever exist. Three keys had slipped
+/// through in exactly that way, all of them in render code with no tests of its
+/// own — so this checks the class rather than the instances.
+#[test]
+fn every_translated_literal_is_in_the_english_catalog() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let en = builtin_catalogs().into_iter().find(|c| c.name == "English").expect("English");
+
+    let (mut missing, mut checked) = (Vec::new(), 0usize);
+    for file in rs_files(&root) {
+        // This file deliberately translates an unknown key to prove the fallback
+        // works, so its literals are not call sites to check.
+        if file.ends_with("l10n/tests.rs") {
+            continue;
+        }
+        let src = std::fs::read_to_string(&file).expect("read source");
+        for key in translated_literals(&src) {
+            checked += 1;
+            if en.get(&key).is_none() {
+                missing.push(format!("{}: {key:?}", file.display()));
+            }
+        }
+    }
+
+    // Guard against the scanner silently matching nothing and passing forever.
+    assert!(checked > 100, "only {checked} call sites found — the scanner is broken");
+    assert!(
+        missing.is_empty(),
+        "passed to tr()/trd() but absent from en.toml:\n  {}",
+        missing.join("\n  ")
+    );
+}
+
+/// Every `.rs` file under `dir`, recursively.
+fn rs_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let (mut out, mut stack) = (Vec::new(), vec![dir.to_path_buf()]);
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else { continue };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                out.push(p);
+            }
+        }
+    }
+    out
+}
+
+/// The literal keys passed to `tr("…")` / `trd("…")` in `src`.
+///
+/// Deliberately simple: a call whose argument is not a plain literal (`tr(k)`,
+/// `tr(&s)`) is skipped, since its key is only known at run time. No literal in
+/// the tree contains an escape, so escapes are not handled — one appearing later
+/// would end the key early and be reported as a miss, which is the safe
+/// direction to fail in.
+fn translated_literals(src: &str) -> Vec<String> {
+    let (bytes, mut out, mut i) = (src.as_bytes(), Vec::new(), 0usize);
+    while let Some(rel) = src[i..].find("tr") {
+        let start = i + rel;
+        i = start + 2;
+        // `substr("…")` must not be mistaken for `tr("…")`.
+        let prev = start.checked_sub(1).map(|p| bytes[p]);
+        if prev.is_some_and(|c| c.is_ascii_alphanumeric() || c == b'_') {
+            continue;
+        }
+        let after = if src[i..].starts_with("d(") {
+            i + 2
+        } else if src[i..].starts_with('(') {
+            i + 1
+        } else {
+            continue;
+        };
+        if !src[after..].starts_with('"') {
+            continue;
+        }
+        let key = after + 1;
+        let Some(len) = src[key..].find('"') else { continue };
+        out.push(src[key..key + len].to_string());
+        i = key + len;
+    }
+    out
 }

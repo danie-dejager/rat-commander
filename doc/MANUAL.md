@@ -745,6 +745,9 @@ dialog counts matches; press **Esc / Enter** to stop early — the results found
 so far are kept. The matches replace the panel listing with a flat list; a `..`
 entry at the top returns to normal browsing.
 
+To build the same kind of listing from any command instead of a search, see
+[Panelize a command's output](#panelize-a-commands-output).
+
 **Options** include recursive search, case sensitivity, skip-hidden, and shell-
 wildcard vs. regular-expression name matching. On a **remote** panel the search
 matches **file names only** (content search is local).
@@ -757,6 +760,63 @@ literal text — the same regex flavour the viewer's and editor's F7 search uses
 files costs a fixed amount of memory, and files that look **binary** (a NUL byte
 near the start) are skipped the way `grep` skips them. Pressing **F3** on a result
 that matched on content opens the viewer **at the matching line**.
+
+
+## Panelize a command's output
+
+*Command menu → Panelize command output…*
+
+Runs a shell command and puts the files its output names into
+the active panel, as the same kind of flat listing [Find file](#find-file)
+produces.
+
+**Useful for** reaching a *set* of files that no directory holds — everything
+`rg -l` matched, everything `git ls-files -m` changed, every file a package
+owns — and then working on it with the ordinary keys.
+
+**Usage:** Open the dialog and type a command. It runs through your shell, in
+the active panel's directory, and each line of its output is taken as the path
+of a file to list. So the command has to print **paths**, one per line —
+`ls -la` prints a *listing* (permissions, owner, size, name) and names nothing
+usable; plain `ls` does. When no line names a file that exists, the dialog says
+so rather than opening an empty panel. The matches replace the panel listing; a `..` entry at the
+top returns to normal browsing. **F3** views, **Insert** / `+` tags, and
+**F5** / **F8** copy and delete, exactly as in a normal listing.
+
+Some commands worth keeping:
+
+| Command | Lists |
+| --- | --- |
+| `rg -l TODO` | every file containing *TODO* |
+| `git ls-files -m` | every modified file in the work tree |
+| `find . -mtime -1` | everything changed in the last day |
+| `dpkg -L nginx` | every file the package owns |
+| `pacman -Qlq foo` | the same, on Arch |
+
+**Paths.** A relative path is resolved against the panel's directory, because
+that is where the command ran; an absolute one is used as is. Nothing is
+resolved through symlinks, so `find . -type l` lists the links themselves rather
+than their targets, and a **broken symlink is still listed** — it is a file you
+may well want to find and delete. Lines naming nothing reachable are dropped
+silently; only when *nothing* is left does the command report that it produced
+no usable paths.
+
+**Names with newlines in them.** If the output contains a NUL byte anywhere, it
+is split on NUL instead of on newlines — so `find -print0`, `rg -l --null` and
+`git ls-files -z` all work with nothing to configure, and those are the forms
+that survive a file name containing a line break. Plain `git ls-files` quotes
+such names in C syntax and is **not** unquoted here; use `-z`.
+
+**Limits.** The command must run in a **local** directory: the shell cannot be
+pointed at a cwd inside an archive or on a remote, which is the same limit the
+command line has. Unlike the command line, it runs your shell
+**non-interactively**, so shell **aliases do not expand** — an interactive
+shell takes the terminal away from the program that is drawing the panels, so
+it cannot be used here. Functions and variables from `~/.zshenv`, `config.fish`
+and the like still apply. Output is capped at 100 000 files. The command is remembered
+for the next time the dialog opens, but is kept **separate from the shell
+history** — it was never run at the prompt, so it does not come back on
+**Alt-P**.
 
 
 ## Compare directories
@@ -1418,7 +1478,9 @@ lines delimit it) to the configured *Word wrap line length*, keeping the
 paragraph's own indentation; one undo puts the whole reflow back. **Alt-T**
 sorts the marked block's lines — or the whole file when nothing is marked — with
 reverse / ignore-case / remove-duplicates options. **Alt-U** runs a shell
-command and pastes its output at the cursor.
+command and pastes its output at the cursor (non-interactively, so aliases do
+not expand — an interactive shell would take the terminal away from the
+editor).
 
 **Other.** **Ctrl-Z** / **Ctrl-Y** undo and redo (see the *Group undo* option).
 **Ins** switches between insert and overwrite typing. **Alt-L** jumps to a line
@@ -1764,19 +1826,41 @@ two minutes.
 ## Archives — browsed like directories
 
 Lets you walk into `.zip`, `.tar`, `.tar.gz`, `.tar.bz2`,
-`.tar.xz`, `.7z` and `.rar` archives as if they were folders.
+`.tar.xz`, `.tar.zst`, `.7z` and `.rar` archives as if they were folders — and
+into `.deb` and `.rpm` packages, which are archives in their own right.
 
 **Useful for** inspecting, extracting from, or adding to an archive without
-unpacking it first.
+unpacking it first, and for answering "what is actually *in* this package".
 
 **Operation.** Press **Enter** on an archive file to browse it. Copy files
 **out** (F5 to a normal panel) or **in** (F5 from a normal panel into the archive
 panel); **F8** deletes from the archive. To build a new archive, tag a selection
 and use *File menu → Compress…*, choosing the format by the name you type
-(`.zip`, `.7z`, `.tar.gz`, `.tar.bz2`, `.tar.xz`).
+(`.zip`, `.7z`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst`).
 
-RAR archives are **read-only** — you can browse and extract them, but no tool can
-create RAR archives. (RAR support is an optional build feature, on by default.)
+**Zstandard.** `.tar.zst` and `.tzst` are read and written like any other tar,
+so an Arch package (`.pkg.tar.zst`, which is just a `.tar.zst`) opens with
+Enter. A plain `.zst` — a single compressed file such as `syslog.1.zst` — opens
+as a one-member listing holding the decompressed file, so F5 copies it out
+already unpacked.
+
+**Packages.** A `.deb` is shown as one tree: the files it installs at the root,
+its control files under **`/DEBIAN`** (where `dpkg-deb -R` puts them), and
+`debian-binary` beside them. The two halves of the package are compressed
+independently, which is why the layout is flattened — a path inside Rat
+Commander names one container, so a tarball inside the package could not be
+stepped into. An `.rpm` shows its payload directly. Packages built by rpm 4.14
+and later keep every file name, mode and size in the package header rather than
+in the payload; both that shape and the older one are read.
+
+**Read-only formats.** RAR archives, plain `.zst`, `.deb` and `.rpm` can be
+browsed and extracted but not created or modified: no tool can create RAR; a
+plain `.zst` holds a single stream with nowhere to put a second file; rebuilding
+a `.deb` would mean regenerating `md5sums` and keeping the control fields
+consistent; and an RPM's header signs its payload, so any rewrite invalidates
+it. *Compress…* refuses those names, and a copy **into** such an archive is
+refused when it starts. (RAR support is an optional build feature, on by
+default.)
 
 
 ## File associations and extfs (rc.ext)
@@ -2274,7 +2358,36 @@ files if any):
   [Compare files](#compare-files-side-by-side-diff) view. Use `Ctrl-←` to bring a
   hunk over from `HEAD` (discarding a change) and **F2** to write the working file
   back. An untracked file diffs against an empty left side. (The `HEAD` side is
-  read-only, so it can't be written back over anything.)
+  read-only, so it can't be written back over anything.) From here you can also
+  stage a single hunk — see below.
+
+### Staging hunks
+
+In the `Alt-D` diff, three keys act on the **hunk under the cursor**:
+
+- **`s`** — **stage** it (`git apply --cached`). The rest of the file stays
+  unstaged, so a change you want to commit on its own can be split out without
+  leaving Rat Commander.
+- **`x`** — **discard** it from the working file. This throws away an edit that
+  was never committed and cannot be undone, so it asks first.
+- **`u`** — **unstage the whole file** (`git restore --staged`).
+
+The status line shows how many hunks the file has and which one you are in, and
+the view refreshes itself after every Git action, so staging one hunk
+immediately leaves the remaining ones on screen.
+
+Two things are worth knowing about why it behaves this way:
+
+- **The hunks are not the same as the `⇄` blocks.** The two panes show `HEAD`
+  and your working file, while the hunks run from the **index** to the working
+  file — the same thing `git add -p` would offer you. They coincide only while
+  nothing is staged; when something is, the status line says so.
+- **Unstaging is whole-file, not per-hunk.** Picking a staged hunk would mean
+  putting a cursor on an *index* line, and no pane here shows one. Unstage the
+  file and stage again, or use the Git menu.
+
+Binary files have no hunks to stage, and neither does a file with nothing
+unstaged; both say so rather than doing nothing.
 
 Everything else lives in the [Git menu](#the-git-menu) below.
 
@@ -2304,6 +2417,14 @@ and to *guide* rather than assume you remember the flags. Long-running commands
 - **Add (stage)** (`A`) — `git add`.
 - **Stage/unstage** (`G`, or **`Ctrl-G`**) — the toggle.
 - **Unstage** (`U`) — `git restore --staged`.
+- **Stash save…** (`V`) — `git stash push`: put the working tree aside and go
+  back to a clean `HEAD`. The message is optional (git writes its own "WIP on
+  *branch*" otherwise); tick **Include untracked files** to take along files git
+  is not tracking yet, and **Keep the index staged** to leave what you have
+  already staged in place.
+- **Stashes…** (`E`) — the stash list, with the verbs on it: **Enter** shows a
+  stash's diff, **`a`** applies it and keeps it, **`p`** pops it (applies and
+  removes), **`d`** drops it — which discards it for good, so it asks first.
 - **Remove…** (`M`) — `git rm`: drops the files from the index **and deletes them
   on disk**, so it asks first.
 - **Restore (discard)…** (`T`) — `git restore`: throws away uncommitted edits.

@@ -186,6 +186,9 @@ impl AppState {
                 DiffSignal::ConfirmQuit => {
                     self.dialog = Some(Dialog::Confirm(ConfirmDialog::diff_quit()));
                 }
+                DiffSignal::StageHunk => self.stage_hunk_under_cursor().await,
+                DiffSignal::DiscardHunk => self.confirm_discard_hunk(),
+                DiffSignal::UnstageFile => self.unstage_diff_file(),
             }
             return Flow::Continue;
         }
@@ -268,6 +271,8 @@ impl AppState {
             | MenuAction::GitRemove
             | MenuAction::GitRestore
             | MenuAction::GitCommit
+            | MenuAction::GitStash
+            | MenuAction::GitStashList
             | MenuAction::GitFetch
             | MenuAction::GitPull
             | MenuAction::GitPush
@@ -293,6 +298,7 @@ impl AppState {
             MenuAction::Refresh => self.reload_all().await,
             MenuAction::ToggleSplit => self.split = self.split.toggle(),
             MenuAction::FindFile => self.open_find_dialog(),
+            MenuAction::PanelizeCommand => self.open_panelize_dialog(),
             MenuAction::FindDuplicates => {
                 self.dialog = Some(Dialog::Form(FormDialog::find_duplicates()))
             }

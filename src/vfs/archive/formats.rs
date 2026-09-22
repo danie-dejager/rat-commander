@@ -22,6 +22,16 @@ pub enum ArchiveFormat {
     TarGz,
     TarBz2,
     TarXz,
+    /// Zstandard-compressed tar: `.tar.zst`, `.tzst`, and every Arch package.
+    TarZst,
+    /// A single Zstandard-compressed file (`foo.log.zst`), browsed as a
+    /// one-member pseudo-archive so the decompressed file can be copied out.
+    Zst,
+    /// A Debian package: an `ar` container of two tarballs. Read-only.
+    Deb,
+    /// An RPM package: headers followed by a compressed cpio payload.
+    /// Read-only.
+    Rpm,
     SevenZ,
     Rar,
 }
@@ -36,6 +46,8 @@ impl ArchiveFormat {
             Some(ArchiveFormat::TarBz2)
         } else if n.ends_with(".tar.xz") || n.ends_with(".txz") {
             Some(ArchiveFormat::TarXz)
+        } else if n.ends_with(".tar.zst") || n.ends_with(".tzst") {
+            Some(ArchiveFormat::TarZst)
         } else if n.ends_with(".tar") {
             Some(ArchiveFormat::Tar)
         } else if n.ends_with(".zip") {
@@ -44,6 +56,13 @@ impl ArchiveFormat {
             Some(ArchiveFormat::SevenZ)
         } else if n.ends_with(".rar") {
             Some(ArchiveFormat::Rar)
+        } else if n.ends_with(".deb") || n.ends_with(".ddeb") || n.ends_with(".udeb") {
+            Some(ArchiveFormat::Deb)
+        } else if n.ends_with(".rpm") || n.ends_with(".srpm") {
+            Some(ArchiveFormat::Rpm)
+        } else if n.ends_with(".zst") {
+            // Only reached when it is not a `.tar.zst`, which is tested above.
+            Some(ArchiveFormat::Zst)
         } else {
             None
         }
@@ -54,8 +73,14 @@ impl ArchiveFormat {
     }
 
     /// Whether files can be added to / removed from this format (via rebuild).
+    ///
+    /// A plain `.zst` holds exactly one unnamed stream, so "add a file to it"
+    /// has no meaning; rar is read-only because the decoder is.
     pub fn writable(self) -> bool {
-        !matches!(self, ArchiveFormat::Rar)
+        !matches!(
+            self,
+            ArchiveFormat::Rar | ArchiveFormat::Zst | ArchiveFormat::Deb | ArchiveFormat::Rpm
+        )
     }
 
     /// Whether the format records a unix permission mode per member. 7z stores
@@ -68,6 +93,9 @@ impl ArchiveFormat {
                 | ArchiveFormat::TarGz
                 | ArchiveFormat::TarBz2
                 | ArchiveFormat::TarXz
+                | ArchiveFormat::TarZst
+                | ArchiveFormat::Deb
+                | ArchiveFormat::Rpm
         )
     }
 }
@@ -138,7 +166,7 @@ pub fn normalize(name: &str) -> String {
     if comps.is_empty() { "/".to_string() } else { format!("/{}", comps.join("/")) }
 }
 
-fn io<E: std::fmt::Display>(e: E) -> Error {
+pub(super) fn io<E: std::fmt::Display>(e: E) -> Error {
     Error::other(e.to_string())
 }
 
@@ -243,7 +271,11 @@ pub fn list_entries(format: ArchiveFormat, container: &Path) -> Result<Vec<RawEn
         ArchiveFormat::Tar
         | ArchiveFormat::TarGz
         | ArchiveFormat::TarBz2
-        | ArchiveFormat::TarXz => list_tar(format, container),
+        | ArchiveFormat::TarXz
+        | ArchiveFormat::TarZst => list_tar(format, container),
+        ArchiveFormat::Zst => list_zst(container),
+        ArchiveFormat::Deb => super::deb::list_deb(container),
+        ArchiveFormat::Rpm => super::rpm::list_rpm(container),
         ArchiveFormat::SevenZ => list_7z(container),
         ArchiveFormat::Rar => list_rar(container),
     }
@@ -357,7 +389,8 @@ pub fn read_entry(format: ArchiveFormat, container: &Path, inner: &str) -> Resul
         ArchiveFormat::Tar
         | ArchiveFormat::TarGz
         | ArchiveFormat::TarBz2
-        | ArchiveFormat::TarXz => {
+        | ArchiveFormat::TarXz
+        | ArchiveFormat::TarZst => {
             let reader = tar_reader(format, File::open(container)?)?;
             let mut ar = tar::Archive::new(reader);
             for e in ar.entries().map_err(io)? {
@@ -371,6 +404,14 @@ pub fn read_entry(format: ArchiveFormat, container: &Path, inner: &str) -> Resul
             }
             Err(Error::NotFound(target))
         }
+        ArchiveFormat::Zst => {
+            if target != zst_member_path(container) {
+                return Err(Error::NotFound(target));
+            }
+            read_zst(container)
+        }
+        ArchiveFormat::Deb => super::deb::read_deb_entry(container, &target),
+        ArchiveFormat::Rpm => super::rpm::read_rpm_entry(container, &target),
         ArchiveFormat::SevenZ => {
             let archive = sevenz_rust2::Archive::open(container).map_err(io)?;
             let name = archive
@@ -433,7 +474,8 @@ pub fn read_all(format: ArchiveFormat, container: &Path) -> Result<Vec<FullEntry
         ArchiveFormat::Tar
         | ArchiveFormat::TarGz
         | ArchiveFormat::TarBz2
-        | ArchiveFormat::TarXz => {
+        | ArchiveFormat::TarXz
+        | ArchiveFormat::TarZst => {
             let reader = tar_reader(format, File::open(container)?)?;
             let mut ar = tar::Archive::new(reader);
             let mut out = Vec::new();
@@ -451,6 +493,11 @@ pub fn read_all(format: ArchiveFormat, container: &Path) -> Result<Vec<FullEntry
             }
             Ok(out)
         }
+        ArchiveFormat::Zst => {
+            Ok(vec![FullEntry::file(zst_member_path(container), read_zst(container)?)])
+        }
+        ArchiveFormat::Deb => super::deb::read_deb_all(container),
+        ArchiveFormat::Rpm => super::rpm::read_rpm_all(container),
         ArchiveFormat::SevenZ => {
             let archive = sevenz_rust2::Archive::open(container).map_err(io)?;
             let mut reader =
@@ -560,8 +607,16 @@ pub fn write_all(format: ArchiveFormat, dest: &Path, entries: &[FullEntry]) -> R
             build_tar(enc, &members)?.finish().map_err(io)?;
             Ok(())
         }
+        ArchiveFormat::TarZst => {
+            let enc = zstd::stream::write::Encoder::new(File::create(dest)?, 3).map_err(io)?;
+            build_tar(enc, &members)?.finish().map_err(io)?;
+            Ok(())
+        }
         ArchiveFormat::SevenZ => write_7z(dest, &members),
         ArchiveFormat::Rar => Err(Error::other("creating RAR archives is not supported")),
+        ArchiveFormat::Zst => Err(Error::other("a plain .zst holds a single file, not an archive")),
+        ArchiveFormat::Deb => Err(Error::other("creating Debian packages is not supported")),
+        ArchiveFormat::Rpm => Err(Error::other("creating RPM packages is not supported")),
     }
 }
 
@@ -635,22 +690,232 @@ fn write_7z(dest: &Path, members: &[(String, &FullEntry)]) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// Plain .zst (a single compressed file, browsed as a one-member archive)
+// ---------------------------------------------------------------------------
+
+/// The inner path a plain `.zst` presents: the container's own name with the
+/// suffix taken off, so `syslog.1.zst` holds `/syslog.1`.
+fn zst_member_path(container: &Path) -> String {
+    let name = container.file_name().and_then(|n| n.to_str()).unwrap_or("data");
+    let stem = name.strip_suffix(".zst").or_else(|| name.strip_suffix(".ZST")).unwrap_or(name);
+    normalize(stem)
+}
+
+fn list_zst(container: &Path) -> Result<Vec<RawEntry>> {
+    let meta = std::fs::metadata(container)?;
+    // The frame usually declares the decompressed size, and reading the header
+    // is far cheaper than decompressing a multi-gigabyte log just to fill in a
+    // column. When it doesn't, the size stays 0 rather than being guessed at.
+    let mut head = [0u8; 18];
+    let n = File::open(container)?.read(&mut head).unwrap_or(0);
+    Ok(vec![RawEntry {
+        path: zst_member_path(container),
+        is_dir: false,
+        size: zstd_frame_content_size(&head[..n]).unwrap_or(0),
+        mtime: meta.modified().ok(),
+        mode: None,
+    }])
+}
+
+fn read_zst(container: &Path) -> Result<Vec<u8>> {
+    let mut out = Vec::new();
+    zstd::stream::read::Decoder::new(File::open(container)?).map_err(io)?.read_to_end(&mut out)?;
+    Ok(out)
+}
+
+/// The `Frame_Content_Size` a Zstandard frame header declares, if it declares
+/// one (RFC 8878 section 3.1.1). `head` need only be the first bytes of the file.
+///
+/// Hand-parsed rather than taken from the library because `Decompressor::
+/// upper_bound` sits behind zstd's `experimental` feature, and this is a dozen
+/// well-specified bits — the same trade the ISO 9660 reader makes.
+fn zstd_frame_content_size(head: &[u8]) -> Option<u64> {
+    // Magic_Number 0xFD2FB528, stored little-endian.
+    if head.len() < 5 || head[..4] != [0x28, 0xB5, 0x2F, 0xFD] {
+        return None;
+    }
+    let desc = head[4];
+    let single_segment = desc & 0x20 != 0;
+    let did_size = match desc & 0x03 {
+        0 => 0,
+        1 => 1,
+        2 => 2,
+        _ => 4,
+    };
+    let fcs_size = match desc >> 6 {
+        // 0 means "one byte, and only when there is no Window_Descriptor".
+        0 => usize::from(single_segment),
+        1 => 2,
+        2 => 4,
+        _ => 8,
+    };
+    if fcs_size == 0 {
+        return None;
+    }
+    // Window_Descriptor is present only while Single_Segment_flag is clear.
+    let at = 5 + usize::from(!single_segment) + did_size;
+    let bytes = head.get(at..at + fcs_size)?;
+    let v = bytes.iter().enumerate().fold(0u64, |a, (i, b)| a | u64::from(*b) << (8 * i));
+    // The two-byte form is stored biased by 256.
+    Some(if fcs_size == 2 { v + 256 } else { v })
+}
+
+// ---------------------------------------------------------------------------
 // tar decompression reader
 // ---------------------------------------------------------------------------
 
-fn tar_reader(format: ArchiveFormat, file: File) -> Result<Box<dyn Read>> {
-    Ok(match format {
-        ArchiveFormat::Tar => Box::new(file),
-        ArchiveFormat::TarGz => Box::new(flate2::read::GzDecoder::new(file)),
-        ArchiveFormat::TarBz2 => Box::new(bzip2::read::BzDecoder::new(file)),
-        ArchiveFormat::TarXz => Box::new(xz2::read::XzDecoder::new(file)),
-        _ => return Err(Error::other("not a tar format")),
+/// Which compressor wraps a tar stream.
+///
+/// Split out from [`ArchiveFormat`] because a `.deb` names the compression of
+/// its inner tarballs in their own member names (`data.tar.zst`), so the same
+/// four decoders have to be reachable without a container format to go with
+/// them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Comp {
+    None,
+    Gz,
+    Bz2,
+    Xz,
+    Zst,
+}
+
+impl Comp {
+    /// The compressor a `.deb`'s inner tarball name implies.
+    pub(super) fn from_tar_name(name: &str) -> Option<Comp> {
+        let n = name.to_ascii_lowercase();
+        // `.tar` last: every other suffix also ends in `.tar.<something>`.
+        for (suffix, comp) in [
+            (".gz", Comp::Gz),
+            (".bz2", Comp::Bz2),
+            (".xz", Comp::Xz),
+            (".zst", Comp::Zst),
+            ("", Comp::None),
+        ] {
+            if n.ends_with(&format!(".tar{suffix}")) {
+                return Some(comp);
+            }
+        }
+        None
+    }
+}
+
+/// Wrap `r` in the matching decompressor.
+pub(super) fn decompress<R: Read + 'static>(comp: Comp, r: R) -> Result<Box<dyn Read>> {
+    Ok(match comp {
+        Comp::None => Box::new(r),
+        Comp::Gz => Box::new(flate2::read::GzDecoder::new(r)),
+        Comp::Bz2 => Box::new(bzip2::read::BzDecoder::new(r)),
+        Comp::Xz => Box::new(xz2::read::XzDecoder::new(r)),
+        Comp::Zst => Box::new(zstd::stream::read::Decoder::new(r).map_err(io)?),
     })
+}
+
+fn tar_reader(format: ArchiveFormat, file: File) -> Result<Box<dyn Read>> {
+    let comp = match format {
+        ArchiveFormat::Tar => Comp::None,
+        ArchiveFormat::TarGz => Comp::Gz,
+        ArchiveFormat::TarBz2 => Comp::Bz2,
+        ArchiveFormat::TarXz => Comp::Xz,
+        ArchiveFormat::TarZst => Comp::Zst,
+        _ => return Err(Error::other("not a tar format")),
+    };
+    decompress(comp, file)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `.tar.zst` has to be recognised before a bare `.zst`, or every Arch
+    /// package would be taken for a single compressed file and show one
+    /// meaningless member instead of its tree.
+    #[test]
+    fn zstd_names_resolve_tar_before_plain() {
+        use ArchiveFormat::*;
+        assert_eq!(ArchiveFormat::from_name("src.tar.zst"), Some(TarZst));
+        assert_eq!(ArchiveFormat::from_name("src.tzst"), Some(TarZst));
+        assert_eq!(ArchiveFormat::from_name("FOO.TAR.ZST"), Some(TarZst), "case-insensitive");
+        assert_eq!(
+            ArchiveFormat::from_name("rc-1.9.4-1-x86_64.pkg.tar.zst"),
+            Some(TarZst),
+            "an Arch package needs no special case; it already ends in .tar.zst"
+        );
+        assert_eq!(ArchiveFormat::from_name("syslog.1.zst"), Some(Zst), "a plain one");
+    }
+
+    /// A `.tar.zst` is rebuilt like any other tar, but a plain `.zst` holds one
+    /// unnamed stream with nowhere to put a second member.
+    #[test]
+    fn only_the_tar_flavour_of_zstd_is_writable() {
+        assert!(ArchiveFormat::TarZst.writable());
+        assert!(ArchiveFormat::TarZst.stores_mode(), "tar carries a unix mode");
+        assert!(!ArchiveFormat::Zst.writable());
+        assert!(write_all(ArchiveFormat::Zst, Path::new("/nonexistent"), &[]).is_err());
+    }
+
+    /// The frame header's `Frame_Content_Size`, across the four field widths
+    /// the format defines — including the two-byte form, which is stored biased
+    /// by 256 and is the one easiest to get wrong.
+    #[test]
+    fn a_zstd_frame_header_yields_the_declared_size() {
+        // desc bits: FCS_flag in 7-6, Single_Segment in 5, Dictionary_ID in 1-0.
+        // Single_Segment set means no Window_Descriptor byte follows.
+        let magic = [0x28, 0xB5, 0x2F, 0xFD];
+        let frame = |desc: u8, rest: &[u8]| {
+            let mut v = magic.to_vec();
+            v.push(desc);
+            v.extend_from_slice(rest);
+            v
+        };
+
+        // FCS_flag 0 + Single_Segment: one byte, no window descriptor.
+        assert_eq!(zstd_frame_content_size(&frame(0x20, &[42])), Some(42));
+        // FCS_flag 1: two bytes, biased by 256.
+        assert_eq!(zstd_frame_content_size(&frame(0x60, &[0x00, 0x00])), Some(256));
+        assert_eq!(zstd_frame_content_size(&frame(0x60, &[0x01, 0x01])), Some(257 + 256));
+        // FCS_flag 2: four bytes, little-endian.
+        assert_eq!(zstd_frame_content_size(&frame(0xA0, &[0x40, 0x0D, 0x03, 0x00])), Some(200_000));
+        // FCS_flag 3: eight bytes.
+        let mut eight = vec![0u8; 8];
+        eight[0] = 0xFF;
+        assert_eq!(zstd_frame_content_size(&frame(0xE0, &eight)), Some(255));
+        // Without Single_Segment a Window_Descriptor byte sits before the size.
+        assert_eq!(zstd_frame_content_size(&frame(0x40, &[0x58, 0x00, 0x00])), Some(256));
+        // A Dictionary_ID, when present, sits between the two.
+        assert_eq!(zstd_frame_content_size(&frame(0x61, &[0x07, 0x00, 0x00])), Some(256));
+    }
+
+    /// Not every frame declares a size: `zstd::encode_all` streams without
+    /// pledging one, and then the listing must say 0 rather than invent a
+    /// number. Only a pledged stream (what the `zstd` tool writes for a file)
+    /// carries it.
+    #[test]
+    fn an_unpledged_frame_declares_nothing_and_a_pledged_one_does() {
+        let plain = zstd::encode_all(&b"0123456789"[..], 3).unwrap();
+        assert_eq!(zstd_frame_content_size(&plain), None, "encode_all pledges nothing");
+
+        let mut enc = zstd::stream::write::Encoder::new(Vec::new(), 3).unwrap();
+        enc.set_pledged_src_size(Some(10)).unwrap();
+        enc.write_all(b"0123456789").unwrap();
+        let pledged = enc.finish().unwrap();
+        assert_eq!(zstd_frame_content_size(&pledged), Some(10));
+        // Only the head is needed — the point is not to decompress a huge log.
+        assert_eq!(zstd_frame_content_size(&pledged[..9.min(pledged.len())]), Some(10));
+    }
+
+    #[test]
+    fn a_non_zstd_or_truncated_header_declares_nothing() {
+        assert_eq!(zstd_frame_content_size(b""), None);
+        assert_eq!(zstd_frame_content_size(b"not zstd at all"), None, "wrong magic");
+        // Right magic, but the descriptor promises fields that were cut off.
+        assert_eq!(zstd_frame_content_size(&[0x28, 0xB5, 0x2F, 0xFD, 0xE0, 0x01]), None);
+    }
+
+    #[test]
+    fn a_plain_zst_member_is_named_after_its_container() {
+        assert_eq!(zst_member_path(Path::new("/var/log/syslog.1.zst")), "/syslog.1");
+        assert_eq!(zst_member_path(Path::new("dump.sql.zst")), "/dump.sql");
+    }
 
     /// `..` never climbs out of the archive: a hostile member name is clamped to
     /// the root instead of becoming a `..` entry (which would collide with the
@@ -706,4 +971,5 @@ mod tests {
         let entries = vec![FullEntry::dir("/"), FullEntry::file("/a", b"x".to_vec())];
         assert_eq!(members(&entries).len(), 1);
     }
+
 }

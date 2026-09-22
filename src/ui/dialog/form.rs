@@ -631,6 +631,7 @@ pub enum GitForm {
     },
     Checkout,
     Reset,
+    Stash,
 }
 
 /// Connect-form history dropdown state (recent servers, then the hosts
@@ -927,6 +928,20 @@ impl FormDialog {
                 Field::check("Amend the last commit", false),
             ],
             FormPurpose::Git(GitForm::Commit),
+        )
+    }
+
+    /// Save the working tree as a stash. The message is optional: without one
+    /// git writes its usual "WIP on <branch>" summary.
+    pub fn git_stash() -> Self {
+        FormDialog::from_fields(
+            "Stash",
+            vec![
+                Field::text("Message (optional)", ""),
+                Field::check("Include untracked files (-u)", false),
+                Field::check("Keep the index staged (--keep-index)", false),
+            ],
+            FormPurpose::Git(GitForm::Stash),
         )
     }
 
@@ -1521,6 +1536,14 @@ impl FormDialog {
                             args: ops::commit_args(&msg, fields[1].as_bool(), fields[2].as_bool()),
                         }
                     }
+                    GitForm::Stash => Submit::GitRun {
+                        title: "stash".into(),
+                        args: ops::stash_push_args(
+                            fields[0].as_text(),
+                            fields[1].as_bool(),
+                            fields[2].as_bool(),
+                        ),
+                    },
                     GitForm::Clone => {
                         let url = fields[0].as_text().trim().to_string();
                         if url.is_empty() {

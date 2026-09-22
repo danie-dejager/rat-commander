@@ -12,6 +12,9 @@
 //!   fifty.
 
 pub mod formats;
+mod cpio;
+mod deb;
+mod rpm;
 
 use crate::util::{Error, Result};
 use crate::vfs::{BoxRead, BoxWrite, Capabilities, Vfs, VfsEntry, VfsKind, VfsPath, WriteMeta};

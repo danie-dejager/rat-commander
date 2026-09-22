@@ -82,6 +82,14 @@ pub enum AppEvent {
     /// so far so partial results can still be panelized. Paths may be local or
     /// remote, depending on the searched backend.
     FindDone { id: TaskId, results: Vec<FindHit> },
+    /// External panelize finished: the command's raw stdout, whose lines name
+    /// the files to list, or the message explaining why nothing came back.
+    PanelizeDone { result: Result<Vec<u8>, String> },
+    /// The repository's stashes, for the stash picker. Deliberately its own
+    /// event rather than a field of `GitInfo`: `repo_info` already runs four
+    /// git calls for branches and remotes, and every checkout/push/fetch would
+    /// otherwise pay for a fifth it has no use for.
+    GitStashes { stashes: Vec<crate::git::ops::StashEntry> },
     /// A find-duplicates task finished (or was cancelled). Carries the file names
     /// to mark in the left and right panels (identical per the chosen criteria);
     /// partial on cancel.

@@ -32,6 +32,7 @@ mod search;
 mod select;
 mod send;
 mod syncpreview;
+mod stash;
 mod tabpicker;
 mod templatepicker;
 mod usermenu;
@@ -77,6 +78,7 @@ pub use search::{SearchReplaceDialog, SearchReplaceParams};
 pub use select::SelectDialog;
 pub use send::SendFileDialog;
 pub use syncpreview::SyncPreviewDialog;
+pub use stash::StashDialog;
 pub use tabpicker::TabPickerDialog;
 pub use templatepicker::TemplatePickerDialog;
 pub use usermenu::UserMenuDialog;
@@ -142,6 +144,8 @@ pub enum Dialog {
     DirHistory(DirHistoryDialog),
     /// The active panel's open tabs, for picking one (Alt-J).
     TabPicker(TabPickerDialog),
+    /// The repository's stashes, with show/apply/pop/drop on them.
+    Stash(StashDialog),
     /// The editor's GeoJSON drawn over a world map.
     GeoMap(Box<GeoMapDialog>),
     /// The hex editor's binary template picker.
@@ -231,6 +235,8 @@ pub enum Submit {
     SearchReplace(SearchReplaceParams),
     /// Find-file request.
     Find(FindParams),
+    /// A shell command whose output names the files to panelize.
+    Panelize(String),
     /// Set permissions on these targets to `mode`; recurse into directories when
     /// the flag is set.
     Chmod(Vec<VfsPath>, u32, bool),
@@ -260,6 +266,11 @@ pub enum Submit {
     /// Every guided Git dialog funnels into this one variant, having already
     /// built its argument list (see [`form::GitForm`]). `title` names the command
     /// in the output box (e.g. `"push"`).
+    /// The discard-hunk confirmation came back yes.
+    DiscardHunk,
+    /// Ask before dropping a stash; the app turns this into a confirmation
+    /// carrying the `git stash drop` argv, the way git rm/restore already do.
+    ConfirmDropStash { label: String, args: Vec<String> },
     GitRun {
         title: String,
         args: Vec<String>,
@@ -515,6 +526,7 @@ impl Dialog {
             Dialog::SyncPreview(d) => d.handle_key(key),
             Dialog::DirHistory(d) => d.handle_key(key),
             Dialog::TabPicker(d) => d.handle_key(key),
+            Dialog::Stash(d) => d.handle_key(key),
             Dialog::GeoMap(d) => d.handle_key(key),
             Dialog::TemplatePicker(d) => d.handle_key(key),
         }
@@ -558,6 +570,7 @@ impl Dialog {
             Dialog::SyncPreview(d) => d.render(f, area, theme, gfx),
             Dialog::DirHistory(d) => d.render(f, area, theme),
             Dialog::TabPicker(d) => d.render(f, area, theme),
+            Dialog::Stash(d) => d.render(f, area, theme),
             Dialog::GeoMap(d) => d.render(f, area, theme, gfx),
             Dialog::TemplatePicker(d) => d.render(f, area, theme),
         }
@@ -605,6 +618,7 @@ impl Dialog {
             Dialog::ShellHistory(d) => return d.handle_click(area, col, row),
             Dialog::DirHistory(d) => return d.handle_click(area, col, row),
             Dialog::TabPicker(d) => return d.handle_click(area, col, row),
+            Dialog::Stash(d) => return d.handle_click(area, col, row),
             Dialog::TemplatePicker(d) => return d.handle_click(area, col, row),
             Dialog::CommandPalette(d) => return d.handle_click(area, col, row),
             Dialog::Hotlist(d) => return d.handle_click(area, col, row),
@@ -702,6 +716,9 @@ impl Dialog {
                 return d.handle_scroll(delta);
             }
             Dialog::TabPicker(d) => {
+                return d.handle_scroll(delta);
+            }
+            Dialog::Stash(d) => {
                 return d.handle_scroll(delta);
             }
             Dialog::TemplatePicker(d) => {

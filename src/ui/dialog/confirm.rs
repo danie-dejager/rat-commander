@@ -156,6 +156,36 @@ impl ConfirmDialog {
     }
 
     /// `git restore` — throws away uncommitted edits, which git cannot undo.
+    /// Discarding a hunk throws away a change that was never committed, so
+    /// there is nowhere to get it back from.
+    pub fn discard_hunk() -> Self {
+        let mut d = Self::yes_no(
+            "Discard hunk",
+            "Discard this hunk from the working file?\nThis cannot be undone.".to_string(),
+            Submit::DiscardHunk,
+            "Discard",
+            "Cancel",
+            None,
+        );
+        d.danger = true;
+        d
+    }
+
+    /// Dropping a stash discards it for good — `git stash drop` leaves only a
+    /// dangling commit no listing will show you again.
+    pub fn git_drop_stash(label: &str, args: Vec<String>) -> Self {
+        let mut d = Self::yes_no(
+            "git stash drop",
+            format!("Drop {label}?\nThis cannot be undone."),
+            Submit::GitRun { title: "stash drop".into(), args },
+            "Drop",
+            "Cancel",
+            None,
+        );
+        d.danger = true;
+        d
+    }
+
     pub fn git_restore(names: &[String], args: Vec<String>) -> Self {
         let message = format!(
             "Discard all uncommitted changes to {}?\nThis cannot be undone.",

@@ -171,6 +171,7 @@ impl AppState {
             send_server: None,
             receive_server: None,
             busy_task: None,
+            last_panelize: String::new(),
             blame_task: None,
             blame_gen: 0,
             geo_gen: 0,
@@ -755,6 +756,8 @@ impl AppState {
                     Err(None) => {} // aborted: the progress dialog was closed above
                 }
             }
+            AppEvent::PanelizeDone { result } => self.on_panelize_done(result),
+            AppEvent::GitStashes { stashes } => self.on_git_stashes(stashes),
             AppEvent::FindDone { id, results } => {
                 self.tasks.remove(&id);
                 if let Some(Dialog::Progress(p)) = &self.dialog

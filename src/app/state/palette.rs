@@ -48,6 +48,7 @@ impl AppState {
             cmd("U&nselect group", MenuAction::UnselectGroup),
             cmd("&Invert selection", MenuAction::Invert),
             cmd("&Find file...", MenuAction::FindFile),
+            cmd("Paneli&ze command output...", MenuAction::PanelizeCommand),
         ]);
         // Every Git-submenu action, prefixed so typing "git" surfaces them all.
         entries.extend(crate::ui::menu::GIT_MENU_KEYS.iter().map(|(key, action)| {

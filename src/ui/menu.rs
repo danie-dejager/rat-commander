@@ -67,6 +67,10 @@ pub enum MenuAction {
     GitRestore,
     /// Commit the index (message / amend / stage-all collected in a form).
     GitCommit,
+    /// Save the working tree as a stash.
+    GitStash,
+    /// Open the stash picker (show / apply / pop / drop).
+    GitStashList,
     /// `git fetch` (remote / prune options collected in a form).
     GitFetch,
     /// `git pull` (rebase option collected in a form).
@@ -98,6 +102,8 @@ pub enum MenuAction {
     Refresh,
     ToggleSplit,
     FindFile,
+    /// Run a command and list the files its output names (external panelize).
+    PanelizeCommand,
     /// Mark files identical between the left and right panel directories.
     FindDuplicates,
     ProcExplorer,
@@ -289,6 +295,7 @@ impl MenuBarState {
             item_key("Panel f&ilter...", "Alt-Shift-I", MenuAction::PanelFilter),
             sep(),
             item("&Find file...", MenuAction::FindFile),
+            item("Paneli&ze command output...", MenuAction::PanelizeCommand),
             item("Find d&uplicates...", MenuAction::FindDuplicates),
             item("Compare &directories...", MenuAction::CompareDirs),
             item("S&ynchronize directories...", MenuAction::SyncDirs),
@@ -368,6 +375,8 @@ fn git_menu_items() -> Vec<FileMenuItem> {
         item("Res&tore (discard)...", MenuAction::GitRestore),
         sep(),
         item("&Commit...", MenuAction::GitCommit),
+        item("Stash sa&ve...", MenuAction::GitStash),
+        item("Stash&es...", MenuAction::GitStashList),
         sep(),
         item("&Fetch...", MenuAction::GitFetch),
         item("&Pull...", MenuAction::GitPull),
@@ -396,6 +405,8 @@ pub const GIT_MENU_KEYS: &[(&str, MenuAction)] = &[
     ("Re&move...", MenuAction::GitRemove),
     ("Res&tore (discard)...", MenuAction::GitRestore),
     ("&Commit...", MenuAction::GitCommit),
+    ("Stash sa&ve...", MenuAction::GitStash),
+    ("Stash&es...", MenuAction::GitStashList),
     ("&Fetch...", MenuAction::GitFetch),
     ("&Pull...", MenuAction::GitPull),
     ("Pus&h...", MenuAction::GitPush),
