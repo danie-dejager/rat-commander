@@ -34,6 +34,7 @@ mod send;
 mod stash;
 mod syncpreview;
 mod tabpicker;
+mod tagkey;
 mod templatepicker;
 mod usermenu;
 
@@ -80,6 +81,7 @@ pub use send::SendFileDialog;
 pub use stash::StashDialog;
 pub use syncpreview::SyncPreviewDialog;
 pub use tabpicker::TabPickerDialog;
+pub use tagkey::TagKeyDialog;
 pub use templatepicker::TemplatePickerDialog;
 pub use usermenu::UserMenuDialog;
 
@@ -150,6 +152,8 @@ pub enum Dialog {
     GeoMap(Box<GeoMapDialog>),
     /// The hex editor's binary template picker.
     TemplatePicker(Box<TemplatePickerDialog>),
+    /// The tag page's "add a tag" key picker.
+    TagKey(Box<TagKeyDialog>),
 }
 
 /// What the app should do after a dialog handles a key.
@@ -405,6 +409,9 @@ pub enum Submit {
         side: usize,
         pattern: String,
     },
+    /// Add this key to the tag page as a new, empty row, ready to be typed
+    /// into. The label is what the picker showed it as.
+    AddTagKey(lofty::tag::ItemKey, String),
 }
 
 /// How the directory-comparison tool decides which files differ.
@@ -532,6 +539,7 @@ impl Dialog {
             Dialog::Stash(d) => d.handle_key(key),
             Dialog::GeoMap(d) => d.handle_key(key),
             Dialog::TemplatePicker(d) => d.handle_key(key),
+            Dialog::TagKey(d) => d.handle_key(key),
         }
     }
 
@@ -576,6 +584,7 @@ impl Dialog {
             Dialog::Stash(d) => d.render(f, area, theme),
             Dialog::GeoMap(d) => d.render(f, area, theme, gfx),
             Dialog::TemplatePicker(d) => d.render(f, area, theme),
+            Dialog::TagKey(d) => d.render(f, area, theme),
         }
     }
 
@@ -623,6 +632,7 @@ impl Dialog {
             Dialog::TabPicker(d) => return d.handle_click(area, col, row),
             Dialog::Stash(d) => return d.handle_click(area, col, row),
             Dialog::TemplatePicker(d) => return d.handle_click(area, col, row),
+            Dialog::TagKey(d) => return d.handle_click(area, col, row),
             Dialog::CommandPalette(d) => return d.handle_click(area, col, row),
             Dialog::Hotlist(d) => return d.handle_click(area, col, row),
             Dialog::BackgroundOps(d) => return d.handle_click(area, col, row),
@@ -725,6 +735,9 @@ impl Dialog {
                 return d.handle_scroll(delta);
             }
             Dialog::TemplatePicker(d) => {
+                return d.handle_scroll(delta);
+            }
+            Dialog::TagKey(d) => {
                 return d.handle_scroll(delta);
             }
             _ => {}

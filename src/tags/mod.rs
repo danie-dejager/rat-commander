@@ -251,6 +251,23 @@ pub fn read(path: &Path) -> Option<Tags> {
     })
 }
 
+/// The keys that can be added to a tag of `tag_type`, less the `present` ones,
+/// as `(key, label)` sorted by label.
+///
+/// Filtered by what the format can actually hold: offering an MP4 file a key
+/// only Vorbis comments have would write something the file cannot keep, and
+/// the value would quietly vanish on the next read.
+pub fn addable_keys(tag_type: TagType, present: &[ItemKey]) -> Vec<(ItemKey, String)> {
+    let mut out: Vec<(ItemKey, String)> = ItemKey::supported_keys(tag_type)
+        .iter()
+        .filter(|k| !present.contains(k))
+        .map(|k| (*k, format!("{k:?}")))
+        .collect();
+    out.sort_by_key(|(_, label)| label.to_lowercase());
+    out.dedup_by(|a, b| a.0 == b.0);
+    out
+}
+
 /// Mark every item whose key appears more than once as not editable.
 ///
 /// These are written by key, so editing one of a repeated key would replace all

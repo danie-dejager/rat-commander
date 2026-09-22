@@ -189,6 +189,11 @@ impl AppState {
             }
             Submit::Copy(sources, dest) => self.begin_transfer(OpKind::Copy, sources, &dest).await,
             Submit::Move(sources, dest) => self.begin_transfer(OpKind::Move, sources, &dest).await,
+            Submit::AddTagKey(key, label) => {
+                if let Some(ed) = self.editor.as_mut() {
+                    ed.add_tag_key(key, label);
+                }
+            }
             Submit::MultiRename(plan) => self.do_multi_rename(plan).await,
             Submit::Delete(targets) => {
                 if targets.iter().any(|t| t.is_native_archive()) {

@@ -5373,6 +5373,40 @@ async fn the_editor_opens_an_audio_file_on_its_tags_and_saves_them() {
     // Back to the top for the key tests below.
     press(&mut st, KeyCode::Home, KeyModifiers::NONE);
 
+    // F5 adds a tag the file does not have: the picker offers what this tag
+    // format can hold, filtered as you type.
+    // Through the app, not straight at the editor: opening a dialog is what
+    // the editor's signal asks the app to do.
+    st.handle_key(KeyEvent::new(KeyCode::F(5), KeyModifiers::NONE)).await;
+    assert!(matches!(st.dialog, Some(Dialog::TagKey(_))), "F5 opens the key picker");
+    for c in "bpm".chars() {
+        st.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)).await;
+    }
+    let picker = drawn(&mut st);
+    // ID3v2 spells its BPM key `IntegerBpm`, and that is what the format
+    // supports — which is the point of offering only the keys it can hold.
+    assert!(picker.contains("IntegerBpm"), "the query narrows the list: {picker}");
+    st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+    assert!(st.dialog.is_none(), "picking closes the picker");
+
+    // The new row is there and ready to be typed into.
+    let te = st.editor.as_ref().unwrap().tags.as_ref().unwrap();
+    assert!(te.editing(), "the new tag is waiting for its value");
+    for c in "92".chars() {
+        press(&mut st, KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    press(&mut st, KeyCode::Enter, KeyModifiers::NONE);
+    st.save_editor(false).await;
+    assert!(
+        crate::tags::read(&file)
+            .unwrap()
+            .extra
+            .iter()
+            .any(|e| e.key == lofty::tag::ItemKey::IntegerBpm && e.value == "92"),
+        "an added tag reaches the file under the key that was picked"
+    );
+    press(&mut st, KeyCode::Home, KeyModifiers::NONE);
+
     // The page's own F-keys: F3 for the bytes, F4 to edit, F8 to clear.
     press(&mut st, KeyCode::F(4), KeyModifiers::NONE);
     assert!(

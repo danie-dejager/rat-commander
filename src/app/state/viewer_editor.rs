@@ -123,6 +123,7 @@ impl AppState {
                 self.dialog = Some(Dialog::GitOutput(GitOutputDialog::plain("JWT", &text)));
             }
             EditorSignal::OpenTemplatePicker => self.open_template_picker(),
+            EditorSignal::OpenTagKeyPicker => self.open_tag_key_picker(),
             EditorSignal::EditTemplate { path, line } => self.open_template_editor(path, line),
             EditorSignal::NewTemplate => {
                 let stem = self
@@ -383,6 +384,22 @@ impl AppState {
             ViewerSignal::StartBlame => self.start_blame(),
             ViewerSignal::OpenBlameCommit => self.open_blame_commit().await,
         }
+    }
+
+    /// F5 on the tag page: choose a tag to add.
+    ///
+    /// Only the keys this file's tag format can actually hold are offered, and
+    /// only the ones it does not hold already — so the list is what can be
+    /// added rather than everything that exists.
+    fn open_tag_key_picker(&mut self) {
+        let Some(ed) = self.editor.as_ref() else { return };
+        let keys = ed.addable_tag_keys();
+        let dialog = crate::ui::dialog::TagKeyDialog::new(keys);
+        if dialog.is_empty() {
+            self.show_error("This file already has every tag its format can hold");
+            return;
+        }
+        self.dialog = Some(Dialog::TagKey(Box::new(dialog)));
     }
 
     /// `b` in the viewer: blame the file in the background. The viewer shows

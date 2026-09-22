@@ -1683,8 +1683,15 @@ carries**, under *Other tags in this file*. Both are editable.
 
 - **↑↓** pick a row; **Enter** (or **F4**, or simply typing) edits it; **Enter**
   commits and **Esc** abandons the edit. **F8** or **Del** clears a row.
+- **F5** or **Ins** adds a tag the file does not have yet. A picker lists every
+  key the file's tag format can hold — type to narrow it, **Enter** to add —
+  and the new row is ready to type into straight away. Only keys that format
+  actually supports are offered: an MP3's ID3v2 has no BPM frame of its own,
+  for instance, so a value written under one would simply be gone by the next
+  read.
 - **F2** writes the tags back into the file. A row left empty is *removed* from
-  the tag rather than written blank, which is what players expect.
+  the tag rather than written blank, which is what players expect — so a tag
+  added and left blank is not written at all.
 - Embedded cover art is counted and kept; so is anything binary the file holds.
 - A tag whose key the file uses **more than once** (two performers, say) is
   shown greyed and left alone: editing it by key would collapse every value

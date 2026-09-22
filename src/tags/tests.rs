@@ -432,3 +432,95 @@ fn a_key_the_file_uses_twice_is_shown_but_not_edited() {
     mark_duplicates(&mut unique);
     assert!(unique.iter().all(|e| e.editable));
 }
+
+#[test]
+fn addable_keys_are_what_the_format_can_hold_and_does_not_yet() {
+    let all = addable_keys(TagType::Id3v2, &[]);
+    assert!(all.len() > 50, "an ID3v2 tag has plenty of keys: {}", all.len());
+    assert!(all.iter().any(|(k, _)| *k == ItemKey::Mood));
+    // Sorted by label, so the picker reads alphabetically.
+    let labels: Vec<&str> = all.iter().map(|(_, l)| l.as_str()).collect();
+    let mut sorted = labels.clone();
+    sorted.sort_by_key(|l| l.to_lowercase());
+    assert_eq!(labels, sorted);
+
+    // A key already on the page is not offered again.
+    let less = addable_keys(TagType::Id3v2, &[ItemKey::Mood]);
+    assert!(!less.iter().any(|(k, _)| *k == ItemKey::Mood));
+    assert_eq!(less.len(), all.len() - 1);
+
+    // Nor are the well-known fields, which have rows of their own.
+    let named: Vec<ItemKey> = Field::ALL.iter().map(|f| f.key()).collect();
+    let rest = addable_keys(TagType::Id3v2, &named);
+    assert!(
+        !rest.iter().any(|(k, _)| named.contains(k)),
+        "the named fields are not offered as extras"
+    );
+
+    // Each format offers its own keys, not one shared list — and that is the
+    // point of the filter, not a nicety: ID3v2 has no BPM frame, so offering
+    // one would write a value the file cannot keep and that would be gone by
+    // the next read.
+    let vorbis = addable_keys(TagType::VorbisComments, &[]);
+    assert!(vorbis.iter().any(|(k, _)| *k == ItemKey::Bpm), "Vorbis comments have a BPM");
+    assert!(!all.iter().any(|(k, _)| *k == ItemKey::Bpm), "ID3v2 does not, so it is not offered");
+}
+
+#[test]
+fn an_added_key_is_not_a_change_until_it_has_a_value() {
+    use crate::tags::editor::TagEditor;
+    let dir = scratch("addkey");
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.set_title("Song".to_string());
+    let path = tagged_wav(&dir, "a.wav", tag);
+
+    let mut te = TagEditor::open(&path).expect("opens");
+    assert!(!te.dirty());
+
+    te.add_key(ItemKey::Mood, "Mood".to_string());
+    // The row is there and waiting to be typed into, but an empty tag is not
+    // yet an unsaved change — nothing would be written for it.
+    assert!(te.editing(), "the new row is ready for its value");
+    assert!(!te.dirty(), "an empty new row is not a change");
+    assert!(te.extra_to_write().iter().any(|e| e.key == ItemKey::Mood));
+
+    // Adding the same key twice does not make a second row.
+    let before = te.extra_to_write().len();
+    te.add_key(ItemKey::Mood, "Mood".to_string());
+    assert_eq!(te.extra_to_write().len(), before, "a key is added at most once");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_added_tag_is_written_and_an_empty_one_is_not() {
+    let dir = scratch("addwrite");
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.set_title("Song".to_string());
+    let path = tagged_wav(&dir, "w.wav", tag);
+    let before = read(&path).unwrap();
+
+    let extra = vec![
+        Extra { key: ItemKey::Mood, label: "Mood".into(), value: "Rainy".into(), editable: true },
+        // Added but never filled in.
+        Extra {
+            key: ItemKey::Publisher,
+            label: "Publisher".into(),
+            value: String::new(),
+            editable: true,
+        },
+    ];
+    write(&path, &before.fields, &extra, before.tag_type).expect("writes");
+
+    let after = read(&path).unwrap();
+    assert_eq!(
+        after.extra.iter().find(|e| e.key == ItemKey::Mood).map(|e| e.value.as_str()),
+        Some("Rainy"),
+        "the added tag is in the file"
+    );
+    assert!(
+        !after.extra.iter().any(|e| e.key == ItemKey::Publisher),
+        "and one left empty was not written: {:?}",
+        after.extra
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

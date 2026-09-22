@@ -41,9 +41,9 @@ pub(crate) struct TagEditor {
     original: Tags,
     /// The current value of each well-known field, in [`Field::ALL`] order.
     values: Vec<String>,
-    /// The current value of each item the program has no name for, in the order
-    /// the file holds them.
-    extras: Vec<String>,
+    /// The items the program has no name for, as they stand now — including any
+    /// the user has added since the file was read.
+    extras: Vec<Extra>,
     /// Selected row.
     cursor: usize,
     /// First visible row.
@@ -60,7 +60,7 @@ impl TagEditor {
     pub(crate) fn open(path: &Path) -> Option<Self> {
         let original = super::read(path)?;
         let values = original.fields.iter().map(|(_, v)| v.clone()).collect();
-        let extras = original.extra.iter().map(|e| e.value.clone()).collect();
+        let extras = original.extra.clone();
         Some(TagEditor {
             on: true,
             original,
@@ -76,7 +76,7 @@ impl TagEditor {
     /// Whether any value differs from what was read.
     pub(crate) fn dirty(&self) -> bool {
         self.original.fields.iter().map(|(_, v)| v).ne(self.values.iter())
-            || self.original.extra.iter().map(|e| &e.value).ne(self.extras.iter())
+            || self.original.extra != self.extras
     }
 
     /// The fields to write, paired back up with which field each one is.
@@ -86,12 +86,35 @@ impl TagEditor {
 
     /// The unnamed items to write, with their current values.
     pub(crate) fn extra_to_write(&self) -> Vec<Extra> {
-        self.original
-            .extra
-            .iter()
-            .zip(&self.extras)
-            .map(|(e, v)| Extra { value: v.clone(), ..e.clone() })
-            .collect()
+        self.extras.clone()
+    }
+
+    /// The keys already on the page, so a picker does not offer them again.
+    pub(crate) fn present_keys(&self) -> Vec<lofty::tag::ItemKey> {
+        Field::ALL.iter().map(|f| f.key()).chain(self.extras.iter().map(|e| e.key)).collect()
+    }
+
+    /// The kind of tag being edited, for filtering what a picker may offer.
+    pub(crate) fn tag_kind(&self) -> lofty::tag::TagType {
+        self.original.tag_type
+    }
+
+    /// Add `key` as a new, empty row and start typing its value.
+    ///
+    /// It is recorded as part of what was read as well, so an empty row is not
+    /// by itself an unsaved change — nothing is written for a tag with no value,
+    /// and the row goes when the file is read back.
+    pub(crate) fn add_key(&mut self, key: lofty::tag::ItemKey, label: String) {
+        if self.extras.iter().any(|e| e.key == key) {
+            return;
+        }
+        let item = Extra { key, label, value: String::new(), editable: true };
+        self.extras.push(item.clone());
+        self.original.extra.push(item);
+        if let Some(row) = self.row_of_extra(self.extras.len() - 1) {
+            self.cursor = row;
+            self.begin_edit();
+        }
     }
 
     /// The kind of tag these values came from.
@@ -104,9 +127,7 @@ impl TagEditor {
         for ((_, orig), now) in self.original.fields.iter_mut().zip(&self.values) {
             orig.clone_from(now);
         }
-        for (orig, now) in self.original.extra.iter_mut().zip(&self.extras) {
-            orig.value.clone_from(now);
-        }
+        self.original.extra.clone_from(&self.extras);
     }
 
     /// Re-read the file after it has been rewritten, so the view matches what
@@ -114,7 +135,7 @@ impl TagEditor {
     pub(crate) fn reload(&mut self, path: &Path) {
         if let Some(t) = super::read(path) {
             self.values = t.fields.iter().map(|(_, v)| v.clone()).collect();
-            self.extras = t.extra.iter().map(|e| e.value.clone()).collect();
+            self.extras = t.extra.clone();
             self.original = t;
         }
     }
@@ -127,17 +148,16 @@ impl TagEditor {
     /// Every row the view shows, rebuilt per render — cheap, and it keeps the
     /// row numbering and the drawing from ever disagreeing.
     pub(crate) fn rows(&self) -> Vec<Row> {
-        let mut rows: Vec<Row> =
-            Vec::with_capacity(Field::ALL.len() + self.original.extra.len() + 3);
+        let mut rows: Vec<Row> = Vec::with_capacity(Field::ALL.len() + self.extras.len() + 3);
         for (i, f) in Field::ALL.iter().enumerate() {
             rows.push(Row::Field(*f, i));
         }
         if self.original.pictures > 0 {
             rows.push(Row::Pictures(self.original.pictures));
         }
-        if !self.original.extra.is_empty() {
+        if !self.extras.is_empty() {
             rows.push(Row::Heading("Other tags in this file"));
-            for i in 0..self.original.extra.len() {
+            for i in 0..self.extras.len() {
                 rows.push(Row::Extra(i));
             }
         }
@@ -156,10 +176,10 @@ impl TagEditor {
             }
             Row::Heading(t) => (String::new(), t.to_string()),
             Row::Extra(i) => {
-                let e = &self.original.extra[*i];
+                let e = &self.extras[*i];
                 let shown = match &self.edit {
                     Some((r, text, _)) if self.row_of_extra(*i) == Some(*r) => text.clone(),
-                    _ => self.extras[*i].clone(),
+                    _ => e.value.clone(),
                 };
                 (e.label.clone(), shown)
             }
@@ -188,7 +208,7 @@ impl TagEditor {
     fn editable_at(&self, idx: usize) -> bool {
         match self.rows().get(idx) {
             Some(Row::Field(_, _)) => true,
-            Some(Row::Extra(i)) => self.original.extra[*i].editable,
+            Some(Row::Extra(i)) => self.extras[*i].editable,
             _ => false,
         }
     }
@@ -197,7 +217,7 @@ impl TagEditor {
     fn value_at(&self, idx: usize) -> Option<String> {
         match self.rows().get(idx)? {
             Row::Field(_, i) => Some(self.values[*i].clone()),
-            Row::Extra(i) => Some(self.extras[*i].clone()),
+            Row::Extra(i) => Some(self.extras[*i].value.clone()),
             _ => None,
         }
     }
@@ -206,7 +226,7 @@ impl TagEditor {
     fn set_value_at(&mut self, idx: usize, value: String) {
         match self.rows().get(idx) {
             Some(Row::Field(_, i)) => self.values[*i] = value,
-            Some(Row::Extra(i)) => self.extras[*i] = value,
+            Some(Row::Extra(i)) => self.extras[*i].value = value,
             _ => {}
         }
     }

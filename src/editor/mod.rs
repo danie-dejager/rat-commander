@@ -59,6 +59,8 @@ pub enum EditorSignal {
     About,
     /// Repaint the whole screen from scratch (Ctrl-L).
     RefreshScreen,
+    /// Choose a tag key to add on the tag page (F5).
+    OpenTagKeyPicker,
     /// Draw the buffer's GeoJSON on a map (Alt-M).
     OpenGeoMap,
     /// Pick the binary template for the hex view (F5).
@@ -224,6 +226,7 @@ pub const EDITOR_HELP: &[(&str, &str)] = &[
     ("Tree: Enter / ← →", "Edit the value or open / close, parent"),
     ("Tree: + - *", "Open, close, open everything below"),
     ("Tags: Enter / F4", "Edit the selected tag (or just start typing)"),
+    ("Tags: F5 / Ins", "Add a tag the file does not have yet"),
     ("Tags: F8 / Del", "Clear the selected tag"),
     ("Grid: Enter / F3", "Edit the cell / header row on or off"),
     ("Grid: F5 F6 / F8", "Insert row, column / delete row (Shift: column)"),
@@ -519,6 +522,19 @@ impl EditorState {
         }
         if let Some(t) = self.tags.as_mut() {
             t.on = !t.on;
+        }
+    }
+
+    /// The keys that may be added to this file's tag, for the picker.
+    pub fn addable_tag_keys(&self) -> Vec<(lofty::tag::ItemKey, String)> {
+        let Some(te) = self.tags.as_ref() else { return Vec::new() };
+        crate::tags::addable_keys(te.tag_kind(), &te.present_keys())
+    }
+
+    /// Add `key` as a new row on the tag page and start typing its value.
+    pub fn add_tag_key(&mut self, key: lofty::tag::ItemKey, label: String) {
+        if let Some(te) = self.tags.as_mut() {
+            te.add_key(key, label);
         }
     }
 
@@ -1691,8 +1707,10 @@ impl EditorState {
             KeyCode::F(2) if shift || ctrl => return EditorSignal::SaveAs,
             KeyCode::F(2) => return EditorSignal::Save { close_after: false },
             // The tag page's own F-keys, before the text editor's: F3 shows the
-            // bytes behind the tags, F4 edits the selected one.
+            // bytes behind the tags, F4 edits the selected one, F5 adds one.
             KeyCode::F(3) if self.tags_active() => self.toggle_tags(),
+            KeyCode::F(5) if self.tags_active() => return EditorSignal::OpenTagKeyPicker,
+            KeyCode::Insert if self.tags_active() => return EditorSignal::OpenTagKeyPicker,
             KeyCode::F(4) if self.tags_active() => {
                 if let Some(t) = self.tags.as_mut() {
                     t.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
