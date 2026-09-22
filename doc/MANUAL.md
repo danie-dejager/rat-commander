@@ -85,7 +85,8 @@ browsing. (FTP has no shell, so an FTP panel keeps using the local shell.)
 - A `*` in an **F6** target stands for the file's own name, so `*.bak` renames
   `notes.txt` to `notes.txt.bak` — and renames a whole selected set the same way,
   each file through its own name. For anything more involved than a suffix, use
-  the multi-rename tool (**Shift-F6**) and its `[N]` / `[E]` placeholders.
+  the multi-rename tool (**Shift-F6**) and its `[N]` / `[E]` placeholders —
+  which also reach a photo's EXIF and an audio file's tags.
 
 The active panel always provides the *source* for operations, and the inactive
 panel the *destination* — so two panels make copying and moving between two
@@ -714,6 +715,36 @@ name:
 - `[C]` — a running counter
 - `[YMD]` — the date (`YYYYMMDD`)
 - `[hms]` — the time (`HHMMSS`)
+
+**From the file itself.** A mask can also pull values out of the files being
+renamed. These are read in the background when the dialog opens — the footer
+says so while it is happening — and a file that has no such value contributes
+nothing, so a mixed batch is fine. Values are cleaned up for use in a name
+(path separators and control characters removed, runs of whitespace collapsed).
+
+From a photo's EXIF:
+
+- `[EXIF:YMD]` / `[EXIF:hms]` — the date and time the photo was taken
+- `[EXIF:Y]`, `[EXIF:M]`, `[EXIF:D]`, `[EXIF:h]`, `[EXIF:m]`, `[EXIF:s]` — the
+  same moment in separate parts, so you can write `[EXIF:Y]-[EXIF:M]/…`
+- `[EXIF:Make]`, `[EXIF:Model]`, `[EXIF:Lens]` — the camera and lens
+- `[EXIF:Exposure]`, `[EXIF:FNumber]`, `[EXIF:ISO]`, `[EXIF:FocalLength]`
+- `[EXIF:Orientation]`, `[EXIF:Width]`, `[EXIF:Height]`
+- `[EXIF:GPSLat]`, `[EXIF:GPSLon]` — signed decimal degrees
+
+From an audio file's tags (MP3, Ogg, FLAC, M4A, WAV and the rest):
+
+- `[TAG:Title]`, `[TAG:Artist]`, `[TAG:Album]`, `[TAG:AlbumArtist]`
+- `[TAG:Track]`, `[TAG:Disc]` — single digits are zero-padded so a batch sorts
+- `[TAG:Year]`, `[TAG:Genre]`, `[TAG:Comment]`, `[TAG:Composer]`
+
+So `[EXIF:Y]-[EXIF:M]-[EXIF:D]_[C].[E]` numbers a shoot by date, and
+`[TAG:Track] - [TAG:Artist] - [TAG:Title].[E]` names an album properly.
+
+Press **F1** in the dialog for the full list; ↑↓ scroll it, Esc closes it.
+
+Only local files are read. A file on a remote or inside an archive would have to
+be fetched whole to reach its metadata, so those simply have none.
 
 **Options.**
 

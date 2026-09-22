@@ -265,7 +265,58 @@ impl AppState {
             return self.show_error("No files selected.");
         }
         let (date, time) = crate::rename::date_time_now();
-        self.dialog = Some(Dialog::MultiRename(MultiRenameDialog::new(sources, date, time)));
+        self.rename_gen = self.rename_gen.wrapping_add(1);
+        let generation = self.rename_gen;
+        self.dialog = Some(Dialog::MultiRename(MultiRenameDialog::new(
+            sources.clone(),
+            date,
+            time,
+            generation,
+        )));
+        self.read_rename_meta(sources, generation);
+    }
+
+    /// Read the EXIF and tag values behind the `[EXIF:…]` / `[TAG:…]`
+    /// placeholders, in the background.
+    ///
+    /// The dialog is already up by the time this starts: the preview is drawn
+    /// from the first frame, and the metadata columns fill in when the read
+    /// lands. Opening a hundred photos would otherwise mean a hundred file
+    /// reads before anything appeared.
+    ///
+    /// Only local files are read. A file on a remote or inside an archive would
+    /// have to be fetched whole to reach its EXIF, which is not worth doing for
+    /// a preview — those entries simply have no metadata, and a mask that asks
+    /// for some expands to nothing.
+    fn read_rename_meta(&mut self, sources: Vec<VfsPath>, generation: u64) {
+        let tx = self.tx.clone();
+        let local: Vec<Option<std::path::PathBuf>> = sources
+            .iter()
+            .map(|p| (p.scheme == "file").then(|| std::path::PathBuf::from(&p.path)))
+            .collect();
+        if local.iter().all(Option::is_none) {
+            return;
+        }
+        tokio::spawn(async move {
+            let meta = tokio::task::spawn_blocking(move || {
+                local.into_iter().map(|p| p.map(read_one_meta).unwrap_or_default()).collect()
+            })
+            .await
+            .unwrap_or_default();
+            let _ = tx.send(AppEvent::RenameMetaRead { generation, meta }).await;
+        });
+    }
+
+    /// Apply a finished metadata read to the dialog that asked for it.
+    pub(in crate::app::state) fn apply_rename_meta(
+        &mut self,
+        generation: u64,
+        meta: Vec<crate::rename::FileMeta>,
+    ) {
+        let Some(Dialog::MultiRename(d)) = self.dialog.as_mut() else { return };
+        if d.awaits(generation) {
+            d.set_meta(meta);
+        }
     }
 
     /// Apply a batch rename. Renames are done in two phases (each source to a
@@ -487,4 +538,42 @@ impl AppState {
         });
         self.dialog = Some(Dialog::Progress(ProgressDialog::new(id, verb)));
     }
+}
+
+/// Everything a mask can reach inside one local file: a photo's EXIF, an audio
+/// file's tags. Blocking, so it is called on the blocking pool.
+///
+/// Only the head of an image is read — EXIF sits at the front of a JPEG, and a
+/// full-resolution photo is not worth pulling into memory to find a date.
+fn read_one_meta(path: std::path::PathBuf) -> crate::rename::FileMeta {
+    let mut meta = crate::rename::FileMeta::default();
+    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    if crate::util::img::is_image_name(&name)
+        && let Some(bytes) = read_file_head(&path, EXIF_HEAD_BYTES)
+    {
+        meta.extend(
+            crate::rename::EXIF_PREFIX.trim_end_matches(':'),
+            crate::util::img::exif_fields(&bytes),
+        );
+    }
+    if crate::tags::is_taggable_name(&name) {
+        meta.extend(
+            crate::rename::TAG_PREFIX.trim_end_matches(':'),
+            crate::tags::rename_fields(&path),
+        );
+    }
+    meta
+}
+
+/// How much of an image is read looking for its EXIF block. Enough for the
+/// metadata (which precedes the image data) without touching the pixels.
+const EXIF_HEAD_BYTES: usize = 256 * 1024;
+
+/// The first `n` bytes of `path`, or nothing if it cannot be read.
+fn read_file_head(path: &std::path::Path, n: usize) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(path).ok()?;
+    let mut buf = Vec::new();
+    f.by_ref().take(n as u64).read_to_end(&mut buf).ok()?;
+    Some(buf)
 }

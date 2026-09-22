@@ -31,8 +31,8 @@ mod saveas;
 mod search;
 mod select;
 mod send;
-mod syncpreview;
 mod stash;
+mod syncpreview;
 mod tabpicker;
 mod templatepicker;
 mod usermenu;
@@ -77,8 +77,8 @@ pub use saveas::SaveAsDialog;
 pub use search::{SearchReplaceDialog, SearchReplaceParams};
 pub use select::SelectDialog;
 pub use send::SendFileDialog;
-pub use syncpreview::SyncPreviewDialog;
 pub use stash::StashDialog;
+pub use syncpreview::SyncPreviewDialog;
 pub use tabpicker::TabPickerDialog;
 pub use templatepicker::TemplatePickerDialog;
 pub use usermenu::UserMenuDialog;
@@ -270,7 +270,10 @@ pub enum Submit {
     DiscardHunk,
     /// Ask before dropping a stash; the app turns this into a confirmation
     /// carrying the `git stash drop` argv, the way git rm/restore already do.
-    ConfirmDropStash { label: String, args: Vec<String> },
+    ConfirmDropStash {
+        label: String,
+        args: Vec<String>,
+    },
     GitRun {
         title: String,
         args: Vec<String>,

@@ -6574,10 +6574,8 @@ async fn panelize_command_output_becomes_a_panelized_listing() {
     st.panels[0].reload().await.unwrap();
 
     // `missing.txt` names nothing: it must be dropped rather than listed.
-    st.handle_submit(Submit::Panelize(
-        "printf 'a.txt\\nsub/b.txt\\nmissing.txt\\n'".to_string(),
-    ))
-    .await;
+    st.handle_submit(Submit::Panelize("printf 'a.txt\\nsub/b.txt\\nmissing.txt\\n'".to_string()))
+        .await;
     loop {
         let ev = rx.recv().await.unwrap();
         let done = matches!(ev, AppEvent::PanelizeDone { .. });

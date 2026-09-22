@@ -122,7 +122,13 @@ The installed executable is named **`rc`** for quick typing.
   integer width, floats, LEB128, UTF-8/UTF-16, time_t/FILETIME/DOS dates and
   GUIDs in either byte order, each one editable.
 - **Multi rename** — batch-rename selected files with a masked, live two-column
-  preview, counter, case transform and search-and-replace.
+  preview, counter, case transform and search-and-replace. Masks can pull from
+  the files themselves: a photo's **EXIF** (`[EXIF:YMD]` date taken, and its
+  year/month/day/hour parts separately, camera, lens, exposure, ISO, focal
+  length, dimensions, GPS) and an audio file's **tags** (`[TAG:Artist]`,
+  `[TAG:Title]`, `[TAG:Album]`, `[TAG:Track]`…), so photos rename to the day
+  they were shot and music to what it is. **F1** in the dialog lists every
+  placeholder.
 - **Search** — one dialog for the editor (F7/F4) *and* the viewer (F7): literal,
   **regex**, **hex** or **wildcard**, with case / whole-word / backwards options.
   **Find all** highlights every line holding the term and keeps it highlighted

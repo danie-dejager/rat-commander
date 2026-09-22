@@ -12,6 +12,87 @@
 //! - `[C]` — the running counter
 //! - `[YMD]` — the captured date, `YYYYMMDD`
 //! - `[hms]` — the captured time, `HHMMSS`
+//! - `[EXIF:…]` / `[TAG:…]` — a value read from the file itself: a photo's EXIF
+//!   or an audio file's tags, looked up in the [`FileMeta`] the caller resolved
+//!   beforehand. A file that has no such value contributes nothing.
+
+/// Per-file values a mask can reach that are not in the name: a photo's EXIF,
+/// an audio file's tags.
+///
+/// Resolved once by the caller, before any expansion, and then only looked up:
+/// the rename preview re-expands every visible row on every frame, so reading a
+/// file here would mean reading it dozens of times a second. Keeping the values
+/// in hand also leaves this module free of I/O, and so fully testable.
+///
+/// Keys are `"<prefix>:<token>"`, both lower-cased — `exif:model`, `tag:artist`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FileMeta {
+    vals: std::collections::BTreeMap<String, String>,
+}
+
+impl FileMeta {
+    /// An empty set of values — usable in a constant, so a caller with nothing
+    /// read yet can borrow one rather than build it per row.
+    pub const fn new() -> Self {
+        FileMeta { vals: std::collections::BTreeMap::new() }
+    }
+
+    /// Record `pairs` — `(token, value)` as the reading modules produce them —
+    /// under `prefix`. Values are made safe to put in a file name; ones that
+    /// sanitise away to nothing are dropped, so a mask referring to them
+    /// expands to nothing rather than to whitespace.
+    pub fn extend(&mut self, prefix: &str, pairs: impl IntoIterator<Item = (String, String)>) {
+        for (token, value) in pairs {
+            let value = sanitize_component(&value);
+            if !value.is_empty() {
+                self.vals.insert(format!("{}:{}", prefix, token.to_ascii_lowercase()), value);
+            }
+        }
+    }
+
+    /// The value for a full lower-cased key, e.g. `exif:model`.
+    fn get(&self, key: &str) -> Option<&str> {
+        self.vals.get(key).map(String::as_str)
+    }
+}
+
+/// Make `s` safe to use as one component of a file name: drop the separators
+/// and control characters no platform accepts, collapse runs of whitespace, and
+/// trim. Long values are cut so one wordy tag cannot push a name past what the
+/// filesystem will take.
+///
+/// Applied to metadata only — never to the mask the user typed, which is theirs
+/// to write as they like.
+pub fn sanitize_component(s: &str) -> String {
+    /// Longest a single expanded value may be, in characters.
+    const MAX: usize = 120;
+    let mut out = String::with_capacity(s.len());
+    let mut space = false;
+    for c in s.chars() {
+        // Whitespace is tested first: a tab is both whitespace and a control
+        // character, and it should collapse to a space rather than vanish and
+        // run the words either side of it together.
+        if c.is_whitespace() {
+            space = true;
+            continue;
+        }
+        // `/` and `\` separate paths, the rest are refused by Windows; control
+        // characters have no business in a name on any platform.
+        if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() {
+            continue;
+        }
+        if space && !out.is_empty() {
+            out.push(' ');
+        }
+        space = false;
+        out.push(c);
+        if out.chars().count() >= MAX {
+            break;
+        }
+    }
+    // A trailing dot or space is dropped by Windows, so never end with one.
+    out.trim_end_matches(['.', ' ']).to_string()
+}
 
 /// How the generated name's letter case is transformed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,13 +144,15 @@ pub struct RenameRule {
 }
 
 impl RenameRule {
-    /// The new name for `original` at zero-based position `index`.
-    pub fn apply(&self, original: &str, index: usize) -> String {
+    /// The new name for `original` at zero-based position `index`, with `meta`
+    /// supplying any `[EXIF:…]` / `[TAG:…]` the mask asks for.
+    pub fn apply(&self, original: &str, index: usize, meta: &FileMeta) -> String {
         let (stem, ext) = split_name(original);
         let counter = self.counter_start + (index as i64) * self.counter_step;
         let counter_str = format!("{counter:0width$}", width = self.counter_digits);
 
-        let mut name = expand_mask(&self.mask, stem, ext, &counter_str, &self.date, &self.time);
+        let mut name =
+            expand_mask(&self.mask, stem, ext, &counter_str, &self.date, &self.time, meta);
         // The default mask "[N].[E]" leaves a trailing dot for extension-less
         // files; drop the dot an empty [E] produced so it round-trips cleanly.
         if ext.is_empty() && name.ends_with('.') {
@@ -84,6 +167,11 @@ impl RenameRule {
     }
 }
 
+/// The mask prefix for a value read from a photo's EXIF.
+pub const EXIF_PREFIX: &str = "exif:";
+/// The mask prefix for a value read from an audio file's tags.
+pub const TAG_PREFIX: &str = "tag:";
+
 /// Split a file name into (stem, extension-without-dot). A leading dot is part of
 /// the name (a dotfile like `.bashrc` has no extension); the split is on the last
 /// interior dot (so `a.tar.gz` → `("a.tar", "gz")`).
@@ -96,7 +184,15 @@ fn split_name(name: &str) -> (&str, &str) {
 
 /// Expand every `[...]` placeholder in `mask`. Unrecognised tokens are emitted
 /// verbatim (brackets included) so literal `[`/`]` survive.
-fn expand_mask(mask: &str, stem: &str, ext: &str, counter: &str, date: &str, time: &str) -> String {
+fn expand_mask(
+    mask: &str,
+    stem: &str,
+    ext: &str,
+    counter: &str,
+    date: &str,
+    time: &str,
+    meta: &FileMeta,
+) -> String {
     let chars: Vec<char> = mask.chars().collect();
     let mut out = String::with_capacity(mask.len());
     let mut i = 0;
@@ -105,7 +201,7 @@ fn expand_mask(mask: &str, stem: &str, ext: &str, counter: &str, date: &str, tim
             && let Some(close) = (i + 1..chars.len()).find(|&j| chars[j] == ']')
         {
             let token: String = chars[i + 1..close].iter().collect();
-            if let Some(sub) = substitute(&token, stem, ext, counter, date, time) {
+            if let Some(sub) = substitute(&token, stem, ext, counter, date, time, meta) {
                 out.push_str(&sub);
                 i = close + 1;
                 continue;
@@ -126,12 +222,22 @@ fn substitute(
     counter: &str,
     date: &str,
     time: &str,
+    meta: &FileMeta,
 ) -> Option<String> {
-    match token.to_ascii_lowercase().as_str() {
+    let lower = token.to_ascii_lowercase();
+    match lower.as_str() {
         "c" => return Some(counter.to_string()),
         "ymd" => return Some(date.to_string()),
         "hms" => return Some(time.to_string()),
         _ => {}
+    }
+    // Only these two prefixes are ours. Matching on "has a colon" would swallow
+    // anything bracketed the user meant literally — `[10:30]` in a mask stays
+    // `[10:30]`, the same as any other unrecognised token.
+    if lower.starts_with(EXIF_PREFIX) || lower.starts_with(TAG_PREFIX) {
+        // A file that lacks the value contributes nothing, rather than leaving
+        // `[EXIF:Model]` sitting in the middle of the new name.
+        return Some(meta.get(&lower).unwrap_or_default().to_string());
     }
     let first = token.chars().next()?;
     let source = match first.to_ascii_uppercase() {
@@ -229,6 +335,12 @@ fn civil_from_unix(secs: i64) -> (i64, i64, i64, i64, i64, i64) {
 mod tests {
     use super::*;
 
+    /// Expand with no metadata — what every case that is not about EXIF or
+    /// tags wants, and what keeps those cases reading as they did.
+    fn plain(r: &RenameRule, original: &str, index: usize) -> String {
+        r.apply(original, index, &FileMeta::default())
+    }
+
     fn rule(mask: &str) -> RenameRule {
         RenameRule {
             mask: mask.to_string(),
@@ -247,21 +359,21 @@ mod tests {
     #[test]
     fn default_mask_round_trips_names() {
         let r = rule("[N].[E]");
-        assert_eq!(r.apply("photo.jpg", 0), "photo.jpg");
-        assert_eq!(r.apply("archive.tar.gz", 0), "archive.tar.gz");
+        assert_eq!(plain(&r, "photo.jpg", 0), "photo.jpg");
+        assert_eq!(plain(&r, "archive.tar.gz", 0), "archive.tar.gz");
         // Extension-less files don't gain a trailing dot.
-        assert_eq!(r.apply("README", 0), "README");
+        assert_eq!(plain(&r, "README", 0), "README");
         // Dotfiles have no extension.
-        assert_eq!(r.apply(".bashrc", 0), ".bashrc");
+        assert_eq!(plain(&r, ".bashrc", 0), ".bashrc");
     }
 
     #[test]
     fn counter_increments_with_padding() {
         let mut r = rule("img[C].[E]");
         r.counter_digits = 3;
-        assert_eq!(r.apply("a.png", 0), "img001.png");
-        assert_eq!(r.apply("b.png", 1), "img002.png");
-        assert_eq!(r.apply("c.png", 2), "img003.png");
+        assert_eq!(plain(&r, "a.png", 0), "img001.png");
+        assert_eq!(plain(&r, "b.png", 1), "img002.png");
+        assert_eq!(plain(&r, "c.png", 2), "img003.png");
     }
 
     #[test]
@@ -269,39 +381,39 @@ mod tests {
         let mut r = rule("[C]");
         r.counter_start = 10;
         r.counter_step = 5;
-        assert_eq!(r.apply("x", 0), "10");
-        assert_eq!(r.apply("x", 1), "15");
-        assert_eq!(r.apply("x", 2), "20");
+        assert_eq!(plain(&r, "x", 0), "10");
+        assert_eq!(plain(&r, "x", 1), "15");
+        assert_eq!(plain(&r, "x", 2), "20");
     }
 
     #[test]
     fn substring_slices() {
-        assert_eq!(rule("[N1-3]").apply("hello.txt", 0), "hel");
-        assert_eq!(rule("[N3-]").apply("hello.txt", 0), "llo");
-        assert_eq!(rule("[N2]").apply("hello.txt", 0), "e");
-        assert_eq!(rule("[E1-2]").apply("a.jpeg", 0), "jp");
+        assert_eq!(plain(&rule("[N1-3]"), "hello.txt", 0), "hel");
+        assert_eq!(plain(&rule("[N3-]"), "hello.txt", 0), "llo");
+        assert_eq!(plain(&rule("[N2]"), "hello.txt", 0), "e");
+        assert_eq!(plain(&rule("[E1-2]"), "a.jpeg", 0), "jp");
         // Out-of-range slices clamp to empty / available chars.
-        assert_eq!(rule("[N9-12]").apply("hi.txt", 0), "");
+        assert_eq!(plain(&rule("[N9-12]"), "hi.txt", 0), "");
     }
 
     #[test]
     fn date_and_time_tokens() {
-        assert_eq!(rule("[YMD]_[hms].[E]").apply("a.log", 0), "20260630_143007.log");
+        assert_eq!(plain(&rule("[YMD]_[hms].[E]"), "a.log", 0), "20260630_143007.log");
     }
 
     #[test]
     fn unknown_tokens_stay_literal() {
-        assert_eq!(rule("[X][N].[E]").apply("a.txt", 0), "[X]a.txt");
-        assert_eq!(rule("[N]([C]).[E]").apply("a.txt", 0), "a(1).txt");
+        assert_eq!(plain(&rule("[X][N].[E]"), "a.txt", 0), "[X]a.txt");
+        assert_eq!(plain(&rule("[N]([C]).[E]"), "a.txt", 0), "a(1).txt");
     }
 
     #[test]
     fn case_transforms() {
         let mut r = rule("[N].[E]");
         r.case = CaseMode::Upper;
-        assert_eq!(r.apply("Photo.Jpg", 0), "PHOTO.JPG");
+        assert_eq!(plain(&r, "Photo.Jpg", 0), "PHOTO.JPG");
         r.case = CaseMode::Lower;
-        assert_eq!(r.apply("Photo.Jpg", 0), "photo.jpg");
+        assert_eq!(plain(&r, "Photo.Jpg", 0), "photo.jpg");
     }
 
     #[test]
@@ -310,10 +422,72 @@ mod tests {
         r.search = "img".to_string();
         r.replace = "pic".to_string();
         // Case-insensitive by default: matches IMG / Img / img.
-        assert_eq!(r.apply("IMG_01.jpg", 0), "pic_01.jpg");
+        assert_eq!(plain(&r, "IMG_01.jpg", 0), "pic_01.jpg");
         r.search_case_sensitive = true;
-        assert_eq!(r.apply("IMG_01.jpg", 0), "IMG_01.jpg");
-        assert_eq!(r.apply("img_01.jpg", 0), "pic_01.jpg");
+        assert_eq!(plain(&r, "IMG_01.jpg", 0), "IMG_01.jpg");
+        assert_eq!(plain(&r, "img_01.jpg", 0), "pic_01.jpg");
+    }
+
+    fn meta(pairs: &[(&str, &str)]) -> FileMeta {
+        let mut m = FileMeta::default();
+        m.extend("exif", pairs.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())));
+        m
+    }
+
+    #[test]
+    fn metadata_tokens_expand_and_are_case_insensitive() {
+        let m = meta(&[("ymd", "20240714"), ("model", "Canon EOS 5D")]);
+        let r = rule("[EXIF:YMD]_[EXIF:Model].[E]");
+        assert_eq!(r.apply("a.jpg", 0, &m), "20240714_Canon EOS 5D.jpg");
+        // The token is matched case-insensitively, like every other one.
+        assert_eq!(rule("[exif:ymd]").apply("a.jpg", 0, &m), "20240714");
+    }
+
+    #[test]
+    fn a_missing_metadata_value_expands_to_nothing() {
+        let m = meta(&[("ymd", "20240714")]);
+        // Not "[EXIF:Model]" left sitting in the name, and not the literal token.
+        assert_eq!(rule("[EXIF:YMD][EXIF:Model].[E]").apply("a.jpg", 0, &m), "20240714.jpg");
+        // A file with no metadata at all still renames by the rest of the mask.
+        let empty = FileMeta::default();
+        assert_eq!(rule("[EXIF:Model][N].[E]").apply("a.jpg", 0, &empty), "a.jpg");
+    }
+
+    #[test]
+    fn tag_and_exif_prefixes_are_separate_namespaces() {
+        let mut m = FileMeta::default();
+        m.extend("exif", [("model".to_string(), "5D".to_string())]);
+        m.extend("tag", [("artist".to_string(), "Portishead".to_string())]);
+        assert_eq!(rule("[EXIF:Model]-[TAG:Artist]").apply("a.mp3", 0, &m), "5D-Portishead");
+    }
+
+    #[test]
+    fn only_our_prefixes_are_consumed() {
+        // A bracketed token that merely contains a colon is not metadata and
+        // survives verbatim, exactly as any other unrecognised token does.
+        let m = meta(&[("ymd", "20240714")]);
+        assert_eq!(rule("[10:30][N].[E]").apply("a.txt", 0, &m), "[10:30]a.txt");
+        assert_eq!(rule("[foo:bar]").apply("a.txt", 0, &m), "[foo:bar]");
+    }
+
+    #[test]
+    fn metadata_values_are_made_safe_for_a_file_name() {
+        // Separators and control characters go; whitespace runs collapse.
+        let m = meta(&[("lens", "EF 24/70mm\tf:2.8")]);
+        assert_eq!(rule("[EXIF:Lens]").apply("a.jpg", 0, &m), "EF 2470mm f2.8");
+        assert_eq!(sanitize_component("  a\u{7}b  "), "ab");
+        assert_eq!(sanitize_component("trailing. "), "trailing");
+        // A value that is nothing but separators is dropped rather than stored.
+        let m = meta(&[("model", "///")]);
+        assert_eq!(rule("[EXIF:Model][N]").apply("a.jpg", 0, &m), "a");
+    }
+
+    #[test]
+    fn a_long_metadata_value_is_cut() {
+        let long = "x".repeat(500);
+        let m = meta(&[("comment", &long)]);
+        let out = rule("[EXIF:Comment]").apply("a.jpg", 0, &m);
+        assert!(out.chars().count() <= 120, "cut to a sane length, got {}", out.chars().count());
     }
 
     #[test]

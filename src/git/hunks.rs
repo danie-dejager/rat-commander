@@ -268,7 +268,8 @@ diff --git a/f b/f
     /// through untouched or `git apply` rejects the context.
     #[test]
     fn crlf_context_lines_are_kept_verbatim() {
-        let text = "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n ctx\r\n-old\r\n+new\r\n";
+        let text =
+            "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n ctx\r\n-old\r\n+new\r\n";
         let f = &parse_unified(text)[0];
         let h = &f.hunks[0];
         assert_eq!(h.lines[0], " ctx\r", "the CR is still there");
@@ -289,7 +290,9 @@ Binary files a/img.png and b/img.png differ
 
     #[test]
     fn several_files_are_split_apart() {
-        let text = format!("{SAMPLE}diff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n@@ -1 +1 @@\n-x\n+y\n");
+        let text = format!(
+            "{SAMPLE}diff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n@@ -1 +1 @@\n-x\n+y\n"
+        );
         let files = parse_unified(&text);
         assert_eq!(files.len(), 2);
         assert_eq!(files[0].hunks.len(), 2);
@@ -336,11 +339,10 @@ mod repo_tests {
     /// line 2 and of line 19 leaves a gap, where a closer pair would merge into
     /// one hunk and defeat the point of the test.
     fn make_repo(tag: &str, body: &str, edited: &str) -> Option<PathBuf> {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .ok()?
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("rc_hunks_{tag}_{}_{nanos}", std::process::id()));
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("rc_hunks_{tag}_{}_{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir).ok()?;
         if !git_ok(&dir, &["init", "-q"]) {
             let _ = std::fs::remove_dir_all(&dir);

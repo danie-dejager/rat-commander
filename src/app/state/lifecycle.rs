@@ -175,6 +175,7 @@ impl AppState {
             blame_task: None,
             blame_gen: 0,
             geo_gen: 0,
+            rename_gen: 0,
             activity_cache: std::collections::VecDeque::new(),
             activity_task: [None, None],
             audio_out: crate::audio::AudioOut::new(),
@@ -786,6 +787,9 @@ impl AppState {
                 self.apply_blame(generation, result);
             }
             AppEvent::GeoJsonRead { generation, doc } => self.apply_geojson(generation, *doc),
+            AppEvent::RenameMetaRead { generation, meta } => {
+                self.apply_rename_meta(generation, meta);
+            }
             AppEvent::TimelineTree { oid, generation, result } => {
                 self.apply_timeline_tree(oid, generation, result);
             }

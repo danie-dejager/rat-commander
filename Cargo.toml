@@ -179,6 +179,13 @@ symphonia = { version = "0.5.5", default-features = false, features = ["all-form
 # Audio playback (the `audio` feature). `symphonia-all` is what switches on
 # rodio's own symphonia decoder; the codecs themselves are the ones above.
 rodio = { version = "0.22.2", default-features = false, features = ["playback", "symphonia-all"], optional = true }
+# Reading and writing audio tags: the F4 tag editor, and the multi-rename
+# `[TAG:...]` placeholders. symphonia (above) decodes audio but is read-only by
+# design, so writing ID3v2 and Vorbis comments needs its own crate. Pure Rust —
+# no C, so the ARM cross-compiles are unaffected — and it shares flate2,
+# byteorder and crc32fast with the rest of the tree, so it brings only itself,
+# `lofty_attr`, `ogg_pager` and `paste` along.
+lofty = "0.25.4"
 x509-parser = { version = "0.18.1", features = ["verify-aws"] }
 base64 = "0.22"
 rustls-native-certs = "0.8"

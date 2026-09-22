@@ -113,6 +113,11 @@ pub enum AppEvent {
     /// The GeoJSON in the editor's text was read for the map dialog waiting on
     /// `generation`.
     GeoJsonRead { generation: u64, doc: Box<crate::geo::geojson::GeoDoc> },
+    /// The EXIF and tag values behind the multi-rename dialog's `[EXIF:…]` and
+    /// `[TAG:…]` placeholders were read, one entry per file in the dialog's
+    /// order. A stale `generation` — the dialog was closed or reopened — is
+    /// ignored.
+    RenameMetaRead { generation: u64, meta: Vec<crate::rename::FileMeta> },
     /// One revision's file sizes arrived for the 3D time machine. A stale
     /// `generation` — the user scrubbed onward while this was in flight — is
     /// still cached, since it cost a `git` call, but does not become the scene.

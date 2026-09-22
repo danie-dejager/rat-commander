@@ -2,7 +2,7 @@
 
 use super::widgets::*;
 use super::{DialogResult, Submit};
-use crate::rename::{CaseMode, RenameRule};
+use crate::rename::{CaseMode, FileMeta, RenameRule};
 
 // ---------------------------------------------------------------------------
 // Multi-rename dialog
@@ -81,6 +81,50 @@ fn draw_num_field(
 
 const MR_FOCUS_COUNT: usize = 8;
 
+/// The placeholder reference the F1 overlay shows: `(token, what it means)`.
+///
+/// English, like the hint row and the footer it sits among: this dialog's body
+/// text is not in the catalogs, and the tokens themselves could not be
+/// translated anyway, since they are what the user has to type.
+///
+/// An empty token starts a new group and its text is drawn as a heading.
+const PLACEHOLDERS: &[(&str, &str)] = &[
+    ("", "The name"),
+    ("[N]", "Name without the extension"),
+    ("[E]", "Extension without the dot"),
+    ("[N1-3]", "Characters 1-3 of the name ([N3-], [N-5], [N2])"),
+    ("[E1-2]", "Characters 1-2 of the extension"),
+    ("[C]", "Counter (start, step and digits are set below)"),
+    ("[YMD]", "Today's date, YYYYMMDD"),
+    ("[hms]", "The time now, HHMMSS"),
+    ("", "From a photo's EXIF"),
+    ("[EXIF:YMD]", "Date taken, YYYYMMDD"),
+    ("[EXIF:hms]", "Time taken, HHMMSS"),
+    ("[EXIF:Y]", "Year taken ([EXIF:M] month, [EXIF:D] day)"),
+    ("[EXIF:h]", "Hour taken ([EXIF:m] minute, [EXIF:s] second)"),
+    ("[EXIF:Make]", "Camera maker"),
+    ("[EXIF:Model]", "Camera model"),
+    ("[EXIF:Lens]", "Lens"),
+    ("[EXIF:Exposure]", "Exposure time"),
+    ("[EXIF:FNumber]", "F-number"),
+    ("[EXIF:ISO]", "ISO speed"),
+    ("[EXIF:FocalLength]", "Focal length"),
+    ("[EXIF:Orientation]", "Orientation"),
+    ("[EXIF:Width]", "Width in pixels ([EXIF:Height] height)"),
+    ("[EXIF:GPSLat]", "Latitude ([EXIF:GPSLon] longitude)"),
+    ("", "From an audio file's tags"),
+    ("[TAG:Title]", "Title"),
+    ("[TAG:Artist]", "Artist"),
+    ("[TAG:Album]", "Album"),
+    ("[TAG:AlbumArtist]", "Album artist"),
+    ("[TAG:Track]", "Track number"),
+    ("[TAG:Disc]", "Disc number"),
+    ("[TAG:Year]", "Year"),
+    ("[TAG:Genre]", "Genre"),
+    ("[TAG:Comment]", "Comment"),
+    ("[TAG:Composer]", "Composer"),
+];
+
 /// The batch-rename dialog: a mask/options area on top and two synchronized,
 /// side-by-side lists below (original names | projected new names). Tab cycles
 /// the option fields; ↑↓/PageUp/PageDown scroll both lists in lock-step; Enter
@@ -88,6 +132,13 @@ const MR_FOCUS_COUNT: usize = 8;
 pub struct MultiRenameDialog {
     sources: Vec<VfsPath>,
     originals: Vec<String>,
+    /// Per-file EXIF / tag values, in `sources` order, for the `[EXIF:…]` and
+    /// `[TAG:…]` placeholders. Empty until the background read lands — the
+    /// preview is drawn from the first frame, so it starts without them.
+    meta: Vec<FileMeta>,
+    /// The generation of the metadata read this dialog is waiting for, until it
+    /// arrives. A read for an older dialog is ignored.
+    awaiting: Option<u64>,
     mask: String,
     mask_cursor: usize,
     case: CaseMode,
@@ -115,6 +166,11 @@ pub struct MultiRenameDialog {
     top: usize,
     /// Highlighted list row (shared by both columns).
     cursor: usize,
+    /// The F1 placeholder reference, drawn over the lists while it is open.
+    /// There is only ever one dialog, so the reference cannot be one of its own.
+    help_open: bool,
+    /// First visible row of the placeholder reference.
+    help_top: usize,
     /// Geometry recorded at render time for mouse handling.
     list_left: Rect,
     list_right: Rect,
@@ -128,11 +184,14 @@ pub struct MultiRenameDialog {
 }
 
 impl MultiRenameDialog {
-    pub fn new(sources: Vec<VfsPath>, date: String, time: String) -> Self {
+    pub fn new(sources: Vec<VfsPath>, date: String, time: String, generation: u64) -> Self {
         let originals: Vec<String> = sources.iter().map(|p| p.file_name()).collect();
+        let meta = vec![FileMeta::default(); originals.len()];
         MultiRenameDialog {
             sources,
             originals,
+            meta,
+            awaiting: Some(generation),
             mask: "[N].[E]".to_string(),
             mask_cursor: "[N].[E]".chars().count(),
             mask_selected: true,
@@ -153,6 +212,8 @@ impl MultiRenameDialog {
             focus: 0,
             top: 0,
             cursor: 0,
+            help_open: false,
+            help_top: 0,
             list_left: Rect::default(),
             list_right: Rect::default(),
             list_rows: 1,
@@ -160,6 +221,25 @@ impl MultiRenameDialog {
             cancel_rect: Rect::default(),
             field_hits: Vec::new(),
         }
+    }
+
+    /// Whether this dialog is still waiting for the metadata read `generation`.
+    pub fn awaits(&self, generation: u64) -> bool {
+        self.awaiting == Some(generation)
+    }
+
+    /// Take the metadata the background read produced. Sized to the file list,
+    /// so a short or long result cannot desynchronise the preview.
+    pub fn set_meta(&mut self, mut meta: Vec<FileMeta>) {
+        meta.resize(self.originals.len(), FileMeta::default());
+        self.meta = meta;
+        self.awaiting = None;
+    }
+
+    /// The metadata for row `i`, or nothing when it has not been read yet.
+    fn meta_at(&self, i: usize) -> &FileMeta {
+        const NONE: &FileMeta = &FileMeta::new();
+        self.meta.get(i).unwrap_or(NONE)
     }
 
     /// Move the caret of the field identified by `focus` to the end of its value
@@ -199,7 +279,7 @@ impl MultiRenameDialog {
             .iter()
             .zip(&self.originals)
             .enumerate()
-            .map(|(i, (src, orig))| (src.clone(), rule.apply(orig, i)))
+            .map(|(i, (src, orig))| (src.clone(), rule.apply(orig, i, self.meta_at(i))))
             .collect()
     }
 
@@ -234,8 +314,38 @@ impl MultiRenameDialog {
         }
     }
 
+    /// Rows the placeholder reference can scroll to, given how many it shows.
+    fn help_max_top(&self) -> usize {
+        PLACEHOLDERS.len().saturating_sub(self.list_rows.max(1))
+    }
+
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
+        // The placeholder reference is a layer over the dialog: while it is up
+        // it takes the keys that would otherwise scroll the file lists, so the
+        // two cannot scroll at once.
+        if self.help_open {
+            match key.code {
+                KeyCode::Esc | KeyCode::F(1) | KeyCode::Enter => self.help_open = false,
+                KeyCode::Up => self.help_top = self.help_top.saturating_sub(1),
+                KeyCode::Down => self.help_top = (self.help_top + 1).min(self.help_max_top()),
+                KeyCode::PageUp => {
+                    self.help_top = self.help_top.saturating_sub(self.list_rows.max(1));
+                }
+                KeyCode::PageDown => {
+                    self.help_top =
+                        (self.help_top + self.list_rows.max(1)).min(self.help_max_top());
+                }
+                KeyCode::Home => self.help_top = 0,
+                KeyCode::End => self.help_top = self.help_max_top(),
+                _ => {}
+            }
+            return DialogResult::None;
+        }
         match key.code {
+            KeyCode::F(1) => {
+                self.help_open = true;
+                self.help_top = 0;
+            }
             KeyCode::Esc => return DialogResult::Cancel,
             KeyCode::Enter => return DialogResult::Submit(Submit::MultiRename(self.plan())),
             KeyCode::Tab => {
@@ -260,6 +370,12 @@ impl MultiRenameDialog {
     }
 
     pub(crate) fn handle_click(&mut self, _area: Rect, col: u16, row: u16) -> DialogResult {
+        // A click dismisses the reference instead of reaching the dialog under
+        // it, so nothing is triggered by a click meant to put the list back.
+        if self.help_open {
+            self.help_open = false;
+            return DialogResult::None;
+        }
         let hit = |r: Rect| col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height;
         if hit(self.exec_rect) {
             return DialogResult::Submit(Submit::MultiRename(self.plan()));
@@ -295,6 +411,11 @@ impl MultiRenameDialog {
     /// Mouse-wheel over the dialog scrolls the file lists (three rows per notch,
     /// matching the viewer).
     pub(crate) fn handle_scroll(&mut self, delta: isize) {
+        if self.help_open {
+            let top = self.help_top as isize + delta;
+            self.help_top = top.clamp(0, self.help_max_top() as isize) as usize;
+            return;
+        }
         self.scroll(delta);
     }
 
@@ -347,9 +468,11 @@ impl MultiRenameDialog {
         self.field_hits.push((rows[0], 0));
 
         // -- Placeholder hint --
+        // The classic tokens still fit on one line; everything EXIF and tags
+        // added would not, so the rest lives behind F1.
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                "  [N] name  [E] ext  [C] counter  [YMD] date  [hms] time  [N1-3]/[E1-2] part",
+                "  [N] name  [E] ext  [C] counter  [YMD] date  [hms] time   F1: all placeholders",
                 dim,
             ))),
             rows[1],
@@ -495,7 +618,7 @@ impl MultiRenameDialog {
             }
             let y = list.y + vi as u16;
             let orig = &self.originals[idx];
-            let newname = rule.apply(orig, idx);
+            let newname = rule.apply(orig, idx, self.meta_at(idx));
             let selected = idx == self.cursor;
             let lstyle = if selected { theme.dialog_selection } else { base };
             let rstyle = if selected {
@@ -524,10 +647,11 @@ impl MultiRenameDialog {
 
         // -- Footer: file count (left) + Execute / Cancel (right). --
         let footer = rows[7];
+        let reading = if self.awaiting.is_some() { "   reading metadata…" } else { "" };
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 format!(
-                    " {} {}   Tab: field   ↑↓: scroll",
+                    " {} {}   Tab: field   ↑↓: scroll{reading}",
                     self.originals.len(),
                     crate::l10n::trd("file(s)")
                 ),
@@ -559,10 +683,57 @@ impl MultiRenameDialog {
         self.exec_rect = exec_rect;
         self.cancel_rect = cancel_rect;
 
+        // -- The F1 placeholder reference, over the lists. --
+        if self.help_open {
+            self.render_help(f, list, theme);
+            // The caret belongs to a field the reference is covering, so leave
+            // it off while the reference is up.
+            return;
+        }
+
         // Place the terminal caret on whichever text field is focused (only the
         // focused field returns a position).
         for c in [caret, caret_counter, s1, s2].into_iter().flatten() {
             f.set_cursor_position(c);
+        }
+    }
+
+    /// Draw the placeholder reference over `area`: a token column and what each
+    /// one expands to, with the group headings picked out.
+    fn render_help(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
+        if area.width == 0 || area.height == 0 {
+            return;
+        }
+        f.render_widget(Clear, area);
+        let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
+        let head =
+            Style::default().fg(theme.exec_fg).bg(theme.dialog_bg).add_modifier(Modifier::BOLD);
+        let tok = Style::default().fg(theme.hotkey_fg).bg(theme.dialog_bg);
+        // Widest token, so the descriptions line up in one column.
+        let tw = PLACEHOLDERS.iter().map(|(t, _)| t.chars().count()).max().unwrap_or(0) + 2;
+        let rows = area.height as usize;
+        self.help_top = self.help_top.min(self.help_max_top());
+        for (i, (token, text)) in PLACEHOLDERS.iter().skip(self.help_top).take(rows).enumerate() {
+            let y = area.y + i as u16;
+            let line = if token.is_empty() {
+                // A group heading.
+                Line::from(Span::styled(pad_right(text, area.width as usize), head))
+            } else {
+                Line::from(vec![
+                    Span::styled(pad_right(&format!("  {token}"), tw), tok),
+                    Span::styled(
+                        pad_right(
+                            &ellipsize(text, (area.width as usize).saturating_sub(tw)),
+                            (area.width as usize).saturating_sub(tw),
+                        ),
+                        base,
+                    ),
+                ])
+            };
+            f.render_widget(
+                Paragraph::new(line),
+                Rect { x: area.x, y, width: area.width, height: 1 },
+            );
         }
     }
 }

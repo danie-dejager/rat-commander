@@ -371,7 +371,14 @@ impl AppState {
     }
 
     /// Feed a patch to `git apply`, then refresh what the user is looking at.
-    async fn run_patch(&mut self, root: PathBuf, patch: String, cached: bool, reverse: bool, what: &str) {
+    async fn run_patch(
+        &mut self,
+        root: PathBuf,
+        patch: String,
+        cached: bool,
+        reverse: bool,
+        what: &str,
+    ) {
         let out = ops::apply_patch(&root, &patch, cached, reverse).await;
         if !out.ok {
             let why = if out.text.trim().is_empty() { "git apply failed".into() } else { out.text };

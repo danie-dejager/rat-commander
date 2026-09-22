@@ -210,13 +210,7 @@ pub(super) fn read_deb_all(container: &Path) -> Result<Vec<FullEntry>> {
             if !is_dir {
                 e.read_to_end(&mut data)?;
             }
-            out.push(FullEntry {
-                path: format!("{prefix}{norm}"),
-                is_dir,
-                data,
-                mtime,
-                mode,
-            });
+            out.push(FullEntry { path: format!("{prefix}{norm}"), is_dir, data, mtime, mode });
         }
     }
     Ok(out)
