@@ -320,6 +320,7 @@ used to share now lives on `Alt-T`.
 - `Shift-F9` — Toggle word wrap
 - `Ctrl-F9` — Toggle the in-place hex editor
 - `Alt-G` — Toggle the spreadsheet grid (see *Spreadsheet grid* below)
+- `Alt-T` — (audio files) Toggle the tag editor and the bytes (see *Audio tags* below)
 - `Alt-E` / `Alt-Shift-E` — (JSON, TOML, YAML and XML files) Jump to the next /
   previous syntax error
 - `Alt-F` — (JSON files) Pretty-print the document
@@ -1640,6 +1641,28 @@ taken as allowing anything. Files over 4 MiB are not validated, and at most 200
 schema errors are shown. The bundled schemas are those published by SchemaStore
 and the Compose Specification (Apache-2.0) and GitLab (MIT); their sources and
 licenses are listed in `assets/schemas/README.md`.
+
+**Audio tags (F4).** Opening an MP3, Ogg, FLAC, M4A, WAV or other audio file
+with **F4** shows its **tags** rather than its bytes: a list of fields — Title,
+Artist, Album, Album artist, Track, Disc, Year, Genre, Comment, Composer — each
+editable in place.
+
+- **↑↓** pick a field; **Enter**, or simply typing, edits it; **Enter** commits
+  and **Esc** abandons the edit. **F8** (or **Del**) clears a field.
+- **F2** writes the tags back into the file. A field left empty is *removed*
+  from the tag rather than written blank, which is what players expect.
+- Tags the program has no name for are listed below the editable ones and are
+  **kept** through a save, as is embedded cover art — editing a title never
+  discards them.
+- **Alt-T** switches to the bytes behind the tags (the ordinary in-place hex
+  editor) and back, so nothing is hidden from you.
+
+The status row names the kind of tag being written — ID3v2 for an MP3, Vorbis
+comments for an Ogg, and so on — so it is clear what is going into the file.
+
+Writing a tag re-lays-out the container, so if you have also edited bytes in the
+hex view those are flushed first and the hex view is reopened on the rewritten
+file.
 
 **GeoJSON map (Alt-M).** Draws the GeoJSON in the file over a **map of the
 world** — a `.geojson` file, or GeoJSON anywhere inside a larger JSON document,

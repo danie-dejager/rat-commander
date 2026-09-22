@@ -20,6 +20,9 @@ pub const EDITOR_LABELS: [&str; 10] =
 pub const SHEET_LABELS: [&str; 10] =
     ["Help", "Save", "Header", "Replac", "InsRow", "InsCol", "Search", "DelRow", "PullDn", "Quit"];
 
+/// Labels for the editor's tag view (only the supported functions are shown).
+pub const TAG_LABELS: [&str; 10] = ["Help", "Save", "", "", "", "", "", "Clear", "PullDn", "Quit"];
+
 /// Labels for the editor's hex mode (only the supported functions are shown).
 pub const HEX_LABELS: [&str; 10] =
     ["", "Save", "", "Replac", "Templt", "", "Search", "Inspct", "PullDn", "Quit"];

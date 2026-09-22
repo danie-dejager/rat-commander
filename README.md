@@ -96,7 +96,9 @@ The installed executable is named **`rc`** for quick typing.
   F8 switches to the raw text. In the editor, **Decode JWT at cursor** shows a
   JSON Web Token's header, claims and expiry.
 - **Built-in editor (F4)** — `mcedit`-style block copy/move/delete, clipboard,
-  search & replace, undo/redo, syntax highlighting, a **spreadsheet grid** for
+  search & replace, undo/redo, syntax highlighting, an **audio tag editor**
+  (F4 on an MP3, Ogg, FLAC, M4A… edits title/artist/album/track/year and the
+  rest in place, `Alt-T` for the bytes behind them), a **spreadsheet grid** for
   `.csv` / `.tsv` files (edit cells in a cell bar, insert and delete rows and
   columns, every change one undo step and saved as plain text), a **live syntax
   check** of JSON, TOML, YAML and XML files that marks every error as you type —
@@ -407,6 +409,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Alt-F` | (JSON) pretty-print; Format → JSON also minifies and sorts keys |
 | `Alt-M` | Show the file's GeoJSON on a world map (drag/wheel to pan and zoom, click a feature, `Enter` to go to it); `e` edits it: `1`/`2`/`3` draw a point/line/polygon, drag positions, `Del` removes, `Ctrl-Z` undoes |
 | `Alt-G` | Toggle the spreadsheet grid (CSV/TSV): `Enter` or typing edits a cell, `F5`/`F6` insert a row/column, `F8`/`Shift-F8` delete one, `F3` toggles the header row |
+| `Alt-T` | (audio files) Toggle the tag editor and the bytes: `Enter` or typing edits a tag, `F8` clears one, `F2` writes them back |
 | `Ins` | Toggle insert / overwrite |
 | `Ctrl-C` / `Ctrl-X` / `Ctrl-V` | Copy / cut block to clipboard, paste |
 | `Ctrl-Z` / `Ctrl-Y` | Undo / redo |
@@ -450,7 +453,7 @@ Grab a release from the **Releases** page:
 
 ### From source
 
-Requires a recent stable Rust toolchain (edition 2024, **Rust ≥ 1.87**), plus a
+Requires a recent stable Rust toolchain (edition 2024, **Rust ≥ 1.89**), plus a
 C/C++ compiler for the bundled `unrar` and SQLite libraries — add
 `--no-default-features` to build without RAR and SQLite-browsing support if
 you'd rather not have one. On Linux, audio playback links the system ALSA

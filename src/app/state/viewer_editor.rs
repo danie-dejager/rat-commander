@@ -635,6 +635,24 @@ impl AppState {
         size: u64,
     ) {
         let local = path.scheme == "file";
+        // An audio file is binary — opening it as text would show nonsense, and
+        // as bytes would show a haystack — so it opens on its tags, with the
+        // bytes one Alt-T away. A file whose tags cannot be read falls through
+        // and opens the way it always did.
+        if local && crate::tags::is_taggable_name(&name) {
+            match EditorState::new_tags(name.clone(), path.clone()) {
+                Ok(Some(mut ed)) => {
+                    self.prepare_editor(&mut ed);
+                    self.editor = Some(ed);
+                    return;
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    self.show_error(format!("Cannot open file: {e}"));
+                    return;
+                }
+            }
+        }
         // Local files too big to load as text open directly in (in-place) hex mode.
         if local && size > crate::editor::MAX_TEXT_EDIT {
             match EditorState::new_hex(name, path) {
@@ -738,6 +756,22 @@ impl AppState {
         }
         let vpath = VfsPath::local(&abs);
         let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+        // An audio file opens on its tags here too, so `rcedit song.mp3` does
+        // what F4 on the same file does.
+        if crate::tags::is_taggable_name(&name) {
+            match EditorState::new_tags(name.clone(), vpath.clone()) {
+                Ok(Some(mut ed)) => {
+                    self.prepare_editor(&mut ed);
+                    self.editor = Some(ed);
+                    return;
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    self.show_error(format!("Cannot open file: {e}"));
+                    return;
+                }
+            }
+        }
         if size > crate::editor::MAX_TEXT_EDIT {
             match EditorState::new_hex(name, vpath) {
                 Ok(mut ed) => {
@@ -818,6 +852,24 @@ impl AppState {
         // here; the user saves, then quits again once the buffer has a name).
         if ed.is_unnamed() {
             self.open_save_as(None);
+            return;
+        }
+        // An audio file opened for its tags writes them through the tag writer,
+        // which rewrites the container. Any pending byte edits are flushed
+        // first, inside `flush_tags`, since a tag write moves everything after
+        // it and would leave their offsets stale.
+        if ed.tags.is_some() {
+            let res = self.editor.as_mut().unwrap().flush_tags();
+            match res {
+                Ok(()) => {
+                    if close_after {
+                        self.close_editor().await;
+                    } else if let Some(ed) = self.editor.as_mut() {
+                        ed.mark_saved();
+                    }
+                }
+                Err(e) => self.show_error(format!("Save failed: {e}")),
+            }
             return;
         }
         // Hex mode writes only the changed bytes in place — never rewrite the

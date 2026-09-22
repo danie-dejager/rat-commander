@@ -5220,6 +5220,63 @@ async fn an_edited_json_file_is_checked_on_the_tick() {
 
 /// Alt-M in the editor opens the GeoJSON map at once, fills it from a read in
 /// the background, and Go to puts the editor's cursor on what was picked; a file
+/// F4 on an audio file opens the editor on its tags rather than on nonsense
+/// text or a haystack of bytes, an edit saves back into the file, and Alt-T
+/// still reaches the bytes underneath.
+#[tokio::test]
+async fn the_editor_opens_an_audio_file_on_its_tags_and_saves_them() {
+    use lofty::config::WriteOptions;
+    use lofty::prelude::{Accessor, TagExt};
+    use lofty::tag::{Tag, TagType};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let dir = temp_dir("tagedit");
+    let file = dir.join("song.wav");
+    crate::audio::tests::write_wav(&file, 8_000, 0.05, 440.0, 0.2);
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.set_title("Before".to_string());
+    tag.save_to_path(&file, WriteOptions::default()).unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(file.clone()).await;
+
+    let ed = st.editor.as_ref().expect("the editor opened");
+    assert!(ed.tags_active(), "an audio file opens on its tags");
+    assert!(ed.is_hex(), "with the bytes behind them, not text");
+
+    // The title is the first row: replace it.
+    let press = |st: &mut AppState, c: KeyCode, m: KeyModifiers| {
+        let ed = st.editor.as_mut().unwrap();
+        ed.handle_key(KeyEvent::new(c, m));
+    };
+    press(&mut st, KeyCode::Enter, KeyModifiers::NONE);
+    for _ in 0.."Before".len() {
+        press(&mut st, KeyCode::Backspace, KeyModifiers::NONE);
+    }
+    for c in "After".chars() {
+        press(&mut st, KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    press(&mut st, KeyCode::Enter, KeyModifiers::NONE);
+    assert!(st.editor.as_ref().unwrap().tags_dirty(), "the change is noticed");
+
+    // F2 writes it through the tag writer.
+    st.save_editor(false).await;
+    assert!(st.dialog.is_none(), "the save raised no error: {:?}", st.dialog.is_some());
+    let on_disk = crate::tags::read(&file).expect("still readable after the write");
+    let title = on_disk.fields.iter().find(|(f, _)| *f == crate::tags::Field::Title).unwrap();
+    assert_eq!(title.1, "After", "the edit reached the file");
+    assert!(!st.editor.as_ref().unwrap().tags_dirty(), "and the editor has settled");
+
+    // Alt-T puts the bytes in front, and brings the tags back.
+    press(&mut st, KeyCode::Char('t'), KeyModifiers::ALT);
+    assert!(!st.editor.as_ref().unwrap().tags_active(), "Alt-T shows the bytes");
+    press(&mut st, KeyCode::Char('t'), KeyModifiers::ALT);
+    assert!(st.editor.as_ref().unwrap().tags_active(), "and Alt-T again brings the tags back");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// with no GeoJSON in it says so instead.
 #[tokio::test]
 async fn the_geojson_map_opens_from_the_editor_and_goes_back_to_the_text() {

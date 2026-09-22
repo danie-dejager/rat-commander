@@ -88,6 +88,27 @@ pub fn draw(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) -> O
         };
     }
 
+    // The tag view sits in front of the bytes; the byte editor is still there
+    // behind it and Alt-T brings it back.
+    if ed.tags_active() {
+        let name = ed.name.clone();
+        let dirty = ed.dirty;
+        let caret = ed.tags.as_mut().and_then(|te| {
+            crate::tags::render::render_status(f, status, &name, te, dirty, theme);
+            crate::tags::render::render(f, text_area, te, theme)
+        });
+        render_footer(f, footer, ed, theme);
+        if ed.help_open() {
+            render_help(f, area, theme);
+            return None;
+        }
+        if render_menu(f, area, ed, theme) {
+            return None;
+        }
+        // Only show the caret while a value is actually being typed into.
+        return caret.filter(|_| ed.tags.as_ref().is_some_and(|t| t.editing()));
+    }
+
     if ed.sheet_active() {
         let cursor_pos = super::sheet::render(f, text_area, ed, theme);
         super::sheet::render_status(f, status, ed, theme);
