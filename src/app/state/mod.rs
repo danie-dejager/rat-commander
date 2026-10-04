@@ -456,14 +456,54 @@ fn esc_key() -> KeyEvent {
     KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)
 }
 
-/// Parse a command-line `cd` built-in. Returns the (possibly empty) argument
-/// when `cmd` is exactly the `cd` command, or `None` for anything else.
-fn parse_cd(cmd: &str) -> Option<&str> {
+/// Parse a command-line `cd` built-in. Returns the (possibly empty) argument,
+/// with its shell quoting removed, when `cmd` is a plain `cd` to one directory.
+/// Anything the shell itself has to interpret — a second word, `&&` or `;`, a
+/// variable, a glob, `~user` — returns `None` so the line goes to the console
+/// shell, whose directory change the active panel then follows.
+fn parse_cd(cmd: &str) -> Option<String> {
     let t = cmd.trim();
     if t == "cd" {
-        return Some("");
+        return Some(String::new());
     }
-    t.strip_prefix("cd ").map(str::trim)
+    let rest = t.strip_prefix("cd")?;
+    if !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let rest = rest.trim();
+    if rest.starts_with('~') && !(rest == "~" || rest.starts_with("~/")) {
+        return None;
+    }
+    let mut word = String::new();
+    let mut chars = rest.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' => loop {
+                match chars.next()? {
+                    '\'' => break,
+                    c => word.push(c),
+                }
+            },
+            '"' => loop {
+                match chars.next()? {
+                    '"' => break,
+                    '$' | '`' => return None,
+                    '\\' => match chars.next()? {
+                        c @ ('"' | '\\') => word.push(c),
+                        c => {
+                            word.push('\\');
+                            word.push(c);
+                        }
+                    },
+                    c => word.push(c),
+                }
+            },
+            '\\' => word.push(chars.next()?),
+            c if c.is_whitespace() || "$`;&|<>(){}[]*?!#".contains(c) => return None,
+            c => word.push(c),
+        }
+    }
+    Some(word)
 }
 
 /// The top-menu index whose title starts with `c` (case-insensitive): L→0 Left,
@@ -511,6 +551,22 @@ fn split_scheme(s: &str) -> Option<(&str, &str)> {
 ///   process cwd). This lets the user override a remote destination to a local
 ///   one simply by deleting the `scheme://` prefix from the prefilled field.
 fn dest_vfspath(dest: &str, other_cwd: &VfsPath, active_cwd: &VfsPath) -> VfsPath {
+    // "archive.zip!/dir" — the form the prompt is prefilled with for a panel
+    // inside an archive — lands inside that archive.
+    for cwd in [other_cwd, active_cwd] {
+        if let Some(inner) = container_dest_prefix(cwd).and_then(|p| dest.strip_prefix(&p)) {
+            return resolve_dest_on(if inner.is_empty() { "/" } else { inner }, cwd);
+        }
+    }
+    if other_cwd.is_archive() {
+        // The archive prefix was removed → a place on the local disk, as for
+        // a remote destination below.
+        return if Path::new(dest).is_absolute() {
+            VfsPath::local(dest)
+        } else {
+            resolve_dest_on(dest, active_cwd)
+        };
+    }
     if let Some((scheme, rest)) = split_scheme(dest) {
         let base_path = [other_cwd, active_cwd]
             .into_iter()
@@ -540,6 +596,12 @@ fn dest_vfspath(dest: &str, other_cwd: &VfsPath, active_cwd: &VfsPath) -> VfsPat
         // the opposite panel.
         resolve_dest_on(dest, active_cwd)
     }
+}
+
+/// The `"archive.zip!"` prefix that names a path inside `cwd`'s archive (or
+/// extfs mount) in a copy/move destination, or `None` when `cwd` is not in one.
+fn container_dest_prefix(cwd: &VfsPath) -> Option<String> {
+    cwd.container.as_ref().map(|c| format!("{}!", c.to_string_lossy()))
 }
 
 /// Resolve a typed destination string onto the destination panel's backend
@@ -624,6 +686,17 @@ fn normalize_path(p: &Path) -> PathBuf {
     out
 }
 
+/// Follow a relative `/`-separated path from `base` one component at a time, so
+/// `..` goes through [`VfsPath::parent`] — which steps out of an archive at its
+/// root — rather than being joined literally onto a backend path.
+fn walk_path(base: VfsPath, rel: &str) -> VfsPath {
+    rel.split('/').fold(base, |at, comp| match comp {
+        "" | "." => at,
+        ".." => at.parent().unwrap_or(at),
+        name => at.join(name),
+    })
+}
+
 /// Detect 24-bit color support from the environment.
 fn detect_truecolor() -> bool {
     std::env::var("COLORTERM")
@@ -686,6 +759,16 @@ async fn load_view_image(path: &Path) -> Option<crate::viewer::ViewerImage> {
     }
     let bytes = tokio::fs::read(path).await.ok()?;
     tokio::task::spawn_blocking(move || {
+        if crate::util::img::is_svg_bytes(&bytes) {
+            // A vector has no pixel size of its own to keep, so a small one is
+            // drawn larger to stay crisp. It goes on white, as a browser shows
+            // it: most SVGs assume a page behind them, and dark strokes on a
+            // transparent ground would vanish into a dark theme.
+            let (mut img, orig) = crate::util::img::render_svg(&bytes, VIEW_IMAGE_MAX_EDGE, 1024)?;
+            crate::util::img::flatten_onto(&mut img, [255, 255, 255]);
+            let sig = crate::util::img::image_sig(&img);
+            return Some(crate::viewer::ViewerImage { img, sig, orig });
+        }
         let full = image::load_from_memory(&bytes).ok()?;
         let orig = (full.width(), full.height());
         let img = full.thumbnail(VIEW_IMAGE_MAX_EDGE, VIEW_IMAGE_MAX_EDGE).to_rgba8();
@@ -740,6 +823,46 @@ pub(in crate::app::state) async fn load_view_audio(
         view.toggle_play();
     }
     Some(view)
+}
+
+/// Read a document for the viewer's document view: the text of a Word,
+/// PowerPoint, OpenDocument, EPUB or PDF file, or a spreadsheet's sheets.
+/// `name` (the original file name — a fetched temp copy may have none) says
+/// which kind. `None` when it is not a document, or too large to read; an
+/// error when it is one that could not be read. The reading itself runs on a
+/// guarded thread of its own (see `doc::extract_guarded`).
+async fn load_view_doc(
+    path: &Path,
+    name: &str,
+) -> Option<Result<crate::viewer::doc::DocView, String>> {
+    let kind = crate::doc::doc_kind(name)?;
+    let meta = tokio::fs::metadata(path).await.ok()?;
+    if meta.len() > crate::doc::MAX_INPUT {
+        return None;
+    }
+    let bytes = tokio::fs::read(path).await.ok()?;
+    let read = crate::doc::extract_guarded(bytes, kind).await;
+    Some(read.map(|x| crate::viewer::doc::DocView::new(name, kind, x)))
+}
+
+impl AppState {
+    /// Show what the document at `file` reads as, when `v` is one (and did not
+    /// open as a binary). One that cannot be read opens on its bytes, with the
+    /// reason in a message.
+    async fn attach_doc(&mut self, v: &mut crate::viewer::ViewerState, file: &Path) {
+        if v.is_binary_mode() {
+            return;
+        }
+        match load_view_doc(file, &v.name).await {
+            Some(Ok(d)) => v.set_doc(d),
+            Some(Err(e)) => {
+                // A reader that panicked has written to the terminal.
+                self.force_clear = true;
+                self.show_error(format!("Cannot read the document: {e}"));
+            }
+            None => {}
+        }
+    }
 }
 
 /// How long F3 waits for a binary's analysis before showing the viewer anyway.

@@ -20,6 +20,17 @@ pub fn render(
     if area.height < 3 {
         return;
     }
+    // A document draws as its own viewer; the footer is this one's, so F4 and
+    // F8 name the way back to the bytes, and its rects are this one's too, so
+    // a click on the bar comes here first.
+    if let Some(part) = v.doc_part_mut() {
+        render(f, area, part, theme, gfx);
+        let (content, footer) = (part.content_area, part.footer_area);
+        v.content_area = content;
+        v.footer_area = footer;
+        render_footer(f, footer, v, theme);
+        return;
+    }
     let header = Rect { height: 1, ..area };
     let content = Rect { y: area.y + 1, height: area.height - 2, ..area };
     let footer = Rect { y: area.y + area.height - 1, height: 1, ..area };
@@ -1156,7 +1167,8 @@ fn age_bar(commit: &crate::git::blame::BlameCommit, age: f64, theme: &Theme) -> 
 /// [`render_line`](super::markdown::render_line) (headings colored by level,
 /// emphasis/code/links styled, markers dimmed). Fenced code blocks are tracked
 /// across lines and framed in a box, their content shown literally (so `#` or
-/// `*` inside code isn't mistaken for markup). Mirrors `render_text`'s wrap /
+/// `*` inside code isn't mistaken for markup); pipe tables are laid out as a
+/// whole and drawn boxed with aligned columns. Mirrors `render_text`'s wrap /
 /// horizontal-scroll handling.
 fn render_markdown(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
     let bg = theme.panel_bg;
@@ -1170,6 +1182,8 @@ fn render_markdown(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
     // Whether the top of the viewport is already inside a code block whose
     // opening fence scrolled off the top.
     let mut in_code = v.in_code_fence_at(v.top);
+    // The table being drawn: its source-line range and its rendered rows.
+    let mut table: Option<(std::ops::Range<usize>, Vec<Vec<super::markdown::Row>>)> = None;
 
     while lines.len() < rows && line_idx < v.line_count() {
         let line = v.line_str(line_idx);
@@ -1196,16 +1210,41 @@ fn render_markdown(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
             continue;
         }
 
-        // Ordinary Markdown line: markup is stripped, leaving display text + styles.
-        let (chars, mut styles) = super::markdown::render_line(&raw, theme);
-        // Tint the `#` of any hex-color token, regardless of the Markdown styling.
-        for (i, color) in crate::ui::hexcolor::hex_color_hashes(&chars) {
-            if i < styles.len() {
-                styles[i] = styles[i].fg(color);
+        // Table line: the whole table is laid out once, as it is first met, and
+        // each of its lines draws its rows (borders included) unwrapped.
+        if !table.as_ref().is_some_and(|(r, _)| r.contains(&line_idx)) {
+            table = v.table_block_at(line_idx).map(|r| {
+                let src: Vec<String> = r.clone().map(|i| v.line_str(i)).collect();
+                (r, super::markdown::render_table(&src, theme, true))
+            });
+        }
+        if let Some((r, table_rows)) = &table
+            && r.contains(&line_idx)
+        {
+            for (chars, styles) in &table_rows[line_idx - r.start] {
+                if lines.len() >= rows {
+                    break;
+                }
+                let styles = tint_hex_colors(chars, styles.clone());
+                let from = if v.wrap { 0 } else { v.h_offset.min(chars.len()) };
+                lines.push(build_styled(&chars[from..], from, &styles, default));
             }
+            line_idx += 1;
+            continue;
         }
 
-        if v.wrap {
+        // Ordinary Markdown line: markup is stripped, leaving display text + styles.
+        let (chars, styles) = super::markdown::render_line_with(&raw, theme, !v.prose);
+        let styles = tint_hex_colors(&chars, styles);
+
+        if v.wrap && v.prose {
+            for (start, end) in super::markdown::word_rows(&chars, width) {
+                if lines.len() >= rows {
+                    break;
+                }
+                lines.push(build_styled(&chars[start..end], start, &styles, default));
+            }
+        } else if v.wrap {
             if chars.is_empty() {
                 lines.push(build_styled(&[], 0, &styles, default));
             } else {
@@ -1223,6 +1262,17 @@ fn render_markdown(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
         line_idx += 1;
     }
     f.render_widget(Paragraph::new(lines).style(Style::default().bg(bg)), area);
+}
+
+/// Tint the `#` of any hex-color token in `chars`, regardless of the Markdown
+/// styling.
+fn tint_hex_colors(chars: &[char], mut styles: Vec<Style>) -> Vec<Style> {
+    for (i, color) in crate::ui::hexcolor::hex_color_hashes(chars) {
+        if i < styles.len() {
+            styles[i] = styles[i].fg(color);
+        }
+    }
+    styles
 }
 
 /// A code-box border row spanning the full content width: `┌──…──┐` when

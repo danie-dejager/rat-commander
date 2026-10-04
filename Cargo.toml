@@ -1,6 +1,6 @@
 [package]
 name = "rat-commander"
-version = "1.9.5"
+version = "1.9.8"
 edition = "2024"
 description = "A self-contained Norton/Midnight-Commander-style TUI file manager"
 license = "GPL-2.0-only"
@@ -142,6 +142,18 @@ ratatui-image = { version = "11.0.6", default-features = false, features = ["cro
 # the ARM cross-compile keeps working). RgbaImage construction for the terminal-
 # graphics rasters needs no features; these add the common decode formats.
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"] }
+# SVG for the image viewer, the thumbnails and the Details preview: usvg parses,
+# tiny-skia rasterizes. Pure Rust (no C, cross-compile OK). `svgz` is left out
+# because we inflate `.svgz` ourselves, with a cap, through the flate2 above.
+resvg = { version = "0.48.1", default-features = false, features = ["text", "system-fonts", "memmap-fonts", "raster-images"] }
+# The viewer's document view. Spreadsheets (.xlsx/.xlsm/.xlsb/.xls/.ods) are
+# read by calamine into the table view; pure Rust, and it shares the zip and
+# quick-xml already above, so it brings little of its own. Word, PowerPoint,
+# OpenDocument text and EPUB need no crate beyond those two.
+calamine = { version = "0.36.1", default-features = false }
+# PDF text for the document view: lopdf underneath, plus the font decoding that
+# turns glyph codes back into text. Pure Rust (no poppler, no pdfium).
+pdf-extract = "0.12.1"
 # Pure-Rust EXIF parser, used to pull a JPEG's embedded thumbnail for the Details
 # preview so we don't decode a full-resolution photo just to shrink it.
 kamadak-exif = "0.6.1"

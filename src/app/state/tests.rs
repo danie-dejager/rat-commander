@@ -1322,11 +1322,32 @@ async fn find_duplicates_marks_by_criteria() {
 
 #[test]
 fn parse_cd_recognizes_the_builtin() {
-    assert_eq!(parse_cd("cd"), Some(""));
-    assert_eq!(parse_cd("cd /tmp"), Some("/tmp"));
-    assert_eq!(parse_cd("  cd   foo  "), Some("foo"));
+    let some = |s: &str| Some(s.to_string());
+    assert_eq!(parse_cd("cd"), some(""));
+    assert_eq!(parse_cd("cd /tmp"), some("/tmp"));
+    assert_eq!(parse_cd("  cd   foo  "), some("foo"));
+    assert_eq!(parse_cd("cd\tfoo"), some("foo"));
+    assert_eq!(parse_cd("cd -"), some("-"));
+    assert_eq!(parse_cd("cd ~/src"), some("~/src"));
     assert_eq!(parse_cd("cdfoo"), None);
     assert_eq!(parse_cd("ls"), None);
+}
+
+#[test]
+fn parse_cd_unquotes_and_leaves_shell_syntax_to_the_shell() {
+    let some = |s: &str| Some(s.to_string());
+    assert_eq!(parse_cd("cd 'My Files'"), some("My Files"));
+    assert_eq!(parse_cd("cd \"a \\\"b\\\" c\""), some("a \"b\" c"));
+    assert_eq!(parse_cd("cd My\\ Files"), some("My Files"));
+    // Compound lines, expansions and extra words are the shell's to run.
+    assert_eq!(parse_cd("cd /tmp && ls"), None);
+    assert_eq!(parse_cd("cd /tmp; ls"), None);
+    assert_eq!(parse_cd("cd $HOME"), None);
+    assert_eq!(parse_cd("cd \"$HOME\""), None);
+    assert_eq!(parse_cd("cd /us*"), None);
+    assert_eq!(parse_cd("cd ~root"), None);
+    assert_eq!(parse_cd("cd a b"), None);
+    assert_eq!(parse_cd("cd 'unterminated"), None);
 }
 
 #[test]
@@ -1355,9 +1376,27 @@ async fn cd_changes_active_panel_directory() {
     // `cd ..` ascends back.
     st.change_dir("..").await;
     assert_eq!(st.panels[0].cwd.path, root);
-    // cd to a non-existent directory leaves the panel where it is.
+    // cd to a non-existent directory leaves the panel where it is, and says so.
     st.change_dir("nope").await;
     assert_eq!(st.panels[0].cwd.path, root);
+    assert!(st.dialog.is_some(), "a failed cd reports it");
+    st.dialog = None;
+    // `cd -` returns to the directory before.
+    st.change_dir("child").await;
+    st.change_dir("-").await;
+    assert_eq!(st.panels[0].cwd.path, root);
+
+    // Inside an archive, an absolute path leaves for the local disk and `..`
+    // at the archive's root steps out beside the archive.
+    let zip = root.join("a.zip");
+    st.panels[0].cwd = VfsPath::archive(&zip, "/");
+    st.change_dir(&root.join("child").to_string_lossy()).await;
+    assert_eq!(st.panels[0].cwd, VfsPath::local(root.join("child")));
+    assert_eq!(
+        walk_path(VfsPath::archive(&zip, "/"), "../child"),
+        VfsPath::local(root.join("child"))
+    );
+    assert_eq!(walk_path(VfsPath::archive(&zip, "/d/e"), "../f"), VfsPath::archive(&zip, "/d/f"));
 
     std::fs::remove_dir_all(&root).ok();
 }
@@ -4067,6 +4106,67 @@ async fn f3_opens_image_viewer_and_falls_back_to_text() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A minimal Word document holding one heading and one paragraph.
+fn tiny_docx() -> Vec<u8> {
+    use std::io::Write;
+    let doc = r#"<w:document xmlns:w="w"><w:body>
+        <w:p><w:pPr><w:outlineLvl w:val="0"/></w:pPr><w:r><w:t>Quarterly</w:t></w:r></w:p>
+        <w:p><w:r><w:t>Numbers went up.</w:t></w:r></w:p></w:body></w:document>"#;
+    let mut z = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    z.start_file("word/document.xml", zip::write::SimpleFileOptions::default()).unwrap();
+    z.write_all(doc.as_bytes()).unwrap();
+    z.finish().unwrap().into_inner()
+}
+
+/// F3 on a document opens on what it reads as; a broken one opens on its
+/// bytes with the reason shown; and one fetched from elsewhere (a temp copy
+/// without its extension) is read under its own name.
+#[tokio::test]
+async fn f3_opens_a_document_on_its_text_and_a_broken_one_on_its_bytes() {
+    let root = temp_dir("docview");
+    std::fs::write(root.join("report.docx"), tiny_docx()).unwrap();
+    std::fs::write(root.join("broken.docx"), b"not a zip at all").unwrap();
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+
+    let idx = st.panels[0].entries.iter().position(|e| e.name == "report.docx").unwrap();
+    st.panels[0].cursor = idx;
+    st.open_view().await;
+    let v = st.viewer.as_ref().expect("viewer opened for the document");
+    assert!(v.active_doc().is_some(), "F3 on a .docx shows the document");
+    assert!(st.dialog.is_none());
+    st.viewer = None;
+
+    let idx = st.panels[0].entries.iter().position(|e| e.name == "broken.docx").unwrap();
+    st.panels[0].cursor = idx;
+    st.open_view().await;
+    let v = st.viewer.as_ref().expect("a broken document still opens");
+    assert!(v.active_doc().is_none(), "nothing to show but the bytes");
+    assert!(matches!(st.dialog, Some(Dialog::Message(_))), "and the reason is shown");
+    st.viewer = None;
+    st.dialog = None;
+
+    let temp = root.join("rc-fetch-0001");
+    std::fs::write(&temp, tiny_docx()).unwrap();
+    st.apply_event(AppEvent::FileFetched {
+        id: 1,
+        kind: FetchKind::View,
+        name: "remote.docx".into(),
+        orig_path: VfsPath::local(root.join("remote.docx")),
+        temp,
+    })
+    .await;
+    let v = st.viewer.as_ref().expect("viewer opened for the fetched copy");
+    assert!(v.active_doc().is_some(), "a fetched document is read under its own name");
+
+    st.viewer = None;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// F3 on an executable or library opens its analysis; on a file that only looks
 /// like one, or on text, the ordinary viewer.
 #[tokio::test]
@@ -4723,9 +4823,11 @@ async fn f6_moves_a_file_between_directories_of_one_archive() {
 
     st.handle_key(KeyEvent::new(KeyCode::F(6), KeyModifiers::NONE)).await;
     match &st.dialog {
-        Some(Dialog::Input(d)) => {
-            assert_eq!(d.buffer, "/data", "prefilled with the path inside the archive")
-        }
+        Some(Dialog::Input(d)) => assert_eq!(
+            d.buffer,
+            format!("{}!/data", fx.container.display()),
+            "prefilled with the archive and the path inside it"
+        ),
         _ => panic!("F6 into the same archive should open the destination prompt"),
     }
     st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
@@ -4750,6 +4852,7 @@ async fn f5_into_an_archive_confirms_before_replacing_a_member() {
     assert!(st.config.confirm_overwrite, "the prompt is on by default");
 
     st.handle_key(KeyEvent::new(KeyCode::F(5), KeyModifiers::NONE)).await;
+    st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
     // The archive is scanned in the background; the answer arrives as an event.
     let ev = rx.recv().await.unwrap();
     assert!(matches!(ev, AppEvent::ArchiveAddChecked { .. }), "the destination was checked");
@@ -4790,11 +4893,61 @@ async fn f5_into_an_archive_does_not_ask_when_nothing_is_replaced() {
     point_at(&mut st, "new.txt");
 
     st.handle_key(KeyEvent::new(KeyCode::F(5), KeyModifiers::NONE)).await;
+    st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
     st.apply_event(rx.recv().await.unwrap()).await;
     assert!(matches!(st.dialog, Some(Dialog::Progress(_))), "straight to the rebuild");
     drain_taskdone(&mut st, &mut rx).await;
 
     assert!(fx.members().contains(&"/new.txt".to_string()), "{:?}", fx.members());
+}
+
+/// F6 towards an archive panel asks first, like any other move: the prompt
+/// offers the archive, and a plain path typed over it sends the directory to
+/// the disk instead, leaving the archive alone. It used to go straight into the
+/// archive with no prompt at all.
+#[tokio::test]
+async fn f6_towards_an_archive_asks_and_can_go_elsewhere() {
+    let fx = ArchiveFixture::new("move-in-redirect");
+    std::fs::create_dir_all(fx.out().join("dir")).unwrap();
+    std::fs::write(fx.out().join("dir/f.txt"), b"f").unwrap();
+    let elsewhere = fx.dir.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let (mut st, mut rx) = archive_state(&fx, "/", VfsPath::local(fx.out())).await;
+    st.active = 1;
+    point_at(&mut st, "dir");
+
+    st.handle_key(KeyEvent::new(KeyCode::F(6), KeyModifiers::NONE)).await;
+    match &st.dialog {
+        Some(Dialog::Input(d)) => {
+            assert_eq!(d.buffer, format!("{}!/", fx.container.display()), "the archive by default")
+        }
+        _ => panic!("F6 towards an archive should open the destination prompt"),
+    }
+    // Typing replaces the marked default.
+    for c in elsewhere.to_string_lossy().chars() {
+        st.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)).await;
+    }
+    st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+    drain_taskdone(&mut st, &mut rx).await;
+
+    assert!(!matches!(st.dialog, Some(Dialog::Message(_))), "no error");
+    assert_eq!(std::fs::read(elsewhere.join("dir/f.txt")).unwrap(), b"f");
+    assert!(!fx.out().join("dir").exists(), "moved away from its old place");
+    assert_eq!(fx.members(), ["/data", "/data/a.txt", "/data/b.txt", "/notes.txt"], "untouched");
+}
+
+#[test]
+fn dest_in_an_archive_or_out_of_it() {
+    let zip = VfsPath::archive("/x/box.zip", "/data");
+    let local = VfsPath::local("/src");
+    // The prefilled "archive!/inner" form stays in the archive…
+    assert_eq!(dest_vfspath("/x/box.zip!/data", &zip, &local), zip);
+    assert_eq!(dest_vfspath("/x/box.zip!", &zip, &local), VfsPath::archive("/x/box.zip", "/"));
+    // …and a plain path, absolute or relative, is on the disk.
+    assert_eq!(dest_vfspath("/tmp", &zip, &local), VfsPath::local("/tmp"));
+    assert_eq!(dest_vfspath("new", &zip, &local), VfsPath::local("/src/new"));
+    // A relative name from inside an archive renames in place there.
+    assert_eq!(dest_vfspath("new", &local, &zip), VfsPath::archive("/x/box.zip", "/data/new"));
 }
 
 /// F6 on a whole directory inside an archive extracts the subtree and takes it
@@ -4833,7 +4986,9 @@ async fn f5_copies_a_file_from_one_archive_into_another() {
 
     st.handle_key(KeyEvent::new(KeyCode::F(5), KeyModifiers::NONE)).await;
     match &st.dialog {
-        Some(Dialog::Input(d)) => assert_eq!(d.buffer, "/", "the other archive's inner path"),
+        Some(Dialog::Input(d)) => {
+            assert_eq!(d.buffer, format!("{}!/", dst.container.display()), "the other archive")
+        }
         _ => panic!("the destination prompt should open"),
     }
     st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
