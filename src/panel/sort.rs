@@ -1,6 +1,6 @@
 //! Sort keys, toggles, and the comparator used to order a directory listing.
 
-use crate::vfs::{VfsEntry, VfsKind};
+use crate::vfs::VfsEntry;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
@@ -15,6 +15,8 @@ pub enum SortKey {
     ModifyTime,
     AccessTime,
     ChangeTime,
+    /// Birth (creation) time; entries without one sort as the oldest.
+    BirthTime,
     Inode,
 }
 
@@ -60,8 +62,8 @@ impl SortConfig {
 
         // Directories grouped first (not affected by `reverse`).
         if self.dirs_first {
-            let a_dir = a.kind == VfsKind::Dir;
-            let b_dir = b.kind == VfsKind::Dir;
+            let a_dir = a.is_dir_like();
+            let b_dir = b.is_dir_like();
             if a_dir != b_dir {
                 return b_dir.cmp(&a_dir);
             }
@@ -97,6 +99,9 @@ impl SortConfig {
             SortKey::ChangeTime => {
                 a.ctime.cmp(&b.ctime).then_with(|| self.cmp_name(&a.name, &b.name))
             }
+            SortKey::BirthTime => {
+                a.btime.cmp(&b.btime).then_with(|| self.cmp_name(&a.name, &b.name))
+            }
             SortKey::Inode => a.inode.cmp(&b.inode).then_with(|| self.cmp_name(&a.name, &b.name)),
         }
     }
@@ -109,6 +114,7 @@ impl SortConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vfs::VfsKind;
     use std::time::{Duration, UNIX_EPOCH};
 
     fn ent(name: &str, kind: VfsKind, size: u64, mode: u32) -> VfsEntry {
@@ -119,12 +125,14 @@ mod tests {
             mtime: Some(UNIX_EPOCH + Duration::from_secs(size)),
             atime: None,
             ctime: None,
+            btime: None,
             inode: Some(size),
             mode: Some(mode),
             uid: None,
             gid: None,
             symlink_target: None,
             symlink_broken: false,
+            symlink_dir: false,
         }
     }
 
@@ -142,6 +150,22 @@ mod tests {
         ];
         SortConfig::default().apply(&mut v);
         assert_eq!(names(&v), vec!["..", "alpha", "beta.txt", "zeta.txt"]);
+    }
+
+    #[test]
+    fn symlinked_dirs_group_with_dirs() {
+        let link = |name: &str, to_dir: bool| VfsEntry {
+            symlink_dir: to_dir,
+            ..ent(name, VfsKind::Symlink, 0, 0o777)
+        };
+        let mut v = vec![
+            ent("b.txt", VfsKind::File, 1, 0o644),
+            link("a-file-link", false),
+            ent("dir", VfsKind::Dir, 0, 0o755),
+            link("z-dir-link", true),
+        ];
+        SortConfig::default().apply(&mut v);
+        assert_eq!(names(&v), vec!["dir", "z-dir-link", "a-file-link", "b.txt"]);
     }
 
     #[test]
@@ -163,6 +187,23 @@ mod tests {
             vec![ent("data.txt", VfsKind::File, 1, 0o644), ent("run.sh", VfsKind::File, 2, 0o755)];
         cfg.apply(&mut v);
         assert_eq!(names(&v), vec!["run.sh", "data.txt"]);
+    }
+
+    #[test]
+    fn by_birth_time_without_dirs_first() {
+        let cfg = SortConfig { key: SortKey::BirthTime, dirs_first: false, ..Default::default() };
+        let born = |name: &str, kind: VfsKind, secs: u64| VfsEntry {
+            btime: Some(UNIX_EPOCH + Duration::from_secs(secs)),
+            ..ent(name, kind, 0, 0o644)
+        };
+        let mut v = vec![
+            born("new.txt", VfsKind::File, 30),
+            born("dir", VfsKind::Dir, 20),
+            born("old.txt", VfsKind::File, 10),
+            born("..", VfsKind::Dir, 99),
+        ];
+        cfg.apply(&mut v);
+        assert_eq!(names(&v), vec!["..", "old.txt", "dir", "new.txt"]);
     }
 
     #[test]

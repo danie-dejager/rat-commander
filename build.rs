@@ -16,6 +16,21 @@ fn main() {
     // The JSON Schemas the editor validates configuration files with, and
     // the catalog of which files each is for.
     pack("assets/schemas", &["json", "toml"], b"RCSC0001", "schemas");
+    link_cpp_stdlib();
+}
+
+/// `unrar_sys` builds the C++ unrar library without linking a C++ runtime,
+/// and only names one itself for Linux, the BSDs, macOS and windows-gnu. On
+/// illumos and Solaris that leaves every `std::`/`__cxa_` symbol undefined,
+/// so link libstdc++ here. A trailing link argument rather than
+/// `rustc-link-lib`, so it lands after the unrar archive on the command line.
+fn link_cpp_stdlib() {
+    let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if std::env::var_os("CARGO_FEATURE_RAR").is_some()
+        && matches!(os.as_str(), "illumos" | "solaris")
+    {
+        println!("cargo:rustc-link-arg=-lstdc++");
+    }
 }
 
 /// Pack the files in `dir` with one of the extensions `exts` into

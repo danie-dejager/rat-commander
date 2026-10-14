@@ -273,12 +273,14 @@ mod tests {
             mtime: Some(SystemTime::UNIX_EPOCH),
             atime: None,
             ctime: None,
+            btime: None,
             inode: None,
             mode: Some(mode),
             uid: None,
             gid: None,
             symlink_target: None,
             symlink_broken: false,
+            symlink_dir: false,
         }
     }
 

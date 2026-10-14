@@ -118,12 +118,14 @@ impl<T> VfsTree<T> {
             mtime: c.mtime.or(self.root_mtime),
             atime: None,
             ctime: None,
+            btime: None,
             inode: None,
             mode: c.mode,
             uid: None,
             gid: None,
             symlink_target: c.symlink_target.clone(),
             symlink_broken: false,
+            symlink_dir: false,
         }
     }
 }
@@ -136,12 +138,14 @@ fn dir_entry(name: String, mtime: Option<SystemTime>, mode: Option<u32>) -> VfsE
         mtime,
         atime: None,
         ctime: None,
+        btime: None,
         inode: None,
         mode,
         uid: None,
         gid: None,
         symlink_target: None,
         symlink_broken: false,
+        symlink_dir: false,
     }
 }
 

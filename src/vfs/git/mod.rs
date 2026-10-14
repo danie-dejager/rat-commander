@@ -433,12 +433,14 @@ impl GitFs {
                 mtime: r.mtime(),
                 atime: None,
                 ctime: None,
+                btime: None,
                 inode: None,
                 mode: None,
                 uid: None,
                 gid: None,
                 symlink_target: None,
                 symlink_broken: false,
+                symlink_dir: false,
             })
             .collect())
     }
@@ -472,12 +474,14 @@ impl Vfs for GitFs {
                 mtime: None,
                 atime: None,
                 ctime: None,
+                btime: None,
                 inode: None,
                 mode: None,
                 uid: None,
                 gid: None,
                 symlink_target: None,
                 symlink_broken: false,
+                symlink_dir: false,
             }),
             Some((rev, tree, sub)) if sub == "/" => {
                 let mut e = tree.stat("/")?;

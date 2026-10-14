@@ -192,12 +192,14 @@ impl crate::vfs::Vfs for StubVfs {
             mtime: None,
             atime: None,
             ctime: None,
+            btime: None,
             inode: None,
             mode: None,
             uid: None,
             gid: None,
             symlink_target: None,
             symlink_broken: false,
+            symlink_dir: false,
         })
     }
     async fn open_read(&self, _p: &VfsPath) -> crate::util::Result<crate::vfs::BoxRead> {
@@ -2843,12 +2845,14 @@ fn mk_entry(name: &str) -> VfsEntry {
         mtime: None,
         atime: None,
         ctime: None,
+        btime: None,
         inode: None,
         mode: Some(0o644),
         uid: None,
         gid: None,
         symlink_target: None,
         symlink_broken: false,
+        symlink_dir: false,
     }
 }
 
